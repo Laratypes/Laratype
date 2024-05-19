@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && vite build"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.4.1",
+    "express-validator": "^7.0.1",
+    "hono": "^4.0.3",
+    "hono-validation": "git+https://github.com/Laratypes/hono-validator.git"
+  },
+  "devDependencies": {
+    "@hono/vite-dev-server": "^0.6.1",
+    "@types/node": "^20.11.24",
+    "tsx": "^3.12.2",
+    "vite": "^5.0.12"
+  }
+}
