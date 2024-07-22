@@ -1,6 +1,6 @@
 import type {  Context, Handler } from "hono";
 import type Middleware from "./middleware/Middleware";
-import type ServiceProvider from "./service/ServiceProvider";
+import type ServiceProvider from "./support/ServiceProvider";
 import type Request from "./request/Request";
 import type Controller from "./controller/Controller";
 

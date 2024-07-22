@@ -2,40 +2,12 @@ import type { RouteOptions } from "..";
 import { Context, Hono } from "hono";
 import Request from "../request/Request";
 import ValidationException from "../exception/ValidationException";
+import RequestKernel from "../request/RequestKernel";
+import ServiceProvider from "../support/ServiceProvider";
 
-const controllerKernel = (c: NonNullable<RouteOptions['controller']>) => {
-  return (ctx: Context, req: any | undefined) => {
-    
-    const controller = new c.self.constructor
-    const method = c.invoke
-    if(typeof controller[method] === "function") {
-      // handle req
-      return controller[method](ctx, req)
-    }
-    else
-      console.error(`Invoke function expected: function, but got ${typeof controller[method]}`);
-    
-    return ctx.json({
-      error: "Something went wrong!",
-    }, 500)
-  }
-}
 
-const kernel = (routeOption: RouteOptions) => {
-  return async (ctx: Context) => {
-    let request
-    if(routeOption.request) {
-      const requestInstance = new routeOption.request();
-      const result = await requestInstance.validate(ctx)
-      if(result.isError) throw new ValidationException({
-        errors: result.errors,
-      })
-    }
-    return controllerKernel(routeOption.controller)(ctx, request)
-  }
-}
 
-const _createNestedRouter = (
+const _createNestedRoute = (
   app: Hono,
   router: RouteOptions,
   path: string = '',
@@ -44,12 +16,12 @@ const _createNestedRouter = (
   if (router.method && router.controller) {
     app[router.method](
       `${path}${router.path}`,
-      kernel(router)
+      RequestKernel.handle(router)
     );
   }
 
   router.children?.forEach((childRouter) => {
-    _createNestedRouter(
+    _createNestedRoute(
       app,
       childRouter,
       path + router.path,
@@ -58,9 +30,14 @@ const _createNestedRouter = (
   });
 };
 
-export const createNestedRouter = (router: RouteOptions) => {
+export const createNestedRoute = (router: RouteOptions) => {
   const route = new Hono();
-  _createNestedRouter(route, router);
+  _createNestedRoute(route, router);
   return route
 }
 
+export const defineRouteGroup = (path: string, routeOptions: RouteOptions, ctx: ServiceProvider) => {
+  const route =  createNestedRoute(routeOptions);
+  ctx.apps.route(path, route);
+  return route
+}

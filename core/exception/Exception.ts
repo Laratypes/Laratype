@@ -2,15 +2,18 @@ export default class Exception extends Error {
   
   protected code = "UNKNOWN"
   protected httpCode = 500;
+  protected responsible = false;
 
   constructor({
     code = "",
     message = "",
-    httpCode = 500
+    httpCode = 500,
+    responsible = false,
   }) {
     super(message)
     this.code = code
     this.httpCode = httpCode
+    this.responsible = responsible
   }
 
   /**
@@ -22,6 +25,10 @@ export default class Exception extends Error {
 
   public getHttpCode() {
     return this.httpCode
+  }
+  
+  public canResponsible() {
+    return this.responsible
   }
   
   public toJson() {

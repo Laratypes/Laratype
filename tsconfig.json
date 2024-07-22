@@ -1,8 +1,15 @@
 {
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2020",
     "strict": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "lib": ["ES2015"]
-  }
+    "lib": ["ES2022"],
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "moduleResolution": "node",
+  },
+  "exclude": ["node_modules", "<node_internals>/**"],
 }

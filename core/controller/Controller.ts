@@ -1,15 +1,9 @@
-import type { Context } from "hono"
-import type Request from "../request/Request"
 import { IControllerMethod, safeMethods } from ".."
 
-export default class Controller implements IControllerMethod {
+export default class Controller{
 
   constructor() {
 
-  }
-
-  private example(c: Context, req: Request) {
-    return c.json({})
   }
 
   public exposed() {
@@ -17,9 +11,7 @@ export default class Controller implements IControllerMethod {
   }
   
   public __invoke(k: safeMethods<this>) {
-    return {
-      'self' : this,
-      'invoke': k,
-    }
+    return [this, k];
   }
+
 }

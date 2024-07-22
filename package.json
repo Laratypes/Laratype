@@ -1,18 +1,27 @@
 {
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && vite build"
+    "build": "tsc --build"
   },
   "dependencies": {
     "@hono/node-server": "^1.4.1",
+    "@prisma/client": "5.16.1",
+    "dotenv": "^16.4.5",
     "express-validator": "^7.0.1",
     "hono": "^4.0.3",
-    "hono-validation": "git+https://github.com/Laratypes/hono-validator.git"
+    "hono-validation": "git+https://github.com/Laratypes/hono-validator.git",
+    "prisma": "^5.16.1",
+    "ts-simplify": "^0.1.2"
   },
   "devDependencies": {
     "@hono/vite-dev-server": "^0.6.1",
+    "@ts-ast-parser/core": "^0.8.0",
     "@types/node": "^20.11.24",
+    "ts-morph": "^23.0.0",
+    "ts-node": "^10.9.2",
     "tsx": "^3.12.2",
+    "typedoc": "^0.26.4",
+    "typescript": "^5.4.2",
     "vite": "^5.0.12"
   }
 }

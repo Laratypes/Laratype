@@ -8,14 +8,17 @@ export default class Exceptions extends Exception {
     httpCode = 500,
     message = "",
     code = "",
-    errors = [] as any[]
+    errors = [] as any[],
+    responsible = false,
   }) {
     super({
       code,
       httpCode,
-      message
+      message,
+      responsible
     })
     this.errors = errors;
+    Object.setPrototypeOf(this, Exceptions.prototype);
   }
 
   public get getErrors() {

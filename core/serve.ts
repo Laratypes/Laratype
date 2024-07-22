@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { serve } from '@hono/node-server'
-import config from "../config/config"
+import { serviceProviderBootstrapped } from "./bootstrap";
 
 export default class Serve {
   
@@ -29,7 +29,7 @@ export default class Serve {
 
   public bootProvider() {
     const instance = this.getInstance()
-    config.providers.forEach((Provider) => {
+    serviceProviderBootstrapped.forEach((Provider) => {
       new Provider(instance).boot()
     })
   }
