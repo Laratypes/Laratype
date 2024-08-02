@@ -1,18 +1,30 @@
 {
+  "name": "Laratype",
+  "version": "0.0.1",
+  "description": "The Next-generation TypeSafe RESTFul API",
+  "main": "index.js",
+  "author": {
+    "email": "no1.tuongnguyen@gmail.com",
+    "name": "Tuong Nguyen",
+    "url": "https://facebook.com/Ily1606"
+  },
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/Laratypes/Laratype"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && vite build"
+    "build": "tsc --build"
   },
   "dependencies": {
-    "@hono/node-server": "^1.4.1",
-    "express-validator": "^7.0.1",
-    "hono": "^4.0.3",
-    "hono-validation": "git+https://github.com/Laratypes/hono-validator.git"
+    "@prisma/client": "5.16.1",
+    "dotenv": "^16.4.5",
+    "prisma": "^5.16.1",
+    "tsx": "^4.16.5",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@hono/vite-dev-server": "^0.6.1",
     "@types/node": "^20.11.24",
-    "tsx": "^3.12.2",
-    "vite": "^5.0.12"
+    "typescript": "^5.4.2"
   }
 }
