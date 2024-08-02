@@ -1,4 +1,4 @@
-import ResourceCollection from "../../core/resource/json/ResourceCollection";
+import { ResourceCollection } from "@laratype/core";
 import PostResource from "./PostResource";
 
 export default class PostCollection extends ResourceCollection {

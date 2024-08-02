@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import JsonResource from "../../core/resource/json/JsonResource";
+import { JsonResource } from "@laratype/core";
 
 type WrapResource<T> = Array<T> 
 

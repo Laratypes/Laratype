@@ -1,7 +1,8 @@
-import { RouteOptions } from "../../core";
+import { RouteOptions } from "@laratype/core";
 import { BaseController } from "../../src/controllers/BaseController";
 import PostController from "../../src/controllers/PostController";
 import UserController from "../../src/controllers/UserController";
+import CreateUserRequest from "../../src/requests/CreateUserRequest";
 import TestRequest from "../../src/requests/TestRequest";
 
 export const baseRouteApi: RouteOptions = {
@@ -34,6 +35,7 @@ export const baseRouteApi: RouteOptions = {
     {
       path: "/users",
       controller: UserController.prototype.__invoke('store'),
+      request: CreateUserRequest,
       method: "post",
       children: [
         {

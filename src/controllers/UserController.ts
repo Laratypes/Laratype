@@ -1,24 +1,20 @@
-import Controller from "../../core/controller/Controller"
-import UserCollection from "../resources/UserCollection"
-import User from "../models/User"
+import { Controller, Request } from "@laratype/core";
+import { prisma } from "../../config/database/prisma";
+import CreateUserRequest from "../requests/CreateUserRequest";
+import UserCollection from "../resources/UserCollection";
 
 
 export default class UserController extends Controller {
 
-  async store() {
-    return User.createMany({
-      data: [
-        {
-          email: "no1.ily1606@gmail.com",
-          name: "Test",
-          password: "123",
-        }
-      ]
+  async store(request: CreateUserRequest) {
+    const params = request.validated();
+    return prisma.users.create({
+      data: params
     })
   }
 
   async index() {
-    const users = await User.findMany({})
+    const users = await prisma.users.findMany({})
     return new UserCollection(users)
   }
 }

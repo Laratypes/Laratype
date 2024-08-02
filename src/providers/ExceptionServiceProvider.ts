@@ -1,15 +1,11 @@
-import Exception from "../../core/exception/Exception";
-import ServiceProvider from "../../core/support/ServiceProvider";
-import Response from "../../core/response/Response";
+import { Exception, Response, ServiceProvider } from "@laratype/core";
 
 export default class ExceptionServiceProvider extends ServiceProvider {
-  
+
   public register(): void {
-      // this.apps.onError((err, c) => {
-      //   if(err instanceof Exception) {
-      //     return Response.prototype.responseError(c, err, err.getHttpCode())
-      //   }
-      //   return Response.prototype.responseError(c, err, 500)
-      // })
+    //@ts-ignore
+    this.apps.onError((err, c) => {
+      // Handle exceptions here
+    })
   }
 }

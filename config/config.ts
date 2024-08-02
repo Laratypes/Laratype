@@ -1,4 +1,4 @@
-import { ConfigOptions } from "../core";
+import { ConfigOptions } from "@laratype/core";
 import RouteServiceProvider from "../src/providers/RouteServiceProvider";
 
 export default {

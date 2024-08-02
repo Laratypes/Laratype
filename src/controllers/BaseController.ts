@@ -1,18 +1,15 @@
-import Controller from "../../core/controller/Controller";
-import GeneralTypesEnum from "../../core/enum/GeneralTypesEnum";
-import Request from "../../core/request/Request";
-import { redirect, response } from "../../core/support/helpers";
+import { Controller, GeneralTypesEnum, redirect, Request, response } from "@laratype/core";
 
 export class BaseController extends Controller {
-  
-  public home (req: Request) {
+
+  public home(req: Request) {
     return {
       test: true,
     }
   }
 
   protected getDataType(dataType: string) {
-    switch(dataType) {
+    switch (dataType) {
       case "json":
         return {
           msg: "Hello world",
@@ -28,19 +25,19 @@ export class BaseController extends Controller {
     }
   }
 
-  public testRawDataType (req: Request) {
+  public testRawDataType(req: Request) {
     return this.getDataType(req.param("dataType"))
-  } 
-  
-  public testCollectionDataType (req: Request) {
+  }
+
+  public testCollectionDataType(req: Request) {
     return response(this.getDataType(req.param("dataType")))
   }
-  
-  public testRedirect (req: Request) {
+
+  public testRedirect(req: Request) {
     return redirect("/api/test/hello-world")
   }
-  
-  public helloWorld (req: Request) {
+
+  public helloWorld(req: Request) {
     return "Hello world"
   }
 

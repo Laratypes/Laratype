@@ -1,7 +1,7 @@
-import Collection from "../../core/resource/json/ResourceCollection";
+import { ResourceCollection } from "@laratype/core";
 import UserResource from "./UserResource";
 
-export default class UserCollection extends Collection {
+export default class UserCollection extends ResourceCollection {
 
   getResource() {
     return UserResource
