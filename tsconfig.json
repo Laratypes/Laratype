@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2015",
+    "module": "CommonJS",
+    "strict": true,
+    "jsxImportSource": "hono/jsx",
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "moduleResolution": "node",
+    "declaration": true,
+  },
+  "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+}

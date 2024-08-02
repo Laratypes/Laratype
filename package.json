@@ -1,0 +1,30 @@
+{
+  "name": "@laratype/core",
+  "version": "0.0.1",
+  "description": "Laratypes Core",
+  "private": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.4.1",
+    "dotenv": "^16.4.5",
+    "hono": "^4.0.3"
+  },
+  "peerDependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.4.2"
+  },
+  "files": [
+    "dist",
+    "!src"
+  ],
+  "keywords": [],
+  "author": "Ily1606",
+  "license": "MIT"
+}
