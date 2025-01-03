@@ -1,0 +1,23 @@
+{
+  "name": "@laratype/http",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Ily1606",
+  "license": "MIT",
+  "description": "Http module for laratype framework",
+  "sideEffects": false,
+  "dependencies": {
+    "@laratype/support": "workspace:*",
+    "@laratype/validation": "workspace:*"
+  },
+  "buildOptions": {
+    "formats": [
+      "esm-bundler",
+      "cjs"
+    ]
+  }
+}
