@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import ServiceProvider from "./ServiceProvider"
+import { ServiceProvider } from "@laratype/support";
 
 
 export default class Kernel extends ServiceProvider {

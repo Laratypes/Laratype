@@ -4,35 +4,38 @@ import { boot } from "./bootstrap";
 
 export default class Serve {
   
-  private instance: Hono|null = null
+  private static instance: Hono|null = null
 
-  protected constructor() {
+  protected static port: number = 3000;
 
-  }
-
-  public getInstance() {
+  public static getInstance() {
     if(!this.instance) this.instance = new Hono();
     return this.instance
   }
 
-  public async create() {
+  public static async create() {
     const instance = this.getInstance();
 
     serve({
       fetch: instance.fetch,
-      port: 3000,
+      port: this.port,
     })
 
     await this.bootProvider()
+    console.log(`Server started at port ${this.port}`);
+    
     return instance
   }
 
-  public async bootProvider() {
+  public static async bootProvider() {
     const instance = this.getInstance()
     const serviceProviderBootstrapped = await boot()
-    serviceProviderBootstrapped.forEach((Provider) => {
-      new Provider(instance).boot()
-    })
+    for(let Provider of serviceProviderBootstrapped) {
+      const handler = new Provider(instance).boot()
+      if(handler instanceof Promise) {
+        await handler;
+      }
+    }
   }
 
 }

@@ -1,8 +1,13 @@
 {
-  "name": "@laratype/core",
+  "name": "laratype",
   "version": "0.0.2",
   "description": "Laratypes Core",
   "private": false,
+  "packageManager": "pnpm@9.14.4",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -11,7 +16,10 @@
   "dependencies": {
     "@hono/node-server": "^1.4.1",
     "dotenv": "^16.4.5",
-    "hono": "^4.0.3"
+    "hono": "^4.0.3",
+    "vite": "^6.0.3",
+    "@laratype/http": "workspace:*",
+    "@laratype/support": "workspace:*"
   },
   "peerDependencies": {
     "zod": "^3.23.8"

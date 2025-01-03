@@ -1,30 +1,17 @@
-import { cwd } from 'node:process';
-import RequestKernel from "./request/RequestKernel";
-import ResponseKernel from "./response/ResponsiveKernel";
-import ServiceProvider from "./support/ServiceProvider";
-import { ConfigOptions } from './commonType';
-import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
-
-const getConfigPath = () => {
-  const fileUri = path.resolve(`${cwd()}/config/config.ts`);
-  const fileConfig = pathToFileURL(fileUri).href;
-  return fileConfig;
-}
-
-const getDefaultExports = (module: any) => {
-  return module.default;
-}
+import { RequestKernel, ResponseKernel } from "@laratype/http";
+import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, getProjectPath, ServiceProvider } from '@laratype/support';
 
 export const boot = async () => {
-  const module = await import(getConfigPath());
-  const config = getDefaultExports(module) as ConfigOptions;
+  const module = await import(getProjectPath('/config/providers.ts'));
+  const providers = getDefaultExports(module) as Array<typeof ServiceProvider>;
   
-  const serviceProviderBootstrapped = [
+  const serviceProviderBootstrapped: Array<typeof ServiceProvider> = [
+    ConfigLoadServiceProvider,
+    DateTimeServiceProvider,
     RequestKernel,
-    ...config.providers,
+    ...providers,
     ResponseKernel,
-  ] satisfies Array<typeof ServiceProvider>;
+  ];
 
   return serviceProviderBootstrapped;
 }

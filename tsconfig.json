@@ -1,14 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2015",
+    "baseUrl": ".",
+    "target": "es2016",
     "module": "CommonJS",
     "strict": true,
     "jsxImportSource": "hono/jsx",
     "sourceMap": false,
     "skipLibCheck": true,
-    "outDir": "dist",
     "moduleResolution": "node",
     "declaration": true,
+    "paths": {
+      "@laratype/*": ["packages/*/src"],
+      "laratype": ["./src"]
+    },
+    "composite": true,
+    "allowSyntheticDefaultImports": true,
   },
   "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+  "include": [
+    "packages/*/src",
+    "./src",
+    "examples/*/src"
+, "examples/laratype-test/environment.d.ts"  ]
 }
