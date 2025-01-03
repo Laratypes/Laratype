@@ -1,0 +1,32 @@
+{
+  "name": "@laratype/support",
+  "version": "0.0.2",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Ily1606",
+  "license": "MIT",
+  "description": "Support module for laratype framework",
+  "exports": {
+    "./*": "./*",
+    "./contracts": {
+      "types": "./src/contracts/Env.d.ts"
+    }
+  },
+  "buildOptions": {
+    "formats": [
+      "esm-bundler",
+      "cjs"
+    ]
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "glob": "^11.0.0",
+    "ts-toolbelt": "^9.6.0"
+  },
+  "peerDependencies": {
+    "dayjs": "^1.11.13"
+  }
+}
