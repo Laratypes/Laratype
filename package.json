@@ -11,22 +11,24 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "test": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1.4.1",
-    "dotenv": "^16.4.5",
-    "hono": "^4.0.3",
-    "vite": "^6.0.3",
     "@laratype/http": "workspace:*",
-    "@laratype/support": "workspace:*"
+    "@laratype/support": "workspace:*",
+    "dotenv": "^16.4.5",
+    "hono": "^4.6.18",
+    "vite": "^6.0.3"
   },
   "peerDependencies": {
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "vitest": "^3.0.3"
   },
   "files": [
     "dist",
