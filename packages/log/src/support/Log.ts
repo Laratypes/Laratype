@@ -19,7 +19,7 @@ export default class Log {
   public static info(message: any): void {
     this.getLogger().log(this.format("INFO", message));
   }
-  public static error(message: any, stack: any): void {
+  public static error(message: any, stack?: any): void {
     this.getLogger().log(this.format("ERROR", message, stack));
   }
   public static warn(message: any): void {
