@@ -1,4 +1,4 @@
-import path = require("path");
+import path from "path";
 import { cwd } from "process";
 import { pathToFileURL } from 'node:url';
 

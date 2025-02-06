@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { ServiceProvider, Exception, GeneralTypesEnum, ContentTypeEnum } from "@laratype/support";
+import { ContentfulStatusCode } from "hono/utils/http-status";
 
 export default class Response extends ServiceProvider {
 
@@ -41,11 +42,14 @@ export default class Response extends ServiceProvider {
       setHeader("Content-Type", contentType)
     }
 
+    //TODO: Make guard check
+    const contentFullStatusCode = responseObj.getHttpStatus() as ContentfulStatusCode;
+
     if(isJson) {
-      return ctx.json(ResponseSerialization.jsonSerialize(responseObj.getContent()), responseObj.getHttpStatus())
+      return ctx.json(ResponseSerialization.jsonSerialize(responseObj.getContent()), contentFullStatusCode)
     }
 
-    return ctx.html(ResponseSerialization.htmlSerialize(responseObj.getContent()), responseObj.getHttpStatus())
+    return ctx.html(ResponseSerialization.htmlSerialize(responseObj.getContent()), contentFullStatusCode)
 
   }
 

@@ -2,6 +2,8 @@
   "name": "@laratype/support",
   "version": "0.0.2",
   "main": "index.js",
+  "module": "dist/shared.esm-bundler.js",
+  "types": "dist/shared.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -10,6 +12,17 @@
   "license": "MIT",
   "description": "Support module for laratype framework",
   "exports": {
+    ".": {
+      "types": "./dist/shared.d.ts",
+      "node": {
+        "production": "./dist/shared.cjs.prod.js",
+        "development": "./dist/shared.cjs.js",
+        "default": "./index.js"
+      },
+      "module": "./dist/shared.esm-bundler.js",
+      "import": "./dist/shared.esm-bundler.js",
+      "require": "./index.js"
+    },
     "./*": "./*",
     "./contracts": {
       "types": "./src/contracts/Env.d.ts"

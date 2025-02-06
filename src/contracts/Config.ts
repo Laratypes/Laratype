@@ -17,7 +17,7 @@ export namespace Config {
   export namespace Logging {
     export type CHANNEL = "stack" | "single" | "daily"
     export interface Config {
-      default: CHANNEL
+      default: CHANNEL,
       channels: {
         stack: {
           readonly driver: "stack",

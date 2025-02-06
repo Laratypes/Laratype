@@ -1,6 +1,8 @@
-import { HonoRequest } from "hono";
+import { HonoRequest } from "hono/request";
 import { z, ZodType } from "zod";
 import { RequestInterface } from "../contracts/Request";
+import { isNil, omit, pick } from "es-toolkit"
+import { has } from "es-toolkit/compat"
 
 export default class Request implements RequestInterface {
 
@@ -14,46 +16,63 @@ export default class Request implements RequestInterface {
     return {}
   }
 
-  //TODO: Make it type safe
-  params(): Record<string, string> {
-    return this.requestCtx.param() as any
-  }
-
   // TODO: Make it type safe
-  param(key: string): string {
+  param(key?: string) {
+    if(isNil(key)) {
+      return this.requestCtx.param() as any
+    }
     return this.requestCtx.param(key as never)
+  }
+  
+  // TODO: Make it type safe
+  input(keys?: string[] | string) {
+    const input = this.requestCtx.input;
+    if(!isNil(keys)) {
+      if(keys instanceof Array) {
+        return pick(input, keys);
+      }
+      return input[keys as never]
+    }
+    return input
   }
 
   all(): Record<string, any> {
-    return {}
+    return {
+      ...this.query(),
+      ...this.input(),
+    }
   }
 
   bearerToken(): string {
     return ""
   }
 
-  except(key: string[]): Record<string, any> {
-    return []
+  except(keys: string[]): Record<string, any> {
+    return omit(this.all(), keys);
   }
 
-  has(key: string, defaultVal: string): boolean;
-  has(keys: string[]): boolean;
-  has(key: unknown, defaultVal?: unknown): boolean {
-    return true
+  has(keys: string | string[]): boolean {
+    if(keys instanceof Array) {
+      return keys.every(key => has(this.all(), key))
+    }
+
+    return has(this.all(), keys)
   }
 
   hasAny(keys: string[]): boolean {
-    return true
+    return keys.length ? keys.some(key => has(this.all(), key)) : true;
   }
 
-  hasHeader(hasHeader: string): boolean {
-    return true
+  hasHeader(key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.headers(), key.toLowerCase())
   }
 
-  header(key: string): string;
-  header(key: string, defaultVal: string): string;
-  header(key: unknown, defaultVal?: unknown): string {
-    return ""
+  header(key: string, defaultVal?: string): string | undefined {
+    return this.hasHeader(key) ? this.headers()[key.toLowerCase()] : defaultVal
+  }
+
+  headers() {
+    return this.requestCtx.header()
   }
 
   ip(): string {
@@ -61,26 +80,30 @@ export default class Request implements RequestInterface {
   }
 
   isMethod(method: string): boolean {
-    return true
+    return this.method() === method
   }
 
-  only(key: string[]): Record<string, any> {
-    return []
+  only(keys: string[]): Record<string, any> {
+    return pick(this.all(), keys)
   }
 
   path(): string {
-    return ""
+    return this.requestCtx.path
   }
 
-  query(): Record<string, any>;
-  query(key: string): Record<string, any>;
-  query(key: string, defaultVal: string): Record<string, any>;
-  query(key?: unknown, defaultVal?: unknown): Record<string, any> {
-    return {}
+  query(key?: string, defaultVal?: any) {
+    if(!isNil(key)) {
+      return this.requestCtx.query(key) ?? defaultVal
+    }
+    return this.requestCtx.query()
   }
 
   url(): string {
-    return ""
+    return this.requestCtx.url
+  }
+
+  method(): string {
+    return this.requestCtx.method;
   }
 
   validated(): z.infer<ReturnType<typeof this['rules']> extends ZodType ? ReturnType<typeof this['rules']>: ZodType> {

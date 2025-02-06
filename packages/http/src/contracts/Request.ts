@@ -21,25 +21,31 @@ export interface RequestInterface {
    */
   only(key: string[]): Record<string, any>
 
-  params(): Record<string, string>
+  query(): Record<string, any>
+
+  query(key: string): any
+
+  query(key: string, defaultVal: any): any
+
+  param(): Record<string, string>
 
   param(key: string): string
 
-  except(key: string[]): Record<string, any>
+  input(): Record<string, any>
+
+  input(key: string): any
+
+  input(keys: string[]): any
 
   all(): Record<string, any>
 
-  query(): Record<string, any>
-
-  has(key: string, defaultVal: string): boolean
+  except(key: string[]): Record<string, any>
 
   has(keys: string[]): boolean
 
+  has(key: string): boolean
+
   hasAny(keys: string[]): boolean
-
-  query(key: string): Record<string, any>
-
-  query(key: string, defaultVal: string): Record<string, any>
 
   path(): string
 
@@ -47,13 +53,15 @@ export interface RequestInterface {
 
   isMethod(method: string): boolean
 
-  header(key: string): string
+  header(key: string): string | undefined
 
-  header(key: string, defaultVal: string): string
+  header(key: string, defaultVal: string): string | undefined
 
   hasHeader(hasHeader: string): boolean
 
   bearerToken(): string
 
   ip(): string
+
+  method(): string
 }
