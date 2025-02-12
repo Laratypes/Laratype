@@ -1,0 +1,25 @@
+{
+  "name": "@laratype/database",
+  "version": "0.1.0",
+  "main": "index.js",
+  "keywords": [],
+  "author": "Ily1606",
+  "license": "MIT",
+  "description": "Database module for laratype framework",
+  "sideEffects": false,
+  "exports": {
+    "./*": "./*"
+  },
+  "dependencies": {
+    "@laratype/support": "workspace:*"
+  },
+  "buildOptions": {
+    "formats": [
+      "esm-bundler",
+      "cjs"
+    ]
+  },
+  "peerDependencies": {
+    "typeorm": "^0.3.20"
+  }
+}

@@ -18,12 +18,15 @@
     "@hono/node-server": "^1.4.1",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
+    "@laratype/database": "workspace:*",
     "dotenv": "^16.4.5",
     "hono": "^4.6.18",
     "vite": "^6.0.3"
   },
   "peerDependencies": {
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "typeorm": "^0.3.20",
+    "ts-toolbelt": "^9.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

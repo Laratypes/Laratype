@@ -1,10 +1,11 @@
+import { DatabaseServiceProvider } from "@laratype/database";
 import { RequestKernel, ResponseKernel } from "@laratype/http";
 import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, getProjectPath, ServiceProvider } from '@laratype/support';
 import { existsSync } from "node:fs";
 
 
 export const boot = async () => {
-  const providerPath = getProjectPath('/config/providers.ts');
+  const providerPath = getProjectPath('/config/providers.ts', false);
   let providers: Array<typeof ServiceProvider> = [];
   if(existsSync(providerPath)) {
     const module = await import(providerPath);
@@ -15,6 +16,7 @@ export const boot = async () => {
     ConfigLoadServiceProvider,
     DateTimeServiceProvider,
     RequestKernel,
+    DatabaseServiceProvider,
     ...providers,
     ResponseKernel,
   ];
