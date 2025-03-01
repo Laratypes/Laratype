@@ -2,12 +2,18 @@
   "name": "@laratype/http",
   "version": "0.1.0",
   "main": "index.js",
+  "types": "dist/index.d.ts",
   "keywords": [],
   "author": "Ily1606",
   "license": "MIT",
   "description": "Http module for laratype framework",
   "sideEffects": false,
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
     "./*": "./*"
   },
   "dependencies": {

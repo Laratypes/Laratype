@@ -2,8 +2,17 @@
   "name": "@laratype/validation",
   "version": "0.1.0",
   "main": "index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./*": "./*"
   },
   "keywords": [],
   "author": "Ily1606",
