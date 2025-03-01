@@ -4,7 +4,12 @@ import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const resolveEntryForPkg = (p: string) =>
+/**
+ * 
+ * @param {string} p 
+ * @returns 
+ */
+const resolveEntryForPkg = (p) =>
   path.resolve(
     fileURLToPath(import.meta.url),
     `../../packages/${p}/src/index.ts`,
@@ -12,11 +17,17 @@ const resolveEntryForPkg = (p: string) =>
 
 const dirs = readdirSync(new URL('../packages', import.meta.url))
 
-const entries: Record<string, string> = {
+/**
+ * @type {Record<string, string>}
+ */
+const entries = {
+  sauf: resolveEntryForPkg('sauf')
 }
 
-
 for (const dir of dirs) {
+  if(Object.hasOwnProperty.call(entries, dir)) {
+    continue;
+  }
   const key = `@laratype/${dir}`
   if (
     !(key in entries) &&
