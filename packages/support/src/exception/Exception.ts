@@ -1,4 +1,4 @@
-import { Log } from "@laratype/log";
+import { Console } from "@laratype/console";
 import { StatusCode } from "hono/utils/http-status";
 
 export class Exception extends Error {
@@ -27,7 +27,7 @@ export class Exception extends Error {
     this.responsible = responsible
     this.reportable = reportable
     if(this.reportable) {
-      Log.error(this.message, this.stack)
+      Console.error(this.message, this.stack)
     }
   }
 
