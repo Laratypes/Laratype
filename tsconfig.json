@@ -1,27 +1,11 @@
 {
-  "compilerOptions": {
-    "baseUrl": ".",
-    "target": "ES2022",
-    "module": "ES2022",
-    "strict": true,
-    "jsxImportSource": "hono/jsx",
-    "sourceMap": false,
-    "skipLibCheck": true,
-    "moduleResolution": "node",
-    "declaration": true,
-    "paths": {
-      "@laratype/*": ["packages/*/src"],
-      "laratype": ["./src"]
-    },
-    "composite": true,
-    "allowSyntheticDefaultImports": true,
-    "outDir": "dist"
-  },
-  "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+  "extends": "./tsconfig.app.json",
   "include": [
     "packages/*/src",
     "./src",
     "examples/*/src",
     "packages/*/__tests__",
+    "rollup.config.js",
+    "./scripts",
   ]
 }

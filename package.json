@@ -3,33 +3,41 @@
   "version": "0.0.2",
   "description": "Laratypes Core",
   "private": false,
-  "packageManager": "pnpm@9.14.4",
   "type": "module",
+  "packageManager": "pnpm@9.14.4",
   "workspaces": [
     "packages/*"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --build",
+    "build": "rollup -c",
+    "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "test": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1.4.1",
+    "@laratype/database": "workspace:*",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
-    "@laratype/database": "workspace:*",
     "dotenv": "^16.4.5",
     "hono": "^4.6.18",
     "vite": "^6.0.3"
   },
   "peerDependencies": {
-    "zod": "^3.23.8",
+    "ts-toolbelt": "^9.6.0",
     "typeorm": "^0.3.20",
-    "ts-toolbelt": "^9.6.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@rollup/plugin-alias": "^5.1.1",
+    "@rollup/plugin-commonjs": "^28.0.2",
+    "@rollup/plugin-node-resolve": "^16.0.0",
     "@types/node": "^20.11.24",
+    "esbuild": "^0.25.0",
+    "rollup": "^4.34.8",
+    "rollup-plugin-dts": "^6.1.1",
+    "rollup-plugin-esbuild": "^6.2.1",
     "typescript": "^5.4.2",
     "vitest": "^3.0.3"
   },

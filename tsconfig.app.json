@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES2022",
+    "module": "ES2022",
+    "strict": true,
+    "jsxImportSource": "hono/jsx",
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "declaration": true,
+    "paths": {
+      "@laratype/*": ["packages/*/src"],
+      "sauf": ["packages/sauf/src"],
+      "laratype": ["./src"]
+    },
+    "composite": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "dist",
+    "allowJs": true,
+    "checkJs": false
+  },
+  "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+}
