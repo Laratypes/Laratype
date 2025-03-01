@@ -1,7 +1,7 @@
 import { resolve } from "path";
 import { createWriteStream, existsSync, mkdirSync, WriteStream } from "fs";
 import DriverNotImplement from "./exceptions/DriverNotImplement";
-import { Config } from "laratype";
+import { LaratypeConfig as Config } from "@laratype/support";
 
 type Driver = Config.Logging.CHANNEL
 

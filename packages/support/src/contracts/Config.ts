@@ -13,7 +13,7 @@ import { SapConnectionOptions } from "typeorm/driver/sap/SapConnectionOptions";
 import { SpannerConnectionOptions } from "typeorm/driver/spanner/SpannerConnectionOptions";
 import { O } from "ts-toolbelt"
 
-export namespace Config {
+export namespace LaratypeConfig {
   export interface AppConfig {
     readonly name: string
     readonly env: string
