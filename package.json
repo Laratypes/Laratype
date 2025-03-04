@@ -10,6 +10,14 @@
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./*": "./*"
+  },
   "scripts": {
     "build": "rollup -c",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
@@ -42,8 +50,7 @@
     "vitest": "^3.0.3"
   },
   "files": [
-    "dist",
-    "!src"
+    "dist"
   ],
   "keywords": [],
   "author": "Ily1606",

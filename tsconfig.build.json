@@ -5,6 +5,7 @@
     "composite": false,
     "declaration": true,
     "emitDeclarationOnly": true,
+    "outDir": "dist_tmp"
   },
   "include": [
     "packages/*/src",

@@ -5,7 +5,7 @@ import { dts } from "rollup-plugin-dts";
 
 const tasks = Object.entries(entries)
   .map(([pkgName]) => {
-    return [pkgName, path.resolve(`./dist/packages/${pkgName.replace('@laratype', '')}/src/index.d.ts`)];
+    return [pkgName, path.resolve(`./dist_tmp/packages/${pkgName.replace('@laratype', '')}/src/index.d.ts`)];
   })
   .filter(([pkgName, entryPoint]) => existsSync(entryPoint))
   .map(([pkgName, entryPoint]) => {
@@ -23,5 +23,18 @@ const tasks = Object.entries(entries)
       ],
     }
   })
+
+tasks.push({
+  input: 'dist_tmp/src/index.d.ts',
+  output: [
+    {
+      file: 'dist/index.d.ts',
+      format: 'es',
+    },
+  ],
+  plugins: [
+    dts()
+  ],
+})
 
 export default tasks;
