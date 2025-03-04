@@ -1,4 +1,4 @@
-name: 'Dependency review'
+name: 'Pkg review'
 on:
   workflow_dispatch:
 
