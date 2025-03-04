@@ -1,0 +1,16 @@
+name: 'Dependency review'
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Pkg Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup nodejs
+        uses: ./.github/setup-node
+
+      - name: Release
+        run: pnpx pkg-pr-new publish --compact --pnpm './packages/*'
