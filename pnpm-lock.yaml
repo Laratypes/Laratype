@@ -51,6 +51,9 @@ importers:
       '@types/node':
         specifier: ^20.11.24
         version: 20.14.13
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
       esbuild:
         specifier: ^0.25.0
         version: 0.25.0
