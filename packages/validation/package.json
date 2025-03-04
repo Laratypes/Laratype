@@ -17,5 +17,8 @@
   "keywords": [],
   "author": "Ily1606",
   "license": "MIT",
-  "description": "Validation module for laratype framework"
+  "description": "Validation module for laratype framework",
+  "files": [
+    "dist"
+  ]
 }

@@ -30,5 +30,8 @@
       "esm-bundler",
       "cjs"
     ]
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

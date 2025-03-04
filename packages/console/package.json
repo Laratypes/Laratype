@@ -21,5 +21,8 @@
   "description": "Commandline & Console module for laratype framework",
   "dependencies": {
     "commander": "^13.1.0"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

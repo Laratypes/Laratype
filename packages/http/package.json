@@ -29,5 +29,8 @@
   },
   "peerDependencies": {
     "hono": "^4.6.18"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

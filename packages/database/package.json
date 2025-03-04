@@ -28,5 +28,8 @@
   },
   "peerDependencies": {
     "typeorm": "^0.3.20"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
