@@ -6,11 +6,16 @@ import { program } from "commander"
 
 program.argument("<version>", "Version want to increment")
 .action((version) => {
-  Object.entries(entries)
+  const entryFiles  = Object.entries(entries)
     .map(([pkgName, entryPoint]) => {
       return path.resolve(entryPoint, "../../package.json")
     })
-    .filter((entryPoint) => existsSync(entryPoint))
+
+    entryFiles.push(
+      path.resolve("./package.json")
+    )
+
+    entryFiles.filter((entryPoint) => existsSync(entryPoint))
     .forEach((entryPoint) => {
       const packageContent = JSON.parse(readFileSync(entryPoint).toString());
       const oldVersion = packageContent.version
