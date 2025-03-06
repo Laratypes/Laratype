@@ -1,6 +1,7 @@
 {
   "name": "sauf",
   "version": "0.1.0",
+  "private": false,
   "main": "index.js",
   "bin": "dist/index.js",
   "types": "dist/index.d.ts",

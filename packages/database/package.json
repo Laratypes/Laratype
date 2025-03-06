@@ -1,6 +1,7 @@
 {
   "name": "@laratype/database",
   "version": "0.1.0",
+  "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
   "keywords": [],
