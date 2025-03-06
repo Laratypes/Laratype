@@ -8,6 +8,10 @@
   "workspaces": [
     "packages/*"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Laratypes/Laratype.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

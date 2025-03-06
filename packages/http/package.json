@@ -4,6 +4,11 @@
   "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Laratypes/Laratype.git",
+    "directory": "packages/http"
+  },
   "keywords": [],
   "author": "Ily1606",
   "license": "MIT",

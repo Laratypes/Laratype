@@ -5,6 +5,11 @@
   "main": "dist/index.js",
   "module": "dist/shared.esm-bundler.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Laratypes/Laratype.git",
+    "directory": "packages/support"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
