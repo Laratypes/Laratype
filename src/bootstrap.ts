@@ -1,4 +1,3 @@
-import { DatabaseServiceProvider } from "@laratype/database";
 import { RequestKernel, ResponseKernel } from "@laratype/http";
 import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, getProjectPath, ServiceProvider } from '@laratype/support';
 import { existsSync } from "node:fs";
@@ -16,8 +15,7 @@ export const boot = async () => {
     ConfigLoadServiceProvider,
     DateTimeServiceProvider,
     RequestKernel,
-    DatabaseServiceProvider,
-    ...providers,
+    ... providers,
     ResponseKernel,
   ];
 

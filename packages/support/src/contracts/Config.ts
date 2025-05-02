@@ -25,8 +25,8 @@ export namespace LaratypeConfig {
     readonly fallback_locale: string
     readonly key: string | null
     readonly cipher: string
-    readonly logging: Logging.Config
-    readonly database: Database.Config
+    readonly logging?: Logging.Config
+    readonly database?: Database.Config
   }
 
   export namespace Logging {

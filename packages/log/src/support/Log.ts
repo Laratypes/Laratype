@@ -1,13 +1,18 @@
 import { Config } from "@laratype/support";
 import Logger from "../Logger";
 import dayjs from "dayjs"
+import DriverNotImplement from "../exceptions/DriverNotImplement";
 
 export default class Log {
   
   protected static logger: Logger | null = null;
   public static getLogger() {
+    const driver = Config.get(['logging', 'default'] as const);
+    if(!driver) {
+      throw new DriverNotImplement();
+    }
     if(this.logger == null) {
-      this.logger = new Logger(Config.get(['logging', 'default'] as const), "./storage/logs/laratype.log")
+      this.logger = new Logger(driver, "./storage/logs/laratype.log")
     }
     return this.logger;
   }
