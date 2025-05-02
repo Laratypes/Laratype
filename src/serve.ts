@@ -1,6 +1,8 @@
 import { Hono } from "hono"
 import { serve } from '@hono/node-server'
 import { boot } from "./bootstrap";
+import { Console } from "@laratype/console";
+import { ExceptionParser } from "@laratype/support";
 
 export default class Serve {
   
@@ -16,15 +18,17 @@ export default class Serve {
   public static async create() {
     const instance = this.getInstance();
 
-    serve({
-      fetch: instance.fetch,
-      port: this.port,
-    })
-
-    await this.bootProvider()
-    console.log(`Server started at port ${this.port}`);
-    
-    return instance
+    return await this.bootProvider()
+    .then(() => {
+      serve({
+        fetch: instance.fetch,
+        port: this.port,
+      })
+      Console.log(`Server started at port ${this.port}`)
+      return instance
+    }).catch((e) => {
+      Console.error(ExceptionParser.parse(e));
+    });
   }
 
   public static async bootProvider() {
