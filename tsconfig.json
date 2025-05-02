@@ -4,6 +4,7 @@
     "packages/*/src",
     "./src",
     "examples/*/src",
+    "examples/*/config",
     "packages/*/__tests__",
     "rollup.config.js",
     "./scripts",
