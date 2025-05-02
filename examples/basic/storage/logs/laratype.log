@@ -1,0 +1,2 @@
+[2025-05-01T11:01:15.527Z] [ERROR] [local] TypeError: this.mysql.createPool is not a function
+
