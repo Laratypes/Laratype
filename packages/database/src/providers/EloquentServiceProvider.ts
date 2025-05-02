@@ -11,7 +11,11 @@ export default class DatabaseServiceProvider extends ServiceProvider {
   public getDataSource()
   {
     if(!this.dataSource) {
-      const connectionDefault = Config.get(['database', 'connections', Config.get(['database', 'default'] as const)] as const)
+      const defaultDatabaseDriver = Config.get(['database', 'default'] as const);
+      if(!defaultDatabaseDriver) {
+        throw new DatabaseConnectionNotConfigYet()
+      }
+      const connectionDefault = Config.get(['database', 'connections', defaultDatabaseDriver] as const)
       if(!connectionDefault) {
         throw new DatabaseConnectionNotConfigYet()
       }

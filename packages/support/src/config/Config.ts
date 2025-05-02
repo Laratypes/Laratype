@@ -13,9 +13,12 @@ export default class Config {
 
     let ctx = this.config;
 
-    keys.forEach((key) => {
+    for (const key of keys) {
       ctx = ctx[key];
-    });
+      if(ctx === undefined) {
+        return ctx;
+      }
+    }
 
     return ctx as Object.Path<ConfigContract.AppConfig, T>;
   }
