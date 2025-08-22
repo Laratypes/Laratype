@@ -3,7 +3,7 @@ import { ConfigLoaderNotLoadYet } from "../exception/ConfigLoaderNotLoadYet";
 import { LaratypeConfig as ConfigContract } from "../contracts/Config";
 
 export default class Config {
-  protected static config = null;
+  protected static config: any = (globalThis as any).__laratype_config ?? null;
 
   public static get<T extends Object.Paths<ConfigContract.AppConfig>>(keys: T)
   {
@@ -24,6 +24,6 @@ export default class Config {
   }
 
   public static setConfigs(config: any) {
-    this.config = config;
+    this.config = (globalThis as any).__laratype_config = config;
   }
 }
