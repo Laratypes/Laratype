@@ -5,6 +5,7 @@
   "main": "index.js",
   "types": "dist/index.d.ts",
   "module": "dist/index.esm.js",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Laratypes/Laratype.git",
