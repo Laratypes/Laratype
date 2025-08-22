@@ -5,7 +5,7 @@ import path from "path";
 import { existsSync } from "fs";
 import { nodeResolve } from "@rollup/plugin-node-resolve"
 import commonjs from '@rollup/plugin-commonjs';
-
+import esmShim from '@rollup/plugin-esm-shim';
 
 /**
  * @param {string} targetFile
@@ -31,7 +31,10 @@ const tasks = Object.entries(entries)
     
     return {
       input: entryPoint,
-      output: [
+      output: pkgName === 'sauf' ? {
+        dir,
+        format: 'es',
+       } : [
         {
           file: `${dir}/index.js`,
           format: 'cjs',
@@ -43,13 +46,16 @@ const tasks = Object.entries(entries)
       ],
       plugins: [
         alias({ entries }),
+        esmShim(),
         commonjs({}),
         nodeResolve(),
         (pkgName === 'sauf' ? removeHashBang('sauf/src/bin/index.ts') : {}),
         esbuild({
           tsconfig: 'tsconfig.build.json',
           banner: pkgName === 'sauf' ? '#!/usr/bin/env node' : undefined,
-          minify: pkgName !== 'sauf',
+          // minify: pkgName !== 'sauf',
+          minify: false,
+          target: 'esnext',
         }),
       ],
     }
@@ -73,7 +79,7 @@ tasks.push({
     nodeResolve(),
     esbuild({
       tsconfig: 'tsconfig.build.json',
-      minify: true,
+      minify: false,
     }),
   ],
 })

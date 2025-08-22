@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "author": "",
+  "type": "module",
   "repository": {
     "url": "https://github.com/Laratypes/Laratype"
   },
