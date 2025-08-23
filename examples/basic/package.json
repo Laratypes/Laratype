@@ -1,5 +1,5 @@
 {
-  "name": "laratype",
+  "name": "laratype-application-example",
   "version": "0.0.2",
   "description": "",
   "main": "index.js",
@@ -9,12 +9,13 @@
     "url": "https://github.com/Laratypes/Laratype"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "sauf dev",
     "build": "tsc --build"
   },
   "dependencies": {
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
+    "sauf": "workspace:*",
     "dotenv": "^16.4.5",
     "laratype": "workspace:*",
     "tsx": "^4.16.5",

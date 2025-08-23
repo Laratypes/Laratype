@@ -1,9 +1,9 @@
-import { LaratypeConfig as ConfigContract } from "@laratype/support";
+import { LaratypeConfig as ConfigContract, Env } from "@laratype/support";
 
 export default {
   locale: "vi",
   fallback_locale: "en",
-  key: "base64:K1x5a3h0b2l6cG9vZ3V0aW5n",
+  key: Env.get("APP_KEY", ""),
   name: "Laratype Framework",
   env: "local",
   schedule_timezone: "UTC",
