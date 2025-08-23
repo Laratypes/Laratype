@@ -4,6 +4,7 @@
   "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Laratypes/Laratype.git",
