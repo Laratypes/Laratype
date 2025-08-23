@@ -4,6 +4,7 @@
   "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Laratypes/Laratype.git",
@@ -28,10 +29,6 @@
     "es-toolkit": "^1.31.0"
   },
   "buildOptions": {
-    "formats": [
-      "esm-bundler",
-      "cjs"
-    ]
   },
   "peerDependencies": {
     "hono": "^4.6.18"

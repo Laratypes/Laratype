@@ -27,10 +27,6 @@
     "@laratype/log": "workspace:*"
   },
   "buildOptions": {
-    "formats": [
-      "esm-bundler",
-      "cjs"
-    ]
   },
   "peerDependencies": {
     "typeorm": "^0.3.20"
