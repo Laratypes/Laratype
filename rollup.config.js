@@ -2,10 +2,11 @@ import esbuild from 'rollup-plugin-esbuild'
 import { entries } from "./scripts/alias.js";
 import alias from '@rollup/plugin-alias'
 import path from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { nodeResolve } from "@rollup/plugin-node-resolve"
 import commonjs from '@rollup/plugin-commonjs';
 import esmShim from '@rollup/plugin-esm-shim';
+import { mergeConfig } from 'vite';
 
 /**
  * @param {string} targetFile
@@ -28,13 +29,21 @@ const tasks = Object.entries(entries)
   .filter(([pkgName, entryPoint]) => existsSync(entryPoint))
   .map(([pkgName, entryPoint]) => {
     const dir = path.resolve(`./packages/${pkgName.replace('@laratype', '')}/dist`);
-    
-    return {
+    const buildFormat = JSON.parse(
+      readFileSync(
+        path.resolve(`./packages/${pkgName.replace('@laratype', '')}/package.json`), 'utf-8'
+      )
+    ).buildOptions ?? {};
+
+    if(!buildFormat.external) {
+      buildFormat.external = [];
+    }
+
+    buildFormat.external.push(/@laratype\/.*/);
+
+    const baseConfig = {
       input: entryPoint,
-      output: pkgName === 'sauf' ? {
-        dir,
-        format: 'es',
-       } : [
+      output: [
         {
           file: `${dir}/index.js`,
           format: 'cjs',
@@ -47,21 +56,30 @@ const tasks = Object.entries(entries)
       plugins: [
         alias({ entries }),
         esmShim(),
-        commonjs({}),
+        commonjs({
+          ignoreDynamicRequires: true
+        }),
         nodeResolve(),
         (pkgName === 'sauf' ? removeHashBang('sauf/src/bin/index.ts') : {}),
         esbuild({
           tsconfig: 'tsconfig.build.json',
           banner: pkgName === 'sauf' ? '#!/usr/bin/env node' : undefined,
-          // minify: pkgName !== 'sauf',
+          minify: pkgName !== 'sauf',
           minify: false,
           target: 'esnext',
         }),
       ],
     }
+
+    const config = mergeConfig(baseConfig, buildFormat);
+
+    return config;
   })
 
 tasks.push({
+  external: [
+    /@laratype\/.*/,
+  ],
   input: 'src/index.ts',
   output: [
     {
