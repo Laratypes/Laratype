@@ -14,3 +14,5 @@ jobs:
 
       - name: Release
         run: pnpm build && pnpm build:type && pnpm publish -r --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
