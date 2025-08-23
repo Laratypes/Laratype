@@ -5,34 +5,39 @@ class Command {
 
   static description: string;
 
-  protected commander: Commander;
+  protected commander: Commander|undefined;
 
-  protected options: string[][] | undefined;
+  static options: string[][] | undefined;
 
-  protected argument: string | undefined;
+  static argument: string | undefined;
 
   constructor() {
-    const command = <typeof Command>this.constructor;
+    this.__initCommander();
+  }
 
-    const commander = this.commander = new Commander(command.signature);
+  protected __initCommander() {
+
+    const command = <typeof Command>this.constructor;
+    const commander = this.getCommander(); 
 
     commander
       .description(command.description);
 
-    this.options?.forEach(options => {
+    command.options?.forEach(options => {
       const [flags, description, defaultValue] = options;
       commander.option(flags, description, defaultValue);
     });
 
-    if (this.argument) {
-      commander.argument(this.argument);
+    if (command.argument) {
+      commander.argument(command.argument);
     }
 
     commander.action(this.handle.bind(this))
   }
 
   public getCommander() {
-    return this.commander
+    const command = <typeof Command>this.constructor;
+    return this.commander ??= new Commander(command.signature);
   }
 
   public handle() {
