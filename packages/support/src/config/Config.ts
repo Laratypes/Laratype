@@ -3,15 +3,15 @@ import { ConfigLoaderNotLoadYet } from "../exception/ConfigLoaderNotLoadYet";
 import { LaratypeConfig as ConfigContract } from "../contracts/Config";
 
 export default class Config {
-  protected static config = null;
 
   public static get<T extends Object.Paths<ConfigContract.AppConfig>>(keys: T)
   {
-    if(this.config === null) {
+    const config = (globalThis as any).__laratype_config
+    if(!config) {
       throw new ConfigLoaderNotLoadYet();
     }
 
-    let ctx = this.config;
+    let ctx = config;
 
     for (const key of keys) {
       ctx = ctx[key];
@@ -24,6 +24,6 @@ export default class Config {
   }
 
   public static setConfigs(config: any) {
-    this.config = config;
+    (globalThis as any).__laratype_config = config;
   }
 }

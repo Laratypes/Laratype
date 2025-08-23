@@ -2,23 +2,42 @@ import { Command as Commander } from 'commander'
 
 class Command {
   static signature: string;
-  
+
   static description: string;
 
-  protected commander: Commander;
+  protected commander: Commander|undefined;
+
+  static options: string[][] | undefined;
+
+  static argument: string | undefined;
 
   constructor() {
-    const commander = this.commander = new Commander();
+    this.__initCommander();
+  }
+
+  protected __initCommander() {
 
     const command = <typeof Command>this.constructor;
+    const commander = this.getCommander(); 
 
     commander
-      .command(command.signature)
-      .description(command.description)
+      .description(command.description);
+
+    command.options?.forEach(options => {
+      const [flags, description, defaultValue] = options;
+      commander.option(flags, description, defaultValue);
+    });
+
+    if (command.argument) {
+      commander.argument(command.argument);
+    }
+
+    commander.action(this.handle.bind(this))
   }
 
   public getCommander() {
-    return this.commander
+    const command = <typeof Command>this.constructor;
+    return this.commander ??= new Commander(command.signature);
   }
 
   public handle() {

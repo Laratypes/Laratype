@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "module": "dist/shared.esm-bundler.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Laratypes/Laratype.git",
@@ -29,16 +30,16 @@
     }
   },
   "buildOptions": {
-    "formats": [
-      "esm-bundler",
-      "cjs"
+    "external": [
+      "dotenv"
     ]
   },
   "dependencies": {
+    "@laratype/console": "workspace:*",
     "dotenv": "^16.4.5",
     "glob": "^11.0.0",
-    "ts-toolbelt": "^9.6.0",
-    "@laratype/console": "workspace:*"
+    "mlly": "^1.7.4",
+    "ts-toolbelt": "^9.6.0"
   },
   "peerDependencies": {
     "dayjs": "^1.11.13",

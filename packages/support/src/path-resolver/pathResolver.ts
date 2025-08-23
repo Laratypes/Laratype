@@ -1,6 +1,7 @@
 import path from "path";
 import { cwd } from "process";
 import { pathToFileURL } from 'node:url';
+import { resolveSync } from 'mlly'
 
 export const getProjectPath = (pathFile: string, withURI = true) => {
   const fileUri = path.resolve(`${cwd()}${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
@@ -13,3 +14,18 @@ export const getProjectPath = (pathFile: string, withURI = true) => {
 export const getDefaultExports = (module: any) => {
   return module.default;
 }
+
+export const importModule = async (moduleName: string, options: { url?: string } = {}) => {
+  const id = resolveSync(moduleName, {
+    url: options.url
+  });
+
+  try {
+    return await import( /* @vite-ignore */ id);
+  }
+  catch(e) {
+    console.error(`Failed to import module: ${moduleName}`, e, id);
+  }
+}
+
+export { resolveSync, resolvePathSync } from 'mlly';

@@ -32,10 +32,6 @@
     "dayjs": "^1.11.13"
   },
   "buildOptions": {
-    "formats": [
-      "esm-bundler",
-      "cjs"
-    ]
   },
   "files": [
     "dist"

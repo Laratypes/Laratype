@@ -10,21 +10,26 @@ export default class Serve {
 
   protected static port: number = 3000;
 
+  protected static host: string = 'localhost';
+
   public static getInstance() {
     if(!this.instance) this.instance = new Hono();
     return this.instance
   }
 
-  public static async create() {
+  public static async create(port?: number, host?: string) {
     const instance = this.getInstance();
+
+    this.port = port || this.port;
+    this.host = host || this.host;
 
     return await this.bootProvider()
     .then(() => {
       serve({
         fetch: instance.fetch,
         port: this.port,
+        hostname: this.host,
       })
-      Console.log(`Server started at port ${this.port}`)
       return instance
     }).catch((e) => {
       Console.error(ExceptionParser.parse(e));

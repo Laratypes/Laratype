@@ -15,6 +15,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
@@ -29,8 +30,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.4.1",
-    "@laratype/database": "workspace:*",
-    "@laratype/http": "workspace:*",
+    "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*",
     "dotenv": "^16.4.5",
     "hono": "^4.6.18",
@@ -44,6 +44,7 @@
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-commonjs": "^28.0.2",
+    "@rollup/plugin-esm-shim": "^0.1.8",
     "@rollup/plugin-node-resolve": "^16.0.0",
     "@types/node": "^20.11.24",
     "commander": "^13.1.0",
