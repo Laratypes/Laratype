@@ -30,9 +30,8 @@
     }
   },
   "buildOptions": {
-    "formats": [
-      "esm-bundler",
-      "cjs"
+    "external": [
+      "dotenv"
     ]
   },
   "dependencies": {

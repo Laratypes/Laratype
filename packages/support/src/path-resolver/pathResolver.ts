@@ -15,13 +15,17 @@ export const getDefaultExports = (module: any) => {
   return module.default;
 }
 
-export const importModule = async (moduleName: string) => {
+export const importModule = async (moduleName: string, options: { url?: string } = {}) => {
+  const id = resolveSync(moduleName, {
+    url: options.url
+  });
+
   try {
-    return await import( /* @vite-ignore */ resolveSync(moduleName));
+    return await import( /* @vite-ignore */ id);
   }
-  catch {
-    console.error(`Failed to import module: ${moduleName}`);
+  catch(e) {
+    console.error(`Failed to import module: ${moduleName}`, e, id);
   }
 }
 
-export { resolveSync } from 'mlly';
+export { resolveSync, resolvePathSync } from 'mlly';
