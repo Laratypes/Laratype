@@ -1,6 +1,6 @@
 {
   "name": "laratype",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Laratypes Core",
   "private": false,
   "type": "module",
@@ -26,6 +26,7 @@
   "scripts": {
     "build": "rollup -c",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
+    "iv": "node ./scripts/incrementalVersion.js",
     "test": "vitest"
   },
   "dependencies": {
