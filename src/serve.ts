@@ -30,7 +30,6 @@ export default class Serve {
         port: this.port,
         hostname: this.host,
       })
-      Console.log(`Server started at port ${this.port}`)
       return instance
     }).catch((e) => {
       Console.error(ExceptionParser.parse(e));
