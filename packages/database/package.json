@@ -1,6 +1,6 @@
 {
   "name": "@laratype/database",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
@@ -26,8 +26,7 @@
     "@laratype/support": "workspace:*",
     "@laratype/log": "workspace:*"
   },
-  "buildOptions": {
-  },
+  "buildOptions": {},
   "peerDependencies": {
     "typeorm": "^0.3.20"
   },
