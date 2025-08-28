@@ -2,6 +2,7 @@ import path from "path";
 import { cwd } from "process";
 import { pathToFileURL } from 'node:url';
 import { resolveSync } from 'mlly'
+import { existsSync } from "node:fs";
 
 export const getProjectPath = (pathFile: string, withURI = true) => {
   const fileUri = path.resolve(`${cwd()}${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
@@ -16,9 +17,21 @@ export const getDefaultExports = (module: any) => {
 }
 
 export const importModule = async (moduleName: string, options: { url?: string } = {}) => {
-  const id = resolveSync(moduleName, {
-    url: options.url
-  });
+  let id;
+  if(__PROD__) {
+    id = resolveSync(moduleName, {
+      url: options.url
+    })
+  }
+  else {
+    if(existsSync(path.resolve(moduleName))) {
+      const fileUri = pathToFileURL(moduleName).href;
+      id = fileUri;
+    }
+    else {
+      id = moduleName
+    }
+  }
 
   try {
     return await import( /* @vite-ignore */ id);

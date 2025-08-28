@@ -24,10 +24,10 @@
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js"
     },
-    "./*": "./*",
-    "./contracts": {
-      "types": "./src/contracts/Env.d.ts"
-    }
+    "./env": {
+      "types": "./env.d.ts"
+    },
+    "./*": "./*"
   },
   "buildOptions": {
     "external": [

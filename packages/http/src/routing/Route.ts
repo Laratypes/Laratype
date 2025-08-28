@@ -3,16 +3,30 @@ import RequestKernel from "../request/Request";
 import { ServiceProvider } from "@laratype/support";
 import { RouteOptions } from "../contracts/Route";
 
+const __filterMiddleware = (allMiddleware: NonNullable<RouteOptions['middleware']>, withoutMiddleware: NonNullable<RouteOptions['middleware']>) => {
+  return allMiddleware.filter((middleware) => {
+    return !withoutMiddleware.includes(middleware)
+  });
+}
+
 const _createNestedRoute = (
   app: Hono,
   router: RouteOptions,
   path: string = '',
   middleware?: RouteOptions['middleware'],
+  withoutMiddleware?: RouteOptions['middleware']
 ) => {
   if (router.method && router.controller) {
+    const filteredMiddleware = __filterMiddleware(
+      [...(middleware ?? []), ...(router.middleware ?? [])],
+      [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])]
+    );
     app[router.method](
       `${path}${router.path}`,
-      RequestKernel.handle(router)
+      RequestKernel.handle({
+        ...router,
+        middleware: filteredMiddleware,
+      })
     );
   }
 
@@ -22,6 +36,7 @@ const _createNestedRoute = (
       childRouter,
       path + router.path,
       [...(middleware ?? []), ...(router.middleware ?? [])],
+      [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])],
     );
   });
 };

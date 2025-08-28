@@ -67,6 +67,9 @@ const tasks = Object.entries(entries)
           minify: pkgName !== 'sauf',
           minify: false,
           target: 'esnext',
+          define: {
+            __PROD__: false,
+          }
         }),
       ],
     }
@@ -98,6 +101,9 @@ tasks.push({
     esbuild({
       tsconfig: 'tsconfig.build.json',
       minify: false,
+      define: {
+        __PROD__: true,
+      }
     }),
   ],
 })

@@ -1,16 +1,17 @@
-import { CockroachConnectionOptions } from "typeorm/driver/cockroachdb/CockroachConnectionOptions";
-import { MysqlConnectionOptions } from "typeorm/driver/mysql/MysqlConnectionOptions";
-import { PostgresConnectionOptions } from "typeorm/driver/postgres/PostgresConnectionOptions";
-import { SqliteConnectionOptions } from "typeorm/driver/sqlite/SqliteConnectionOptions";
-import { SqlServerConnectionOptions } from "typeorm/driver/sqlserver/SqlServerConnectionOptions";
-import { OracleConnectionOptions } from "typeorm/driver/oracle/OracleConnectionOptions";
-import { MongoConnectionOptions } from "typeorm/driver/mongodb/MongoConnectionOptions";
-import { CordovaConnectionOptions } from "typeorm/driver/cordova/CordovaConnectionOptions";
-import { ReactNativeConnectionOptions } from "typeorm/driver/react-native/ReactNativeConnectionOptions";
-import { NativescriptConnectionOptions } from "typeorm/driver/nativescript/NativescriptConnectionOptions";
-import { ExpoConnectionOptions } from "typeorm/driver/expo/ExpoConnectionOptions";
-import { SapConnectionOptions } from "typeorm/driver/sap/SapConnectionOptions";
-import { SpannerConnectionOptions } from "typeorm/driver/spanner/SpannerConnectionOptions";
+import type { CockroachConnectionOptions } from "typeorm/driver/cockroachdb/CockroachConnectionOptions";
+import type { MysqlConnectionOptions } from "typeorm/driver/mysql/MysqlConnectionOptions";
+import type { PostgresConnectionOptions } from "typeorm/driver/postgres/PostgresConnectionOptions";
+import type { SqliteConnectionOptions } from "typeorm/driver/sqlite/SqliteConnectionOptions";
+import type { SqlServerConnectionOptions } from "typeorm/driver/sqlserver/SqlServerConnectionOptions";
+import type { OracleConnectionOptions } from "typeorm/driver/oracle/OracleConnectionOptions";
+import type { MongoConnectionOptions } from "typeorm/driver/mongodb/MongoConnectionOptions";
+import type { CordovaConnectionOptions } from "typeorm/driver/cordova/CordovaConnectionOptions";
+import type { ReactNativeConnectionOptions } from "typeorm/driver/react-native/ReactNativeConnectionOptions";
+import type { NativescriptConnectionOptions } from "typeorm/driver/nativescript/NativescriptConnectionOptions";
+import type { ExpoConnectionOptions } from "typeorm/driver/expo/ExpoConnectionOptions";
+import type { SapConnectionOptions } from "typeorm/driver/sap/SapConnectionOptions";
+import type { SpannerConnectionOptions } from "typeorm/driver/spanner/SpannerConnectionOptions";
+import type { Strategy } from "passport"
 import { O } from "ts-toolbelt"
 
 export namespace LaratypeConfig {
@@ -87,4 +88,18 @@ export namespace LaratypeConfig {
       }>
     }
   }
+
+  type AuthGuard = {
+    readonly strategy: typeof Strategy
+    readonly strategyName: string
+    readonly options: Record<string, any>
+  }
+
+  type GuardType = "guard"
+
+  export interface Auth {
+    default: Record<GuardType, string>,
+    guards: Record<string, AuthGuard>
+  }
+
 }

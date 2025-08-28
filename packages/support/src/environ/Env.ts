@@ -1,4 +1,4 @@
-import { EnvVariables } from "../contracts/Env";
+/// <reference path="../../env.d.ts" />
 
 export default class Env {
 
