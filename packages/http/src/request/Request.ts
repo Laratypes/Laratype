@@ -5,6 +5,7 @@ import ResponseKernel from "../response/Response";
 import { RouteOptions, RouteParams } from "../contracts/Route";
 import { InternalException, ServiceProvider, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
+import Middleware from "../middleware/Middleware";
 
 export default class Request extends ServiceProvider {
 
@@ -36,12 +37,6 @@ export default class Request extends ServiceProvider {
     return new RequestSupport(request)
   }
 
-  public static async processRequest(request: HonoRequest, routeOption: RouteOptions)
-  {
-    const requestInstance = await this.processData(request);
-    return this.processValidation(requestInstance, routeOption);
-  }
-
   public static async processData(request: HonoRequest) {
     switch(request.header('Content-Type')) {
       case 'application/json':
@@ -61,11 +56,32 @@ export default class Request extends ServiceProvider {
     return request;
   }
 
-  public static async processValidation(request: HonoRequest, routeOption: RouteOptions) {
-    if(!request.input) {
-      await this.processData(request);
+  public static async pipeline(requestInstance: RequestSupport, pipelines: Array<(typeof Middleware) | RequestSupport | string>, routeOption: RouteOptions) {
+    if(pipelines.length) {
+      const pipeline = async () => {
+        let index = 0;
+        const next = async () => {
+          const currentPipeline = pipelines[index++];
+          if (currentPipeline) {
+            if(currentPipeline instanceof RequestSupport) {
+              await this.processValidation(requestInstance, routeOption);
+              return await next();
+            }
+            else if(typeof currentPipeline ==="string") {
+              return await this.controllerKernel(routeOption.controller)(requestInstance)
+            }
+            else {
+              return await new currentPipeline().handle(requestInstance, next);
+            }
+          }
+        };
+        return await next();
+      };
+      return pipeline();
     }
-    const requestInstance = this.transformRequest(request, routeOption)
+  }
+
+  public static async processValidation(requestInstance: RequestSupport, routeOption: RouteOptions) {
     if(routeOption.request) {
       try {
         const result = await this.validate(requestInstance.all(), requestInstance.rules())
@@ -84,9 +100,18 @@ export default class Request extends ServiceProvider {
   
   public static handle (routeOption: RouteOptions) {
     return async (ctx: Context) => {
-      const requestInstance = await this.processRequest(ctx.req, routeOption)
-      const responseController = await this.controllerKernel(routeOption.controller)(requestInstance)
-      return ResponseKernel.resolveResponse(ctx, responseController)
+      const requestInstance = await this.processData(ctx.req);
+      const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      const pipelines = [
+        ...routeOption.middleware ?? [],
+        transformedRequest,
+        "controller",
+      ];
+
+      // ctx.laratypeRequest = requestInstance
+      const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption);
+
+      return ResponseKernel.resolveResponse(ctx, pipelineResult)
     }
   }
 

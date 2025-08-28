@@ -6,7 +6,8 @@ import { METHOD } from "./Request";
 export { };
 
 export type RouteOptions = ({
-  middleware?: Array<Middleware>,
+  middleware?: Array<typeof Middleware>,
+  withoutMiddleware?: Array<typeof Middleware>,
   children: Array<RouteOptions>,
   method?: METHOD,
   controller?: ReturnType<Controller['__invoke']>,
@@ -16,7 +17,8 @@ export type RouteOptions = ({
   controller: ReturnType<Controller['__invoke']>,
 }) & {
   path: string,
-  middleware?: Array<Middleware>,
+  middleware?: Array<typeof Middleware>,
+  withoutMiddleware?: Array<typeof Middleware>,
   request?: typeof Request,
   name?: string,
   meta?: any,
@@ -27,7 +29,8 @@ export type RouteParams = {
   path: string,
   request?: typeof Request,
   controller: ReturnType<Controller['__invoke']>,
-  middleware?: Array<Middleware>,
+  middleware?: Array<typeof Middleware>,
+  withoutMiddleware?: Array<typeof Middleware>,
   name?: string,
   meta?: any,
 }
