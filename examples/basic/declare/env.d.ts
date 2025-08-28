@@ -1,4 +1,7 @@
-export interface EnvVariables {
+/// <reference types="@laratype/support/env" />
+
+interface EnvVariables {
+  AUTH_GUARD: string;
   APP_NAME: string | null;
   APP_ENV: string | null;
   APP_DEBUG: boolean | null;
@@ -10,4 +13,8 @@ export interface EnvVariables {
   APP_KEY: string | null
   LOG_CHANNEL: "stack" | "single" | "daily" | null;
   LOG_LEVEL: string | null;
+
+  // Google
+  AUTH_GOOGLE_CLIENT_ID: string | null;
+  AUTH_GOOGLE_CLIENT_SECRET: string | null;
 }

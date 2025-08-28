@@ -2,11 +2,14 @@
   "extends": "./tsconfig.app.json",
   "include": [
     "packages/*/src",
+    "packages/global.d.ts",
     "./src",
     "examples/*/src",
     "examples/*/config",
+    "examples/*/routes",
+    "examples/*/declare",
     "packages/*/__tests__",
     "rollup.config.js",
-    "./scripts",
+    "./scripts", "examples/basic/routes",
   ]
 }
