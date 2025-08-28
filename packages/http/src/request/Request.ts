@@ -6,6 +6,7 @@ import { RouteOptions, RouteParams } from "../contracts/Route";
 import { InternalException, ServiceProvider, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
+import TrackingRequestGlobalStore from "../tracking";
 
 export default class Request extends ServiceProvider {
 
@@ -102,16 +103,17 @@ export default class Request extends ServiceProvider {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
-      const pipelines = [
-        ...routeOption.middleware ?? [],
-        transformedRequest,
-        "controller",
-      ];
 
-      // ctx.laratypeRequest = requestInstance
-      const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption);
+      return TrackingRequestGlobalStore.run(transformedRequest, async () => {
+        const pipelines = [
+          ...routeOption.middleware ?? [],
+          transformedRequest,
+          "controller",
+        ];
 
-      return ResponseKernel.resolveResponse(ctx, pipelineResult)
+        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption);
+        return ResponseKernel.resolveResponse(ctx, pipelineResult);
+      });
     }
   }
 
