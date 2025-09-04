@@ -1,4 +1,4 @@
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import { createWriteStream, existsSync, mkdirSync, WriteStream } from "fs";
 import DriverNotImplement from "./exceptions/DriverNotImplement";
 import { LaratypeConfig as Config } from "@laratype/support";
@@ -34,7 +34,7 @@ export default class Logger {
   }
 
   public makeDirectoryIfNotExists(path: string){
-    const dirPath = path.split('/').slice(0, -1).join('/');
+    const dirPath = dirname(path);
     if (!existsSync(dirPath)) {
       mkdirSync(dirPath, { recursive: true });
     }

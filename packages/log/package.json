@@ -9,6 +9,7 @@
     "url": "git+https://github.com/Laratypes/Laratype.git",
     "directory": "packages/log"
   },
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
