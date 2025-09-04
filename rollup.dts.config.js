@@ -24,17 +24,4 @@ const tasks = Object.entries(entries)
     }
   })
 
-tasks.push({
-  input: 'dist_tmp/src/index.d.ts',
-  output: [
-    {
-      file: 'dist/index.d.ts',
-      format: 'es',
-    },
-  ],
-  plugins: [
-    dts()
-  ],
-})
-
 export default tasks;

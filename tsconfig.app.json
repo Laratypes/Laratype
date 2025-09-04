@@ -20,7 +20,16 @@
     "isolatedModules": true,
     "outDir": "dist",
     "allowJs": true,
-    "checkJs": false
+    "checkJs": false,
+
+    // TypeORM
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
   },
   "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node",
+    "swc": true
+  }
 }
