@@ -68,7 +68,7 @@ const tasks = Object.entries(entries)
           minify: false,
           target: 'esnext',
           define: {
-            __PROD__: false,
+            __PROD__: `true`,
           }
         }),
       ],
@@ -102,7 +102,7 @@ tasks.push({
       tsconfig: 'tsconfig.build.json',
       minify: false,
       define: {
-        __PROD__: true,
+        __PROD__: `true`,
       }
     }),
   ],

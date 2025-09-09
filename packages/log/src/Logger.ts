@@ -1,14 +1,16 @@
-import { resolve } from "path";
-import { createWriteStream, existsSync, mkdirSync, WriteStream } from "fs";
-import DriverNotImplement from "./exceptions/DriverNotImplement";
+import { dirname, resolve } from "path";
+import { existsSync, mkdirSync } from "fs";
+
+import winston from "winston";
 import { LaratypeConfig as Config } from "@laratype/support";
+import DriverNotImplement from "./exceptions/DriverNotImplement";
 
 type Driver = Config.Logging.CHANNEL
 
 export default class Logger {
   protected driver: Driver
   protected storagePath: string
-  protected logStream: WriteStream | null = null
+  protected logStream: winston.Logger | null = null
 
   constructor(driver: Driver, storagePath: string) {
     this.driver = driver
@@ -34,7 +36,7 @@ export default class Logger {
   }
 
   public makeDirectoryIfNotExists(path: string){
-    const dirPath = path.split('/').slice(0, -1).join('/');
+    const dirPath = dirname(path);
     if (!existsSync(dirPath)) {
       mkdirSync(dirPath, { recursive: true });
     }
@@ -42,14 +44,25 @@ export default class Logger {
 
   public create() {
     if(this.driver === "single") {
-      this.logStream = createWriteStream(this.getLogFilePath(), {
-        flags: 'a',
-        encoding: 'utf8'
-      })
+      this.logStream = winston.createLogger({
+        transports: [
+          new winston.transports.File({
+            filename: this.getLogFilePath(),
+            handleExceptions: true
+          })
+        ]
+      });
     }
   }
 
-  public log(message: string) {
-    this.logStream?.write(message)
+  public log(level: string, message: string) {
+    this.logStream?.log({
+      level,
+      message,
+    })
   }
+
+  public getLogStream() {
+    return this.logStream;
+  } 
 }

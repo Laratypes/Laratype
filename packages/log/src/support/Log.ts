@@ -1,7 +1,11 @@
 import { Config } from "@laratype/support";
+import dayjs from "dayjs";
+import { format } from "winston";
+
 import Logger from "../Logger";
-import dayjs from "dayjs"
 import DriverNotImplement from "../exceptions/DriverNotImplement";
+
+const { combine, timestamp, label, printf } = format;
 
 export default class Log {
   
@@ -13,34 +17,43 @@ export default class Log {
     }
     if(this.logger == null) {
       this.logger = new Logger(driver, "./storage/logs/laratype.log")
+
+      this.logger.getLogStream()!.format = combine(
+        label({ label: Config.get(['env'] as const) }),
+        timestamp(),
+        this.format()
+      )
     }
+
     return this.logger;
   }
 
-  public static format(level: string, ...messages: any[]) {
-    return `[${dayjs.tz().toISOString()}] [${level}] [${Config.get(['env'] as const)}] ${messages.join("\n")}\n`;
+  public static format() {
+    return printf(({ level, message, label, timestamp }) => {
+      return `[${timestamp}] [${label}] ${level}: ${message}`;
+    })
   }
 
   public static info(message: any): void {
-    this.getLogger().log(this.format("INFO", message));
+    this.getLogger().log("info", message);
   }
-  public static error(message: any, stack?: any): void {
-    this.getLogger().log(this.format("ERROR", message, stack));
+  public static error(message: any): void {
+    this.getLogger().log("error", message);
   }
   public static warn(message: any): void {
-    this.getLogger().log(this.format("WARN", message));
+    this.getLogger().log("warn", message);
   }
   public static debug(message: any): void {
-    this.getLogger().log(this.format("DEBUG", message));
+    this.getLogger().log("debug", message);
   }
   public static emergency(message: any): void {
-    this.getLogger().log(this.format("EMERGENCY", message));
+    this.getLogger().log("emergency", message);
   }
   public static alert(message: any): void {
-    this.getLogger().log(this.format("ALERT", message));
+    this.getLogger().log("alert", message);
   }
   public static critical(message: any): void {
-    this.getLogger().log(this.format("CRITICAL", message));
+    this.getLogger().log("critical", message);
   }
 
 }
