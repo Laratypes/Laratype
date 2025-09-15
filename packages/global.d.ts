@@ -15,3 +15,5 @@ declare var __laratype_config: any;
 declare var __laratype_db: {
   ds: import("typeorm").DataSource
 };
+
+declare var __laratype_routes: Array<Record<string, any>> | undefined;

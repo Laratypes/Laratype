@@ -1,10 +1,10 @@
 import { defineRouteGroup } from "@laratype/http";
-import { AppServiceProvider } from "@laratype/support";
+import { RouteAppServiceProvider } from "@laratype/support";
 import { baseRouteApi } from "../../routes/api";
 
-export default class RouteServiceProvider extends AppServiceProvider {
+export default class RouteServiceProvider extends RouteAppServiceProvider {
 
-  public boot(): void {
-    defineRouteGroup("/api", baseRouteApi, this)
+  public routes() {
+    return defineRouteGroup("/api", baseRouteApi, this)
   }
 }
