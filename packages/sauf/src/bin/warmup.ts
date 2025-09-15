@@ -7,6 +7,10 @@ import standard from "figlet/importable-fonts/Standard.js";
 import frameworkCommands from "../commands";
 import { importRootCommands } from "../utils";
 
+if(globalThis.__PROD__ === undefined) {
+  globalThis.__PROD__ = process.env.NODE_ENV === "production"
+}
+
 figlet.parseFont("Standard", standard);
 
 console.log(green(figlet.textSync("Laratype")));
