@@ -10,11 +10,11 @@ export type RouteOptions = ({
   withoutMiddleware?: Array<typeof Middleware>,
   children: Array<RouteOptions>,
   method?: METHOD,
-  controller?: ReturnType<Controller['__invoke']>,
+  controller?: [Controller, string],
 } | {
   method: METHOD,
   children?: Array<RouteOptions>,
-  controller: ReturnType<Controller['__invoke']>,
+  controller: [Controller, string],
 }) & {
   path: string,
   middleware?: Array<typeof Middleware>,
@@ -28,7 +28,7 @@ export type RouteParams = {
   method: METHOD,
   path: string,
   request?: typeof Request,
-  controller: ReturnType<Controller['__invoke']>,
+  controller: [Controller, string]
   middleware?: Array<typeof Middleware>,
   withoutMiddleware?: Array<typeof Middleware>,
   name?: string,

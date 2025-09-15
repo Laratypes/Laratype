@@ -6,79 +6,96 @@ import CreateUserRequest from "../src/http/requests/CreateUserRequest";
 import TestRequest from "../src/http/requests/TestRequest";
 import { LoginController } from "../src/http/controllers/LoginController";
 import { passport } from "@laratype/auth";
-import { EnsureMiddlewareWorking, EnsureMiddlewareWorking2, Web } from "../src/http/middleware/Middleware";
+import { EnsureMiddlewareWorking, EnsureMiddlewareWorking2, GoogleAuthentication, LocalAuthentication, Web } from "../src/http/middleware/Middleware";
+import RegisterController from "../src/http/controllers/RegisterController";
 
 export const baseRouteApi: RouteOptions = {
   path: "/test",
   middleware: [
     Web
   ],
-  controller: BaseController.prototype.__invoke('home'),
+  controller: BaseController.__invoke('home'),
   request: TestRequest,
   method: "get",
   children: [
     // {
     //   path: "/raw/:dataType",
-    //   controller: BaseController.prototype.__invoke('testRawDataType'),
+    //   controller: BaseController.__invoke('testRawDataType'),
     //   method: "get"
     // },
     // {
     //   path: "/collection/:dataType",
-    //   controller: BaseController.prototype.__invoke('testCollectionDataType'),
+    //   controller: BaseController.__invoke('testCollectionDataType'),
     //   method: "get"
     // },
     // {
     //   path: "/hello-world",
-    //   controller: BaseController.prototype.__invoke('helloWorld'),
+    //   controller: BaseController.__invoke('helloWorld'),
     //   method: "get"
     // },
     // {
     //   path: "/redirected",
-    //   controller: BaseController.prototype.__invoke('testRedirect'),
+    //   controller: BaseController.__invoke('testRedirect'),
     //   method: "get"
     // },
     // {
     //   path: "/users",
-    //   controller: UserController.prototype.__invoke('store'),
+    //   controller: UserController.__invoke('store'),
     //   request: CreateUserRequest,
     //   method: "post",
     //   children: [
     //     {
     //       path: '',
     //       method: 'get',
-    //       controller: UserController.prototype.__invoke('index'),
+    //       controller: UserController.__invoke('index'),
     //     }
     //   ]
     // },
     // {
     //   path: "/posts",
-    //   controller: PostController.prototype.__invoke('store'),
+    //   controller: PostController.__invoke('store'),
     //   method: "post",
     //   children: [
     //     {
     //       path: '',
     //       method: 'get',
-    //       controller: PostController.prototype.__invoke('index')
+    //       controller: PostController.__invoke('index')
     //     }
     //   ]
     // },
     {
+      path: '/register',
+      controller: RegisterController.__invoke('register'),
+      method: "post",
+      request: CreateUserRequest,
+    },
+    {
       path: '/passport',
-      controller: LoginController.prototype.__invoke('loginWithGoogle'),
+      controller: LoginController.__invoke('loginWithGoogle'),
       method: "get",
-      middleware: [
-        EnsureMiddlewareWorking,
-      ],
-      withoutMiddleware: [
-        Web,
-      ],
       children: [
+        {
+          path: '/login',
+          method: "post",
+          controller: LoginController.__invoke('login'),
+          middleware: [
+            LocalAuthentication,
+          ]
+        },
         {
           path: '/callback',
           method: "get",
-          controller: LoginController.prototype.__invoke('handleGoogleCallback'),
+          controller: LoginController.__invoke('handleGoogleLogin'),
           middleware: [
-            EnsureMiddlewareWorking2,
+            GoogleAuthentication,
+          ]
+        },
+        {
+          path: '/google/callback',
+          method: "get",
+          controller: LoginController.__invoke('handleGoogleCallback'),
+          middleware: [
+            GoogleAuthentication,
           ]
         }
       ]

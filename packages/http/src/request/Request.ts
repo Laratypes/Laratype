@@ -17,7 +17,7 @@ export default class Request extends AppServiceProvider {
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
     return (req: RequestSupport | undefined) => {
       
-      const controller = new c[0].constructor
+      const controller = new (c[0] as any)();
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
@@ -73,7 +73,10 @@ export default class Request extends AppServiceProvider {
               return await next(arg);
             }
             else if(typeof currentPipeline ==="string") {
-              return await this.controllerKernel(routeOption.controller)(requestInstance)
+              if(routeOption.controller) {
+                return await this.controllerKernel(routeOption.controller)(requestInstance)
+              }
+              return await next(arg);
             }
             else {
               const middleware = await new currentPipeline();
