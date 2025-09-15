@@ -97,9 +97,13 @@ export default class Response implements ResponseInterface {
     return this.redirectStatusCode;
   }
 
+  isModel() {
+    return this.content.constructor && this.content.constructor.dataSource;
+  }
+
   public shouldBeJson() {
     
-    return this.content instanceof JsonResource || this.content.constructor === Array || this.content.constructor === Object;
+    return this.isModel() || this.content instanceof JsonResource || this.content.constructor === Array || this.content.constructor === Object;
   }
   
 }
