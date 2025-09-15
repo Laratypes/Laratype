@@ -18,7 +18,7 @@ export const getDefaultExports = (module: any) => {
 
 export const importModule = async (moduleName: string, options: { url?: string } = {}) => {
   let id;
-  if(__PROD__) {
+  if(Boolean(__PROD__)) {
     id = resolveSync(moduleName, {
       url: options.url
     })

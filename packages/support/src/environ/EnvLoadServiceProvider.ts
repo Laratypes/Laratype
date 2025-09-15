@@ -29,7 +29,7 @@ export default class EnvLoadServiceProvider extends ServiceProvider {
       path,
     });
 
-    (globalThis as any).__laratype_env_file = path;
+    globalThis.__laratype_env_file = path;
 
   }
 

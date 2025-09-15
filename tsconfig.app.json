@@ -12,7 +12,7 @@
     "paths": {
       "@laratype/*": ["packages/*/src"],
       "sauf": ["packages/sauf/src"],
-      "laratype": ["./src"]
+      "laratype": ["packages/laratype/src"]
     },
     "composite": true,
     "allowSyntheticDefaultImports": true,

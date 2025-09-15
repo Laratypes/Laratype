@@ -1,0 +1,30 @@
+{
+  "name": "@laratype/auth",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.esm.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./*": "./*"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Ily1606",
+  "license": "MIT",
+  "dependencies": {
+    "@laratype/support": "workspace:*",
+    "passport": "^0.7.0",
+    "passport-google-oidc": "^0.1.0",
+    "typeorm-polymorphic": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/passport": "^1.0.17"
+  }
+}

@@ -1,2 +1,8 @@
-[2025-05-01T11:01:15.527Z] [ERROR] [local] TypeError: this.mysql.createPool is not a function
-
+[2025-09-04T08:14:28.259Z] [local] error: AggregateError
+[2025-09-05T01:54:08.499Z] [local] error: AggregateError
+[2025-09-05T01:57:06.519Z] [local] error: ColumnTypeUndefinedError: Column type for User#firstName is not defined and cannot be guessed. Make sure you have turned on an "emitDecoratorMetadata": true option in tsconfig.json. Also make sure you have imported "reflect-metadata" on top of the main entry file in your application (before any entity imported).If you are using JavaScript instead of TypeScript you must explicitly provide a column type.
+[2025-09-05T09:35:21.007Z] [local] error: AggregateError
+[2025-09-08T04:49:05.999Z] [local] error: AggregateError
+[2025-09-10T01:42:13.738Z] [local] error: AggregateError
+[2025-09-15T14:07:37.826Z] [local] error: AggregateError
+[2025-09-15T14:07:44.769Z] [local] error: AggregateError

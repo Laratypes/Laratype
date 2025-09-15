@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { serve } from '@hono/node-server'
-import { boot } from "./bootstrap";
+import { register } from "./bootstrap";
 import { Console } from "@laratype/console";
 import { ExceptionParser } from "@laratype/support";
 
@@ -38,7 +38,7 @@ export default class Serve {
 
   public static async bootProvider() {
     const instance = this.getInstance()
-    const serviceProviderBootstrapped = await boot()
+    const serviceProviderBootstrapped = await register()
     for(let Provider of serviceProviderBootstrapped) {
       const handler = new Provider(instance).boot()
       if(handler instanceof Promise) {

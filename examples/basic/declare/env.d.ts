@@ -17,4 +17,12 @@ interface EnvVariables {
   // Google
   AUTH_GOOGLE_CLIENT_ID: string | null;
   AUTH_GOOGLE_CLIENT_SECRET: string | null;
+
+  // Database
+  DB_CONNECTION: string | null;
+  DB_HOST: string | null;
+  DB_PORT: number | null;
+  DB_USERNAME: string | null;
+  DB_PASSWORD: string | null;
+  DB_DATABASE: string | null;
 }

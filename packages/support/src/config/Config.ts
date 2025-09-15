@@ -6,7 +6,7 @@ export default class Config {
 
   public static get<T extends Object.Paths<ConfigContract.AppConfig>>(keys: T)
   {
-    const config = (globalThis as any).__laratype_config
+    const config = globalThis.__laratype_config
     if(!config) {
       throw new ConfigLoaderNotLoadYet();
     }
@@ -24,6 +24,6 @@ export default class Config {
   }
 
   public static setConfigs(config: any) {
-    (globalThis as any).__laratype_config = config;
+    globalThis.__laratype_config = config;
   }
 }

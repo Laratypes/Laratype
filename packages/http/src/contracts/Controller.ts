@@ -1,4 +1,4 @@
-import { Context, Handler } from "hono"
+import type { Context, Handler } from "hono"
 
 export {}
 

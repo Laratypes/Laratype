@@ -9,6 +9,7 @@
     "url": "git+https://github.com/Laratypes/Laratype.git",
     "directory": "packages/database"
   },
+  "type": "module",
   "keywords": [],
   "author": "Ily1606",
   "license": "MIT",
@@ -23,8 +24,9 @@
     "./*": "./*"
   },
   "dependencies": {
+    "@laratype/log": "workspace:*",
     "@laratype/support": "workspace:*",
-    "@laratype/log": "workspace:*"
+    "reflect-metadata": "^0.2.2"
   },
   "buildOptions": {},
   "peerDependencies": {

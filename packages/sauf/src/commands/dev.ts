@@ -1,8 +1,16 @@
 import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo } from "@laratype/support";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, createLogger , type ViteDevServer } from "vite";
 import { Command, Console } from "@laratype/console";
 import { green, blue } from "kolorist";
 import path from "path";
+
+const logger = createLogger()
+const loggerWarn = logger.warn
+
+logger.warn = (msg, options) => {
+  if (msg.includes('vite:import-analysis') && msg.includes(' /* @vite-ignore */')) return
+  loggerWarn(msg, options)
+}
 
 export default class LaratypeDevCommand extends Command {
 
@@ -32,6 +40,7 @@ export default class LaratypeDevCommand extends Command {
     // Initialize Vite development server
     return this.viteDevServer ??= await createServer({
       appType: 'custom',
+      customLogger: logger
     })
   }
 
@@ -51,7 +60,7 @@ export default class LaratypeDevCommand extends Command {
     
     const commander = this.getCommander();
     const opts = commander.opts();
-    const envFileName = path.basename((globalThis as any).__laratype_env_file) ?? '';
+    const envFileName = path.basename(globalThis.__laratype_env_file) ?? '';
 
     const messages = [
       green(`Laratype v${version} dev server run on:`),

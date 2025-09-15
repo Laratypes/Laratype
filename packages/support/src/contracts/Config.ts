@@ -93,6 +93,7 @@ export namespace LaratypeConfig {
     readonly strategy: typeof Strategy
     readonly strategyName: string
     readonly options: Record<string, any>
+    provider: any
   }
 
   type GuardType = "guard"

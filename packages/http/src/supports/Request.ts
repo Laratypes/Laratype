@@ -12,6 +12,10 @@ export default class Request implements RequestInterface {
     this.requestCtx = requestCtx
   }
 
+  protocol() {
+    return new URL(this.requestCtx.url).protocol
+  }
+
   rules(): unknown {
     return {}
   }

@@ -1,14 +1,13 @@
-import { Context } from "hono";
+import { Context, Hono } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { RouteOptions, RouteParams } from "../contracts/Route";
-import { InternalException, ServiceProvider, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
-import TrackingRequestGlobalStore from "../tracking";
 
-export default class Request extends ServiceProvider {
+export default class Request extends AppServiceProvider {
 
   public static async validate(data: any, rule: any) {
     const result = FormValidation.validationResult(rule, data);
@@ -18,7 +17,7 @@ export default class Request extends ServiceProvider {
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
     return (req: RequestSupport | undefined) => {
       
-      const controller = new c[0].constructor
+      const controller = new (c[0] as any)();
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
@@ -57,26 +56,38 @@ export default class Request extends ServiceProvider {
     return request;
   }
 
-  public static async pipeline(requestInstance: RequestSupport, pipelines: Array<(typeof Middleware) | RequestSupport | string>, routeOption: RouteOptions) {
+  public static async pipeline(requestInstance: RequestSupport, pipelines: Array<(typeof Middleware) | RequestSupport | string>, routeOption: RouteOptions, res: Response) {
     if(pipelines.length) {
       const pipeline = async () => {
         let index = 0;
-        const next = async () => {
+        let error: any;
+        const next = async (arg?: any) => {
           const currentPipeline = pipelines[index++];
+          if(arg instanceof Error) {
+            error ??= arg;
+            return arg;
+          }
           if (currentPipeline) {
             if(currentPipeline instanceof RequestSupport) {
               await this.processValidation(requestInstance, routeOption);
-              return await next();
+              return await next(arg);
             }
             else if(typeof currentPipeline ==="string") {
-              return await this.controllerKernel(routeOption.controller)(requestInstance)
+              if(routeOption.controller) {
+                return await this.controllerKernel(routeOption.controller)(requestInstance)
+              }
+              return await next(arg);
             }
             else {
-              return await new currentPipeline().handle(requestInstance, next);
+              const middleware = await new currentPipeline();
+              middleware.setPreviousResult(arg);
+              return await middleware.handle(requestInstance, res, next);
             }
           }
         };
-        return await next();
+        const result = await next();
+
+        return error ?? result;
       };
       return pipeline();
     }
@@ -104,14 +115,21 @@ export default class Request extends ServiceProvider {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
 
-      return TrackingRequestGlobalStore.run(transformedRequest, async () => {
+      return ContextApi.run({
+        request: transformedRequest,
+        user: undefined
+      }, async () => {
         const pipelines = [
           ...routeOption.middleware ?? [],
           transformedRequest,
           "controller",
         ];
 
-        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption);
+        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
+
+        if(pipelineResult instanceof Error) {
+          throw pipelineResult;
+        }
         return ResponseKernel.resolveResponse(ctx, pipelineResult);
       });
     }

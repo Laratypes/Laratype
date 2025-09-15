@@ -29,4 +29,17 @@ export default {
       }
     },
   },
+  database: {
+    default: "mysql",
+    connections: {
+      mysql: {
+        type: "mysql",
+        host: Env.get("DB_HOST", "localhost"),
+        port: parseInt(Env.get("DB_PORT", "3306")),
+        username: Env.get("DB_USERNAME", "root"),
+        password: Env.get("DB_PASSWORD", ""),
+        database: Env.get("DB_DATABASE", "test"),
+      }
+    }
+  }
 } satisfies ConfigContract.AppConfig
