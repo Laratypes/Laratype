@@ -6,7 +6,6 @@ export { default as ResourceCollection } from "./resource/json/ResourceCollectio
 export { default as JsonResource } from "./resource/json/JsonResource"
 export { default as Controller } from "./controller/Controller"
 export { default as Middleware } from "./middleware/Middleware"
-export { default as TrackingRequestGlobalStore } from "./tracking"
 export * from "./routing/Route"
 export * from "./supports/helpers"
 export * from "./contracts"

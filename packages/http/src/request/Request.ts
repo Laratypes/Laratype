@@ -1,14 +1,13 @@
-import { Context } from "hono";
+import { Context, Hono } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { RouteOptions, RouteParams } from "../contracts/Route";
-import { InternalException, ServiceProvider, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
-import TrackingRequestGlobalStore from "../tracking";
 
-export default class Request extends ServiceProvider {
+export default class Request extends AppServiceProvider {
 
   public static async validate(data: any, rule: any) {
     const result = FormValidation.validationResult(rule, data);
@@ -113,7 +112,10 @@ export default class Request extends ServiceProvider {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
 
-      return TrackingRequestGlobalStore.run(transformedRequest, async () => {
+      return ContextApi.run({
+        request: transformedRequest,
+        user: undefined
+      }, async () => {
         const pipelines = [
           ...routeOption.middleware ?? [],
           transformedRequest,
