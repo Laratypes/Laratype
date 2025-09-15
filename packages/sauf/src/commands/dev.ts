@@ -29,7 +29,7 @@ export default class LaratypeDevCommand extends Command {
     const commander = this.getCommander();
     const opts = commander.opts();
 
-    const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("@laratype/laratype");
+    const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
 
     const app = await Serve.create(opts.port, opts.host)
 
@@ -60,7 +60,7 @@ export default class LaratypeDevCommand extends Command {
     
     const commander = this.getCommander();
     const opts = commander.opts();
-    const envFileName = path.basename((globalThis as any).__laratype_env_file) ?? '';
+    const envFileName = path.basename(globalThis.__laratype_env_file) ?? '';
 
     const messages = [
       green(`Laratype v${version} dev server run on:`),
