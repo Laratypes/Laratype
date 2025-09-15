@@ -6,6 +6,9 @@ export default class CreateUserRequest extends Request {
       email: z.string(),
       password: z.string().min(8),
       name: z.string(),
+      firstName: z.string(),
+      lastName: z.string(),
+      age: z.number().min(18)
     })
   }
 }
