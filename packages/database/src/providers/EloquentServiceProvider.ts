@@ -1,8 +1,8 @@
 import { Log } from "@laratype/log";
 import { Config, getProjectPath, ServiceProvider } from "@laratype/support";
 import { DataSource } from "typeorm";
-import Model from "../eloquent/Model";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
+import "reflect-metadata"
 
 export default class DatabaseServiceProvider extends ServiceProvider {
 
@@ -26,7 +26,6 @@ export default class DatabaseServiceProvider extends ServiceProvider {
         ]
       })
 
-      Model.setDataSource(this.dataSource);
     }
     return this.dataSource;
   }
@@ -36,16 +35,18 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       return this.getDataSource();
     }
     return this.getDataSource().initialize()
-    .then(() => {
+    .then((res) => {
       console.log("Database connection established");
-    })
-    .catch((error) => {
-      console.log(error);
-      Log.error(error);
+      return res;
     })
   }
 
   public async boot() {
-    await this.initConnection();
+    try {
+      globalThis.__laratype_db.ds = await this.initConnection();
+    } catch (error) {
+      console.log(error);
+      Log.error(error);
+    }
   }
 }
