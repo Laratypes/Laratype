@@ -2,13 +2,20 @@ import { Log } from "@laratype/log";
 import { Config, getProjectPath, ServiceProvider } from "@laratype/support";
 import { DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
+import { globSync } from "glob";
 import "reflect-metadata"
 
 export default class DatabaseServiceProvider extends ServiceProvider {
 
   protected dataSource: DataSource | null = null;
 
-  public getDataSource()
+  protected flattenModels(models: any[]) {
+    const flattened = models.flatMap((item) => Object.values(item));
+
+    return flattened;
+  }
+
+  public async getDataSource()
   {
     if(!this.dataSource) {
       const defaultDatabaseDriver = Config.get(['database', 'default'] as const);
@@ -19,11 +26,17 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       if(!connectionDefault) {
         throw new DatabaseConnectionNotConfigYet()
       }
+
+      const path = getProjectPath("src/models/*", false);
+
+      const files = globSync(path, {
+        windowsPathsNoEscape: true
+      });
+
+      const instances = await Promise.all(files.map(file => this.transpile.ssrLoadModule(file)));
       this.dataSource = new DataSource({
         ...connectionDefault,
-        entities: [
-          getProjectPath("src/models/*", false)
-        ]
+        entities: this.flattenModels(instances)
       })
 
     }
@@ -31,10 +44,11 @@ export default class DatabaseServiceProvider extends ServiceProvider {
   }
 
   public async initConnection(){
-    if(this.getDataSource().isInitialized) {
-      return this.getDataSource();
+    const ds = await this.getDataSource();
+    if(ds.isInitialized) {
+      return ds;
     }
-    return this.getDataSource().initialize()
+    return ds.initialize()
     .then((res) => {
       console.log("Database connection established");
       return res;

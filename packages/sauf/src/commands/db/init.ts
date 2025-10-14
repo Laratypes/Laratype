@@ -15,13 +15,17 @@ export default class InitDatabaseCommand extends ServiceProviderBootstrapCommand
     catch {
       throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
     }
+
+    const vite = await this.initViteDevServer();
     
-    await this.bootstrapServiceProvider([
+    await this.bootstrapServiceProvider(vite, [
       database.DatabaseServiceProvider
     ]);
     await database.DS.synchronize();
     Console.log("Database initialized successfully.");
     database.DS.destroy();
+
+    vite.close();
 
     return 0;
 

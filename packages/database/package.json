@@ -26,9 +26,14 @@
   "dependencies": {
     "@laratype/log": "workspace:*",
     "@laratype/support": "workspace:*",
+    "glob": "^11.0.3",
     "reflect-metadata": "^0.2.2"
   },
-  "buildOptions": {},
+  "buildOptions": {
+    "external": [
+      "typeorm"
+    ]
+  },
   "peerDependencies": {
     "typeorm": "^0.3.20"
   },

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { type ViteDevServer } from "vite"
 
 export enum ServiceProviderType {
   CORE_PROVIDER = "core_provider",
@@ -9,6 +10,11 @@ export enum ServiceProviderType {
 export class ServiceProvider {
 
   static type = ServiceProviderType.CORE_PROVIDER;
+  protected transpile: ViteDevServer;
+
+  constructor(vite: ViteDevServer) {
+    this.transpile = vite;
+  }
 
   public register(): void | Promise<void> {
     
@@ -25,8 +31,8 @@ export class AppServiceProvider extends ServiceProvider {
   public bindings = [];
   public apps: Hono;
 
-  constructor(apps: Hono) {
-    super();
+  constructor(vite: ViteDevServer, apps: Hono) {
+    super(vite);
     this.apps = apps;
   }
 }
@@ -37,8 +43,8 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
   public bindings = [];
   public apps: Hono;
 
-  constructor(apps: Hono) {
-    super(apps);
+  constructor(vite: ViteDevServer, apps: Hono) {
+    super(vite, apps);
     this.apps = apps;
   }
   
