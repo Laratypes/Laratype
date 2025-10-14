@@ -1,6 +1,7 @@
 import { Controller } from "@laratype/http";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
+import { User } from "../../models/User";
 
 
 export default class UserController extends Controller {
@@ -11,7 +12,7 @@ export default class UserController extends Controller {
   }
 
   async index() {
-    const users = [{}]
+    const users = await User.find();
     return new UserCollection(users)
   }
 }

@@ -17,13 +17,13 @@ export default class Serve {
     return this.instance
   }
 
-  public static async create(port?: number, host?: string) {
+  public static async create(vite: any, port?: number, host?: string) {
     const instance = this.getInstance();
 
     this.port = port || this.port;
     this.host = host || this.host;
 
-    return await this.bootProvider()
+    return await this.bootProvider(vite)
     .then(() => {
       serve({
         fetch: instance.fetch,
@@ -36,11 +36,11 @@ export default class Serve {
     });
   }
 
-  public static async bootProvider() {
+  public static async bootProvider(vite: any) {
     const instance = this.getInstance()
     const serviceProviderBootstrapped = await register()
     for(let Provider of serviceProviderBootstrapped) {
-      const handler = new Provider(instance).boot()
+      const handler = new Provider(vite, instance).boot()
       if(handler instanceof Promise) {
         await handler;
       }

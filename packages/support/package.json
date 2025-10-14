@@ -51,6 +51,7 @@
   "devDependencies": {
     "@laratype/http": "workspace:*",
     "@types/passport": "^1.0.17",
-    "passport": "^0.7.0"
+    "passport": "^0.7.0",
+    "vite": "^7.1.9"
   }
 }

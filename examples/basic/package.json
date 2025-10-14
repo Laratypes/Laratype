@@ -20,7 +20,7 @@
     "@laratype/support": "workspace:*",
     "dotenv": "^16.4.5",
     "laratype": "workspace:*",
-    "mysql": "^2.18.1",
+    "mysql2": "^3.15.0",
     "passport-google-oidc": "^0.1.0",
     "passport-local": "^1.0.0",
     "reflect-metadata": "^0.2.2",

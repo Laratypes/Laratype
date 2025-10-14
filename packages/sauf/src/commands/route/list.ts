@@ -11,6 +11,8 @@ export default class RouteListCommand extends ServiceProviderBootstrapCommand {
     
     const { register, Serve } = await importModule("laratype") as typeof import("laratype");
 
+    const vite = await this.initViteDevServer();
+
     const initServiceProvider = await register(true);
     const serviceProviders = await register();
     
@@ -22,7 +24,7 @@ export default class RouteListCommand extends ServiceProviderBootstrapCommand {
     const instance = Serve.getInstance()
 
     for(let Provider of serviceProvidersSet) {
-      const handler = new Provider(instance).boot()
+      const handler = new Provider(vite, instance).boot()
       if(handler instanceof Promise) {
         await handler;
       }
@@ -44,6 +46,8 @@ export default class RouteListCommand extends ServiceProviderBootstrapCommand {
     }
     
     Console.table(routes)
+
+    vite.close();
 
     return 0;
 

@@ -22,8 +22,7 @@
     "@hono/node-server": "^1.4.1",
     "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*",
-    "deepmerge": "^4.3.1",
-    "vite": "^6.0.3"
+    "deepmerge": "^4.3.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
