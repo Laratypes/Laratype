@@ -9,8 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup nodejs
-        uses: ./.github/setup-node
+      - name: Setup bun
+        uses: ./.github/setup-bun
 
       - name: Release
-        run: pnpx pkg-pr-new publish --compact --pnpm './packages/*'
+        run: bunx pkg-pr-new publish './packages/*'
