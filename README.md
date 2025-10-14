@@ -1,3 +1,20 @@
+<h1 align="center">Laratype</h1>
+
+<p align="center">
+<a href="https://discord.gg/m6fQQRT9" target="_blank"><img height=20 src="https://img.shields.io/discord/1414581854358605997" /></a>
+<img src="https://img.shields.io/github/stars/Laratypes/Laratype" alt="stars">
+</p>
+
+<div align="center">
+  <a href="https://docs-eight-omega.vercel.app/">Documentation</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://discord.gg/m6fQQRT9">Discord</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/Laratypes/Laratype/issues">Issues</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/Laratypes/Laratype/issues/1">Roadmap</a>
+  <br />
+</div>
 
 > Work in progress
 > 
