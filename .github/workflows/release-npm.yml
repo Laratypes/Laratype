@@ -9,10 +9,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup nodejs
-        uses: ./.github/setup-node
+      - name: Setup bun
+        uses: ./.github/setup-bun
 
       - name: Release
-        run: pnpm build && pnpm build:type && pnpm publish -r --access public
+        run: bun run build && bun run build:type && bunx publish -r --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
