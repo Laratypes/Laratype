@@ -1,6 +1,6 @@
 {
   "name": "@laratype/auth",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "",
   "main": "dist/index.esm.js",
   "type": "module",
@@ -24,13 +24,11 @@
   "author": "Ily1606",
   "license": "MIT",
   "dependencies": {
-    "@laratype/support": "workspace:*",
-    "passport": "^0.7.0",
-    "passport-google-oidc": "^0.1.0",
-    "typeorm-polymorphic": "^1.1.0"
+    "@laratype/support": "workspace:*"
   },
   "devDependencies": {
-    "@types/passport": "^1.0.17"
+    "@types/passport": "^1.0.17",
+    "passport": "^0.7.0"
   },
   "files": [
     "dist"

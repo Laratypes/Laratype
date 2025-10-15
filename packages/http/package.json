@@ -1,6 +1,6 @@
 {
   "name": "@laratype/http",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": false,
   "main": "index.js",
   "types": "dist/index.d.ts",
@@ -25,14 +25,16 @@
   },
   "dependencies": {
     "@laratype/support": "workspace:*",
-    "@laratype/validation": "workspace:*",
+    "@laratype/validation": "workspace:*"
+  },
+  "devDependencies": {
     "es-toolkit": "^1.31.0",
     "zod": "catalog:"
   },
-  "buildOptions": {},
   "peerDependencies": {
     "hono": "catalog:"
   },
+  "buildOptions": {},
   "files": [
     "dist"
   ]
