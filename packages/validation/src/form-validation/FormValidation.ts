@@ -1,4 +1,4 @@
-import { Context } from "hono"
+import { Context } from "@laratype/support"
 import { ZodType, z } from "zod"
 
 export class FormValidation {

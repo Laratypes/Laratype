@@ -1,6 +1,6 @@
 import { Command } from "@laratype/console";
 import { importModule, ServiceProvider } from "@laratype/support";
-import { createLogger, createServer, InlineConfig, mergeConfig, type ViteDevServer } from "vite";
+import { createLogger, createServer, type InlineConfig, mergeConfig, type ViteDevServer } from "@laratype/support";
 import { RollupPluginSwc } from "./plugin";
 
 const logger = createLogger()

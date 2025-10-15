@@ -1,9 +1,10 @@
 {
   "name": "@laratype/auth",
-  "version": "0.0.1",
-  "description": "",
+  "version": "0.2.0",
+  "description": "Auth module for laratype framework",
   "main": "dist/index.esm.js",
   "type": "module",
+  "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Laratypes/Laratype.git",
