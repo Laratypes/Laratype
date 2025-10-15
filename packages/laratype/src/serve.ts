@@ -1,7 +1,8 @@
+import { Hono } from "hono"
 import { serve } from '@hono/node-server'
 import { register } from "./bootstrap";
 import { Console } from "@laratype/console";
-import { ExceptionParser, Hono } from "@laratype/support";
+import { ExceptionParser } from "@laratype/support";
 
 export default class Serve {
   

@@ -1,4 +1,4 @@
-import type { RedirectStatusCode, StatusCode } from "@laratype/support";
+import { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
 
 export default interface ResponseInterface {
   setHttpStatus(httpStatusCode: StatusCode): this;

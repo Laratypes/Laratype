@@ -27,8 +27,5 @@
   "description": "Validation module for laratype framework",
   "files": [
     "dist"
-  ],
-  "dependencies": {
-    "zod": "^4.1.12"
-  }
+  ]
 }

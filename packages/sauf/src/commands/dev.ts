@@ -1,4 +1,5 @@
-import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type ViteDevServer, Hono } from "@laratype/support";
+import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo } from "@laratype/support";
+import { type ViteDevServer } from "vite";
 import { Console } from "@laratype/console";
 import { green, blue } from "kolorist";
 import path from "path";
@@ -19,7 +20,7 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
 
   protected viteDevServer: ViteDevServer | undefined;
 
-  protected async appStart(vite: ViteDevServer): Promise<Hono> {
+  protected async appStart(vite: ViteDevServer) {
     const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
 
     await Serve.bootProvider(vite)
