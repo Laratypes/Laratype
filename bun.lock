@@ -46,7 +46,7 @@
     },
     "packages/auth": {
       "name": "@laratype/auth",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
@@ -57,11 +57,11 @@
     },
     "packages/broadcast": {
       "name": "@laratype/broadcast",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/console": {
       "name": "@laratype/console",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "consola": "^3.4.2",
       },
@@ -71,7 +71,7 @@
     },
     "packages/database": {
       "name": "@laratype/database",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/log": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -86,7 +86,7 @@
     },
     "packages/http": {
       "name": "@laratype/http",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/support": "workspace:*",
         "@laratype/validation": "workspace:*",
@@ -101,11 +101,11 @@
     },
     "packages/i18n": {
       "name": "@laratype/i18n",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/laratype": {
       "name": "laratype",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -116,7 +116,7 @@
     },
     "packages/log": {
       "name": "@laratype/log",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
@@ -129,17 +129,18 @@
     },
     "packages/mail": {
       "name": "@laratype/mail",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/sauf": {
       "name": "sauf",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "bin": "dist/index.esm.js",
       "dependencies": {
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
         "@swc/core": "^1.13.5",
         "@swc/wasm": "^1.13.5",
+        "jiti": "^2.5.1",
         "vite": "catalog:",
       },
       "devDependencies": {
@@ -149,7 +150,6 @@
         "commander": "^13.1.0",
         "figlet": "^1.8.0",
         "glob": "^11.0.0",
-        "jiti": "^2.5.1",
         "kolorist": "^1.8.0",
       },
       "peerDependencies": {
@@ -158,15 +158,15 @@
     },
     "packages/schedule": {
       "name": "@laratype/schedule",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/storage": {
       "name": "@laratype/storage",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/support": {
       "name": "@laratype/support",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/console": "workspace:*",
       },
@@ -188,11 +188,11 @@
     },
     "packages/ts-gen": {
       "name": "@laratype/ts-gen",
-      "version": "0.3.1",
+      "version": "0.3.3",
     },
     "packages/validation": {
       "name": "@laratype/validation",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
