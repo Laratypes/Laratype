@@ -13,4 +13,4 @@ jobs:
         uses: ./.github/setup-bun
 
       - name: Release
-        run: bunx pkg-pr-new publish './packages/*'
+        run: bunx pkg-pr-new publish --compact --pnpm './packages/*'
