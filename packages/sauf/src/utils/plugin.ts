@@ -1,5 +1,6 @@
+import type { Plugin } from 'vite';
 import type { Compiler, Options } from '@swc/core';
-import { resolvePathSync, type Plugin } from '@laratype/support';
+import { resolvePathSync } from '@laratype/support';
 import { createFilter } from '@rollup/pluginutils';
 
 const hashRE = /#.*$/;

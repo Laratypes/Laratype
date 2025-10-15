@@ -1,4 +1,4 @@
-import type { RedirectStatusCode, StatusCode } from "@laratype/support";
+import { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
 import Response from "./Response";
 
 export const response = (content: any, httpStatusCode?: StatusCode) => new Response(content, httpStatusCode)

@@ -28,7 +28,7 @@ export default class Log {
     return this.logger;
   }
 
-  public static format(): any {
+  public static format() {
     return printf(({ level, message, label, timestamp }) => {
       return `[${timestamp}] [${label}] ${level}: ${message}`;
     })

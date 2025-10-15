@@ -1,4 +1,4 @@
-import type { Context, Handler } from "@laratype/support"
+import type { Context, Handler } from "hono"
 
 export {}
 

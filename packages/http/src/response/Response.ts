@@ -1,5 +1,7 @@
+import { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
-import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, type Context, type ContentfulStatusCode } from "@laratype/support";
+import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider } from "@laratype/support";
+import { ContentfulStatusCode } from "hono/utils/http-status";
 
 export default class Response extends AppServiceProvider {
 

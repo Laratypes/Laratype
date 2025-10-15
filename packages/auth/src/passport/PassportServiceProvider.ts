@@ -2,17 +2,10 @@ import passport from "passport";
 import { BaseEntity, Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { 
-  importModule,
-  ServiceProvider,
-  LaratypeConfig as Config,
-  getProjectPath,
-  getDefaultExports,
-  ContextApi,
-  type RedirectStatusCode
-} from "@laratype/support";
+import { importModule, ServiceProvider, LaratypeConfig as Config, getProjectPath, getDefaultExports, ContextApi } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
+import { RedirectStatusCode } from "hono/utils/http-status";
 
 class StoreManagement {
   public store(req: Request, ctx: any, appState: any, meta: any, cb: (err: any, id: string) => void) {
