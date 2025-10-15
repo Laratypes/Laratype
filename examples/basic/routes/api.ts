@@ -28,29 +28,29 @@ export const baseRouteApi: RouteOptions = {
     //   controller: BaseController.__invoke('testCollectionDataType'),
     //   method: "get"
     // },
-    // {
-    //   path: "/hello-world",
-    //   controller: BaseController.__invoke('helloWorld'),
-    //   method: "get"
-    // },
+    {
+      path: "/hello-world",
+      controller: BaseController.__invoke('helloWorld'),
+      method: "get"
+    },
     // {
     //   path: "/redirected",
     //   controller: BaseController.__invoke('testRedirect'),
     //   method: "get"
     // },
-    // {
-    //   path: "/users",
-    //   controller: UserController.__invoke('store'),
-    //   request: CreateUserRequest,
-    //   method: "post",
-    //   children: [
-    //     {
-    //       path: '',
-    //       method: 'get',
-    //       controller: UserController.__invoke('index'),
-    //     }
-    //   ]
-    // },
+    {
+      path: "/users",
+      controller: UserController.__invoke('store'),
+      request: CreateUserRequest,
+      method: "post",
+      children: [
+        {
+          path: '',
+          method: 'get',
+          controller: UserController.__invoke('index'),
+        }
+      ]
+    },
     // {
     //   path: "/posts",
     //   controller: PostController.__invoke('store'),

@@ -1,5 +1,5 @@
 import { Model } from "@laratype/database"
-import { Entity, PrimaryGeneratedColumn, Column, SaveOptions } from "typeorm"
+import { Entity, PrimaryGeneratedColumn, Column } from "@laratype/database"
 
 @Entity()
 export class User extends Model {
