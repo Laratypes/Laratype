@@ -22,7 +22,9 @@
     "./*": "./*"
   },
   "dependencies": {
-    "@laratype/support": "workspace:*",
+    "@laratype/support": "workspace:*"
+  },
+  "devDependencies": {
     "zod": "catalog:"
   },
   "keywords": [],

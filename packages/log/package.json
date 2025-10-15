@@ -27,7 +27,9 @@
     "./*": "./*"
   },
   "dependencies": {
-    "@laratype/support": "workspace:*",
+    "@laratype/support": "workspace:*"
+  },
+  "devDependencies": {
     "winston": "^3.17.0"
   },
   "peerDependencies": {

@@ -25,9 +25,10 @@
     "./*": "./*"
   },
   "dependencies": {
-    "@hono/node-server": "^1.4.1",
     "@laratype/console": "workspace:*",
-    "@laratype/support": "workspace:*",
+    "@laratype/support": "workspace:*"
+  },
+  "peerDependencies": {
     "hono": "catalog:"
   },
   "files": [

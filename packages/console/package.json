@@ -27,8 +27,10 @@
   "license": "MIT",
   "description": "Commandline & Console module for laratype framework",
   "dependencies": {
-    "commander": "^13.1.0",
     "consola": "^3.4.2"
+  },
+  "devDependencies": {
+    "commander": "^13.1.0"
   },
   "buildOptions": {
     "external": [

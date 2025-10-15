@@ -46,35 +46,37 @@
     },
     "packages/auth": {
       "name": "@laratype/auth",
-      "version": "0.0.1",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/support": "workspace:*",
-        "passport": "^0.7.0",
-        "passport-google-oidc": "^0.1.0",
-        "typeorm-polymorphic": "^1.1.0",
       },
       "devDependencies": {
         "@types/passport": "^1.0.17",
+        "passport": "^0.7.0",
       },
     },
     "packages/broadcast": {
       "name": "@laratype/broadcast",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/console": {
       "name": "@laratype/console",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
-        "commander": "^13.1.0",
         "consola": "^3.4.2",
+      },
+      "devDependencies": {
+        "commander": "^13.1.0",
       },
     },
     "packages/database": {
       "name": "@laratype/database",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/log": "workspace:*",
         "@laratype/support": "workspace:*",
+      },
+      "devDependencies": {
         "glob": "^11.0.3",
         "reflect-metadata": "^0.2.2",
       },
@@ -84,10 +86,12 @@
     },
     "packages/http": {
       "name": "@laratype/http",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/support": "workspace:*",
         "@laratype/validation": "workspace:*",
+      },
+      "devDependencies": {
         "es-toolkit": "^1.31.0",
         "zod": "catalog:",
       },
@@ -97,23 +101,26 @@
     },
     "packages/i18n": {
       "name": "@laratype/i18n",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/laratype": {
       "name": "laratype",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
-        "@hono/node-server": "^1.4.1",
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
+      },
+      "peerDependencies": {
         "hono": "catalog:",
       },
     },
     "packages/log": {
       "name": "@laratype/log",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/support": "workspace:*",
+      },
+      "devDependencies": {
         "winston": "^3.17.0",
       },
       "peerDependencies": {
@@ -122,28 +129,28 @@
     },
     "packages/mail": {
       "name": "@laratype/mail",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/sauf": {
       "name": "sauf",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "bin": "dist/index.esm.js",
       "dependencies": {
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
         "@swc/core": "^1.13.5",
         "@swc/wasm": "^1.13.5",
-        "commander": "^13.1.0",
-        "figlet": "^1.8.0",
-        "glob": "^11.0.0",
-        "jiti": "^2.5.1",
-        "kolorist": "^1.8.0",
         "vite": "catalog:",
       },
       "devDependencies": {
         "@rollup/plugin-typescript": "^12.1.2",
         "@rollup/pluginutils": "^5.3.0",
         "@types/figlet": "^1.7.0",
+        "commander": "^13.1.0",
+        "figlet": "^1.8.0",
+        "glob": "^11.0.0",
+        "jiti": "^2.5.1",
+        "kolorist": "^1.8.0",
       },
       "peerDependencies": {
         "laratype": "workspace:*",
@@ -151,28 +158,28 @@
     },
     "packages/schedule": {
       "name": "@laratype/schedule",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/storage": {
       "name": "@laratype/storage",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/support": {
       "name": "@laratype/support",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/console": "workspace:*",
-        "dotenv": "^16.4.5",
-        "glob": "^11.0.0",
-        "hono": "catalog:",
-        "mlly": "^1.7.4",
-        "ts-toolbelt": "^9.6.0",
-        "vite": "catalog:",
       },
       "devDependencies": {
         "@laratype/http": "workspace:*",
         "@types/passport": "^1.0.17",
+        "dotenv": "^16.4.5",
+        "glob": "^11.0.0",
+        "hono": "catalog:",
+        "mlly": "^1.7.4",
         "passport": "^0.7.0",
+        "ts-toolbelt": "^9.6.0",
+        "vite": "catalog:",
       },
       "peerDependencies": {
         "dayjs": "^1.11.13",
@@ -181,13 +188,15 @@
     },
     "packages/ts-gen": {
       "name": "@laratype/ts-gen",
-      "version": "0.2.0",
+      "version": "0.3.1",
     },
     "packages/validation": {
       "name": "@laratype/validation",
-      "version": "0.2.0",
+      "version": "0.3.1",
       "dependencies": {
         "@laratype/support": "workspace:*",
+      },
+      "devDependencies": {
         "zod": "catalog:",
       },
     },
@@ -883,8 +892,6 @@
     "typed-array-buffer": ["typed-array-buffer@1.0.3", "", { "dependencies": { "call-bound": "^1.0.3", "es-errors": "^1.3.0", "is-typed-array": "^1.1.14" } }, "sha512-nAYYwfY3qnzX30IkA6AQZjVbtK6duGontcQm1WSG1MD94YLqK0515GNApXkoxKOWMusVssAHWLh9SeaoefYFGw=="],
 
     "typeorm": ["typeorm@0.3.26", "", { "dependencies": { "@sqltools/formatter": "^1.2.5", "ansis": "^3.17.0", "app-root-path": "^3.1.0", "buffer": "^6.0.3", "dayjs": "^1.11.13", "debug": "^4.4.0", "dedent": "^1.6.0", "dotenv": "^16.4.7", "glob": "^10.4.5", "sha.js": "^2.4.11", "sql-highlight": "^6.0.0", "tslib": "^2.8.1", "uuid": "^11.1.0", "yargs": "^17.7.2" }, "peerDependencies": { "@google-cloud/spanner": "^5.18.0 || ^6.0.0 || ^7.0.0", "@sap/hana-client": "^2.14.22", "better-sqlite3": "^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0", "ioredis": "^5.0.4", "mongodb": "^5.8.0 || ^6.0.0", "mssql": "^9.1.1 || ^10.0.1 || ^11.0.1", "mysql2": "^2.2.5 || ^3.0.1", "oracledb": "^6.3.0", "pg": "^8.5.1", "pg-native": "^3.0.0", "pg-query-stream": "^4.0.0", "redis": "^3.1.1 || ^4.0.0 || ^5.0.14", "reflect-metadata": "^0.1.14 || ^0.2.0", "sql.js": "^1.4.0", "sqlite3": "^5.0.3", "ts-node": "^10.7.0", "typeorm-aurora-data-api-driver": "^2.0.0 || ^3.0.0" }, "optionalPeers": ["@google-cloud/spanner", "@sap/hana-client", "better-sqlite3", "ioredis", "mongodb", "mssql", "mysql2", "oracledb", "pg", "pg-native", "pg-query-stream", "redis", "sql.js", "sqlite3", "ts-node", "typeorm-aurora-data-api-driver"], "bin": { "typeorm": "cli.js", "typeorm-ts-node-esm": "cli-ts-node-esm.js", "typeorm-ts-node-commonjs": "cli-ts-node-commonjs.js" } }, "sha512-o2RrBNn3lczx1qv4j+JliVMmtkPSqEGpG0UuZkt9tCfWkoXKu8MZnjvp2GjWPll1SehwemQw6xrbVRhmOglj8Q=="],
-
-    "typeorm-polymorphic": ["typeorm-polymorphic@1.1.0", "", { "peerDependencies": { "typeorm": "^0.3.0" } }, "sha512-TY4yP/ujszdegismmpmztTOOtzjJDgKaSH09DpwguDRT8FeaunkUOBr8TEXEyC+sDLNoL8yhclrjzdEbwpfNxA=="],
 
     "typescript": ["typescript@5.9.2", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-CWBzXQrc/qOkhidw1OzBTQuYRbfyxDXJMVJ1XNwUHGROVmuaeiEm3OslpZ1RV96d7SKKjZKrSJu3+t/xlw3R9A=="],
 
