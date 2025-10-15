@@ -24,7 +24,7 @@ export default class RouteListCommand extends ServiceProviderBootstrapCommand {
     const instance = Serve.getInstance()
 
     for(let Provider of serviceProvidersSet) {
-      const handler = new Provider(vite, instance).boot()
+      const handler = new Provider(vite as any, instance).boot()
       if(handler instanceof Promise) {
         await handler;
       }

@@ -26,11 +26,12 @@
   "dependencies": {
     "@laratype/support": "workspace:*",
     "@laratype/validation": "workspace:*",
-    "es-toolkit": "^1.31.0"
+    "es-toolkit": "^1.31.0",
+    "zod": "catalog:"
   },
   "buildOptions": {},
   "peerDependencies": {
-    "hono": "^4.6.18"
+    "hono": "catalog:"
   },
   "files": [
     "dist"

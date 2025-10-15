@@ -21,6 +21,10 @@
     },
     "./*": "./*"
   },
+  "dependencies": {
+    "@laratype/support": "workspace:*",
+    "zod": "catalog:"
+  },
   "keywords": [],
   "author": "Ily1606",
   "license": "MIT",
