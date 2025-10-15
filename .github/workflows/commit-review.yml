@@ -16,4 +16,4 @@ jobs:
         run: bun run build && bun run build:type
 
       - name: Release
-        run: bunx pkg-pr-new publish --compact './packages/*'
+        run: bunx pkg-pr-new publish --compact --bun './packages/*'
