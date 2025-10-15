@@ -10,7 +10,8 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Laratypes/Laratype.git"
+    "url": "git+https://github.com/Laratypes/Laratype.git",
+    "directory": "packages/laratype"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
