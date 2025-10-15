@@ -1,4 +1,4 @@
-import { HonoRequest } from "hono/request";
+import { HonoRequest } from "@laratype/support";
 import { z, ZodType } from "zod";
 import { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
@@ -111,7 +111,7 @@ export default class Request implements RequestInterface {
   }
 
   validated(): z.infer<ReturnType<typeof this['rules']> extends ZodType ? ReturnType<typeof this['rules']>: ZodType> {
-    return {}
+    return {} as any
   }
 
 }

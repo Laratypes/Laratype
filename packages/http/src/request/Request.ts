@@ -1,9 +1,7 @@
-import { Context, Hono } from "hono";
-import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { RouteOptions, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, ValidationException, type Context, HonoRequest } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 
