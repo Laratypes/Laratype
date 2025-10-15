@@ -1,6 +1,6 @@
 {
   "name": "sauf",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": false,
   "main": "index.js",
   "bin": "dist/index.esm.js",
@@ -43,7 +43,6 @@
     "glob": "^11.0.0",
     "jiti": "^2.5.1",
     "kolorist": "^1.8.0"
-
   },
   "peerDependencies": {
     "laratype": "workspace:*"
