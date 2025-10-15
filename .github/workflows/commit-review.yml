@@ -11,6 +11,9 @@ jobs:
 
       - name: Setup bun
         uses: ./.github/setup-bun
+        
+      - name: Build
+        run: bun run build && bun run build:type
 
       - name: Release
         run: bunx pkg-pr-new publish --compact './packages/*'
