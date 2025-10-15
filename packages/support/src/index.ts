@@ -10,3 +10,17 @@ export * from "./security"
 export * from "./context"
 export { default as ExceptionParser } from "./exception/ExceptionParser"
 export type * from "./contracts/Config"
+
+export {
+  Hono,
+  type Context,
+  type Handler,
+} from "hono"
+export {
+  HonoRequest
+} from "hono/request"
+export {
+  type RedirectStatusCode,
+  type StatusCode,
+  type ContentfulStatusCode,
+} from "hono/utils/http-status"

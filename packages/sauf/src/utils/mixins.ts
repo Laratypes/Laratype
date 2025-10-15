@@ -53,7 +53,7 @@ export class ServiceProviderBootstrapCommand extends Command {
     const serviceProviders = [...configServiceProviders, ...providers];
 
     for(let Provider of serviceProviders) {
-      const handler = new Provider(vite).boot()
+      const handler = new Provider(vite as any).boot()
       if(handler instanceof Promise) {
         await handler;
       }

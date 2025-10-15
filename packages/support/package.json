@@ -38,8 +38,10 @@
     "@laratype/console": "workspace:*",
     "dotenv": "^16.4.5",
     "glob": "^11.0.0",
+    "hono": "catalog:",
     "mlly": "^1.7.4",
-    "ts-toolbelt": "^9.6.0"
+    "ts-toolbelt": "^9.6.0",
+    "vite": "catalog:"
   },
   "peerDependencies": {
     "dayjs": "^1.11.13",
@@ -51,7 +53,6 @@
   "devDependencies": {
     "@laratype/http": "workspace:*",
     "@types/passport": "^1.0.17",
-    "passport": "^0.7.0",
-    "vite": "^7.1.9"
+    "passport": "^0.7.0"
   }
 }
