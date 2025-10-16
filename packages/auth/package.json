@@ -25,13 +25,18 @@
   "author": "Ily1606",
   "license": "MIT",
   "dependencies": {
-    "@laratype/support": "workspace:*"
+    "@laratype/support": "workspace:*",
+    "passport": "^0.7.0"
   },
   "devDependencies": {
-    "@types/passport": "^1.0.17",
-    "passport": "^0.7.0"
+    "@types/passport": "^1.0.17"
   },
   "files": [
     "dist"
-  ]
+  ],
+  "buildOptions": {
+    "external": [
+      "passport"
+    ]
+  }
 }
