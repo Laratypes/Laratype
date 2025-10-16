@@ -1,5 +1,5 @@
 import { Command } from "@laratype/console";
-import { importModule, ServiceProvider } from "@laratype/support";
+import { resolveSync, ServiceProvider } from "@laratype/support";
 import { createLogger, createServer, InlineConfig, mergeConfig, type ViteDevServer } from "vite";
 import { RollupPluginSwc } from "./plugin";
 
@@ -47,7 +47,7 @@ export class ServiceProviderBootstrapCommand extends Command {
   }
 
   protected async bootstrapServiceProvider(vite: ViteDevServer, providers: Array<typeof ServiceProvider>) {
-    const { register } = await importModule("laratype") as typeof import("laratype");
+    const { register } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
 
     const configServiceProviders = await register(true);
     const serviceProviders = [...configServiceProviders, ...providers];

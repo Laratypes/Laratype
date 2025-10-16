@@ -1,4 +1,4 @@
-import { importModule, RouteAppServiceProvider, ServiceProviderType } from "@laratype/support";
+import { resolveSync, ServiceProviderType } from "@laratype/support";
 import { ServiceProviderBootstrapCommand } from "../../utils/mixins";
 import { Console } from "@laratype/console";
 
@@ -8,10 +8,10 @@ export default class RouteListCommand extends ServiceProviderBootstrapCommand {
   public static description = "List all registered routes";
 
   public async handle() {
-    
-    const { register, Serve } = await importModule("laratype") as typeof import("laratype");
 
     const vite = await this.initViteDevServer();
+
+    const { register, Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
 
     const initServiceProvider = await register(true);
     const serviceProviders = await register();
