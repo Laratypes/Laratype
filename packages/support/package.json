@@ -1,6 +1,6 @@
 {
   "name": "@laratype/support",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": false,
   "main": "dist/index.js",
   "module": "dist/shared.esm-bundler.js",
