@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite';
 import type { Compiler, Options } from '@swc/core';
-import { resolvePathSync } from '@laratype/support';
+import { resolveSync } from '@laratype/support';
 import { createFilter } from '@rollup/pluginutils';
 
 const hashRE = /#.*$/;
@@ -23,7 +23,7 @@ export function RollupPluginSwc(options: Options): Plugin {
     async transform(code, id) {
       if (filter(id) || filter(cleanUrl(id))) {
         if (!swc) {
-          const swcCore = resolvePathSync('@swc/core', { url: import.meta.url });
+          const swcCore = resolveSync('@swc/core', { url: import.meta.url });
           swc = await import(swcCore).then(({ Compiler }) => new Compiler());
         }
 
