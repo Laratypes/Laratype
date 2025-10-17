@@ -93,7 +93,14 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
     const version = await getLaratypeVersion();
     const rootInfo = await getRootPackageInfo();
     
-    const envFileName = path.basename(globalThis.__laratype_env_file) ?? '';
+    let envFileName = '';
+
+    if (globalThis.__laratype_env_file) {
+      envFileName = path.basename(globalThis.__laratype_env_file);
+    }
+    else {
+      Console.warn('No .env file found');
+    }
 
     const messages = [
       green(`Laratype v${version} dev server run on:`),
