@@ -65,6 +65,7 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
       server: {
         port: opts.port,
         host: opts.host,
+        hmr: false,
       },
       plugins: [
         {
@@ -72,9 +73,10 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
           configureServer: async (server) => {
             let app = await this.appStart(server);
 
-            server.watcher.on('change', (async () => {
-              app = await this.appStart(server);
-            }));
+            // Waiting to Implement HRM
+            // server.watcher.on('change', (async () => {
+            //   app = await this.appStart(server);
+            // }));
 
             server.middlewares.use(await this.createMiddleware(app, server));
           }
