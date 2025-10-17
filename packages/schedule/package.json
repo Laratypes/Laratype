@@ -1,6 +1,6 @@
 {
   "name": "@laratype/schedule",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": false,
   "main": "index.js",
   "repository": {
