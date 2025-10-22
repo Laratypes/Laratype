@@ -51,10 +51,6 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       return ds;
     }
     return ds.initialize()
-    .then((res) => {
-      console.log("Database connection established");
-      return res;
-    })
   }
 
   public async boot() {
@@ -63,6 +59,12 @@ export default class DatabaseServiceProvider extends ServiceProvider {
     } catch (error) {
       console.log(error);
       Log.error(error);
+    }
+  }
+
+  public async down(): Promise<void> {
+    if(this.dataSource && this.dataSource.isInitialized) {
+      await this.dataSource.destroy();
     }
   }
 }
