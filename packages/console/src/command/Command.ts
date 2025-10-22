@@ -1,49 +1,30 @@
-import { Command as Commander } from 'commander'
+import { AppServiceProvider, ServiceProvider } from '@laratype/support';
 
 class Command {
   static signature: string;
 
   static description: string;
 
-  protected commander: Commander|undefined;
-
   static options: string[][] | undefined;
 
   static argument: string | undefined;
 
-  constructor() {
-    this.__initCommander();
+  public opts(): any {
+
   }
 
-  protected __initCommander() {
-
-    const command = <typeof Command>this.constructor;
-    const commander = this.getCommander(); 
-
-    commander
-      .description(command.description);
-
-    command.options?.forEach(options => {
-      const [flags, description, defaultValue] = options;
-      commander.option(flags, description, defaultValue);
-    });
-
-    if (command.argument) {
-      commander.argument(command.argument);
-    }
-
-    commander.action(this.handle.bind(this))
+  public async boot(...args: any[]) {
+    // Implement boot logic here
   }
 
-  public getCommander() {
-    const command = <typeof Command>this.constructor;
-    return this.commander ??= new Commander(command.signature);
-  }
-
-  public handle() {
+  public handle(...args: any[]) {
     // Implement your command logic here
   }
 
+  public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
+    // Implement filtering logic here
+    return providers;
+  }
 }
 
 export default Command;

@@ -1,13 +1,13 @@
 import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type Hono } from "@laratype/support";
-import { type ViteDevServer } from "vite";
-import { Console } from "@laratype/console";
+import { InlineConfig, mergeConfig, type ViteDevServer } from "vite";
+import { Command, Console } from "@laratype/console";
 import { green, blue } from "kolorist";
 import path from "path";
 import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
-import { ServiceProviderBootstrapCommand } from "../utils/mixins";
+import Transpile from "../utils/transplie";
 
-export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand {
+export default class LaratypeDevCommand extends Command {
 
   static signature = 'dev'
 
@@ -18,7 +18,50 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
     ['-H, --host <host>', 'Host to run the server on', 'localhost'],
   ]
 
+  // Disable all providers by default
+  public async providers() {
+    return [];
+  }
+
   protected viteDevServer: ViteDevServer | undefined;
+
+  public async boot(transpiler: Transpile) {
+    Console.start('Starting Laratype application...');
+
+    const opts = this.opts();
+    
+    await transpiler.close();
+    const oldConfig = transpiler.getConfig();
+    const devServerConfig: InlineConfig = {
+      server: {
+        port: opts.port,
+        host: opts.host,
+        hmr: false,
+      },
+      plugins: [
+        {
+          name: 'laratype:dev-server',
+          configureServer: async (server) => {
+            let app = await this.appStart(server);
+
+            // Waiting to Implement HRM
+            // server.watcher.on('change', (async () => {
+            //   app = await this.appStart(server);
+            // }));
+
+            server.middlewares.use(await this.createMiddleware(app, server));
+          }
+        },
+      ]
+    };
+
+    const newConfig = mergeConfig(oldConfig, devServerConfig);
+    transpiler.setConfig(newConfig);
+
+    await transpiler.init();
+
+    this.viteDevServer = await transpiler.getRunner();
+  }
 
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
     const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
@@ -56,37 +99,10 @@ export default class LaratypeDevCommand extends ServiceProviderBootstrapCommand 
 
   public async handle() {
 
-    Console.start('Starting Laratype application...');
-
-    const commander = this.getCommander();
-    const opts = commander.opts();
-
-    this.setViteConfig({
-      server: {
-        port: opts.port,
-        host: opts.host,
-        hmr: false,
-      },
-      plugins: [
-        {
-          name: 'laratype:dev-server',
-          configureServer: async (server) => {
-            let app = await this.appStart(server);
-
-            // Waiting to Implement HRM
-            // server.watcher.on('change', (async () => {
-            //   app = await this.appStart(server);
-            // }));
-
-            server.middlewares.use(await this.createMiddleware(app, server));
-          }
-        },
-      ]
-    });
-
+    const opts = this.opts();
     const startTime = performance.now();
 
-    const vite = await this.initViteDevServer();
+    const vite = this.viteDevServer!;
 
     await vite.listen();
 

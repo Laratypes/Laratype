@@ -29,9 +29,6 @@
   "dependencies": {
     "consola": "^3.4.2"
   },
-  "devDependencies": {
-    "commander": "^13.1.0"
-  },
   "buildOptions": {
     "external": [
       "consola"
