@@ -67,6 +67,8 @@ export default class Command {
       }
       const exitCode = instance.handle.call(instance, ...args);
 
+      await this.transpiler.close();
+
       return exitCode;
     })
 

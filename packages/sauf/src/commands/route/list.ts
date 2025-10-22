@@ -8,7 +8,7 @@ export default class RouteListCommand extends Command {
 
   public async providers(providers: typeof AppServiceProvider[]) {
     return providers.filter(provider => {
-      return provider.type === ServiceProviderType.ROUTE_PROVIDER || provider.type === ServiceProviderType.APP_PROVIDER;
+      return provider.type === ServiceProviderType.ROUTE_PROVIDER || provider.type === ServiceProviderType.CORE_PROVIDER;
     });
   }
 

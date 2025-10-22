@@ -1,11 +1,13 @@
 import { Log } from "@laratype/log";
-import { Config, getProjectPath, ServiceProvider } from "@laratype/support";
+import { Config, getProjectPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import { globSync } from "glob";
 import "reflect-metadata"
 
 export default class DatabaseServiceProvider extends ServiceProvider {
+
+  static type: ServiceProviderType.APP_PROVIDER;
 
   protected dataSource: DataSource | null = null;
 
