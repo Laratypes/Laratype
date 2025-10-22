@@ -21,5 +21,15 @@ export const importRootCommands = async (transpiler: Transpile) => {
   return instances;
 }
 
+export const importRouteConsoleCommands = async (transpiler: Transpile) => {
+  const path = getProjectPath("routes/console.ts", false);
+  const runner = await transpiler.getRunner();
+
+  const module = await runner.ssrLoadModule(path, {
+    fixStacktrace: true,
+  });
+
+  return module.default as typeof Command[];
+}
 
 export default jiti

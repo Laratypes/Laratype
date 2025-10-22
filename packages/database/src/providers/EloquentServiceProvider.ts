@@ -1,11 +1,13 @@
 import { Log } from "@laratype/log";
-import { Config, getProjectPath, ServiceProvider } from "@laratype/support";
+import { Config, getProjectPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import { globSync } from "glob";
 import "reflect-metadata"
 
 export default class DatabaseServiceProvider extends ServiceProvider {
+
+  static type: ServiceProviderType.APP_PROVIDER;
 
   protected dataSource: DataSource | null = null;
 
@@ -49,10 +51,6 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       return ds;
     }
     return ds.initialize()
-    .then((res) => {
-      console.log("Database connection established");
-      return res;
-    })
   }
 
   public async boot() {
@@ -61,6 +59,12 @@ export default class DatabaseServiceProvider extends ServiceProvider {
     } catch (error) {
       console.log(error);
       Log.error(error);
+    }
+  }
+
+  public async down(): Promise<void> {
+    if(this.dataSource && this.dataSource.isInitialized) {
+      await this.dataSource.destroy();
     }
   }
 }

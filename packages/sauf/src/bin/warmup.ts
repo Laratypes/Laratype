@@ -5,7 +5,7 @@ import { green } from "kolorist"
 //@ts-ignore
 import standard from "figlet/importable-fonts/Standard.js";
 import frameworkCommands from "../commands";
-import { importRootCommands } from "../utils";
+import { importRootCommands, importRouteConsoleCommands } from "../utils";
 import { createLogger } from "vite";
 import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
@@ -29,8 +29,10 @@ class CommandManager {
 
   public async register(transpiler: Transpile) {
     const projectCommands = await importRootCommands(transpiler);
+    const routeCommands = await importRouteConsoleCommands(transpiler);
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
     projectCommands.forEach(command => this.registerCommand(command, transpiler));
+    routeCommands.forEach(command => this.registerCommand(command, transpiler));
   }
 
   public async boot() {

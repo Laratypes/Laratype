@@ -23,6 +23,10 @@ export class ServiceProvider {
   public boot(): void | Promise<void> {
     
   }
+
+  public async down(): Promise<void> {
+    // Cleanup logic here
+  }
 }
 
 export class AppServiceProvider extends ServiceProvider {

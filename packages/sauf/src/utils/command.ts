@@ -59,13 +59,23 @@ export default class Command {
       const filteredProviders = await instance.providers(serviceProviders);
       const serverInstance = laratype.Serve.getInstance();
 
+      const downs = [];
       for(let Provider of filteredProviders) {
-        const handler = new Provider(vite as any, serverInstance).boot()
+        const providerInstance = new Provider(vite as any, serverInstance);
+        const handler = providerInstance.boot();
         if(handler instanceof Promise) {
           await handler;
         }
+        downs.push(providerInstance.down.bind(providerInstance));
       }
-      const exitCode = instance.handle.call(instance, ...args);
+      downs.reverse();
+      const exitCode = await instance.handle.call(instance, ...args);
+      
+      downs.forEach(down => {
+        down();
+      });
+
+      await this.transpiler.close();
 
       return exitCode;
     })
