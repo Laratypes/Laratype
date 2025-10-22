@@ -1,13 +1,14 @@
-import { importModule } from "@laratype/support";
-import { ServiceProviderBootstrapCommand } from "../../utils/mixins";
-import { Console } from "@laratype/console";
+import { AppServiceProvider, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { Command, Console } from "@laratype/console";
 
-export default class InitDatabaseCommand extends ServiceProviderBootstrapCommand {
+export default class InitDatabaseCommand extends Command {
   public static signature = "db:init";
 
   public static description = "Initialize the database";
 
-  public async handle() {
+  protected database: any;
+
+  public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
     let database;
     try {
       database = await importModule("@laratype/database") as typeof import("@laratype/database");
@@ -15,17 +16,17 @@ export default class InitDatabaseCommand extends ServiceProviderBootstrapCommand
     catch {
       throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
     }
+    return [
+      ...providers.filter((provider) => provider.type === ServiceProviderType.APP_PROVIDER),
+      database.DatabaseServiceProvider,
+    ]
+  }
 
-    const vite = await this.initViteDevServer();
-    
-    await this.bootstrapServiceProvider(vite, [
-      database.DatabaseServiceProvider
-    ]);
+  public async handle() {
+    const database = this.database as typeof import("@laratype/database");
     await database.DS.synchronize();
     Console.log("Database initialized successfully.");
     database.DS.destroy();
-
-    vite.close();
 
     return 0;
 
