@@ -139,5 +139,7 @@ export default class LaratypeDevCommand extends Command {
         borderColor: "cyan",
       },
     });
+
+    await new Promise(() => {}); // Keep the server running
   }
 }
