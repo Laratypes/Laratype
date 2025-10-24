@@ -24,8 +24,7 @@ export default class InitDatabaseCommand extends Command {
   public async handle() {
     const database = this.database as typeof import("@laratype/database");
     await database.DS.synchronize();
-    Console.log("Database initialized successfully.");
-    database.DS.destroy();
+    Console.success("Database initialized successfully.");
 
     return 0;
 
