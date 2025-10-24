@@ -56,14 +56,14 @@ const _createNestedRoute = (
   return routes;
 };
 
-export const createNestedRoute = (app: Hono, router: RouteOptions) => {
-  const routes = _createNestedRoute(app, router);
+export const createNestedRoute = (base: string, app: Hono, router: RouteOptions) => {
+  const routes = _createNestedRoute(app, router, base);
   return routes
 }
 
 export const defineRouteGroup = (path: string, routeOptions: RouteOptions, ctx: AppServiceProvider) => {
   const app = new Hono();
-  const routes =  createNestedRoute(app, routeOptions);
-  ctx.apps.route(path, app);
+  const routes =  createNestedRoute(path, app, routeOptions);
+  ctx.apps.route('', app);
   return routes
 }
