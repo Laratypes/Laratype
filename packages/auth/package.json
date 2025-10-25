@@ -33,7 +33,8 @@
     "@types/passport": "^1.0.17"
   },
   "files": [
-    "dist"
+    "dist",
+    "resources"
   ],
   "buildOptions": {
     "external": [

@@ -1,0 +1,34 @@
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Model, UpdateDateColumn } from "@laratype/database"
+
+@Entity()
+export default class PersonalAccessToken extends Model {
+  @PrimaryGeneratedColumn()
+  id: number
+
+  @Column()
+  tokenable_type: string
+
+  @Column()
+  tokenable_id: number
+
+  @Column()
+  name: string
+
+  @Column()
+  token: string
+
+  @Column()
+  abilities: string
+
+  @Column()
+  last_used_at: Date
+
+  @Column()
+  expires_at: Date
+
+  @CreateDateColumn()
+  created_at: Date
+
+  @UpdateDateColumn()
+  updated_at: Date
+}
