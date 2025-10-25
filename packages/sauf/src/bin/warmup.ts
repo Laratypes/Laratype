@@ -36,6 +36,7 @@ class CommandManager {
   }
 
   public async boot() {
+    globalThis.__sauf_start_time = performance.now();
     const logger = createLogger()
     const loggerWarn = logger.warn
 
