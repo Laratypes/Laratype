@@ -11,8 +11,12 @@ export async function register(onlyConfig?: boolean): Promise<Array<typeof Servi
     providers = getDefaultExports(module) as Array<typeof ServiceProvider>;
   }
 
-  const { RequestKernel, ResponseKernel } = await importModule("@laratype/http") as typeof import("@laratype/http") ?? {};
-  const { PassportServiceProvider } = await importModule("@laratype/auth") as typeof import("@laratype/auth") ?? {};
+  const { RequestKernel, ResponseKernel } = await importModule("@laratype/http", {
+    internal: true
+  }) as typeof import("@laratype/http") ?? {};
+  const { PassportServiceProvider } = await importModule("@laratype/auth", {
+    internal: true
+  }) as typeof import("@laratype/auth") ?? {};
 
   const serviceProviderBootstrapped: Array<typeof ServiceProvider | typeof AppServiceProvider> = [
     EnvLoadServiceProvider,

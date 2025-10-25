@@ -78,6 +78,8 @@ class CommandManager {
       ]
     });
 
+    await transpiler.init();
+
     await this.register(transpiler);
 
     for (const instance of this.commands) {

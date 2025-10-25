@@ -25,6 +25,7 @@
   "author": "Ily1606",
   "license": "MIT",
   "dependencies": {
+    "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
     "passport": "^0.7.0"
   },
