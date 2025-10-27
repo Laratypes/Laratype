@@ -12,7 +12,8 @@ export default class UnauthorizedException extends Exception {
         code,
         httpCode,
         message,
-        responsible
+        responsible,
+        reportable: false,
       })
     }
   
