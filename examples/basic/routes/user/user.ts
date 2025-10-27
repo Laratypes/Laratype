@@ -4,6 +4,7 @@ import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/m
 import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
+import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
 
 const authRoutes: RouteOptions = {
   path: "/",
@@ -11,6 +12,12 @@ const authRoutes: RouteOptions = {
     Web,
   ],
   children: [
+    {
+      path: "/register",
+      method: "post",
+      request: CreateUserRequest,
+      controller: UserController.__invoke('store'),
+    },
     {
       path: "/login",
       method: "post",
@@ -55,6 +62,12 @@ const authGuardedRoutes: RouteOptions = {
           path: '',
           method: 'get',
           controller: UserController.__invoke('index'),
+        },
+        {
+          path: '/:id',
+          method: 'patch',
+          request: UpdateUserRequest,
+          controller: UserController.__invoke('update'),
         }
       ]
     },
