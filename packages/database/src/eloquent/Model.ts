@@ -12,6 +12,16 @@ const cast = (input: Record<string, any>) => {
   return result;
 }
 
+const fillableGuard = (input: Record<string, any>, fillable: string[]) => {
+  const result: Record<string, any> = {};
+  for (const key in input) {
+    if(fillable.includes(key)) {
+      result[key] = input[key];
+    }
+  }
+  return result;
+}
+
 export default class Model extends BaseEntity {
   
   static readonly fillable: string[] = [];
@@ -35,16 +45,21 @@ export default class Model extends BaseEntity {
     if(Array.isArray(data)) {
       const input: Record<string, any>[] = [];
       data.forEach(item => {
-        const castedItem = cast(item);
+        const castedItem = cast(fillableGuard(item, this.fillable));
         input.push(castedItem);
       });
       return super.save(input, options);
     }
 
-    const input = cast(data);
+    const input = cast(fillableGuard(data, this.fillable));
     return super.save(input, options);
   }
 
+  static update(criteria: any, data: any) {
+    const input = cast(fillableGuard(data, this.fillable));
+    
+    return super.update(criteria, input);
+  }
 
   /**
    * Finds first entity that matches given conditions.

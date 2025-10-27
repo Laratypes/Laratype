@@ -15,7 +15,7 @@ class GuardStore {
   static ModelVerify: any;
 
   public static async getAuthConfig() {
-    if(!this.auth) {
+    if (!this.auth) {
       const module: LaratypeConfig.Auth = await importModule(getProjectPath('config/auth.ts'))
       const authConfig = getDefaultExports(module)
       this.auth = authConfig;
@@ -31,7 +31,7 @@ class GuardStore {
   }
 
   public static async getModelVerify() {
-    if(!this.ModelVerify) {
+    if (!this.ModelVerify) {
       try {
         const { default: model } = await importModule("./src/models/PersonalAccessToken.ts");
         this.ModelVerify = model;
@@ -57,14 +57,14 @@ class Verification {
     const expiresIn = options.expiresIn || 3600;
     const guards = await GuardStore.getGuards();
     const guard = guards[this.guardName];
-    if(!guard) {
+    if (!guard) {
       throw new Error(`Guard ${this.guardName} not found`);
     }
     const verificationMode = guard.verification;
     let token: string | undefined
-    if(verificationMode === 'jwt') {
+    if (verificationMode === 'jwt') {
       // Reduce payload size for models
-      if(isModel) {
+      if (isModel) {
         payload_ = {
           id: payload.id,
         }
@@ -79,15 +79,15 @@ class Verification {
       })
     }
 
-    if(!token) {
+    if (!token) {
       throw new UnsupportedVerificationModeException()
     }
 
-    if(isModel) {
+    if (isModel) {
       const modelName = payload.constructor.name;
       const ModelVerify = await GuardStore.getModelVerify();
-      if(ModelVerify) {
-        await ModelVerify.save({
+      if (ModelVerify) {
+        await ModelVerify.insert({
           tokenable_type: modelName,
           tokenable_id: payload.id,
           name: options.name,
@@ -104,48 +104,49 @@ class Verification {
   }
 
   public async verify(token: string) {
-    try {
-      const ModelVerify = await GuardStore.getModelVerify();
+    const ModelVerify = await GuardStore.getModelVerify();
 
-      const verifyRecord = await ModelVerify.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
-        token,
-        expires_at: new Date(),
-      }).getOne();
+    const verifyRecord = await ModelVerify.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
+      token,
+      expires_at: new Date(),
+    }).getOne();
 
-      if(!verifyRecord) {
-        return false;
-      }
-      const verificationMode = verifyRecord.verification_type;
-
-      let decoded: any
-      if(verificationMode === 'jwt') {
-        decoded = await JwtVerification.verify(token);
-        this.guardName = decoded.guard;
-      }
-      else {
-        throw new UnsupportedVerificationModeException()
-      }
-      if(ModelVerify) {
-        const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
-        
-        const user = await modelResource?.findOneBy({
-          id: verifyRecord.tokenable_id,
-        });
-
-        if(!user) {
-          return false;
-        }
-
-        verifyRecord.last_used_at = new Date();
-        await ModelVerify.save(verifyRecord);
-
-        return user;
-      }
-      return decoded;
-    }
-    catch (err) {
+    if (!verifyRecord) {
       return false;
     }
+    const verificationMode = verifyRecord.verification_type;
+
+    let decoded: any
+    if (verificationMode === 'jwt') {
+      try {
+        decoded = await JwtVerification.verify(token);
+      }
+      catch (err) {
+        return false;
+      }
+      this.guardName = decoded.guard;
+    }
+    else {
+      throw new UnsupportedVerificationModeException()
+    }
+    if (ModelVerify) {
+      const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
+
+      const user = await modelResource?.findOneBy({
+        id: verifyRecord.tokenable_id,
+      });
+
+      if (!user) {
+        return false;
+      }
+
+      verifyRecord.last_used_at = new Date();
+      await verifyRecord.save();
+
+      return user;
+    }
+
+    return decoded;
   }
 
 }
