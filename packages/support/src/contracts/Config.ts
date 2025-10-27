@@ -94,9 +94,12 @@ export namespace LaratypeConfig {
     readonly strategyName: string
     readonly options: Record<string, any>
     provider: any
+    verification: VerificationType
   }
 
   type GuardType = "guard"
+
+  type VerificationType = "jwt" | "oauth2"
 
   export interface Auth {
     default: Record<GuardType, string>,
