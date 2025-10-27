@@ -36,7 +36,15 @@ export class GoogleAuthentication extends Middleware {
 
 export class LocalAuthentication extends Middleware {
   handle: MiddlewareHandler = async (request, res, next) => {
-    const handler = await Passport.authenticate('local');
+    const handler = await Passport.authenticate('web');
+
+    return handler(res, next);
+  }
+}
+
+export class AdminLocalAuthentication extends Middleware {
+  handle: MiddlewareHandler = async (request, res, next) => {
+    const handler = await Passport.authenticate('admin');
 
     return handler(res, next);
   }

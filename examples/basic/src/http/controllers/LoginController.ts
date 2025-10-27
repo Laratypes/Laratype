@@ -1,8 +1,8 @@
-import { Auth } from "@laratype/auth";
+import { Auth, AuthVerification } from "@laratype/auth";
 import { Controller, Request } from "@laratype/http";
 import { User } from "../../models/User";
 
-export class LoginController extends Controller {
+export default class LoginController extends Controller {
 
   public loginWithGoogle(req: Request) {
     return {
@@ -10,9 +10,17 @@ export class LoginController extends Controller {
     }
   }
   
-  public login(req: Request) {
+  public async login(req: Request) {
     const user = Auth.user<User>()
-    return user
+    const jwtToken = await AuthVerification.sign(user, {
+      name: "Default Token",
+      abilities: "*",
+    });
+
+    return {
+      user,
+      token: jwtToken,
+    }
   }
 
   public handleGoogleCallback(req: Request) {
