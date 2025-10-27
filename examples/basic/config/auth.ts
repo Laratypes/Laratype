@@ -3,6 +3,7 @@ import { LaratypeConfig as Config, Env } from "@laratype/support";
 import GoogleStrategy from 'passport-google-oidc';
 import LocalStrategy from 'passport-local';
 import { User } from "../src/models/User";
+import { Admin } from "../src/models/Admin";
 
 export default {
 
@@ -19,6 +20,7 @@ export default {
         passwordField: 'password',
       },
       provider: User,
+      verification: 'jwt',
     },
     api: {
       strategyName: 'google',
@@ -30,6 +32,17 @@ export default {
         callbackURL: '/api/passport/google/callback',
         scope: ['profile', 'email'],
       },
+      verification: 'jwt',
+    },
+    admin: {
+      strategyName: 'local',
+      strategy: PassportStrategy.make(LocalStrategy) as typeof Strategy,
+      options: {
+        usernameField: 'email',
+        passwordField: 'password',
+      },
+      provider: Admin,
+      verification: 'jwt',
     }
   },
 
