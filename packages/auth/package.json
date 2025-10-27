@@ -30,7 +30,9 @@
     "passport": "^0.7.0"
   },
   "devDependencies": {
-    "@types/passport": "^1.0.17"
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/passport": "^1.0.17",
+    "jsonwebtoken": "^9.0.2"
   },
   "files": [
     "dist",

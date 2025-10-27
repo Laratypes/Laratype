@@ -3,7 +3,8 @@ import DataSourceNotInitYet from "../exceptions/DataSourceNotInitYet";
 
 if(!globalThis.__laratype_db) {
   globalThis.__laratype_db = {
-    ds: {} as DataSource
+    ds: {} as DataSource,
+    models: {},
   }
 }
 

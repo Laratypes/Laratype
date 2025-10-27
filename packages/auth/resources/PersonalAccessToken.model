@@ -21,6 +21,9 @@ export default class PersonalAccessToken extends Model {
   abilities: string
 
   @Column()
+  verification_type: string
+
+  @Column()
   last_used_at: Date
 
   @Column()

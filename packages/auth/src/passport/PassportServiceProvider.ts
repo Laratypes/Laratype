@@ -72,35 +72,46 @@ const initialize = (passport: any, options: any) => {
 }
 
 export default class PassportServiceProvider extends ServiceProvider {
+
+  protected handleLocalStrategy(guard: any, username: string, password: string, cb: (err: any, profile: any, info?: any) => void) {
+    const model: typeof Model = guard.provider
+
+    const result = model.findOneBy({
+      [guard.options.usernameField]: username,
+      [guard.options.passwordField]: password,
+    })
+
+    result.then((res: BaseEntity) => {
+      if(res) {
+        cb(null, res);
+        return res;
+      }
+      cb(null, false, { message: 'Incorrect username or password.' });
+    })
+  }
+
   public async boot() {
     const module: Config.Auth = await importModule(getProjectPath('config/auth.ts'))
     const authConfig = getDefaultExports(module)
 
-    const guardType = authConfig.default.guard
-    const guard = authConfig.guards[guardType]
-    const model: typeof Model = guard.provider
+    for (const guardName in authConfig.guards) {
+      const guard = authConfig.guards[guardName];
 
-    // TODO: Overwrite this module
-    // @ts-ignore
-    passport.use(new guard.strategy({
-      ...guard.options,
-      store: storeManagement,
-    }, (issuer: any, profile: any, cb: (err: any, profile: any, info?: any) => void) => {
-      
-      const result = model.findOneBy({
-        [guard.options.usernameField]: issuer,
-        [guard.options.passwordField]: profile
-      })
-
-      result.then((res: BaseEntity) => {
-        if(res) {
-          cb(null, res);
-          return res;
+      // TODO: Overwrite this module
+      // @ts-ignore
+      passport.use(guardName, new guard.strategy({
+        ...guard.options,
+        store: storeManagement,
+      }, (issuer: any, profile: any, cb: (err: any, profile: any, info?: any) => void) => {
+        if(guard.strategyName !== 'local') {
+          // Handle other strategies
+          cb(null, false, { message: 'Strategy not implemented' });
+          return;
         }
-        cb(null, false, { message: 'Incorrect username or password.' });
-      })
-      
-    }))
+
+        this.handleLocalStrategy(guard, issuer, profile, cb);
+      }))    
+    }
 
     passport.framework({
       initialize,

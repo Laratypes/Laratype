@@ -1,6 +1,6 @@
 import { Log } from "@laratype/log";
 import { Config, getProjectPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
-import { DataSource } from "typeorm";
+import { BaseEntity, DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import { globSync } from "glob";
 import "reflect-metadata"
@@ -11,10 +11,10 @@ export default class DatabaseServiceProvider extends ServiceProvider {
 
   protected dataSource: DataSource | null = null;
 
-  protected flattenModels(models: any[]) {
+  protected flattenModels(models: any[]): BaseEntity[] {
     const flattened = models.flatMap((item) => Object.values(item));
 
-    return flattened;
+    return flattened as BaseEntity[];
   }
 
   public async getDataSource()
@@ -36,9 +36,12 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       });
 
       const instances = await Promise.all(files.map(file => this.transpile.ssrLoadModule(file)));
+      const models = this.flattenModels(instances);
+      globalThis.__laratype_db.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
+      
       this.dataSource = new DataSource({
         ...connectionDefault,
-        entities: this.flattenModels(instances)
+        entities: models,
       })
 
     }

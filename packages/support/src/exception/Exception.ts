@@ -53,3 +53,11 @@ export class Exception extends Error {
     }
   }
 }
+
+export interface ExceptionConstructorParams {
+  code?: string,
+  message?: string,
+  httpCode?: StatusCode,
+  errors?: unknown[],
+  responsible?: boolean,
+}

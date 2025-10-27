@@ -8,6 +8,7 @@ export * from "./datetime"
 export * from "./mixins"
 export * from "./security"
 export * from "./context"
+export * from "./models"
 export { default as ExceptionParser } from "./exception/ExceptionParser"
 export type * from "./contracts/Config"
 
@@ -24,3 +25,4 @@ export {
   type StatusCode,
   type ContentfulStatusCode,
 } from "hono/utils/http-status"
+
