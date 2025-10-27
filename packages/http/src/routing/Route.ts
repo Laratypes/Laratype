@@ -9,6 +9,10 @@ const __filterMiddleware = (allMiddleware: NonNullable<RouteOptions['middleware'
   });
 }
 
+const normalizePath = (path: string) => {
+  return path.replaceAll('//', '/');
+}
+
 const _createNestedRoute = (
   app: Hono,
   router: RouteOptions,
@@ -22,8 +26,8 @@ const _createNestedRoute = (
       [...(middleware ?? []), ...(router.middleware ?? [])],
       [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])]
     );
-    
-    const routePath = `${path}${router.path}`
+
+    const routePath = normalizePath(`${path}${router.path}`);
     app[router.method](
       routePath,
       RequestKernel.handle({
@@ -42,10 +46,11 @@ const _createNestedRoute = (
   }
 
   router.children?.forEach((childRouter) => {
+    const routePath = normalizePath(path + router.path);
     const routeNested = _createNestedRoute(
       app,
       childRouter,
-      path + router.path,
+      routePath,
       [...(middleware ?? []), ...(router.middleware ?? [])],
       [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])],
     );
@@ -61,9 +66,19 @@ export const createNestedRoute = (base: string, app: Hono, router: RouteOptions)
   return routes
 }
 
-export const defineRouteGroup = (path: string, routeOptions: RouteOptions, ctx: AppServiceProvider) => {
+export const defineRouteGroup = (path: string, routeOptions: RouteOptions | RouteOptions[], ctx: AppServiceProvider) => {
   const app = new Hono();
-  const routes =  createNestedRoute(path, app, routeOptions);
-  ctx.apps.route('', app);
+  let routes: RouteParams[] = [];
+  if(Array.isArray(routeOptions)) {
+    for (const routeOption of routeOptions) {
+      const route = createNestedRoute(path, app, routeOption);
+      routes.push(...route);
+      ctx.apps.route('', app);
+    }
+  }
+  else {
+    routes = createNestedRoute(path, app, routeOptions);
+    ctx.apps.route('', app);
+  }
   return routes
 }
