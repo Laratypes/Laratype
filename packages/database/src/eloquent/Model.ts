@@ -62,6 +62,24 @@ export default class Model extends BaseEntity {
   }
 
   /**
+   * Updates the given model with provided data.
+   */
+  static updateFor<T extends BaseEntity>(this: {
+      new (): T;
+  } & typeof BaseEntity, model: T, data: DeepPartial<T>): Promise<T>;
+
+  static updateFor(model: any, data: any) {
+    const input = cast(fillableGuard(data, this.fillable));
+    for (const field in input) {
+      if(Object.prototype.hasOwnProperty.call(model, field)) {
+        model[field] = input[field];
+      }
+    }
+
+    return model.save().then(() => model);
+  }
+
+  /**
    * Finds first entity that matches given conditions.
    */
   static findOneBy<T extends BaseEntity>(this: {
