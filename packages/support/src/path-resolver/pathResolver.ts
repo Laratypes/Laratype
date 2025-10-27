@@ -16,7 +16,7 @@ export const getDefaultExports = (module: any) => {
   return module.default;
 }
 
-export const importModule = async (moduleName: string, options: { url?: string } = {}) => {
+export const importModule = async (moduleName: string, options: { url?: string, internal?: boolean } = {}) => {
   let id;
   if(Boolean(__PROD__)) {
     id = resolveSync(moduleName, {
@@ -29,7 +29,13 @@ export const importModule = async (moduleName: string, options: { url?: string }
       id = fileUri;
     }
     else {
-      id = moduleName
+      id = moduleName;
+      if(options.internal) {
+        id = resolveSync(moduleName, {
+          url: options.url
+        });
+        id = id.replace('dist/index.esm.js', 'src/index.ts');
+      }
     }
   }
 

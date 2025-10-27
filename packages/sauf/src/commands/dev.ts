@@ -100,7 +100,7 @@ export default class LaratypeDevCommand extends Command {
   public async handle() {
 
     const opts = this.opts();
-    const startTime = performance.now();
+    const startTime = globalThis.__sauf_start_time || performance.now();
 
     const vite = this.viteDevServer!;
 
@@ -139,5 +139,7 @@ export default class LaratypeDevCommand extends Command {
         borderColor: "cyan",
       },
     });
+
+    await new Promise(() => {}); // Keep the server running
   }
 }

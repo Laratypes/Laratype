@@ -20,6 +20,20 @@ export function RollupPluginSwc(options: Options): Plugin {
 
   return {
     name: 'rollup-plugin-swc',
+    enforce: 'pre',
+    resolveId: {
+      order: 'pre',
+      async handler(source, importer, options) {
+        if(globalThis.__PROD__) {
+          return null;
+        }
+        const resolution = await this.resolve(source, importer, options);
+        if((source.startsWith('@laratype') || source.includes('laratype/dist/index.esm.js')) && resolution) {
+          resolution.id = resolution.id.replace('dist/index.esm.js', 'src/index.ts');
+        }
+        return resolution;
+      },
+    },
     async transform(code, id) {
       if (filter(id) || filter(cleanUrl(id))) {
         if (!swc) {

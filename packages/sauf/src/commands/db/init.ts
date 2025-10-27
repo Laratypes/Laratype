@@ -10,7 +10,9 @@ export default class InitDatabaseCommand extends Command {
 
   public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
     try {
-      this.database = await importModule("@laratype/database") as typeof import("@laratype/database");
+      this.database = await importModule("@laratype/database", {
+        internal: true
+      }) as typeof import("@laratype/database");
     }
     catch {
       throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
@@ -24,8 +26,7 @@ export default class InitDatabaseCommand extends Command {
   public async handle() {
     const database = this.database as typeof import("@laratype/database");
     await database.DS.synchronize();
-    Console.log("Database initialized successfully.");
-    database.DS.destroy();
+    Console.success("Database initialized successfully.");
 
     return 0;
 

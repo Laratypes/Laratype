@@ -26,7 +26,9 @@ export default class Passport {
   }
 
   static authenticate: passport.Authenticator['authorize'] = async (strategy, options, callback?) => {
-    const { ContextApi } = await importModule("@laratype/support") as typeof import("@laratype/support");
+    const { ContextApi } = await importModule("@laratype/support", {
+      internal: true
+    }) as typeof import("@laratype/support");
     const currentRequest = ContextApi.getRequest();
     const expressRequest = this.getHttpRequest(currentRequest);
     return (res: Response, next: NextHandler) => {
