@@ -12,6 +12,16 @@ const cast = (input: Record<string, any>) => {
   return result;
 }
 
+const fillableGuard = (input: Record<string, any>, fillable: string[]) => {
+  const result: Record<string, any> = {};
+  for (const key in input) {
+    if(fillable.includes(key)) {
+      result[key] = input[key];
+    }
+  }
+  return result;
+}
+
 export default class Model extends BaseEntity {
   
   static readonly fillable: string[] = [];
@@ -35,16 +45,39 @@ export default class Model extends BaseEntity {
     if(Array.isArray(data)) {
       const input: Record<string, any>[] = [];
       data.forEach(item => {
-        const castedItem = cast(item);
+        const castedItem = cast(fillableGuard(item, this.fillable));
         input.push(castedItem);
       });
       return super.save(input, options);
     }
 
-    const input = cast(data);
+    const input = cast(fillableGuard(data, this.fillable));
     return super.save(input, options);
   }
 
+  static update(criteria: any, data: any) {
+    const input = cast(fillableGuard(data, this.fillable));
+    
+    return super.update(criteria, input);
+  }
+
+  /**
+   * Updates the given model with provided data.
+   */
+  static updateFor<T extends BaseEntity>(this: {
+      new (): T;
+  } & typeof BaseEntity, model: T, data: DeepPartial<T>): Promise<T>;
+
+  static updateFor(model: any, data: any) {
+    const input = cast(fillableGuard(data, this.fillable));
+    for (const field in input) {
+      if(Object.prototype.hasOwnProperty.call(model, field)) {
+        model[field] = input[field];
+      }
+    }
+
+    return model.save().then(() => model);
+  }
 
   /**
    * Finds first entity that matches given conditions.

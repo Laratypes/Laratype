@@ -54,7 +54,10 @@ export default class Response extends AppServiceProvider {
   }
 
   public resolveException(err: Error | Exception, c: Context) {
-    console.error(err);
+    // @ts-ignore
+    if(err.reportable) {
+      console.error(err);
+    }
     //@ts-ignore
     if(err.canResponsible?.()) {
       //TODO: Response exception with HTML
@@ -65,13 +68,14 @@ export default class Response extends AppServiceProvider {
       }
     }
     if(!(err instanceof Exception)) {
-      new Exception({
+      const unknownException = new Exception({
         message: err.message,
         code: "UNKNOWN",
         httpCode: 500,
         responsible: false,
         reportable: true,
-      })
+      });
+      return Response.resolveResponse(c, unknownException.toJson())
     }
     return Response.resolveResponse(c, new ResponseSupport("Something went wrong!", 500))
   }

@@ -1,15 +1,19 @@
 import { Controller } from "@laratype/http";
+import { Auth, GateGuard } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
 import { User } from "../../models/User";
-import { Auth } from "@laratype/auth";
+import UpdateUserGate from "../gates/UpdateUserGate";
+import UpdateUserRequest from "../requests/UpdateUserRequest";
+import UnauthorizedException from "../../exceptions/UnauthorizedException";
 
 
 export default class UserController extends Controller {
 
   async store(request: CreateUserRequest) {
     const params = request.validated();
-    return {}
+    const user = await User.save(params);
+    return user;
   }
 
   async index() {
@@ -20,5 +24,23 @@ export default class UserController extends Controller {
   async me() {
     const user = Auth.user<User>();
     return user;
+  }
+
+  async update(request: UpdateUserRequest) {
+    const actor = Auth.user<User>();
+    const userId = request.param('id');
+    const updatedData = request.validated();
+    const user = await User.findOneOrFail({
+      where: {
+        id: userId,
+      }
+    });
+
+    if(GateGuard.allows(new UpdateUserGate(), actor, user)) {
+      // Update user logic here
+      return await User.updateFor(user, updatedData);
+    }
+
+    throw new UnauthorizedException();
   }
 }
