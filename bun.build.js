@@ -32,7 +32,7 @@ import { entries } from "./scripts/alias.js";
       minify: true,
       naming: "[dir]/[name].esm.[ext]",
       define: {
-        __PROD__: "true",
+        "globalThis.__PROD__": "true",
       }
     }
 
