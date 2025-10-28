@@ -6,7 +6,7 @@ export default class Route {
     return this;
   }
 
-  static bind(paramName: string, callback: (value: any) => any) {
+  static bind(paramName: string, callback: (value: string) => any) {
     globalThis.__laratype_route_model_bindings[paramName] = callback;
     return this;
   }

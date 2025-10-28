@@ -56,18 +56,27 @@ export default class Request extends AppServiceProvider {
   public static async queryFromModelBinding(modelBindings: Record<string, any>) {
     const models = await Promise.all(
       Object.entries(modelBindings).map(async ([key, binding]) => {
-        const modelClass = binding.model;
-        const paramValue = binding.param;
-        const primaryKey = modelClass.getRepository().metadata.primaryColumns[0].propertyName;
-        if(!primaryKey) {
-          throw new InternalException(`Model ${modelClass.name} does not have a primary key defined.`)
-        }
-        
-        const modelInstance = await modelClass.findOne({
-          where: {
-            [primaryKey]: paramValue
+        const isModel = (binding.model.constructor && binding.model.constructor.dataSource) || binding.model.dataSource;
+        let modelInstance;
+        if(isModel) {
+          const modelClass = binding.model;
+          const paramValue = binding.param;
+          const primaryKey = modelClass.getRepository().metadata.primaryColumns[0].propertyName;
+          if(!primaryKey) {
+            throw new InternalException(`Model ${modelClass.name} does not have a primary key defined.`)
           }
-        });
+          
+          modelInstance = await modelClass.findOne({
+            where: {
+              [primaryKey]: paramValue
+            }
+          });
+          
+        }
+        else {
+          modelInstance = await binding.model(binding.param);
+        }
+
         return [key, modelInstance];
       })
     )
