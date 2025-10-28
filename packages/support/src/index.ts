@@ -11,6 +11,7 @@ export * from "./context"
 export * from "./models"
 export { default as ExceptionParser } from "./exception/ExceptionParser"
 export type * from "./contracts/Config"
+export type * from "./contracts/TypeHelper"
 
 export {
   Hono,
