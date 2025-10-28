@@ -68,6 +68,11 @@ const authGuardedRoutes: RouteOptions = {
           method: 'patch',
           request: UpdateUserRequest,
           controller: UserController.__invoke('update'),
+        },
+        {
+          path: '/:id',
+          method: 'delete',
+          controller: UserController.__invoke('delete'),
         }
       ]
     },
