@@ -1,4 +1,4 @@
-import { Controller } from "@laratype/http";
+import { Controller, Request } from "@laratype/http";
 import { Auth, GateGuard } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
@@ -26,7 +26,27 @@ export default class UserController extends Controller {
     return user;
   }
 
+  async delete(request: Request) {
+    const actor = Auth.user<User>();
+    const userId = request.param('id');
+
+    const user = await User.findOneOrFail({
+      where: {
+        id: userId,
+      }
+    });
+
+    if(actor.cannot('delete', user)) {
+      throw new UnauthorizedException();
+    }
+
+    return await user.remove();
+
+  }
+
   async update(request: UpdateUserRequest) {
+    console.log(Reflect.getMetadata("policy", User));
+    
     const actor = Auth.user<User>();
     const userId = request.param('id');
     const updatedData = request.validated();
