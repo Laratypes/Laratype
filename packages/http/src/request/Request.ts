@@ -42,8 +42,16 @@ export default class Request extends AppServiceProvider {
     const params = request.param();
     
     for (const paramName in params) {
-      const model = globalThis.__laratype_route_model_bindings[paramName];
+      let model = globalThis.__laratype_route_model_bindings[paramName];
+      if (!model) {
+        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        if(modelName) {
+          model = globalThis.__laratype_db?.models?.[modelName];
+        }
+      }
+
       if(!model) continue;
+
       res[paramName] = {
         model,
         param: params[paramName]
