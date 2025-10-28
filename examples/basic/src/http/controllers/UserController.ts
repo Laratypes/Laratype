@@ -44,17 +44,10 @@ export default class UserController extends Controller {
 
   }
 
-  async update(request: UpdateUserRequest) {
-    console.log(Reflect.getMetadata("policy", User));
-    
+  async update(request: UpdateUserRequest, model: { user: User }) {
     const actor = Auth.user<User>();
-    const userId = request.param('id');
     const updatedData = request.validated();
-    const user = await User.findOneOrFail({
-      where: {
-        id: userId,
-      }
-    });
+    const { user } = model;
 
     if(GateGuard.allows(new UpdateUserGate(), actor, user)) {
       // Update user logic here

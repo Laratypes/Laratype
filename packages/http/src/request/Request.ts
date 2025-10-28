@@ -3,7 +3,7 @@ import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { RouteOptions, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 
@@ -21,7 +21,7 @@ export default class Request extends AppServiceProvider {
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
-        return controller[method](req)
+        return controller[method](req, ContextApi.getModelBindings())
       }
       else
         console.error(`Invoke function expected: function, but got ${typeof controller[method]}`);
@@ -35,6 +35,65 @@ export default class Request extends AppServiceProvider {
       return new routeOption.request(request);
     }
     return new RequestSupport(request)
+  }
+
+  public static explicitModelBinding(request: RequestSupport) {
+    const res: Record<string, any> = {};
+    const params = request.param();
+    
+    for (const paramName in params) {
+      let model = globalThis.__laratype_route_model_bindings[paramName];
+      if (!model) {
+        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        if(modelName) {
+          model = globalThis.__laratype_db?.models?.[modelName];
+        }
+      }
+
+      if(!model) continue;
+
+      res[paramName] = {
+        model,
+        param: params[paramName]
+      };
+    }
+
+    return res;
+  }
+
+  public static async queryFromModelBinding(modelBindings: Record<string, any>) {
+    const models = await Promise.all(
+      Object.entries(modelBindings).map(async ([key, binding]) => {
+        const isModel = (binding.model.constructor && binding.model.constructor.dataSource) || binding.model.dataSource;
+        let modelInstance;
+        if(isModel) {
+          const modelClass = binding.model;
+          const paramValue = binding.param;
+          const primaryKey = modelClass.getRepository().metadata.primaryColumns[0].propertyName;
+          if(!primaryKey) {
+            throw new InternalException(`Model ${modelClass.name} does not have a primary key defined.`)
+          }
+          
+          modelInstance = await modelClass.findOne({
+            where: {
+              [primaryKey]: paramValue
+            }
+          });
+          
+        }
+        else {
+          modelInstance = await binding.model(binding.param);
+        }
+
+        return [key, modelInstance];
+      })
+    )
+
+    if(models.some(([, modelInstance]) => modelInstance === null)) {
+      throw new NotFoundException("Requested resource not found.");
+    }
+
+    return Object.fromEntries(models);
   }
 
   public static async processData(request: HonoRequest) {
@@ -114,10 +173,13 @@ export default class Request extends AppServiceProvider {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      const modelBindings = this.explicitModelBinding(transformedRequest);
+      const res = await this.queryFromModelBinding(modelBindings);
 
       return ContextApi.run({
         request: transformedRequest,
-        user: undefined
+        user: undefined,
+        modelBindings: res,
       }, async () => {
         const pipelines = [
           ...routeOption.middleware ?? [],
@@ -140,6 +202,7 @@ export default class Request extends AppServiceProvider {
   }
 
   public boot(): void {
+    globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
       this.resolveRequest(ctx);
       return next();

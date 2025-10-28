@@ -26,6 +26,17 @@ export default class ContextApi {
     }
   }
 
+  static setModelBindings(modelBindings: Record<string, any>) {
+    const store = this.getRequestStore().getStore();
+    if(store) {
+      store.modelBindings = modelBindings;
+    }
+  }
+
+  static getModelBindings(): Record<string, any> {
+    return this.getRequestStore().getStore()?.modelBindings ?? {};
+  }
+
   static setRequest(request: Request) {
     const store = this.getRequestStore().getStore();
     if(store) {

@@ -1,5 +1,6 @@
 export { default as Request } from "./supports/Request"
 export { default as Response } from "./supports/Response"
+export { default as Route } from "./supports/Route"
 export { default as RequestKernel } from "./request/Request"
 export { default as ResponseKernel } from "./response/Response"
 export { default as ResourceCollection } from "./resource/json/ResourceCollection"

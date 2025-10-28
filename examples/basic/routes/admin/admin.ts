@@ -37,6 +37,11 @@ const adminGuardRoutes: RouteOptions = {
       path: "/me",
       method: "get",
       controller: AdminHomeController.__invoke('me'),
+    },
+    {
+      path: "/admins/:admin",
+      method: "get",
+      controller: AdminHomeController.__invoke('show'),
     }
   ]
 }
