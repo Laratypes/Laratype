@@ -24,12 +24,16 @@ export class User extends Model {
     @Column()
     age: number
 
+    @Column()
+    isActive: boolean
+
     static readonly fillable = [
         'email',
         'password',
         'firstName',
         'lastName',
         'age',
+        'isActive'
     ]
 }
 

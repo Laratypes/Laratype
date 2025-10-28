@@ -64,7 +64,7 @@ const authGuardedRoutes: RouteOptions = {
           controller: UserController.__invoke('index'),
         },
         {
-          path: '/:id',
+          path: '/:activeUser',
           method: 'patch',
           request: UpdateUserRequest,
           controller: UserController.__invoke('update'),
