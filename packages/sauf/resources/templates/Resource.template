@@ -1,0 +1,7 @@
+import { JsonResource } from "@laratype/http";
+
+export default class {{ResourceName}}<T extends {}[]> extends JsonResource<T> {
+  public toJson() {
+    return this.data;
+  }
+}

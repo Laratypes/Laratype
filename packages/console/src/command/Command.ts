@@ -1,5 +1,10 @@
 import { AppServiceProvider, ServiceProvider } from '@laratype/support';
 
+export type ArgumentType = {
+  name: string;
+  description?: string;
+};
+
 class Command {
   static signature: string;
 
@@ -7,7 +12,7 @@ class Command {
 
   static options: string[][] | undefined;
 
-  static argument: string | undefined;
+  static arguments: ArgumentType[] | undefined;
 
   public opts(): any {
 

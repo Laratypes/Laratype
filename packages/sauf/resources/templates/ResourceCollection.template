@@ -1,0 +1,13 @@
+import { ResourceCollection } from "@laratype/http";
+import {{ResourceName}} from "./{{ResourceName}}";
+
+export default class {{CollectionName}} extends ResourceCollection {
+
+  public resource = {{ResourceName}}
+
+  public toJson() {
+    return {
+      data: this.collection
+    }
+  }
+}

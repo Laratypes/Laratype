@@ -1,0 +1,15 @@
+import { Command } from "@laratype/console";
+
+export default class {{ CommandName }} extends Command {
+
+  // Define your command name here
+  static signature = "";
+
+  // Define your command description here
+  static description = "";
+
+  public async handle() {
+    // Your command logic goes here
+  }
+
+}

@@ -1,0 +1,11 @@
+import { Middleware, type MiddlewareHandler } from "@laratype/http";
+
+export class {{MiddlewareName}} extends Middleware {
+  handle: MiddlewareHandler = async (request, res, next) => {
+    
+    const result = await next(request)
+
+    return result;
+
+  }
+}
