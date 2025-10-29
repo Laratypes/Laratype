@@ -1,5 +1,5 @@
 import { Command as Commander } from 'commander'
-import { Command as CommandInstance } from '@laratype/console';
+import { ArgumentType, Command as CommandInstance } from '@laratype/console';
 import Transpile from './transplie';
 import { resolveSync } from '@laratype/support';
 import SignatureNotConfigYet from '../exceptions/SignatureNotConfigYet';
@@ -13,7 +13,7 @@ export default class Command {
 
   protected options: string[][] | undefined;
 
-  protected argument: string | undefined;
+  protected arguments: ArgumentType[] | undefined;
 
   protected commandInstance: typeof CommandInstance;
 
@@ -28,7 +28,7 @@ export default class Command {
     this.signature = commandInstance.signature;
     this.description = commandInstance.description;
     this.options = commandInstance.options;
-    this.argument = commandInstance.argument;
+    this.arguments = commandInstance.arguments;
     this.__initCommander();
   }
 
@@ -44,8 +44,10 @@ export default class Command {
       commander.option(flags, description, defaultValue);
     });
 
-    if (this.argument) {
-      commander.argument(this.argument);
+    if (this.arguments) {
+      this.arguments.forEach(arg => {
+        commander.argument(arg.name, arg.description);
+      });
     }
 
     commander.action(async (...args) => {
