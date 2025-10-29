@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/logo.png" alt="Logo" height=175>
+</p>
+
 <h1 align="center">Laratype</h1>
 
 <p align="center">
