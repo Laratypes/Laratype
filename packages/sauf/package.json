@@ -1,6 +1,6 @@
 {
   "name": "sauf",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "private": false,
   "main": "index.js",
   "bin": "dist/index.esm.js",
