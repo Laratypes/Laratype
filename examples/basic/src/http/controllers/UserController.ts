@@ -25,6 +25,11 @@ export default class UserController extends Controller {
     const user = Auth.user<User>();
     return user;
   }
+  
+  async view(request: Request, model: { user: User }) {
+    const user = model.user;
+    return user;
+  }
 
   async delete(request: Request) {
     const actor = Auth.user<User>();
@@ -34,7 +39,7 @@ export default class UserController extends Controller {
       where: {
         id: userId,
       }
-    });
+    });    
 
     if(actor.cannot('delete', user)) {
       throw new UnauthorizedException();
