@@ -1,0 +1,13 @@
+import { Controller } from "@laratype/http";
+
+export default class {{ ControllerName }} extends Controller {
+
+  // Define other methods as needed
+  
+  async index() {
+    // Implement your logic here, e.g., fetching posts from a database
+    return {
+      says: "Hello from {{ PostController }} index method!",
+    }
+  }
+}

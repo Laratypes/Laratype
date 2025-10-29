@@ -1,0 +1,41 @@
+import { Policy } from "@laratype/auth";
+import { User } from "../models/User";
+{{#if ModelName}}
+import { {{ModelName}} } from "../models/{{ModelName}}";
+{{/if}}
+
+export default class {{PolicyName}} extends Policy {
+
+  viewAny(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  view(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  create(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  update(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  delete(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}) {
+    return true;
+  }
+
+  restore(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  forceDelete(actor: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean | null {
+    return true;
+  }
+
+  public before(actor: User, ability: string): boolean | null {
+    return null;
+  }
+  
+}
