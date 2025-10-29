@@ -1,1 +1,1 @@
-export { default as Policy } from "./Policy";
+export { default as Policy, type Ability } from "./Policy";

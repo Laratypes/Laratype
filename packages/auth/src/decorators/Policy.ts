@@ -1,49 +1,27 @@
-import { MetaDataKey } from "@laratype/support";
+import { ExcludeFirstParameter, MetaDataKey } from "@laratype/support";
 import { Policy } from "../policies";
-
-type PolicyDerived = { new(): Policy } & typeof Policy;
-
-type ExcludeFirstParameter<T extends (...args: any) => any> =
-  T extends (first: any, ...rest: infer R) => any ? R : never;
-
-type Ability = Exclude<keyof Policy, 'before'>;
+import { Ability } from "../policies/Policy";
+import PolicyHandler from "../policies/PolicyHandler";
 
 export interface UsePolicy<T extends Policy> {
   can<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
   cannot<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
 }
 
-export function UsePolicy(P: PolicyDerived) {
+export function UsePolicy(P: new () => Policy) {
   return function <T extends { new(...args: any[]): {} }>(target: T) {
     Reflect.defineMetadata(MetaDataKey.POLICY, P, target);
-
-    const before = (target: any, ability: Ability, cb: Policy['before']) => {
-      return cb(target, ability);
-    }
 
     const policy = new P();
 
     const objClass = {
       [target.name]: class extends target implements UsePolicy<any> {
         can(ability: Ability, ...args: any) {
-          
-          const authorized = before(this, ability, policy.before);
-          if(typeof authorized === 'boolean') {
-            return authorized;
-          }
-
-          const method = policy[ability].bind(policy);
-          return method(this, ...args) || false;
+          return PolicyHandler.can(this, policy, ability, ...args);
         }
 
         cannot(ability: Ability, ...args: any) {
-          const authorized = before(this, ability, policy.before);
-          if(typeof authorized === 'boolean') {
-            return authorized;
-          }
-
-          const method = policy[ability].bind(policy);
-          const result = method(this, ...args);
+          const result = PolicyHandler.can(this, policy, ability, ...args);
           if(result instanceof Promise) {
             return result.then(res => !res);
           }

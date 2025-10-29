@@ -1,5 +1,7 @@
 import { PromiseAble } from "@laratype/support";
 
+export type Ability = Exclude<keyof Policy, 'before'>;
+
 export default abstract class Policy {
   abstract viewAny(...args: any[]): PromiseAble<boolean | null>;
 

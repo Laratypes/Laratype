@@ -1,11 +1,25 @@
-import { Context, Hono } from "hono";
+import { Context } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
-import { RouteOptions, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, NotFoundException, ValidationException } from "@laratype/support"
+import { PolicyFactory, RouteParams } from "../contracts/Route";
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
+
+type PipeLineType = {
+  type: 'middleware',
+  handler: typeof Middleware,
+} | {
+  type: 'request',
+  handler: RequestSupport,
+} | {
+  type: 'controller',
+  handler: any,
+} | {
+  type: 'policies',
+  handler: PolicyFactory,
+};
 
 export default class Request extends AppServiceProvider {
 
@@ -30,7 +44,7 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static transformRequest(request: HonoRequest, routeOption: RouteOptions) {
+  public static transformRequest(request: HonoRequest, routeOption: RouteParams) {
     if(routeOption.request) {
       return new routeOption.request(request);
     }
@@ -61,10 +75,14 @@ export default class Request extends AppServiceProvider {
     return res;
   }
 
+  private static isModel(binding: any) {
+    return (binding.model.constructor && binding.model.constructor.dataSource) || binding.model.dataSource;
+  }
+
   public static async queryFromModelBinding(modelBindings: Record<string, any>) {
     const models = await Promise.all(
       Object.entries(modelBindings).map(async ([key, binding]) => {
-        const isModel = (binding.model.constructor && binding.model.constructor.dataSource) || binding.model.dataSource;
+        const isModel = this.isModel(binding);
         let modelInstance;
         if(isModel) {
           const modelClass = binding.model;
@@ -115,7 +133,7 @@ export default class Request extends AppServiceProvider {
     return request;
   }
 
-  public static async pipeline(requestInstance: RequestSupport, pipelines: Array<(typeof Middleware) | RequestSupport | string>, routeOption: RouteOptions, res: Response) {
+  public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: RouteParams, res: Response) {
     if(pipelines.length) {
       const pipeline = async () => {
         let index = 0;
@@ -127,18 +145,46 @@ export default class Request extends AppServiceProvider {
             return arg;
           }
           if (currentPipeline) {
-            if(currentPipeline instanceof RequestSupport) {
+            const currentPipelineType = currentPipeline.type;
+            if(currentPipelineType === 'request') {
               await this.processValidation(requestInstance, routeOption);
               return await next(arg);
             }
-            else if(typeof currentPipeline ==="string") {
+            else if(currentPipelineType === 'controller') {
               if(routeOption.controller) {
                 return await this.controllerKernel(routeOption.controller)(requestInstance)
               }
               return await next(arg);
             }
+            else if(currentPipelineType === "policies") {
+              const policyHandler = currentPipeline.handler;
+              const modelBindings = ContextApi.getModelBindings();
+
+              const modelBinding = (model: any) => {
+                if(typeof model === 'string') {
+                  return modelBindings[model];
+                }
+                return model;
+              }
+              const modelArgs = policyHandler.args.map((arg: any) => modelBinding(arg));
+
+              let modelPolicy = policyHandler.modelPolicy;
+              if(typeof modelPolicy === 'string') {
+                const modelName = globalThis.__laratype_param_model_map?.[modelPolicy];
+                if(modelName) {
+                  modelPolicy = globalThis.__laratype_db.models?.[modelName];
+                }
+              }
+              
+              const policy = Reflect.getMetadata(MetaDataKey.POLICY, modelPolicy);
+              if(!policy) {
+                throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
+              }
+              await policyHandler.handle(policyHandler.ability, policy, ...modelArgs);
+              return await next(arg);
+            }
             else {
-              const middleware = await new currentPipeline();
+              const middleware = await new currentPipeline.handler();
               middleware.setPreviousResult(arg);
               return await middleware.handle(requestInstance, res, next);
             }
@@ -152,7 +198,7 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static async processValidation(requestInstance: RequestSupport, routeOption: RouteOptions) {
+  public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
     if(routeOption.request) {
       try {
         const result = await this.validate(requestInstance.all(), requestInstance.rules())
@@ -169,7 +215,7 @@ export default class Request extends AppServiceProvider {
     return requestInstance
   }
   
-  public static handle (routeOption: RouteOptions) {
+  public static handle (routeOption: RouteParams) {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
@@ -181,11 +227,16 @@ export default class Request extends AppServiceProvider {
         user: undefined,
         modelBindings: res,
       }, async () => {
-        const pipelines = [
-          ...routeOption.middleware ?? [],
-          transformedRequest,
-          "controller",
-        ];
+
+        const pipelines: PipeLineType[] = [];
+        if(routeOption.middleware?.length) {
+          pipelines.push(...routeOption.middleware.map(m => ({ type: 'middleware' as const, handler: m })));
+        }
+        if(routeOption.can?.length) {
+          pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
+        }
+        pipelines.push({ type: 'request' as const, handler: transformedRequest });
+        pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
         const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
 
