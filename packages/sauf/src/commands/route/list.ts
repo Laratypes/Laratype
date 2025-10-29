@@ -21,6 +21,9 @@ export default class RouteListCommand extends Command {
         Name: route.name ?? '-',
         Controller: `${route.controller[0].name}::${route.controller[1]}`,
         Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
+        Policies: route.can?.length ? route.can.map((mw: any) => {
+          return `${mw.ability}{${mw.args.map((arg: any) => arg.name ? arg.name : `/:${arg}`).join(', ')}}`
+        }).join(', ') : '-',
       }
     }) ?? [];
 

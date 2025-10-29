@@ -40,9 +40,9 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       globalThis.__laratype_db.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
 
       globalThis.__laratype_param_model_map ??= {};
-      for (const modeName in globalThis.__laratype_db.models) {
-        const modelCamel = camelize(modeName);
-        globalThis.__laratype_param_model_map[modelCamel] = modeName;
+      for (const modelName in globalThis.__laratype_db.models) {
+        const modelCamel = camelize(modelName);
+        globalThis.__laratype_param_model_map[modelCamel] = modelName;
       }
       
       this.dataSource = new DataSource({

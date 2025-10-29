@@ -18,7 +18,8 @@ const _createNestedRoute = (
   router: RouteOptions,
   path: string = '',
   middleware?: RouteOptions['middleware'],
-  withoutMiddleware?: RouteOptions['middleware']
+  withoutMiddleware?: RouteOptions['middleware'],
+  routePolicies?: Array<NonNullable<RouteOptions['can']>>,
 ) => {
   const routes: RouteParams[] = [];
   if (router.method && router.controller) {
@@ -27,12 +28,23 @@ const _createNestedRoute = (
       [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])]
     );
 
+    const policies = [
+      ...(routePolicies ?? []),
+    ]
+    
+    if(router.can) {
+      policies.push(router.can);
+    }
+
     const routePath = normalizePath(`${path}${router.path}`);
     app[router.method](
       routePath,
       RequestKernel.handle({
         ...router,
+        method: router.method,
+        controller: router.controller,
         middleware: filteredMiddleware,
+        can: policies
       })
     );
 
@@ -42,6 +54,7 @@ const _createNestedRoute = (
       path: routePath,
       name: router.name,
       controller: router.controller,
+      can: policies
     })
   }
 
@@ -53,6 +66,7 @@ const _createNestedRoute = (
       routePath,
       [...(middleware ?? []), ...(router.middleware ?? [])],
       [...(withoutMiddleware ?? []), ...(router.withoutMiddleware ?? [])],
+      [...(routePolicies ?? []), ...(router.can ? [router.can] : [])],
     );
 
     routes.push(...routeNested);

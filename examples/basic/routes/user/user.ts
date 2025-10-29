@@ -1,10 +1,12 @@
 import { RouteOptions } from "@laratype/http";
-import { AuthGuard } from "@laratype/auth";
+import { AuthGuard, can } from "@laratype/auth";
 import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/middleware/Middleware";
 import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
 import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
+import { User } from "../../src/models/User";
+import UserPolicy from "examples/basic/src/policies/UserPolicy";
 
 const authRoutes: RouteOptions = {
   path: "/",
@@ -61,7 +63,14 @@ const authGuardedRoutes: RouteOptions = {
         {
           path: '',
           method: 'get',
+          can: can("viewAny", User),
           controller: UserController.__invoke('index'),
+        },
+        {
+          path: '/:user',
+          method: 'get',
+          can: can("view", "user"),
+          controller: UserController.__invoke('view'),
         },
         {
           path: '/:activeUser',

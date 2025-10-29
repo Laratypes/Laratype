@@ -1,7 +1,10 @@
+import { UsePolicy } from "@laratype/auth"
 import { Model } from "@laratype/database"
 import { Entity, PrimaryGeneratedColumn, Column } from "@laratype/database"
+import AdminPolicy from "../policies/AdminPolicy"
 
 @Entity()
+@UsePolicy(AdminPolicy)
 export class Admin extends Model {
     @PrimaryGeneratedColumn()
     id: number
@@ -29,3 +32,5 @@ export class Admin extends Model {
       'age',
     ]
 }
+
+export interface Admin extends UsePolicy<AdminPolicy> {}
