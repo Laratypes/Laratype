@@ -23,7 +23,7 @@ export default class UserController extends Controller {
 
   async me() {
     const user = Auth.user<User>();
-    return user;
+    return user.getUser();
   }
   
   async view(request: Request, model: { user: User }) {
@@ -32,7 +32,8 @@ export default class UserController extends Controller {
   }
 
   async delete(request: Request) {
-    const actor = Auth.user<User>();
+    const authenticated = Auth.user<User>();
+    const actor = authenticated.getUser();
     const userId = request.param('id');
 
     const user = await User.findOneOrFail({
@@ -50,7 +51,8 @@ export default class UserController extends Controller {
   }
 
   async update(request: UpdateUserRequest, model: { user: User }) {
-    const actor = Auth.user<User>();
+    const authenticated = Auth.user<User>();
+    const actor = authenticated.getUser();
     const updatedData = request.validated();
     const { user } = model;
 

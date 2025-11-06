@@ -3,7 +3,7 @@ import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 
@@ -87,7 +87,7 @@ export default class Request extends AppServiceProvider {
         if(isModel) {
           const modelClass = binding.model;
           const paramValue = binding.param;
-          const primaryKey = modelClass.getRepository().metadata.primaryColumns[0].propertyName;
+          const primaryKey = ModelManagement.getPrimaryKeyFromModel(modelClass);
           if(!primaryKey) {
             throw new InternalException(`Model ${modelClass.name} does not have a primary key defined.`)
           }
