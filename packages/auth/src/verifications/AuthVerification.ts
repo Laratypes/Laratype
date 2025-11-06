@@ -1,7 +1,9 @@
-import { LaratypeConfig, getDefaultExports, getProjectPath, importModule, ModelManagement } from "@laratype/support";
+import { ModelManagement, InternalException } from "@laratype/support";
 import JWTVerification from "./jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
 import { JwtVerification } from ".";
+import { Model } from "@laratype/database";
+import { GuardStore } from "../passport/PassportServiceProvider";
 
 export type JWTSignOptions = {
   expiresIn?: number;
@@ -9,70 +11,34 @@ export type JWTSignOptions = {
   abilities: string;
 }
 
-class GuardStore {
+export class Authenticated<T extends Model = any> {
 
-  static auth: LaratypeConfig.Auth;
-  static ModelVerify: any;
-
-  public static async getAuthConfig() {
-    if (!this.auth) {
-      const module: LaratypeConfig.Auth = await importModule(getProjectPath('config/auth.ts'))
-      const authConfig = getDefaultExports(module)
-      this.auth = authConfig;
-    }
-
-    return this.auth;
-  }
-
-  public static async getGuards() {
-    const auth = await this.getAuthConfig();
-
-    return auth.guards;
-  }
-
-  public static async getModelVerify() {
-    if (!this.ModelVerify) {
-      try {
-        const { default: model } = await importModule("./src/models/PersonalAccessToken.ts");
-        this.ModelVerify = model;
-      }
-      finally {
-      }
-    }
-    return this.ModelVerify;
-  }
-}
-
-class Verification {
-
+  private user: T;
+  protected guard: any;
   protected guardName: string;
 
-  constructor(guardName: string) {
+  constructor(user: T, guard: any, guardName: string) {
+    this.user = user;
+    this.guard = guard;
     this.guardName = guardName;
   }
 
-  public async sign(payload: any, options: JWTSignOptions) {
-    const isModel = payload.constructor && payload.constructor.dataSource
-    let payload_ = { ...payload };
-    const expiresIn = options.expiresIn || 3600;
-    const guards = await GuardStore.getGuards();
-    const guard = guards[this.guardName];
-    if (!guard) {
-      throw new Error(`Guard ${this.guardName} not found`);
+  async generateToken(options: JWTSignOptions) {
+    const fieldIdName = ModelManagement.getPrimaryKeyFromModelInstance(this.user);
+    if(!fieldIdName) {
+      throw new InternalException(`Model ${this.user.constructor.name} does not have a primary key defined.`)
     }
-    const verificationMode = guard.verification;
+    const payload = {
+      // @ts-ignore
+      id: this.user[fieldIdName],
+    };
+    const expiresIn = options.expiresIn || 3600;
+    const verificationMode = this.guard.verification;
     let token: string | undefined
     if (verificationMode === 'jwt') {
-      // Reduce payload size for models
-      if (isModel) {
-        payload_ = {
-          id: payload.id,
-        }
-      }
-
       token = await JWTVerification.sign({
         guard: this.guardName,
-        payload: payload_,
+        payload: payload,
       }, {
         ...options,
         expiresIn,
@@ -83,24 +49,35 @@ class Verification {
       throw new UnsupportedVerificationModeException()
     }
 
-    if (isModel) {
-      const modelName = payload.constructor.name;
-      const ModelVerify = await GuardStore.getModelVerify();
-      if (ModelVerify) {
-        await ModelVerify.insert({
-          tokenable_type: modelName,
-          tokenable_id: payload.id,
-          name: options.name,
-          abilities: options.abilities,
-          token,
-          verification_type: verificationMode,
-          last_used_at: new Date(),
-          expires_at: new Date(Date.now() + expiresIn * 1000),
-        });
-      }
+    const modelName = payload.constructor.name;
+    const ModelVerify = GuardStore.getModelVerify();
+    if (ModelVerify) {
+      await ModelVerify.insert({
+        tokenable_type: modelName,
+        tokenable_id: payload.id,
+        name: options.name,
+        abilities: options.abilities,
+        token,
+        verification_type: verificationMode,
+        last_used_at: new Date(),
+        expires_at: new Date(Date.now() + expiresIn * 1000),
+      });
     }
 
     return token;
+  }
+
+  getUser(): T {
+    return this.user;
+  }
+}
+
+class Verification {
+
+  protected guardName: string;
+
+  constructor(guardName: string) {
+    this.guardName = guardName;
   }
 
   public async verify(token: string) {
@@ -157,14 +134,8 @@ export default class AuthVerification {
     return new Verification(guardName);
   }
 
-  public static async generateToken(payload: any, options: JWTSignOptions): Promise<string> {
-    const auth = await GuardStore.getAuthConfig();
-
-    return this.guard(auth.default.guard).sign(payload, options);
-  }
-
-  public static async verify(token: string): Promise<any> {
-    const auth = await GuardStore.getAuthConfig();
+  public static verify(token: string): Promise<any> {
+    const auth = GuardStore.getAuthConfig();
     return this.guard(auth.default.guard).verify(token);
   }
 

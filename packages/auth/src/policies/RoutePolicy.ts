@@ -17,7 +17,7 @@ export default class RoutePolicy {
   }
 
   static async handle<T extends Ability>(ability: T, Po: new () => Policy, ...models: any) {
-    const actor = Auth.user<UsePolicy<Policy>>();
+    const actor = Auth.user();
     if(!actor) {
       return false;
     }

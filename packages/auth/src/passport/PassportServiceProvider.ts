@@ -5,6 +5,7 @@ import { BaseEntity, Model } from "@laratype/database";
 import { importModule, ServiceProvider, LaratypeConfig as Config, getProjectPath, getDefaultExports, ContextApi, RedirectStatusCode } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
+import Authentication from "./Authentication";
 
 class StoreManagement {
   public store(req: Request, ctx: any, appState: any, meta: any, cb: (err: any, id: string) => void) {
@@ -71,15 +72,42 @@ const initialize = (passport: any, options: any) => {
   return (...args: any) => passport;
 }
 
+export class GuardStore {
+
+  static auth: Config.Auth;
+  static ModelVerify: any;
+
+  public static getAuthConfig() {
+    return this.auth;
+  }
+
+  public static getGuards() {
+    const auth = this.getAuthConfig();
+
+    return auth.guards;
+  }
+
+  public static setAuthConfig(authConfig: Config.Auth) {
+    this.auth = authConfig;
+  }
+
+  public static getModelVerify() {
+    return this.ModelVerify;
+  }
+
+  public static setModelVerify(model: any) {
+    this.ModelVerify = model;
+  }
+  
+}
+
 export default class PassportServiceProvider extends ServiceProvider {
 
   protected handleLocalStrategy(guard: any, username: string, password: string, cb: (err: any, profile: any, info?: any) => void) {
-    const model: typeof Model = guard.provider
-
-    const result = model.findOneBy({
+    const result = Authentication.login(guard, {
       [guard.options.usernameField]: username,
       [guard.options.passwordField]: password,
-    })
+    });
 
     result.then((res: BaseEntity) => {
       if(res) {
@@ -93,6 +121,13 @@ export default class PassportServiceProvider extends ServiceProvider {
   public async boot() {
     const module: Config.Auth = await importModule(getProjectPath('config/auth.ts'))
     const authConfig = getDefaultExports(module)
+    GuardStore.setAuthConfig(authConfig);
+    try {
+      const { default: model } = await importModule(getProjectPath("src/models/PersonalAccessToken.ts"));
+      GuardStore.setModelVerify(model);
+    }
+    finally {
+    }
 
     for (const guardName in authConfig.guards) {
       const guard = authConfig.guards[guardName];
