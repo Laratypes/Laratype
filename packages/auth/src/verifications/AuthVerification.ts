@@ -157,7 +157,7 @@ export default class AuthVerification {
     return new Verification(guardName);
   }
 
-  public static async sign(payload: any, options: JWTSignOptions): Promise<string> {
+  public static async generateToken(payload: any, options: JWTSignOptions): Promise<string> {
     const auth = await GuardStore.getAuthConfig();
 
     return this.guard(auth.default.guard).sign(payload, options);
