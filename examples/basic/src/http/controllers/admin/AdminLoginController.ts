@@ -5,11 +5,13 @@ import { Admin } from "../../../models/Admin";
 export class AdminLoginController extends Controller {
 
   public async login(req: Request) {
-    const user = Auth.user<Admin>()
-    const jwtToken = await AuthVerification.guard('admin').sign(user, {
+    const authenticated = Auth.guard<Admin>('admin').user();
+    const jwtToken = await authenticated.generateToken({
       name: "Default Token",
       abilities: "*",
     });
+
+    const user = authenticated.getUser();
 
     return {
       user,

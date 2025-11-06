@@ -6,7 +6,7 @@ import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
 import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
 import { User } from "../../src/models/User";
-import UserPolicy from "examples/basic/src/policies/UserPolicy";
+import LoginRequest from "../../src/http/requests/LoginRequest";
 
 const authRoutes: RouteOptions = {
   path: "/",
@@ -27,6 +27,12 @@ const authRoutes: RouteOptions = {
       middleware: [
         LocalAuthentication,
       ]
+    },
+    {
+      path: "/login/manual",
+      method: "post",
+      controller: LoginController.__invoke('manualLogin'),
+      request: LoginRequest,
     },
     {
       path: "/callback",
