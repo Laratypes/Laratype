@@ -10,7 +10,7 @@
 </p>
 
 <div align="center">
-  <a href="https://docs-eight-omega.vercel.app/">Documentation</a>
+  <a href="https://laratype.dev/">Documentation</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="https://discord.gg/m6fQQRT9">Discord</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
