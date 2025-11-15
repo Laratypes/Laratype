@@ -1,6 +1,6 @@
 import { Policy } from "@laratype/auth";
-import { User } from "../models/User";
-import { Admin } from "../models/Admin";
+import User from "../models/User";
+import Admin from "../models/Admin";
 
 export default class AdminPolicy extends Policy {
 

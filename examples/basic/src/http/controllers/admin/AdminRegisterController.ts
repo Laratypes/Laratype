@@ -1,6 +1,6 @@
 import { Controller } from "@laratype/http";
 import CreateAdminRequest from "../../requests/admin/CreateAdminRequest";
-import { Admin } from "../../../models/Admin";
+import Admin from "../../../models/Admin";
 
 export default class AdminRegisterController extends Controller {
 

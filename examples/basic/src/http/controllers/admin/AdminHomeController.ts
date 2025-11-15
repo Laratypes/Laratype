@@ -1,6 +1,6 @@
 
 import { Controller, Request } from "@laratype/http";
-import { Admin } from "../../../models/Admin";
+import Admin from "../../../models/Admin";
 import { Auth } from "@laratype/auth";
 
 

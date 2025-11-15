@@ -6,3 +6,5 @@ export { default as MakePolicyCommand } from "./policy";
 export { default as MakeGateCommand } from "./gate";
 export { default as MakeRequestCommand } from "./request";
 export { default as MakeResourceCommand } from "./resource";
+export { default as MakeFactoryCommand } from "./factory";
+export { default as MakeSeederCommand } from "./seeder";

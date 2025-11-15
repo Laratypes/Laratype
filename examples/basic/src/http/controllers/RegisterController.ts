@@ -1,6 +1,6 @@
 import { Controller } from "@laratype/http";
 import CreateUserRequest from "../requests/CreateUserRequest";
-import { User } from "../../models/User";
+import User from "../../models/User";
 
 export default class RegisterController extends Controller {
 

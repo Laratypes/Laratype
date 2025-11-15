@@ -1,6 +1,6 @@
 import { Route } from "@laratype/http";
 import { AppServiceProvider } from "@laratype/support";
-import { User } from "../models/User";
+import User from "../models/User";
 
 export default class RouteBindingsServiceProvider extends AppServiceProvider {
 

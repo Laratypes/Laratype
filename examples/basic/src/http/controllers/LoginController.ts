@@ -1,6 +1,6 @@
 import { Auth, AuthVerification } from "@laratype/auth";
 import { Controller, Request } from "@laratype/http";
-import { User } from "../../models/User";
+import User from "../../models/User";
 import LoginRequest from "../requests/LoginRequest";
 import UnauthorizedException from "../../exceptions/UnauthorizedException";
 

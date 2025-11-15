@@ -1,9 +1,9 @@
 import { ManyToOne, Model } from "@laratype/database"
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "@laratype/database"
-import { User } from "./User"
+import User from "./User"
 
 @Entity()
-export class Post extends Model {
+export default class Post extends Model {
     @PrimaryGeneratedColumn()
     id: number
 
@@ -24,4 +24,4 @@ export class Post extends Model {
     ]
 }
 
-export interface Post {}
+export default interface Post {}

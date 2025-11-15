@@ -1,0 +1,9 @@
+import { Seeder } from "@laratype/database";
+import {{ ModelName }} from "../../src/models/{{ ModelName }}";
+import {{ ModelName }}Factory from "../factories/UserFactory";
+
+export default class {{ ModelName }}Seeder extends Seeder {
+  public async run(): Promise<void> {
+    const result = await {{ ModelName }}Factory.make<{{ ModelName }}>().create()
+  }
+}
