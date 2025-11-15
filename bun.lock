@@ -37,6 +37,7 @@
         "zod": "^3.23.8",
       },
       "devDependencies": {
+        "@faker-js/faker": "^10.1.0",
         "@swc-node/register": "^1.11.1",
         "@types/node": "^20.11.24",
         "@types/passport": "^1.0.17",
@@ -46,7 +47,7 @@
     },
     "packages/auth": {
       "name": "@laratype/auth",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/http": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -60,18 +61,18 @@
     },
     "packages/broadcast": {
       "name": "@laratype/broadcast",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/console": {
       "name": "@laratype/console",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "consola": "^3.4.2",
       },
     },
     "packages/database": {
       "name": "@laratype/database",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/log": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -86,7 +87,7 @@
     },
     "packages/http": {
       "name": "@laratype/http",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/support": "workspace:*",
         "@laratype/validation": "workspace:*",
@@ -101,11 +102,11 @@
     },
     "packages/i18n": {
       "name": "@laratype/i18n",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/laratype": {
       "name": "laratype",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -116,7 +117,7 @@
     },
     "packages/log": {
       "name": "@laratype/log",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
@@ -129,11 +130,11 @@
     },
     "packages/mail": {
       "name": "@laratype/mail",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/sauf": {
       "name": "sauf",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "bin": "dist/index.esm.js",
       "dependencies": {
         "@laratype/console": "workspace:*",
@@ -159,15 +160,15 @@
     },
     "packages/schedule": {
       "name": "@laratype/schedule",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/storage": {
       "name": "@laratype/storage",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/support": {
       "name": "@laratype/support",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/console": "workspace:*",
       },
@@ -189,11 +190,11 @@
     },
     "packages/ts-gen": {
       "name": "@laratype/ts-gen",
-      "version": "0.3.8",
+      "version": "0.4.0",
     },
     "packages/validation": {
       "name": "@laratype/validation",
-      "version": "0.3.8",
+      "version": "0.4.0",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
@@ -275,6 +276,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.9", "", { "os": "win32", "cpu": "ia32" }, "sha512-b33gLVU2k11nVx1OhX3C8QQP6UHQK4ZtN56oFWvVXvz2VkDoe6fbG8TOgHFxEvqeqohmRnIHe5A1+HADk4OQww=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.9", "", { "os": "win32", "cpu": "x64" }, "sha512-PPOl1mi6lpLNQxnGoyAfschAodRFYXJ+9fs6WHXz7CSWKbOqiMZsubC+BQsVKuul+3vKLuwTHsS2c2y9EoKwxQ=="],
+
+    "@faker-js/faker": ["@faker-js/faker@10.1.0", "", {}, "sha512-C3mrr3b5dRVlKPJdfrAXS8+dq+rq8Qm5SNRazca0JKgw1HQERFmrVb0towvMmw5uu8hHKNiQasMaR/tydf3Zsg=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-h44e5s+ByUriaRIbeS/C74O8v90m0A95luyYQGMF7KEn96KkYMXO7bZAwombzTpjQTU4e0TkU8U1WBIXlwuwtA=="],
 
