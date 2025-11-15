@@ -9,7 +9,9 @@ import {
   MakePolicyCommand,
   MakeGateCommand,
   MakeRequestCommand,
-  MakeResourceCommand
+  MakeResourceCommand,
+  MakeFactoryCommand,
+  MakeSeederCommand,
 } from "./make";
 
 export default [
@@ -19,10 +21,12 @@ export default [
   RouteListCommand,
   MakeCommandCommand,
   MakeControllerCommand,
+  MakeFactoryCommand,
   MakeGateCommand,
   MakeMiddlewareCommand,
   MakeModelCommand,
   MakePolicyCommand,
   MakeRequestCommand,
   MakeResourceCommand,
+  MakeSeederCommand,
 ];

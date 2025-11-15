@@ -1,0 +1,12 @@
+import { Factory, UseModel } from "@laratype/database"
+import { faker } from "@faker-js/faker"
+import {{ ModelName }} from "../../src/models/{{ ModelName }}"
+
+@UseModel({{ ModelName }})
+export default class {{ ModelName }}Factory extends Factory<{{ ModelName }}> {
+  definition () {
+    return this.createDefinition({
+      // Define your data here
+    })
+  }
+}
