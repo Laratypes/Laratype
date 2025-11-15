@@ -1,4 +1,4 @@
-import { InitDatabaseCommand } from "./db";
+import { InitDatabaseCommand, SeedDatabaseCommand } from "./db";
 import LaratypeDevCommand from "./dev";
 import { RouteListCommand } from "./route";
 import {
@@ -15,6 +15,7 @@ import {
 export default [
   LaratypeDevCommand,
   InitDatabaseCommand,
+  SeedDatabaseCommand,
   RouteListCommand,
   MakeCommandCommand,
   MakeControllerCommand,
