@@ -5,7 +5,7 @@ import AdminPolicy from "../policies/AdminPolicy"
 
 @Entity()
 @UsePolicy(AdminPolicy)
-export class Admin extends Model {
+export default class Admin extends Model {
     @PrimaryGeneratedColumn()
     id: number
 
@@ -33,4 +33,4 @@ export class Admin extends Model {
     ]
 }
 
-export interface Admin extends UsePolicy<AdminPolicy> {}
+export default interface Admin extends UsePolicy<AdminPolicy> {}

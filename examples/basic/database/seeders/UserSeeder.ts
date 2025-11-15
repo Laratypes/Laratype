@@ -1,8 +1,8 @@
 import { Seeder } from "@laratype/database";
-import { User } from "../../src/models/User";
+import User from "../../src/models/User";
 import UserFactory from "../factories/UserFactory";
 import PostFactory from "../factories/PostFactory";
-import { Post } from "../../src/models/Post";
+import Post from "../../src/models/Post";
 
 export default class UserSeeder extends Seeder {
   public async run(): Promise<void> {

@@ -2,11 +2,11 @@ import { UsePolicy } from "@laratype/auth"
 import { Model, OneToMany } from "@laratype/database"
 import { Entity, PrimaryGeneratedColumn, Column } from "@laratype/database"
 import UserPolicy from "../policies/UserPolicy"
-import { Post } from "./Post"
+import Post from "./Post"
 
 @Entity()
 @UsePolicy(UserPolicy)
-export class User extends Model {
+export default class User extends Model {
     @PrimaryGeneratedColumn()
     id: number
 
@@ -41,4 +41,4 @@ export class User extends Model {
     posts: Post[]
 }
 
-export interface User extends UsePolicy<UserPolicy> {}
+export default interface User extends UsePolicy<UserPolicy> {}

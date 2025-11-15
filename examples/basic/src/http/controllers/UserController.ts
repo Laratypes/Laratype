@@ -2,7 +2,7 @@ import { Controller, Request } from "@laratype/http";
 import { Auth, GateGuard } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
-import { User } from "../../models/User";
+import User from "../../models/User";
 import UpdateUserGate from "../../gates/UpdateUserGate";
 import UpdateUserRequest from "../requests/UpdateUserRequest";
 import UnauthorizedException from "../../exceptions/UnauthorizedException";

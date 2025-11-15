@@ -5,7 +5,7 @@ import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
 import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
-import { User } from "../../src/models/User";
+import User from "../../src/models/User";
 import LoginRequest from "../../src/http/requests/LoginRequest";
 
 const authRoutes: RouteOptions = {
