@@ -25,3 +25,5 @@ declare var __sauf_start_time: number;
 declare var __laratype_route_model_bindings: Record<string, any>;
 
 declare var __laratype_param_model_map: Record<string, string>;
+
+declare var __sauf_transpiler_instance: any

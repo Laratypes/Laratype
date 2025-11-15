@@ -61,6 +61,8 @@ export default class LaratypeDevCommand extends Command {
     await transpiler.init();
 
     this.viteDevServer = await transpiler.getRunner();
+
+    globalThis.__sauf_transpiler_instance = this.viteDevServer.ssrLoadModule
   }
 
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
