@@ -40,6 +40,9 @@ export const importModule = async (moduleName: string, options: { url?: string, 
   }
 
   try {
+    if(globalThis.__sauf_transpiler_instance) {
+      return await globalThis.__sauf_transpiler_instance(id);
+    }
     return await import( /* @vite-ignore */ id);
   }
   catch(e) {

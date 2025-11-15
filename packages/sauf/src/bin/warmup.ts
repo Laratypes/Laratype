@@ -59,6 +59,7 @@ class CommandManager {
       esbuild: false,
       plugins: [
         RollupPluginSwc({
+          sourceMaps: true,
           module: {
             type: 'es6',
           },

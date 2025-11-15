@@ -1,4 +1,7 @@
 export { default as DatabaseServiceProvider } from "./providers/EloquentServiceProvider"
 export { default as Model } from "./eloquent/Model"
 export * from "./support"
+export * from "./decorators"
+export * from "./factories"
+export * from "./seeders"
 export * from "typeorm"
