@@ -7,6 +7,7 @@
     "examples/*/src",
     "examples/*/config",
     "examples/*/routes",
+    "examples/*/database",
     "examples/*/declare",
     "packages/*/__tests__",
     "rollup.config.js",
