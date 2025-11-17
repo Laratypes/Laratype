@@ -2,7 +2,7 @@ import passport from "passport";
 import { BaseEntity, Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { importModule, ServiceProvider, LaratypeConfig as Config, getProjectPath, getDefaultExports, ContextApi, RedirectStatusCode } from "@laratype/support";
+import { importModule, ServiceProvider, LaratypeConfig as Config, getDefaultExports, ContextApi, RedirectStatusCode, getAppPath } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import Authentication from "./Authentication";
@@ -119,11 +119,11 @@ export default class PassportServiceProvider extends ServiceProvider {
   }
 
   public async boot() {
-    const module: Config.Auth = await importModule(getProjectPath('config/auth.ts'))
+    const module: Config.Auth = await importModule(getAppPath('config/auth.ts'))
     const authConfig = getDefaultExports(module)
     GuardStore.setAuthConfig(authConfig);
     try {
-      const { default: model } = await importModule(getProjectPath("src/models/PersonalAccessToken.ts"));
+      const { default: model } = await importModule(getAppPath("src/models/PersonalAccessToken.ts"));
       GuardStore.setModelVerify(model);
     }
     finally {

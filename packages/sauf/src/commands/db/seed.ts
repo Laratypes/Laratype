@@ -1,4 +1,4 @@
-import { AppServiceProvider, getDefaultExports, getProjectPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, getDefaultExports, getAppPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
 
 export default class SeedDatabaseCommand extends Command {
@@ -32,7 +32,7 @@ export default class SeedDatabaseCommand extends Command {
     const className = opts.class;
     if(className) {
       try {
-        const SeederClass = await importModule(getProjectPath(`database/seeders/${className}.ts`));
+        const SeederClass = await importModule(getAppPath(`database/seeders/${className}.ts`));
         return [
           getDefaultExports(SeederClass)
         ];
@@ -43,7 +43,7 @@ export default class SeedDatabaseCommand extends Command {
       }
     }
 
-    const DataBaseSeederClass = await importModule(getProjectPath(`database/seeders/DatabaseSeeder.ts`));
+    const DataBaseSeederClass = await importModule(getAppPath(`database/seeders/DatabaseSeeder.ts`));
     const DataBaseSeeder = getDefaultExports(DataBaseSeederClass);
 
     return [

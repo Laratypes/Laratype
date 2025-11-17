@@ -1,13 +1,13 @@
 import { createJiti } from "jiti";
 import { globSync } from "glob"
-import { getProjectPath } from "@laratype/support";
+import { getAppPath } from "@laratype/support";
 import type { Command } from "@laratype/console";
 import Transpile from "./transplie";
 
 const jiti = createJiti(process.cwd());
 
 export const importRootCommands = async (transpiler: Transpile) => {
-  const path = getProjectPath("src/console/commands/*.ts", false);
+  const path = getAppPath("src/console/commands/*.ts", false);
   const files = globSync(path, {
     windowsPathsNoEscape: true
   });
@@ -22,7 +22,7 @@ export const importRootCommands = async (transpiler: Transpile) => {
 }
 
 export const importRouteConsoleCommands = async (transpiler: Transpile) => {
-  const path = getProjectPath("routes/console.ts", false);
+  const path = getAppPath("routes/console.ts", false);
   const runner = await transpiler.getRunner();
 
   const module = await runner.ssrLoadModule(path, {

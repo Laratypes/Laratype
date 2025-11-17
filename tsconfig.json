@@ -4,13 +4,9 @@
     "packages/*/src",
     "packages/global.d.ts",
     "packages/laratype/src",
-    "examples/*/src",
-    "examples/*/config",
-    "examples/*/routes",
-    "examples/*/database",
-    "examples/*/declare",
+    "examples/*/app",
     "packages/*/__tests__",
     "rollup.config.js",
-    "./scripts", "examples/basic/routes",
+    "./scripts", "examples/basic/app/routes",
   ]
 }

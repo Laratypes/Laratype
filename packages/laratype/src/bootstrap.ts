@@ -1,10 +1,10 @@
-import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, getProjectPath, importModule, ServiceProvider, EnvLoadServiceProvider, AppServiceProvider } from '@laratype/support';
+import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, importModule, ServiceProvider, EnvLoadServiceProvider, AppServiceProvider, getAppPath } from '@laratype/support';
 import { existsSync } from "node:fs";
 
 export async function register(onlyConfig: true): Promise<Array<typeof ServiceProvider>>;
 export async function register(onlyConfig?: false): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;
 export async function register(onlyConfig?: boolean): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>> {
-  const providerPath = getProjectPath('/config/providers.ts', false);
+  const providerPath = getAppPath('/config/providers.ts', false);
   let providers: Array<typeof ServiceProvider> = [];
   if(existsSync(providerPath)) {
     const module = await importModule(providerPath);
