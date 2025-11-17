@@ -12,6 +12,14 @@ export const getProjectPath = (pathFile: string, withURI = true) => {
   return fileUri;
 }
 
+export const getAppPath = (pathFile: string, withURI = true) => {
+  const fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
+  if(withURI) {
+    return pathToFileURL(fileUri).href;
+  }
+  return fileUri;
+}
+
 export const getDefaultExports = (module: any) => {
   return module.default;
 }

@@ -1,5 +1,5 @@
 import { Log } from "@laratype/log";
-import { camelize, Config, getProjectPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { camelize, Config, getAppPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { BaseEntity, DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import { globSync } from "glob";
@@ -29,7 +29,7 @@ export default class DatabaseServiceProvider extends ServiceProvider {
         throw new DatabaseConnectionNotConfigYet()
       }
 
-      const path = getProjectPath("src/models/*", false);
+      const path = getAppPath("src/models/*", false);
 
       const files = globSync(path, {
         windowsPathsNoEscape: true
