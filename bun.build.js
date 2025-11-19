@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, rmSync } from "fs";
 import path from "path";
 
 import merge from "deepmerge"
@@ -9,6 +9,10 @@ import { entries } from "./scripts/alias.js";
   .filter(([pkgName, entryPoint]) => existsSync(entryPoint))
   .map(([pkgName, entryPoint]) => {
     const dir = path.resolve(`./packages/${pkgName.replace('@laratype', '')}/dist`);
+
+    // Clean dist folder
+    rmSync(dir, { recursive: true, force: true });
+
     const buildFormat = JSON.parse(
       readFileSync(
         path.resolve(`./packages/${pkgName.replace('@laratype', '')}/package.json`), 'utf-8'
@@ -21,7 +25,7 @@ import { entries } from "./scripts/alias.js";
 
     buildFormat.external.push(/@laratype\/.*/);
 
-    const baseConfig = {
+    const baseConfigEsm = {
       entrypoints: [
         entryPoint
       ],
@@ -36,10 +40,19 @@ import { entries } from "./scripts/alias.js";
       }
     }
 
-    const config = merge(baseConfig, buildFormat);
+    const baseConfigCjs = {
+       ...baseConfigEsm,
+       splitting: undefined,
+      format: "cjs",
+      naming: "[dir]/[name].[ext]",
+    }
 
-    return config;
+    return [
+      merge(baseConfigEsm, buildFormat),
+      merge(baseConfigCjs, buildFormat),
+    ]
   })
+  .flat()
 
   for (const task of tasks) {
     const start = performance.now();
