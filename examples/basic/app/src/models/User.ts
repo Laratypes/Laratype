@@ -1,6 +1,6 @@
 import { UsePolicy } from "@laratype/auth"
 import { Model, OneToMany } from "@laratype/database"
-import { Entity, PrimaryGeneratedColumn, Column } from "@laratype/database"
+import { Entity, PrimaryGeneratedColumn, Column, type Relation } from "@laratype/database"
 import UserPolicy from "../policies/UserPolicy"
 import Post from "./Post"
 
@@ -38,7 +38,7 @@ export default class User extends Model {
     ]
 
     @OneToMany(() => Post, post => post.user, { cascade: true })
-    posts: Post[]
+    posts: Relation<Post>[]
 }
 
 export default interface User extends UsePolicy<UserPolicy> {}

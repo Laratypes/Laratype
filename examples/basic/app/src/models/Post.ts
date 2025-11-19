@@ -1,5 +1,5 @@
 import { ManyToOne, Model } from "@laratype/database"
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "@laratype/database"
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, type Relation } from "@laratype/database"
 import User from "./User"
 
 @Entity()
@@ -17,7 +17,7 @@ export default class Post extends Model {
     updated_at: Date
 
     @ManyToOne(() => User, user => user.posts)
-    user: User
+    user: Relation<User>
 
     static readonly fillable = [
         'content',

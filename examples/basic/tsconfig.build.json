@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "strict": false,
+    "target": "ES2022",
+    "module": "es2022",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "declaration": false,
+    "outDir": "./dist",
+    "composite": false,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop":  true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "checkJs": false,
+
+    // TypeORM
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+  },
+  "include": [
+    "app/**/*",
+  ],
+  "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
+}
