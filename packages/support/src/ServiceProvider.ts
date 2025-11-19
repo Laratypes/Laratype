@@ -10,11 +10,6 @@ export enum ServiceProviderType {
 export class ServiceProvider {
 
   static type = ServiceProviderType.CORE_PROVIDER;
-  protected transpile: ViteDevServer;
-
-  constructor(vite: ViteDevServer) {
-    this.transpile = vite;
-  }
 
   public register(): void | Promise<void> {
     
@@ -35,8 +30,8 @@ export class AppServiceProvider extends ServiceProvider {
   public bindings = [];
   public apps: Hono;
 
-  constructor(vite: ViteDevServer, apps: Hono) {
-    super(vite);
+  constructor(apps: Hono) {
+    super();
     this.apps = apps;
   }
 }
@@ -47,8 +42,8 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
   public bindings = [];
   public apps: Hono;
 
-  constructor(vite: ViteDevServer, apps: Hono) {
-    super(vite, apps);
+  constructor(apps: Hono) {
+    super(apps);
     this.apps = apps;
   }
   

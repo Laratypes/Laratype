@@ -1,5 +1,5 @@
 import { Log } from "@laratype/log";
-import { camelize, Config, getAppPath, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { camelize, Config, getAppPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { BaseEntity, DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import { globSync } from "glob";
@@ -35,7 +35,7 @@ export default class DatabaseServiceProvider extends ServiceProvider {
         windowsPathsNoEscape: true
       });
 
-      const instances = await Promise.all(files.map(file => this.transpile.ssrLoadModule(file)));
+      const instances = await Promise.all(files.map(file => importModule(file)));
       const models = this.flattenModels(instances);
       globalThis.__laratype_db.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
 

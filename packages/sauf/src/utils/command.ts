@@ -65,7 +65,7 @@ export default class Command {
 
       const downs = [];
       for(let Provider of filteredProviders) {
-        const providerInstance = new Provider(vite as any, serverInstance);
+        const providerInstance = new Provider(serverInstance);
         const handler = providerInstance.boot();
         if(handler instanceof Promise) {
           await handler;
