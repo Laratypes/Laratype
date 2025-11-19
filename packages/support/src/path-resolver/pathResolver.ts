@@ -13,7 +13,11 @@ export const getProjectPath = (pathFile: string, withURI = true) => {
 }
 
 export const getAppPath = (pathFile: string, withURI = true) => {
-  const fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
+  let fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
+  if(globalThis.__APP_PROD__) {
+    const _pathFile = pathFile.replace(/\.[.ts]+$/, '.js');
+    fileUri = path.resolve(`${cwd()}/dist${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`);
+  }
   if(withURI) {
     return pathToFileURL(fileUri).href;
   }
@@ -50,6 +54,9 @@ export const importModule = async (moduleName: string, options: { url?: string, 
   try {
     if(globalThis.__sauf_transpiler_instance) {
       return await globalThis.__sauf_transpiler_instance(id);
+    }
+    if(typeof module !== 'undefined') {
+      return require(id);
     }
     return await import( /* @vite-ignore */ id);
   }

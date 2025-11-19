@@ -68,7 +68,7 @@ export default class LaratypeDevCommand extends Command {
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
     const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
 
-    await Serve.bootProvider(vite)
+    await Serve.bootProvider()
 
     return Serve.getInstance();
 

@@ -1,5 +1,6 @@
 import { InitDatabaseCommand, SeedDatabaseCommand } from "./db";
 import LaratypeDevCommand from "./dev";
+import LaratypeBuildCommand from "./build";
 import { RouteListCommand } from "./route";
 import {
   MakeModelCommand,
@@ -16,6 +17,7 @@ import {
 
 export default [
   LaratypeDevCommand,
+  LaratypeBuildCommand,
   InitDatabaseCommand,
   SeedDatabaseCommand,
   RouteListCommand,

@@ -32,12 +32,17 @@
     "@laratype/support": "workspace:*",
     "@swc/core": "^1.13.5",
     "@swc/wasm": "^1.13.5",
-    "vite": "catalog:",
-    "jiti": "^2.5.1"
+    "jiti": "^2.5.1",
+    "tsc-alias": "^1.8.16",
+    "vite": "catalog:"
   },
   "devDependencies": {
     "@rollup/plugin-typescript": "^12.1.2",
     "@rollup/pluginutils": "^5.3.0",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-replace": "^6.0.3",
+    "@rollup/plugin-terser": "^0.4.4",
     "@types/figlet": "^1.7.0",
     "commander": "^13.1.0",
     "figlet": "^1.8.0",
@@ -53,6 +58,8 @@
       "vite",
       "@swc/core",
       "@swc/wasm",
+      "rollup",
+      "tsc-alias",
       "jiti"
     ]
   },

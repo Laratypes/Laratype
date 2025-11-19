@@ -14,11 +14,11 @@ export default class Serve {
     return this.instance
   }
 
-  public static async bootProvider(vite: any) {
+  public static async bootProvider() {
     const instance = this.getInstance()
     const serviceProviderBootstrapped = await register()
     for(let Provider of serviceProviderBootstrapped) {
-      const handler = new Provider(vite, instance).boot()
+      const handler = new Provider(instance).boot()
       if(handler instanceof Promise) {
         await handler;
       }
