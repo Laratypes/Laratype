@@ -27,3 +27,7 @@ declare var __laratype_route_model_bindings: Record<string, any>;
 declare var __laratype_param_model_map: Record<string, string>;
 
 declare var __sauf_transpiler_instance: any
+
+declare var __APP_PLATFORM__: 'node' | 'deno' | 'edge' | 'bun';
+
+declare var __APP_PROD__: boolean;

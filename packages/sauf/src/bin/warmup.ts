@@ -1,4 +1,4 @@
-import { Command as CommandInstance } from "@laratype/console";
+import { type Command as CommandInstance } from "@laratype/console";
 import { program } from "commander"
 import figlet from "figlet"
 import { green } from "kolorist"
@@ -19,7 +19,7 @@ figlet.parseFont("Standard", standard);
 
 console.log(green(figlet.textSync("Laratype")));
 
-class CommandManager {
+export class CommandManager {
   protected commands: Array<Command> = [];
 
   public registerCommand(command: typeof CommandInstance, transpiler: Transpile) {
@@ -91,5 +91,3 @@ class CommandManager {
     
   }
 }
-
-new CommandManager().boot();
