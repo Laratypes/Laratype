@@ -1,23 +1,11 @@
 import { Console } from "@laratype/console";
 import { Config, getLaratypeVersion, getRootPackageInfo, importModule, resolveSync } from "@laratype/support";
 import { blue, green } from "kolorist";
+import { serve } from "@hono/node-server";
 import path from "path";
 
 globalThis.__PROD__ = true;
 globalThis.__APP_PROD__ = true;
-
-const getPlatformAdapter = (platform) => {
-  if(platform === 'node') {
-    try {
-      return resolveSync("@hono/node-server")
-    }
-    catch (error) {
-      throw new Error("Please install '@hono/node-server' to build the application for Node.js platform. You can install it via 'npm install @hono/node-server' or 'yarn add @hono/node-server'.");
-    }
-  }
-
-  throw new Error(`Platform adapter for '${platform}' is not supported yet.`)
-}
 
 export const start = async () => {
   const startTime = performance.now();
@@ -27,10 +15,6 @@ export const start = async () => {
   await laratype.Serve.bootProvider();
 
   const app = laratype.Serve.getInstance();
-
-  const platformAdapter = await importModule(getPlatformAdapter(__APP_PLATFORM__));
-
-  const { serve } = platformAdapter;
   
   const version = await getLaratypeVersion();
   const rootInfo = await getRootPackageInfo();

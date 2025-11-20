@@ -35,9 +35,9 @@ export default class LaratypeBuildCommand extends Command {
     const rootInfo = await getRootPackageInfo();
 
     const bundle = await rollup({
-      input: resolvePathSync('sauf/resources/app/start.js'),
+      input: resolvePathSync(`sauf/resources/app/${opts.platform}.js`),
       plugins: [
-        // terser(),
+        terser(),
         replace({
           preventAssignment: true,
           '__APP_PLATFORM__': JSON.stringify(opts.platform),
