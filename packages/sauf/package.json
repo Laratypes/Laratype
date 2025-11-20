@@ -28,6 +28,7 @@
   "license": "MIT",
   "description": "Sauf command for laratype framework",
   "dependencies": {
+    "@hono/node-server": "^1.19.6",
     "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*",
     "@swc/core": "^1.13.5",
