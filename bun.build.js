@@ -54,6 +54,15 @@ import { entries } from "./scripts/alias.js";
   })
   .flat()
 
+  for (const packageName in entries) {
+    const entryPoint = `./packages/${packageName.replace('@laratype', '')}/build.config.js`;
+    if(!existsSync(entryPoint)) {
+      continue;
+    }
+    const configs = await import(entryPoint);
+    tasks.push(...configs.default);    
+  }
+
   for (const task of tasks) {
     const start = performance.now();
     console.log(`Building ${task.entrypoints}...`);

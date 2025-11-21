@@ -1,9 +1,10 @@
-import { createServer, type ViteDevServer, type InlineConfig } from "vite";
+import { type InlineConfig } from "vite";
+import { Runner } from "./runner/Runner";
 
 export default class Transpile {
 
   protected config: InlineConfig;
-  protected runner?: ViteDevServer;
+  protected runner?: Runner;
 
   constructor(config: InlineConfig) {
     this.config = config;
@@ -18,9 +19,17 @@ export default class Transpile {
   }
 
   public async init() {
-    const vite = await createServer(this.config);
-    this.runner = vite;
-    return vite;
+    let runner: Runner;
+    if(globalThis.__PROD__) {
+      const { default: ProductionRunner } = await import('./runner/ProductionRunner')
+      runner = new ProductionRunner();
+    }
+    else {
+      const { default: DevRunner } = await import('./runner/DevRunner');
+      runner = new DevRunner(this.config);
+    }
+    this.runner = runner;
+    return runner;
   }
 
   public async getRunner() {

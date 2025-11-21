@@ -1,23 +1,16 @@
 import { type Command as CommandInstance } from "@laratype/console";
 import { program } from "commander"
-import figlet from "figlet"
-import { green } from "kolorist"
-//@ts-ignore
-import standard from "figlet/importable-fonts/Standard.js";
-import frameworkCommands from "../commands";
+import { importModule } from "@laratype/support";
 import { importRootCommands, importRouteConsoleCommands } from "../utils";
-import { createLogger } from "vite";
 import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
 import Command from "../utils/command";
+import "../utils/banner"
 
 if(globalThis.__PROD__ === undefined) {
   globalThis.__PROD__ = process.env.NODE_ENV === "production"
 }
 
-figlet.parseFont("Standard", standard);
-
-console.log(green(figlet.textSync("Laratype")));
 
 export class CommandManager {
   protected commands: Array<Command> = [];
@@ -28,6 +21,7 @@ export class CommandManager {
   }
 
   public async register(transpiler: Transpile) {
+    const { default: frameworkCommands } = await import("../commands");
     const projectCommands = await importRootCommands(transpiler);
     const routeCommands = await importRouteConsoleCommands(transpiler);
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
@@ -37,6 +31,7 @@ export class CommandManager {
 
   public async boot() {
     globalThis.__sauf_start_time = performance.now();
+    const { createLogger } = await importModule("vite") as typeof import("vite");
     const logger = createLogger()
     const loggerWarn = logger.warn
 
