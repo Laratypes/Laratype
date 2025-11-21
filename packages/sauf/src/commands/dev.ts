@@ -1,11 +1,12 @@
-import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type Hono } from "@laratype/support";
-import { InlineConfig, mergeConfig, type ViteDevServer } from "vite";
+import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type Hono, importModule } from "@laratype/support";
+import { type InlineConfig, type ViteDevServer } from "vite";
 import { Command, Console } from "@laratype/console";
 import { green, blue } from "kolorist";
 import path from "path";
 import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
+import { Runner } from "../utils/runner/Runner";
 
 export default class LaratypeDevCommand extends Command {
 
@@ -23,7 +24,7 @@ export default class LaratypeDevCommand extends Command {
     return [];
   }
 
-  protected viteDevServer: ViteDevServer | undefined;
+  protected runner: Runner | undefined;
 
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
@@ -55,14 +56,16 @@ export default class LaratypeDevCommand extends Command {
       ]
     };
 
+    const { mergeConfig } = await importModule("vite") as typeof import("vite");
+
     const newConfig = mergeConfig(oldConfig, devServerConfig);
     transpiler.setConfig(newConfig);
 
     await transpiler.init();
 
-    this.viteDevServer = await transpiler.getRunner();
+    this.runner = await transpiler.getRunner();
 
-    globalThis.__sauf_transpiler_instance = this.viteDevServer.ssrLoadModule
+    globalThis.__sauf_transpiler_instance = this.runner.ssrLoadModule
   }
 
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
@@ -104,9 +107,9 @@ export default class LaratypeDevCommand extends Command {
     const opts = this.opts();
     const startTime = globalThis.__sauf_start_time || performance.now();
 
-    const vite = this.viteDevServer!;
+    const runner = this.runner!;
 
-    await vite.listen();
+    await runner.listen();
 
     const endTime = performance.now();
 

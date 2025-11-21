@@ -7,7 +7,7 @@ import replace from '@rollup/plugin-replace';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import { replaceTscAliasPaths } from 'tsc-alias';
 import { getPlatformAdapter } from "../utils/build/platform";
-import { exec } from "child_process";
+import { cpSync } from "fs";
 
 export default class LaratypeBuildCommand extends Command {
 
@@ -49,6 +49,11 @@ export default class LaratypeBuildCommand extends Command {
       ],
 
     })
+
+    cpSync(
+      resolvePathSync('sauf/resources/app/cli.js'),
+      getProjectPath('dist/cli.js', false),
+    );
     
     const outputs = await bundle.write({
       dir: getProjectPath('dist', false),
