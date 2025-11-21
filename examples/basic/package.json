@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "sauf dev",
     "start": "node ./dist/index.js",
-    "build": "tsc -b ./tsconfig.build.json && sauf build"
+    "build": "tsc -b ./tsconfig.build.json && sauf build",
+    "saufx": "node ./dist/cli.js"
   },
   "dependencies": {
     "@laratype/auth": "workspace:*",
