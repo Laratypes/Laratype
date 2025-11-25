@@ -1,0 +1,11 @@
+name: 'Setup Node'
+
+description: 'Setup node and pnpm'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.15.0

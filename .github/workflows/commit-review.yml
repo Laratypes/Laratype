@@ -12,8 +12,8 @@ jobs:
       - name: Setup bun
         uses: ./.github/setup-bun
 
-      - name: Setup node
-        uses: ./.github/setup-node
+      - name: Setup pnpm
+        uses: ./.github/setup-pnpm
         
       - name: Build
         run: bun run build && bun run build:type

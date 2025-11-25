@@ -15,7 +15,7 @@ declare var __laratype_config: any;
 
 declare var __laratype_db: {
   ds: import("typeorm").DataSource,
-  models: Record<string, import("typeorm").BaseEntity>,
+  models: Record<string, typeof import("typeorm").BaseEntity>,
 };
 
 declare var __laratype_routes: Array<Record<string, any>> | undefined;
