@@ -127,15 +127,9 @@ export default class PassportServiceProvider extends ServiceProvider {
 
     const personalModelPath = getAppPath("src/models/PersonalAccessToken.ts");
 
-    if(!existsSync(fileURLToPath(personalModelPath))) {
-      throw new Error("Model PersonalAccessToken not found in app/models/PersonalAccessToken.ts. Are your ran 'sauf auth:publish' command?");
-    }
-    
-    try {
+    if(existsSync(fileURLToPath(personalModelPath))) {
       const { default: model } = await importModule(personalModelPath);
       GuardStore.setModelVerify(model);
-    }
-    finally {
     }
 
     for (const guardName in authConfig.guards) {
