@@ -1,6 +1,6 @@
 import { type Command as CommandInstance } from "@laratype/console";
 import { program } from "commander"
-import { importModule } from "@laratype/support";
+import { resolveModule } from "@laratype/support";
 import { importRootCommands, importRouteConsoleCommands } from "../utils";
 import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
@@ -31,9 +31,9 @@ export class CommandManager {
 
   public async boot() {
     globalThis.__sauf_start_time = performance.now();
-    const { createLogger } = await importModule("vite", {
+    const { createLogger } = await import(resolveModule("vite", {
       url: import.meta.url,
-    }) as typeof import("vite");
+    })) as typeof import("vite");
     const logger = createLogger()
     const loggerWarn = logger.warn
 
@@ -76,7 +76,11 @@ export class CommandManager {
       ]
     });
 
-    await transpiler.init();
+    const runner = await transpiler.init();
+
+    await runner.ready();
+
+    globalThis.__sauf_transpiler_instance = runner.ssrLoadModule.bind(runner);
 
     await this.register(transpiler);
 
