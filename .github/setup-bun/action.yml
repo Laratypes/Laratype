@@ -1,6 +1,6 @@
-name: 'Setup Node'
+name: 'Setup Bun'
 
-description: 'Setup node and pnpm'
+description: 'Setup bun'
 
 runs:
   using: 'composite'

@@ -1,0 +1,13 @@
+# This is a pnpm workspace configuration file
+# Only using on release with CI/CD, don't use it for local development
+# Package management is handled by Bun
+
+packages:
+  - 'packages/*'
+
+catalog:
+  vite: ^7.1.9
+  hono: ^4.6.18
+  zod: ^3.23.8
+
+ignore-workspace-root-check: true

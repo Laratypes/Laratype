@@ -1,5 +1,7 @@
+import { existsSync } from "fs";
+import { fileURLToPath } from "url";
 import passport from "passport";
-import { BaseEntity, Model } from "@laratype/database";
+import { BaseEntity } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
 import { importModule, ServiceProvider, LaratypeConfig as Config, getDefaultExports, ContextApi, RedirectStatusCode, getAppPath } from "@laratype/support";
@@ -122,8 +124,15 @@ export default class PassportServiceProvider extends ServiceProvider {
     const module: Config.Auth = await importModule(getAppPath('config/auth.ts'))
     const authConfig = getDefaultExports(module)
     GuardStore.setAuthConfig(authConfig);
+
+    const personalModelPath = getAppPath("src/models/PersonalAccessToken.ts");
+
+    if(!existsSync(fileURLToPath(personalModelPath))) {
+      throw new Error("Model PersonalAccessToken not found in app/models/PersonalAccessToken.ts. Are your ran 'sauf auth:publish' command?");
+    }
+    
     try {
-      const { default: model } = await importModule(getAppPath("src/models/PersonalAccessToken.ts"));
+      const { default: model } = await importModule(personalModelPath);
       GuardStore.setModelVerify(model);
     }
     finally {

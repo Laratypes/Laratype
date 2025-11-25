@@ -58,8 +58,6 @@ export default class Command {
       const laratype = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
       const serviceProviders = await laratype.register();
 
-      globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(vite);
-
       const filteredProviders = await instance.providers(serviceProviders);
       const serverInstance = laratype.Serve.getInstance();
 

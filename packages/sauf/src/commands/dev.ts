@@ -56,9 +56,9 @@ export default class LaratypeDevCommand extends Command {
       ]
     };
 
-    const { mergeConfig } = await importModule("vite", {
+    const { mergeConfig } = await import(resolveModule("vite", {
       url: import.meta.url,
-    }) as typeof import("vite");
+    })) as typeof import("vite");
 
     const newConfig = mergeConfig(oldConfig, devServerConfig);
     transpiler.setConfig(newConfig);
@@ -68,12 +68,12 @@ export default class LaratypeDevCommand extends Command {
     this.runner = await transpiler.getRunner();
 
     await this.runner.ready();
-
-    globalThis.__sauf_transpiler_instance = this.runner.ssrLoadModule.bind(this.runner);
     
   }
 
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
+    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);    
+
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,
     })) as typeof import("laratype");
