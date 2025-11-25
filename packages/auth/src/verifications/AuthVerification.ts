@@ -61,7 +61,7 @@ export class Authenticated<T extends Model = any> {
         verification_type: verificationMode,
         last_used_at: new Date(),
         expires_at: new Date(Date.now() + expiresIn * 1000),
-      });
+      } as any);
     }
 
     return token;
@@ -83,15 +83,26 @@ class Verification {
   public async verify(token: string) {
     const ModelVerify = await GuardStore.getModelVerify();
 
-    const verifyRecord = await ModelVerify.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
-      token,
-      expires_at: new Date(),
-    }).getOne();
+    let verificationMode: string;
+    let verifyRecord: any;
 
-    if (!verifyRecord) {
-      return false;
+    if(ModelVerify) {
+      verifyRecord = await ModelVerify.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
+        token,
+        expires_at: new Date(),
+      }).getOne() as any;
+  
+      if (!verifyRecord) {
+        return false;
+      }
+
+      verificationMode = verifyRecord.verification_type;
     }
-    const verificationMode = verifyRecord.verification_type;
+    else {
+      const auth = GuardStore.getAuthConfig();
+      const guard = auth.guards[this.guardName];
+      verificationMode = guard.verification;
+    }
 
     let decoded: any
     if (verificationMode === 'jwt') {
@@ -106,7 +117,7 @@ class Verification {
     else {
       throw new UnsupportedVerificationModeException()
     }
-    if (ModelVerify) {
+    if (ModelVerify && verifyRecord) {
       const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
 
       const user = await modelResource?.findOneBy({
