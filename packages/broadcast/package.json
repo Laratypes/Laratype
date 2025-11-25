@@ -1,6 +1,6 @@
 {
   "name": "@laratype/broadcast",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "main": "index.js",
   "private": false,
   "scripts": {
