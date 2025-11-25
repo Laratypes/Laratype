@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { type ViteDevServer } from "vite"
 
 export enum ServiceProviderType {
   CORE_PROVIDER = "core_provider",
