@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import passport from "passport";
-import { BaseEntity } from "@laratype/database";
+import { BaseEntity, Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
 import { importModule, ServiceProvider, LaratypeConfig as Config, getDefaultExports, ContextApi, RedirectStatusCode, getAppPath } from "@laratype/support";
@@ -77,7 +77,7 @@ const initialize = (passport: any, options: any) => {
 export class GuardStore {
 
   static auth: Config.Auth;
-  static ModelVerify: any;
+  static ModelVerify?: typeof Model;
 
   public static getAuthConfig() {
     return this.auth;
@@ -97,7 +97,7 @@ export class GuardStore {
     return this.ModelVerify;
   }
 
-  public static setModelVerify(model: any) {
+  public static setModelVerify(model: typeof Model) {
     this.ModelVerify = model;
   }
   
