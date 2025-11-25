@@ -8,10 +8,14 @@ export class PublishCommand extends Command {
 
   static description = "Publish the Laratype Auth resources";
 
+  public async providers() {
+    return [];
+  }
+
   async handle() {
     const resource = resolvePathSync("@laratype/auth/resources/PersonalAccessToken.model");
     
-    cpSync(resource, "./src/models/PersonalAccessToken.ts");
+    cpSync(resource, "./app/src/models/PersonalAccessToken.ts");
 
     Console.success("Published Laratype Auth resources successfully.");
 
