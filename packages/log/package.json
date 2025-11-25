@@ -32,9 +32,6 @@
   "devDependencies": {
     "winston": "^3.17.0"
   },
-  "peerDependencies": {
-    "dayjs": "^1.11.13"
-  },
   "buildOptions": {},
   "files": [
     "dist"
