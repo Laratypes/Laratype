@@ -51,9 +51,6 @@
     "handlebars": "^4.7.8",
     "kolorist": "^1.8.0"
   },
-  "peerDependencies": {
-    "laratype": "workspace:*"
-  },
   "buildOptions": {
     "external": [
       "vite",

@@ -91,10 +91,8 @@
       },
       "devDependencies": {
         "es-toolkit": "^1.31.0",
-        "zod": "catalog:",
-      },
-      "peerDependencies": {
         "hono": "catalog:",
+        "zod": "catalog:",
       },
     },
     "packages/i18n": {
@@ -108,7 +106,7 @@
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
       },
-      "peerDependencies": {
+      "devDependencies": {
         "hono": "catalog:",
       },
     },
@@ -120,9 +118,6 @@
       },
       "devDependencies": {
         "winston": "^3.17.0",
-      },
-      "peerDependencies": {
-        "dayjs": "^1.11.13",
       },
     },
     "packages/mail": {
@@ -156,9 +151,6 @@
         "glob": "^11.0.0",
         "handlebars": "^4.7.8",
         "kolorist": "^1.8.0",
-      },
-      "peerDependencies": {
-        "laratype": "workspace:*",
       },
     },
     "packages/schedule": {

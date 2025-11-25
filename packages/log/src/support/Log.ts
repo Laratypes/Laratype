@@ -1,5 +1,4 @@
 import { Config } from "@laratype/support";
-import dayjs from "dayjs";
 import { format } from "winston";
 
 import Logger from "../Logger";

@@ -28,7 +28,7 @@
     "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*"
   },
-  "peerDependencies": {
+  "devDependencies": {
     "hono": "catalog:"
   },
   "files": [

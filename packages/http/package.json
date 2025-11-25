@@ -29,9 +29,7 @@
   },
   "devDependencies": {
     "es-toolkit": "^1.31.0",
-    "zod": "catalog:"
-  },
-  "peerDependencies": {
+    "zod": "catalog:",
     "hono": "catalog:"
   },
   "buildOptions": {},
