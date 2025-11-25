@@ -111,7 +111,7 @@ class Verification {
 
       const user = await modelResource?.findOneBy({
         id: verifyRecord.tokenable_id,
-      });
+      } as any);
 
       if (!user) {
         return false;
