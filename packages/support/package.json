@@ -52,7 +52,6 @@
     "glob": "^11.0.0",
     "hono": "catalog:",
     "mlly": "^1.7.4",
-    "ts-toolbelt": "^9.6.0",
-    "vite": "catalog:"
+    "ts-toolbelt": "^9.6.0"
   }
 }

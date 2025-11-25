@@ -6,7 +6,6 @@ packages:
   - 'packages/*'
 
 catalog:
-  vite: ^7.1.9
   hono: ^4.6.18
   zod: ^3.23.8
 

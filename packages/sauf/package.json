@@ -35,7 +35,7 @@
     "@swc/wasm": "^1.13.5",
     "jiti": "^2.5.1",
     "tsc-alias": "^1.8.16",
-    "vite": "catalog:"
+    "vite": "^7.1.9"
   },
   "devDependencies": {
     "@rollup/plugin-typescript": "^12.1.2",
