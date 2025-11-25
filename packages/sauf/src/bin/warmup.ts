@@ -31,7 +31,9 @@ export class CommandManager {
 
   public async boot() {
     globalThis.__sauf_start_time = performance.now();
-    const { createLogger } = await importModule("vite") as typeof import("vite");
+    const { createLogger } = await importModule("vite", {
+      url: import.meta.url,
+    }) as typeof import("vite");
     const logger = createLogger()
     const loggerWarn = logger.warn
 

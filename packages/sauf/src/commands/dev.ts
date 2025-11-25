@@ -1,4 +1,4 @@
-import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type Hono, importModule } from "@laratype/support";
+import { Config, resolveSync, getLaratypeVersion, getRootPackageInfo, type Hono, importModule, resolveModule, getAppPath } from "@laratype/support";
 import { type InlineConfig, type ViteDevServer } from "vite";
 import { Command, Console } from "@laratype/console";
 import { green, blue } from "kolorist";
@@ -56,7 +56,9 @@ export default class LaratypeDevCommand extends Command {
       ]
     };
 
-    const { mergeConfig } = await importModule("vite") as typeof import("vite");
+    const { mergeConfig } = await importModule("vite", {
+      url: import.meta.url,
+    }) as typeof import("vite");
 
     const newConfig = mergeConfig(oldConfig, devServerConfig);
     transpiler.setConfig(newConfig);
@@ -65,11 +67,16 @@ export default class LaratypeDevCommand extends Command {
 
     this.runner = await transpiler.getRunner();
 
-    globalThis.__sauf_transpiler_instance = this.runner.ssrLoadModule
+    await this.runner.ready();
+
+    globalThis.__sauf_transpiler_instance = this.runner.ssrLoadModule.bind(this.runner);
+    
   }
 
   protected async appStart(vite: ViteDevServer): Promise<Hono> {
-    const { Serve } = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
+    const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
+      internal: true,
+    })) as typeof import("laratype");
 
     await Serve.bootProvider()
 

@@ -2,6 +2,10 @@ import { Runner } from "./Runner";
 
 export default class ProductionRunner implements Runner {
 
+  async ready() {
+    return new Promise((resolve) => resolve(true));
+  }
+
   ssrLoadModule(modulePath: string): Promise<any> {
     return import(modulePath);
   }

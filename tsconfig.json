@@ -3,10 +3,9 @@
   "include": [
     "packages/*/src",
     "packages/global.d.ts",
-    "packages/laratype/src",
     "examples/*/app",
     "packages/*/__tests__",
     "rollup.config.js",
-    "./scripts", "examples/basic/app/routes",
+    "./scripts",
   ]
 }

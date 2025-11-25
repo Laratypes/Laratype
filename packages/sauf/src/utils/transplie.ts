@@ -20,7 +20,7 @@ export default class Transpile {
 
   public async init() {
     let runner: Runner;
-    if(globalThis.__PROD__) {
+    if(globalThis.__APP_PROD__) {
       const { default: ProductionRunner } = await import('./runner/ProductionRunner')
       runner = new ProductionRunner();
     }

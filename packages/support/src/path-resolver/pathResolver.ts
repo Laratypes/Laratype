@@ -28,7 +28,7 @@ export const getDefaultExports = (module: any) => {
   return module.default;
 }
 
-export const importModule = async (moduleName: string, options: { url?: string, internal?: boolean } = {}) => {
+export const resolveModule = (moduleName: string, options: { url?: string, internal?: boolean } = {}) => {
   let id;
   if(Boolean(globalThis.__PROD__)) {
     id = resolveSync(moduleName, {
@@ -50,6 +50,12 @@ export const importModule = async (moduleName: string, options: { url?: string, 
       }
     }
   }
+
+  return id;
+}
+
+export const importModule = async (moduleName: string, options: { url?: string, internal?: boolean } = {}) => {
+  const id = resolveModule(moduleName, options);
 
   try {
     if(globalThis.__sauf_transpiler_instance) {
