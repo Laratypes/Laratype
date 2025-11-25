@@ -34,36 +34,20 @@ export default class LaratypeBuildCommand extends Command {
 
     const rootInfo = await getRootPackageInfo();
 
-    const bundle = await rollup({
-      input: resolvePathSync(`sauf/resources/app/${opts.platform}.js`),
-      plugins: [
-        terser(),
-        replace({
-          preventAssignment: true,
-          '__APP_PLATFORM__': JSON.stringify(opts.platform),
-        }),
-        nodeResolve(),
-      ],
-      external: [
-        /@laratype\/.*/,
-      ],
-
-    })
-
-    cpSync(
-      resolvePathSync('sauf/resources/app/cli.js'),
-      getProjectPath('dist/cli.js', false),
-    );
+    const targets = {
+      [resolvePathSync('sauf/resources/app/cli.js')]: getProjectPath('dist/cli.js', false),
+      [resolvePathSync('sauf/resources/app/adapters/node/index.js')]: getProjectPath('dist/index.js', false),
+    }
     
-    const outputs = await bundle.write({
-      dir: getProjectPath('dist', false),
-      entryFileNames: 'index.js',
-      format: rootInfo.type === 'module' ? 'es' : 'cjs',
-    })
-
-    outputs.output.forEach(output => {
-      Console.info(`Generated ${output.fileName}`);
-    });
+    for (const sourceFile in targets) {
+      const targetFile = targets[sourceFile];
+      cpSync(
+        sourceFile,
+        targetFile,
+      );
+      
+      Console.info(`Generated ${targetFile}`);
+    }
 
     await replaceTscAliasPaths({
       configFile: getProjectPath('tsconfig.build.json', false),

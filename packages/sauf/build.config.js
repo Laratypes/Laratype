@@ -17,6 +17,25 @@ const esmConfigure = {
   ]
 }
 
-export default [
-  esmConfigure,
+const esmConfigureCli = {
+  ...esmConfigure,
+}
+
+const makeConfigureAdapter = (adapterName) => {
+  return {
+    ...esmConfigure,
+    entrypoints: [fileURLToPath(import.meta.resolve(`./src/adapters/${adapterName}/index.ts`))],
+    outdir: fileURLToPath(import.meta.resolve(`./resources/app/adapters/${adapterName}`)),
+    define: {
+      ...esmConfigure.define,
+      "__APP_PLATFORM__": `"${adapterName}"`,
+    }
+  }
+}
+
+const configs = [
+  esmConfigureCli,
+  makeConfigureAdapter("node"),
 ];
+
+export default configs;
