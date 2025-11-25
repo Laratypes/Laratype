@@ -129,7 +129,6 @@
       "version": "0.5.1",
       "bin": "dist/index.esm.js",
       "dependencies": {
-        "@hono/node-server": "^1.19.6",
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
         "@swc/core": "^1.13.5",
@@ -139,6 +138,7 @@
         "vite": "^7.1.9",
       },
       "devDependencies": {
+        "@hono/node-server": "^1.19.6",
         "@rollup/plugin-commonjs": "^29.0.0",
         "@rollup/plugin-node-resolve": "^16.0.3",
         "@rollup/plugin-replace": "^6.0.3",

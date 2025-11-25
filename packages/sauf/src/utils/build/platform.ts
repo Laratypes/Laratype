@@ -3,10 +3,10 @@ import { resolveSync } from "@laratype/support"
 export const getPlatformAdapter = (platform: string) => {
   if(platform === 'node') {
     try {
-      return resolveSync("@hono/node-server")
+      return resolveSync('sauf/resources/app/adapters/node/index.js');
     }
-    catch (error) {
-      throw new Error("Please install '@hono/node-server' to build the application for Node.js platform. You can install it via 'npm install @hono/node-server' or 'yarn add @hono/node-server'.");
+    catch {
+      throw new Error(`Node platform adapter not found. This caused by missing from Laratype Framework, please raise an issue on GitHub.`);
     }
   }
 
