@@ -18,11 +18,11 @@ export type RouteOptions = ({
   withoutMiddleware?: Array<typeof Middleware>,
   children: Array<RouteOptions>,
   method?: METHOD,
-  controller?: [Controller, string],
+  controller?: [typeof Controller, string],
 } | {
   method: METHOD,
   children?: Array<RouteOptions>,
-  controller: [Controller, string],
+  controller: [typeof Controller, string],
 }) & {
   path: string,
   middleware?: Array<typeof Middleware>,
@@ -38,7 +38,7 @@ export type RouteParams = {
   path: string,
   request?: typeof Request,
   can?: PolicyFactory[],
-  controller: [Controller, string]
+  controller: [typeof Controller, string]
   middleware?: Array<typeof Middleware>,
   withoutMiddleware?: Array<typeof Middleware>,
   name?: string,
