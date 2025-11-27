@@ -6,7 +6,10 @@ export default class RegisterController extends Controller {
 
   async register(request: CreateUserRequest) {
 
-    const user = await User.save(request.validated());
+    const user = await User.save({
+      ...request.validated(),
+      isActive: true,
+    });
 
     return user;
   }

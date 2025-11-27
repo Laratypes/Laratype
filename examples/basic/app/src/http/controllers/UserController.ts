@@ -1,4 +1,4 @@
-import { Controller, Request } from "@laratype/http";
+import { Controller, Request, UseStatusCode } from "@laratype/http";
 import { Auth, GateGuard } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
@@ -12,7 +12,10 @@ export default class UserController extends Controller {
 
   async store(request: CreateUserRequest) {
     const params = request.validated();
-    const user = await User.save(params);
+    const user = await User.save({
+      ...params,
+      isActive: true,
+    });
     return user;
   }
 
@@ -31,7 +34,7 @@ export default class UserController extends Controller {
     return user;
   }
 
-  async delete(request: Request) {
+  async destroy(request: Request) {
     const authenticated = Auth.user<User>();
     const actor = authenticated.getUser();
     const userId = request.param('id');

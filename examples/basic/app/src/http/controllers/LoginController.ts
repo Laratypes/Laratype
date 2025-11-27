@@ -1,5 +1,5 @@
 import { Auth, AuthVerification } from "@laratype/auth";
-import { Controller, Request } from "@laratype/http";
+import { Controller, Request, UseStatusCode } from "@laratype/http";
 import User from "../../models/User";
 import LoginRequest from "../requests/LoginRequest";
 import UnauthorizedException from "../../exceptions/UnauthorizedException";
@@ -27,6 +27,7 @@ export default class LoginController extends Controller {
     }
   }
 
+  @UseStatusCode(201)
   public async manualLogin(req: LoginRequest) {
     const data = req.validated();
 
