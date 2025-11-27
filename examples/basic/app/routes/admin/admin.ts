@@ -1,4 +1,4 @@
-import { RouteOptions } from "@laratype/http"
+import { controller, RouteOptions } from "@laratype/http"
 import { AuthGuard, can } from "@laratype/auth"
 import CreateAdminRequest from "../../src/http/requests/admin/CreateAdminRequest"
 import { AdminLocalAuthentication, Web } from "../../src/http/middleware/Middleware"
@@ -13,12 +13,12 @@ const adminAuthRoutes : RouteOptions = {
       path: "/register",
       method: "post",
       request: CreateAdminRequest,
-      controller: AdminRegisterController.__invoke('register'),
+      controller: controller(AdminRegisterController, 'register'),
     },
     {
       path: "/login",
       method: "post",
-      controller: AdminLoginController.__invoke('login'),
+      controller: controller(AdminLoginController, 'login'),
       middleware: [
         AdminLocalAuthentication,
       ],
@@ -36,13 +36,13 @@ const adminGuardRoutes: RouteOptions = {
     {
       path: "/me",
       method: "get",
-      controller: AdminHomeController.__invoke('me'),
+      controller: controller(AdminHomeController, 'me'),
     },
     {
       path: "/admins/:admin",
       method: "get",
       can: can('view', 'admin'),
-      controller: AdminHomeController.__invoke('show'),
+      controller: controller(AdminHomeController, 'show'),
     }
   ]
 }

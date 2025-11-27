@@ -1,7 +1,9 @@
 import { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
-import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider } from "@laratype/support";
+import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
 import { ContentfulStatusCode } from "hono/utils/http-status";
+import { RouteParams } from "../contracts";
+import { ControllerMethodHttpStatusCode } from "../request/Request";
 
 export default class Response extends AppServiceProvider {
 
@@ -14,7 +16,30 @@ export default class Response extends AppServiceProvider {
     return (name: string, value: string) => ctx.header(name, value)
   }
 
-  public static resolveResponse(ctx: Context, response: any | undefined) {
+  protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: RouteParams): ContentfulStatusCode & 204 {
+    let contentFullStatusCode = response.getHttpStatus();
+
+    if(!contentFullStatusCode && routeOption?.controller) {
+      const [controllerClass, controllerMethodName] = routeOption.controller;
+      
+      const statusCodeFromMetadata = Reflect.getMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, controllerClass.prototype, controllerMethodName)
+      
+      if(statusCodeFromMetadata) {
+        contentFullStatusCode = statusCodeFromMetadata;
+      }
+      else {
+        // Guess status code from controller method
+        contentFullStatusCode = ControllerMethodHttpStatusCode[controllerMethodName as keyof typeof ControllerMethodHttpStatusCode];
+      }
+    }
+
+    // Default to 200
+    contentFullStatusCode ??= 200;
+
+    return contentFullStatusCode as ContentfulStatusCode & 204;
+  }
+
+  public static resolveResponse(ctx: Context, response?: any, routeOption?: RouteParams) {
     let responseObj
     if(response instanceof ResponseSupport) {
       responseObj = response;
@@ -42,8 +67,11 @@ export default class Response extends AppServiceProvider {
       setHeader("Content-Type", contentType)
     }
 
-    //TODO: Make guard check
-    const contentFullStatusCode = responseObj.getHttpStatus() as ContentfulStatusCode;
+    const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
+
+    if(contentFullStatusCode === 204) {
+      return ctx.body(null, 204);
+    }
 
     if(isJson) {
       return ctx.json(ResponseSerialization.jsonSerialize(responseObj.getContent()), contentFullStatusCode)

@@ -49,7 +49,7 @@ export class Authenticated<T extends Model = any> {
       throw new UnsupportedVerificationModeException()
     }
 
-    const modelName = payload.constructor.name;
+    const modelName = this.user.constructor.name;
     const ModelVerify = GuardStore.getModelVerify();
     if (ModelVerify) {
       await ModelVerify.insert({

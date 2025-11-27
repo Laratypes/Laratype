@@ -21,6 +21,14 @@ type PipeLineType = {
   handler: PolicyFactory,
 };
 
+export enum ControllerMethodHttpStatusCode {
+  index = 200,
+  show = 200,
+  store = 201,
+  update = 200,
+  destroy = 204,
+}
+
 export default class Request extends AppServiceProvider {
 
   public static async validate(data: any, rule: any) {
@@ -243,7 +251,7 @@ export default class Request extends AppServiceProvider {
         if(pipelineResult instanceof Error) {
           throw pipelineResult;
         }
-        return ResponseKernel.resolveResponse(ctx, pipelineResult);
+        return ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
       });
     }
   }
