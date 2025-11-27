@@ -27,13 +27,13 @@ import JsonResource from "../resource/json/JsonResource";
 
 export default class Response implements ResponseInterface {
   
-  protected httpStatusCode: StatusCode;
+  protected httpStatusCode?: StatusCode;
   protected headers: Record<string, string>;
   protected content: any;
   protected redirectUrl?: string;
   protected redirectStatusCode: RedirectStatusCode = 302;
 
-  constructor(content: any, httpStatusCode: StatusCode = 200, headers = {}) {
+  constructor(content: any, httpStatusCode?: StatusCode, headers = {}) {
     this.httpStatusCode = httpStatusCode;
     this.headers = headers;
     this.content = content;
@@ -69,7 +69,7 @@ export default class Response implements ResponseInterface {
     return this
   }
 
-  getHttpStatus(): StatusCode {
+  getHttpStatus() {
     return this.httpStatusCode;
   }
 
@@ -89,7 +89,7 @@ export default class Response implements ResponseInterface {
     return this.headers["Content-Type"];
   }
 
-  getStatusCode(): number {
+  getStatusCode() {
     return this.httpStatusCode;
   }
 

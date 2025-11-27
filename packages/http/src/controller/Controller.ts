@@ -10,10 +10,4 @@ export default class Controller {
     return []
   }
   
-
-  static __invoke<T extends Controller>(this: new () => T, k: safeMethods<T>): [T, safeMethods<T>];
-  static __invoke<T extends Controller>(k: safeMethods<T>) {
-    return [this, k];
-  }
-  
 }
