@@ -3,7 +3,7 @@ import JWTVerification from "./jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
 import { JwtVerification } from ".";
 import { Model } from "@laratype/database";
-import { GuardStore } from "../passport/PassportServiceProvider";
+import { GuardStore } from "../support/GuardStore";
 
 export type JWTSignOptions = {
   expiresIn?: number;

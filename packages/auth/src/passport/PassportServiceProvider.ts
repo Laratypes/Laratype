@@ -1,13 +1,14 @@
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import passport from "passport";
-import { BaseEntity, Model } from "@laratype/database";
+import { BaseEntity } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
 import { importModule, ServiceProvider, LaratypeConfig as Config, getDefaultExports, ContextApi, RedirectStatusCode, getAppPath } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import Authentication from "./Authentication";
+import { GuardStore } from "../support/GuardStore";
 
 class StoreManagement {
   public store(req: Request, ctx: any, appState: any, meta: any, cb: (err: any, id: string) => void) {
@@ -74,34 +75,6 @@ const initialize = (passport: any, options: any) => {
   return (...args: any) => passport;
 }
 
-export class GuardStore {
-
-  static auth: Config.Auth;
-  static ModelVerify?: typeof Model;
-
-  public static getAuthConfig() {
-    return this.auth;
-  }
-
-  public static getGuards() {
-    const auth = this.getAuthConfig();
-
-    return auth.guards;
-  }
-
-  public static setAuthConfig(authConfig: Config.Auth) {
-    this.auth = authConfig;
-  }
-
-  public static getModelVerify() {
-    return this.ModelVerify;
-  }
-
-  public static setModelVerify(model: typeof Model) {
-    this.ModelVerify = model;
-  }
-  
-}
 
 export default class PassportServiceProvider extends ServiceProvider {
 

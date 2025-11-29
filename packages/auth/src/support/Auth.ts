@@ -2,7 +2,7 @@ import { ContextApi } from "@laratype/support";
 import { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
 import Authentication from "../passport/Authentication";
-import { GuardStore } from "../passport/PassportServiceProvider";
+import { GuardStore } from "./GuardStore";
 
 class Authenticate<T extends Model> {
   
