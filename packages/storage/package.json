@@ -1,6 +1,6 @@
 {
   "name": "@laratype/storage",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": false,
   "main": "index.js",
   "repository": {
