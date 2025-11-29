@@ -13,6 +13,10 @@ declare var __laratype_env_file: string;
 
 declare var __laratype_config: any;
 
+declare var __laratype_auth_config: any;
+
+declare var __laratype_auth_model_verify: any;
+
 declare var __laratype_db: {
   ds: import("typeorm").DataSource,
   models: Record<string, typeof import("typeorm").BaseEntity>,
