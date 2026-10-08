@@ -34,7 +34,7 @@ node scripts/bench.ts 30 [--always-parse]
 ```
 `TSC_BIN` overrides the tsc path (the default is the main checkout's `node_modules/typescript`).
 
-Result of `run.ts`: **all checks passed** (13 behaviour cases, 4 expected-failure cases, 2 statement-order checks, 1 tsc check).
+Result of `run.ts`: **all checks passed** (14 must-pass cases, 3 expected-failure cases, 2 statement-order checks, 1 tsc check).
 
 ## Emitted shape
 
