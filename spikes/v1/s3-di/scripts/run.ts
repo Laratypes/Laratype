@@ -37,6 +37,8 @@ const cases: Case[] = [
   },
   { name: 'metadata-keeps-import', dir: 'metadata-keeps-import', expectError: LINK_ERROR },
   { name: 'metadata-keeps-import+no-metadata', dir: 'metadata-keeps-import', decoratorMetadata: false },
+  // decoratorMetadata stays ON; `import type` alone is enough (verbatimModuleSyntax forces it).
+  { name: 'metadata-import-type', dir: 'metadata-import-type' },
 ];
 
 const compile = (code: string, filename: string, decoratorMetadata?: boolean) =>

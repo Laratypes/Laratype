@@ -67,6 +67,7 @@ for (const dir of ['param-properties', 'inject-token', 'unresolved', 'generics',
 console.log(`interface-value-import (direct): ${await run('interface-value-import')}`);
 console.log(`interface-value-import (namespace): ${await run('interface-value-import', { importStrategy: 'namespace' })}`);
 console.log(`metadata-keeps-import (decoratorMetadata on): ${await run('metadata-keeps-import')}`);
+console.log(`metadata-import-type (decoratorMetadata on): ${await run('metadata-import-type')}`);
 
 // Production bundle (vite build = Rollup): what happens to the link error, and to namespace imports.
 const { build } = await import(pathToFileURL(vitePath).href);
@@ -92,5 +93,10 @@ console.log(`build param-properties direct: ${direct.ok ? `${direct.code.length}
 console.log(`build param-properties namespace: ${ns.ok ? `${ns.code.length} bytes, namespace object materialised: ${/__di_ns0|Object\.freeze|Symbol\.toStringTag/.test(ns.code)}` : ns.code}`);
 const missing = await bundle('interface-value-import');
 console.log(`build interface-value-import direct: ${missing.ok ? 'built (no error)' : missing.code}`);
+const metaKeeps = await bundle('metadata-keeps-import');
+console.log(`build metadata-keeps-import (decoratorMetadata on): ${metaKeeps.ok ? 'built (no error)' : metaKeeps.code}`);
+const metaType = await bundle('metadata-import-type');
+console.log(`build metadata-import-type (decoratorMetadata on): ${metaType.ok
+  ? `built; design:paramtypes = [${metaType.code.match(/_ts_metadata\("design:paramtypes", \[\s*([^\]]*?)\s*\]/)?.[1]}]` : metaType.code}`);
 const missingNs = await bundle('interface-value-import', { importStrategy: 'namespace' });
 console.log(`build interface-value-import namespace: ${missingNs.ok ? `built; deps call: ${missingNs.code.match(/__laratype_deps\(Notifier[^;]*/)?.[0].replace(/\s+/g, " ")}` : missingNs.code}`);

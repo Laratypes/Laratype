@@ -7,9 +7,11 @@ Issue: #86 · Feeds: T1 #101, T2 #102, T3 #103, D2 #97, D3 #98
 The oxc pre-transform works. Every edge case in the issue was run through the real pipeline (transform → `@swc/core` with the exact `warmup.ts` options → Node ESM), and all of them behave as specified. The same fixtures also pass under Vite `ssrLoadModule`, the `sauf dev` path. Cost is negligible with a `constructor` pre-check: about 0.3 ms warm for all 43 files in `examples/basic/app`, which is 3% of SWC.
 
 Conditions:
-1. **Require `verbatimModuleSyntax: true`** in app tsconfigs and check it in `sauf build`'s typecheck step. An interface imported without `type` fails in a different way in each environment (see the table below). TS1484 is the only place that catches it consistently, and it catches it early.
-2. **Turn off SWC `decoratorMetadata`** in the sauf SWC config once T1 lands. It keeps type-only imports alive *independently of our transform*, so `@Inject(TOKEN) m: Mailer` with `import { Mailer }` still breaks Node ESM. The registry replaces `design:paramtypes`. The v0 code reads only custom metadata keys (`MetaDataKey.*`), never `design:*`. Third-party classes come precompiled, so the D2 fallback is unaffected.
-3. **Keep the runtime diagnostics** (unresolved marker, thunk returned `undefined`, decorator/thunk conflict). In `sauf dev` they are the only signal.
+1. **Require `verbatimModuleSyntax: true`** in app tsconfigs and check it in `sauf build`'s typecheck step (accepted by PM; tracked in S4 #87, and `sauf make` stubs will use `import type`). An interface imported without `type` fails in a different way in each environment (see the table below). TS1484 is the only place that catches it consistently, and it catches it early.
+2. **Keep SWC `decoratorMetadata: true` while TypeORM is in; set it to `false` only if #88 (S5 ORM choice) drops TypeORM.** Verified both ways:
+   - TypeORM needs it. A bare `@Column()` (as in `examples/basic/app/src/models`) takes its type from `design:type`. With metadata OFF, importing the entity throws `ColumnTypeUndefinedError` at decoration time; with it ON, the columns get `Number` / `String` / `Date` (`scripts/typeorm-check.ts`, typeorm 0.3.26).
+   - It's safe with condition 1. With `import type { Mailer }` + `@Inject(MAILER) m: Mailer`, SWC still emits `design:paramtypes = [typeof Mailer === "undefined" ? Object : Mailer]`, but no import is kept. The `typeof` guard on an unbound name evaluates to `Object`. Result: no link error under Node ESM, no error from `vite build`, and it passes under Vite dev (fixture `metadata-import-type`). The only failing variant is a value-import of an interface (`metadata-keeps-import`), which is already TS1484 under condition 1.
+3. **Keep the runtime diagnostics** (unresolved marker, thunk returned `undefined`, decorator/thunk conflict). In `sauf dev` they are the only signal. Accepted by PM; maps to D2 #97 / D3 #98.
 
 ## What was built (`spikes/v1/s3-di`)
 
@@ -21,16 +23,18 @@ Conditions:
 | `scripts/run.ts` | transform → SWC (`warmup.ts` options) → `out/` → `node out/<case>/main.js`, one process per case. Also checks SWC statement order and runs `tsc --noEmit` (TS1484). |
 | `scripts/vite-check.ts` | Same fixtures through Vite 7 `ssrLoadModule` (dev), plus `vite build` (Rollup) for prod behaviour. |
 | `scripts/bench.ts` | Perf over `examples/basic/app`. |
+| `scripts/typeorm-check.ts` | TypeORM entity with bare `@Column()`, run through DI transform + SWC with `decoratorMetadata` on/off. |
 
 Run it with Node ≥ 22.18 (type stripping), from `spikes/v1/s3-di`. The deps come from the `spikes/v1/node_modules` junction:
 ```
-node scripts/run.ts                 # 16 cases + 2 SWC-order checks + tsc check
+node scripts/run.ts                 # 17 cases + 2 SWC-order checks + tsc check
 node scripts/vite-check.ts          # VITE_PATH=… to override the vite location
+node scripts/typeorm-check.ts       # TYPEORM_PATH=… (run after run.ts, it needs out/runtime.js)
 node scripts/bench.ts 30 [--always-parse]
 ```
 `TSC_BIN` overrides the tsc path (the default is the main checkout's `node_modules/typescript`).
 
-Result of `run.ts`: **all checks passed** (12 behaviour cases, 4 expected-failure cases, 2 statement-order checks, 1 tsc check).
+Result of `run.ts`: **all checks passed** (13 behaviour cases, 4 expected-failure cases, 2 statement-order checks, 1 tsc check).
 
 ## Emitted shape
 
@@ -79,6 +83,15 @@ Source: `import { Mailer } from './types.js'` where `Mailer` is an interface, us
 
 **SWC `decoratorMetadata` keeps the import alive on its own.** In `metadata-keeps-import`, the class is `@Injectable()` and the param is `@Inject(MAILER) m: Mailer`. Our transform references only `MAILER`, but SWC emits `design:paramtypes = [typeof Mailer === "undefined" ? Object : Mailer]`, which keeps `import { Mailer }`. The result is the same Node ESM link error. With `decoratorMetadata: false` the case passes (`metadata-keeps-import+no-metadata`). Under Vite dev the metadata variant happens to pass, because SSR imports are property reads.
 
+**But turning metadata off is not an option while TypeORM is in, and it isn't needed under condition 1:**
+
+| Case (`decoratorMetadata`) | Node ESM | Vite dev | `vite build` |
+|---|---|---|---|
+| `metadata-keeps-import`: `import { Mailer }` (interface) + `@Inject(MAILER)`, ON | link error | ok | `"Mailer" is not exported` |
+| `metadata-import-type`: `import type { Mailer }` + `@Inject(MAILER)`, ON | **ok** | **ok** | **ok**: `design:paramtypes = [typeof Mailer === "undefined" ? Object : Mailer]`, no import |
+| TypeORM entity, bare `@Column()`, ON | ok: `id:Number, name:String, createdAt:Date` | n/a | n/a |
+| TypeORM entity, bare `@Column()`, OFF | **`ColumnTypeUndefinedError`** at import | n/a | n/a |
+
 **Namespace-import mitigation** (`import * as __di_ns0 from './x'`, `() => __di_ns0["Foo"]`, implemented as an option):
 - Removes the link error in every environment.
 - Cost in the prod bundle: none for the happy path. `vite build` of `param-properties` is 4967 B in both modes, and Rollup inlines the binding with no namespace object materialised. Node ESM and Vite SSR already create a namespace object per module, so the extra cost should be negligible (not measured).
@@ -120,7 +133,7 @@ Owner: **T1** = transform (#101), **T3** = snapshot/runtime tests (#103). D2/D3 
 | 27 | Class decorator that replaces the class | The replacement gets its own entry (verified: `Swapped.name === "Replaced"`, `hasOwnDeps` true) | T3 |
 | 28 | Circular module imports (`a.ts ⇄ b.ts`) | Lazy thunks, so no TDZ at module evaluation; graph resolves. A real instance cycle gives `Circular dependency: D -> E -> D` | T3, D5a |
 | 29 | Interface imported without `type` | See the environment table: link error / `undefined` / build error. `tsc` catches it with TS1484 | T1 docs, T3, `sauf build` typecheck |
-| 30 | SWC `decoratorMetadata` + type-only import | Keeps the import alive regardless of our transform, giving the same link error | T2 (turn off in sauf SWC config) |
+| 30 | SWC `decoratorMetadata` + type-only import | A value-import of an interface is kept alive regardless of our transform (same link error). With `import type` it is safe: the `typeof` guard gives `Object` and no import is kept. Keep metadata ON (TypeORM `@Column()` needs `design:type`) | T2 (keep ON; revisit with #88), T3 |
 | 31 | Constructor overloads | Uses the implementation (the one with a body); `declare class` is skipped | T1 |
 | 32 | Non-ASCII source | oxc 0.102 JS spans are UTF-16 offsets (checked in a one-off probe: class `end === code.length` with non-ASCII comments), so magic-string offsets are correct; add a fixture | T1, T3 |
 | 33 | Syntax errors | Transform returns `null` and lets SWC report | T1 |
@@ -152,7 +165,7 @@ Windows 11, Node 22.18.0, oxc-parser 0.102.0, @swc/core 1.13.5, magic-string 0.3
   - Source maps come from `magic-string` (`hires: 'boundary'`); mapping accuracy is not verified.
 - **T2:**
   - Plugin order in `vite-check.ts` (`enforce: 'pre'` DI, then SWC) works under Vite 7 `ssrLoadModule`.
-  - Set `decoratorMetadata: false` (#30).
+  - Keep `decoratorMetadata: true` (TypeORM). Switch it off only if #88 drops TypeORM (#30).
 - **T3:** The fixtures and `run.ts` here map 1:1 onto the requested snapshot + runtime tests. Add snapshots of `out/<case>/*.transformed.ts`.
 - **D2:** WeakMap + walk to parent only when there's no own entry. With the transform, a child with its own constructor always has its own entry. For untransformed (third-party) classes, check own `design:paramtypes` before walking the parent, because "no entry" doesn't mean "no own constructor" there.
 - **D3:** `@Inject` must still record `(class, index) → token` at runtime. It's used for unresolved markers and for detecting conflicts with wrappers/aliases (#9). The registry stays the source of truth for transform-visible `@Inject`.
@@ -168,10 +181,18 @@ Windows 11, Node 22.18.0, oxc-parser 0.102.0, @swc/core 1.13.5, magic-string 0.3
 > **Emitted:** `__laratype_deps(Cls, [() => Dep | () => TOKEN | { unresolved, index }], { params, optional })`, placed after the class. Params are never skipped. The call runs after SWC's `X = _ts_decorate(...)`, so it registers the final class. An anonymous `export default class {}` gets a generated name (`__laratype_default`); its `.name` changes from `"default"`.
 >
 > **Conditions:**
-> 1. Require `verbatimModuleSyntax` (TS1484). An interface imported without `type` fails differently per environment: Node ESM link error, `vite build` "is not exported", and in `sauf dev` no error at all until resolve, when the thunk returns `undefined`.
-> 2. Turn off SWC `decoratorMetadata`: it keeps type-only imports alive on its own (link error even with `@Inject`).
-> 3. Keep the runtime diagnostics. They name the class, param index/name, and give a fix hint.
+> 1. Require `verbatimModuleSyntax` (TS1484), tracked in #87. An interface imported without `type` fails differently per environment: Node ESM link error, `vite build` "is not exported", and in `sauf dev` no error at all until resolve, when the thunk returns `undefined`.
+> 2. Keep SWC `decoratorMetadata: true`; set it to `false` only if #88 drops TypeORM. A bare TypeORM `@Column()` throws `ColumnTypeUndefinedError` without `design:type`. Under condition 1 metadata is safe: with `import type { Mailer }`, SWC emits `typeof Mailer === "undefined" ? Object : Mailer` with no import kept, so Node ESM, Vite dev and `vite build` all pass.
+> 3. Keep the runtime diagnostics (D2/D3). They name the class, param index/name, and give a fix hint.
 >
 > **Perf** (examples/basic/app, 43 files): with a `constructor` pre-check, 0.3 ms warm in total, about 3% of SWC. With every file parsed (upper bound), 4 ms warm (0.09 ms/file, about 37% of SWC) and 11 ms cold.
 >
-> The edge-case table (34 cases → behaviour → owner T1/T3) is in `spikes/v1/s3-di/FINDINGS.md`. Open decisions for T1: globals (`Date`/`Map`) unresolved vs guarded thunk; whether `Foo | undefined` should be marked optional; placement for `X = class {}`.
+> The edge-case table (34 cases → behaviour → owner T1/T3) is in `spikes/v1/s3-di/FINDINGS.md`.
+>
+> **Carry to T1 (#101):**
+> - [ ] Globals (`Date`, `Map`, …): keep `{ unresolved }` or emit a guarded thunk
+> - [ ] `Foo | undefined` / `Foo | null`: mark the param optional
+> - [ ] Placement for `X = class {}` and object-literal classes (`{ Foo: class {} }`) without losing name inference
+> - [ ] `var` hoisting out of nested blocks (scope collection is shallow)
+> - [ ] TSX
+> - [ ] Source-map accuracy (magic-string `hires: 'boundary'`, chained through SWC)
