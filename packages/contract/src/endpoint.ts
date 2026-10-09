@@ -1,14 +1,8 @@
+import type { ErrorDef } from "./errors";
 import type { PathParams } from "./path";
 import type { StandardSchemaV1 } from "./standard-schema";
 
 export type Method = "get" | "post" | "put" | "patch" | "delete";
-
-export interface ErrorDef<St extends number = number, Body = unknown> {
-  readonly status: St;
-  readonly code: string;
-  /** phantom: only carries the body type */
-  readonly __body?: Body;
-}
 
 /** Runtime description of an endpoint, consumed by the router, the client and OpenAPI. */
 export interface EndpointDef {
