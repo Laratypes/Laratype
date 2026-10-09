@@ -1,4 +1,4 @@
-import { Request as LaratypeRequest, RequestKernel, RouteOptions } from "../../src/index";
+import { Request as LaratypeRequest, RequestKernel, type RouteOptions } from "../../src/index";
 import { HonoRequest } from "hono/request";
 import { z } from "zod";
 import { expect, it, test, describe } from 'vitest'

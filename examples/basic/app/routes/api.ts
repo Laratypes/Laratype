@@ -1,4 +1,4 @@
-import { RouteOptions } from "@laratype/http";
+import type { RouteOptions } from "@laratype/http";
 import userRoutes from "./user/user";
 import adminRoutes from "./admin/admin";
 

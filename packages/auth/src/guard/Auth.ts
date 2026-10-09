@@ -1,4 +1,4 @@
-import { Middleware, NextHandler, Request } from "@laratype/http";
+import { Middleware, type NextHandler, Request } from "@laratype/http";
 import { ContextApi } from "@laratype/support";
 import UnauthorizedException from "../exceptions/UnauthorizedException";
 import { AuthVerification } from "../verifications";

@@ -2,7 +2,7 @@ import { Model } from "@laratype/database";
 import { UsePolicy } from "../decorators";
 import UnauthorizedException from "../exceptions/UnauthorizedException";
 import { Auth } from "../support";
-import Policy, { Ability } from "./Policy";
+import Policy, { type Ability } from "./Policy";
 import PolicyHandler from "./PolicyHandler";
 
 export default class RoutePolicy {

@@ -1,4 +1,4 @@
-import { LaratypeConfig as ConfigContract } from "../contracts/Config";
+import type { LaratypeConfig as ConfigContract } from "../contracts/Config";
 import { getDefaultExports, getAppPath, importModule } from "../path-resolver/pathResolver";
 import { ServiceProvider } from "../ServiceProvider";
 import Config from "./Config";

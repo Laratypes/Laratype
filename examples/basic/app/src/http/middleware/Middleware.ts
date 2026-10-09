@@ -1,5 +1,5 @@
 import { Passport, passport } from "@laratype/auth";
-import { Middleware, MiddlewareHandler } from "@laratype/http";
+import { Middleware, type MiddlewareHandler } from "@laratype/http";
 
 export class EnsureMiddlewareWorking extends Middleware {
   handle: MiddlewareHandler = async (request, res, next) => {

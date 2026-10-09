@@ -1,5 +1,5 @@
-import { ExcludeFirstParameter } from "@laratype/support";
-import Policy, { Ability } from "./Policy";
+import type { ExcludeFirstParameter } from "@laratype/support";
+import Policy, { type Ability } from "./Policy";
 
 export default class PolicyHandler {
 

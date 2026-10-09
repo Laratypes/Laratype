@@ -1,5 +1,5 @@
-import { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
-import ResponseInterface from "../contracts/Response"
+import type { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
+import type ResponseInterface from "../contracts/Response"
 import { GeneralTypesEnum } from "@laratype/support";
 import JsonResource from "../resource/json/JsonResource";
 

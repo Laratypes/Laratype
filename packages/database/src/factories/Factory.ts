@@ -1,4 +1,4 @@
-import { DeepPartial, FindOptionsRelations } from "typeorm";
+import type { DeepPartial, FindOptionsRelations } from "typeorm";
 import Model from "../eloquent/Model";
 import { MetaDataKey } from "@laratype/support";
 

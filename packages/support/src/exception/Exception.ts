@@ -1,5 +1,5 @@
 import { Console } from "@laratype/console";
-import { StatusCode } from "hono/utils/http-status";
+import type { StatusCode } from "hono/utils/http-status";
 
 export class Exception extends Error {
   

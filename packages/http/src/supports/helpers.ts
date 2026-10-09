@@ -1,7 +1,7 @@
-import { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
+import type { RedirectStatusCode, StatusCode } from "hono/utils/http-status";
 import Response from "./Response";
 import type Controller from "../controller/Controller";
-import { safeMethods } from "../contracts";
+import type { safeMethods } from "../contracts";
 
 export const response = (content: any, httpStatusCode?: StatusCode) => new Response(content, httpStatusCode)
 

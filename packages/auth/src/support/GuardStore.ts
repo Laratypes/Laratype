@@ -1,5 +1,5 @@
 import { type Model } from "@laratype/database";
-import { LaratypeConfig as Config } from "@laratype/support";
+import type { LaratypeConfig as Config } from "@laratype/support";
 
 export class GuardStore {
 
