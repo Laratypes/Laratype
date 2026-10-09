@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -18,7 +19,9 @@ const diagnostics = (rootNames: string[], options: ts.CompilerOptions) =>
 
 describe('@laratype/contract types', () => {
   it('type tests compile (expectTypeOf + @ts-expect-error)', () => {
-    expect(diagnostics([`${pkg}__tests__/types/endpoint.types.ts`], baseOptions())).toEqual([])
+    const files = readdirSync(`${pkg}__tests__/types`).map((f) => `${pkg}__tests__/types/${f}`)
+    expect(files.length).toBeGreaterThan(0)
+    expect(diagnostics(files, baseOptions())).toEqual([])
   }, 60_000)
 
   it('src is browser-safe: compiles with the DOM lib and no Node types', () => {
