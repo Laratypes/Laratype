@@ -117,6 +117,7 @@
       "version": "0.5.4",
       "dependencies": {
         "@laratype/console": "workspace:*",
+        "@laratype/core": "workspace:*",
         "@laratype/support": "workspace:*",
       },
       "devDependencies": {
@@ -179,6 +180,7 @@
       "version": "0.5.4",
       "dependencies": {
         "@laratype/console": "workspace:*",
+        "@laratype/core": "workspace:*",
       },
       "devDependencies": {
         "@laratype/http": "workspace:*",
