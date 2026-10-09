@@ -27,6 +27,9 @@
     "./*": "./*"
   },
   "buildOptions": {},
+  "devDependencies": {
+    "reflect-metadata": "^0.2.2"
+  },
   "files": [
     "dist"
   ]
