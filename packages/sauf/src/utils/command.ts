@@ -59,18 +59,7 @@ export default class Command {
       const serviceProviders = await laratype.register();
 
       const filteredProviders = await instance.providers(serviceProviders);
-      const serverInstance = laratype.Serve.getInstance();
-
-      const downs = [];
-      for(let Provider of filteredProviders) {
-        const providerInstance = new Provider(serverInstance);
-        const handler = providerInstance.boot();
-        if(handler instanceof Promise) {
-          await handler;
-        }
-        downs.push(providerInstance.down.bind(providerInstance));
-      }
-      downs.reverse();
+      const downs = await laratype.bootProviders(laratype.Serve.getContainer(), filteredProviders);
       const exitCode = await instance.handle.call(instance, ...args);
       
       downs.forEach(down => {

@@ -35,7 +35,8 @@
     ]
   },
   "dependencies": {
-    "@laratype/console": "workspace:*"
+    "@laratype/console": "workspace:*",
+    "@laratype/core": "workspace:*"
   },
   "peerDependencies": {
     "dayjs": "^1.11.13",
