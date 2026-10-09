@@ -64,7 +64,7 @@ const metaName = (task) => path.relative(process.cwd(), task.entrypoints[0])
        ...baseConfigEsm,
        splitting: undefined,
       format: "cjs",
-      naming: "[dir]/[name].[ext]",
+      naming: "[dir]/[name].cjs",
     }
 
     return [
