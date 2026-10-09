@@ -92,8 +92,9 @@ merged @ d70daa7 (C2 [#90](https://github.com/Laratypes/Laratype/issues/90)).
 [`path.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/path.ts#L1-L33)
 
 ```ts
+// abridged: the Split<P> parser behind PathParams is internal, see the permalink
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
-export type PathParams<P extends string>;                // e.g. "/users/:user/posts/:post?" -> { user: string; post?: string }
+export type PathParams<P extends string> = Prettify<Split<P>>;                // e.g. "/users/:user/posts/:post?" -> { user: string; post?: string }
 export type PathParamKeys<P extends string> = keyof PathParams<P> & string;
 ```
 
@@ -133,6 +134,7 @@ merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `No
 
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
+type Schema = StandardSchemaV1 | undefined;   // internal, not exported
 
 export interface EndpointDef {                // runtime description: router, client, OpenAPI
   readonly method: Method;
@@ -159,7 +161,13 @@ export class Endpoint<M extends Method = Method, P extends string = string,
   errors<const Es extends readonly ErrorDef[]>(...errs: Es): Endpoint<M, P, Q, B, H, R, St, E | Es[number]>;
 }
 
-export const endpoint: { get; post; put; patch; delete };   // each: <P extends string>(path: P) => Endpoint<M, P>
+export const endpoint: {
+  get: <P extends string>(path: P) => Endpoint<"get", P>;
+  post: <P extends string>(path: P) => Endpoint<"post", P>;
+  put: <P extends string>(path: P) => Endpoint<"put", P>;
+  patch: <P extends string>(path: P) => Endpoint<"patch", P>;
+  delete: <P extends string>(path: P) => Endpoint<"delete", P>;
+};
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any>;
 ```
 
@@ -203,9 +211,9 @@ export interface ErrorDef<St extends number = number, Body = unknown> {
 }
 export interface MessageBody { message: string }
 export interface ValidationErrorBody extends MessageBody { errors: Record<string, string[]> }  // dot path -> messages
-export type ErrorStatus<E>;               // status literal(s) of a def or a union of defs
-export type ErrorBody<E>;                 // body type(s)
-export type ErrorResponse<E>;             // { status: St; body: Body } per def: a union narrowable by `status`
+export type ErrorStatus<E> = E extends ErrorDef<infer St, any> ? St : never;
+export type ErrorBody<E> = E extends ErrorDef<any, infer Body> ? Body : never;
+export type ErrorResponse<E> = E extends ErrorDef<infer St, infer Body> ? { status: St; body: Body } : never;  // narrowable by `status`
 export const defineError: <St extends number, Body = MessageBody>(status: St, code: string) => ErrorDef<St, Body>;
 export const errors: Readonly<{
   unauthorized: ErrorDef<401, MessageBody>;    // "UNAUTHORIZED"
@@ -296,9 +304,9 @@ export const CONTRACT_NAME: unique symbol;            // Symbol.for("laratype.co
 export type ContractDef = Record<string, AnyEndpoint>;
 export type Contract<N extends string = string, D extends ContractDef = ContractDef> = Readonly<D> & { readonly [CONTRACT_NAME]: N };
 export type AnyContract = Contract<string, any>;
-export type EndpointKeys<C>;                          // "index" | "show" (brand excluded)
-export type ContractName<C>;                          // the literal name
-export type ContractRouteName<C>;                     // "users.index" | "users.show"
+export type EndpointKeys<C> = Exclude<keyof C, typeof CONTRACT_NAME> & string;             // "index" | "show"
+export type ContractName<C> = C extends { readonly [CONTRACT_NAME]: infer N extends string } ? N : never;
+export type ContractRouteName<C> = C extends AnyContract ? `${ContractName<C>}.${EndpointKeys<C>}` : never;  // "users.index" | ...
 export function defineContract<const N extends string, const D extends ContractDef>(name: N, endpoints: D): Contract<N, D>;
 export const isContract: (value: unknown) => value is AnyContract;
 export const contractName: <C extends AnyContract>(contract: C) => ContractName<C>;
@@ -344,10 +352,11 @@ proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issu
 [`contract.ts` @ ded1bfc](https://github.com/Laratypes/Laratype/blob/ded1bfcf76dbbf3b0aadd1886c157e2cf1939dc4/packages/contract/src/contract.ts#L58-L107)
 
 ```ts
+// abridged: CheckApi and ApiEndpoint bodies elided, see the permalink
 export type ApiDef = Record<string, AnyContract>;
 export type CheckApi<A>;                              // per key: the contract, or { error: "defineApi: key \"k\" must match the contract name \"n\"" }
 export type Api<A extends ApiDef = ApiDef> = Readonly<A>;
-export type ApiRouteName<A>;                          // every registry name in the API
+export type ApiRouteName<A> = { [K in keyof A]: ContractRouteName<A[K]> }[keyof A];
 export type ApiEndpoint<A, Name extends string>;     // the endpoint behind a registry name
 export function defineApi<const A extends ApiDef>(contracts: A & CheckApi<A>): Api<A>;
 export const apiRoutes: <A extends ApiDef>(api: Api<A>) => Array<[ApiRouteName<A>, AnyEndpoint]>;
@@ -392,13 +401,19 @@ proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issu
 
 ```ts
 export type EndpointTypes<E extends AnyEndpoint> = {
-  method; path; params;                  // literal method/path, PathParams<P>
-  query: InferIn<Q>; body: InferIn<B>; headers: InferIn<H>;   // schema INPUT: what the FE sends
-  response: InferOut<R>;                 // schema OUTPUT: what the server serializes
-  status: St;
-  errors: ErrorResponse<E>;              // { status, body } union
+  method: E["__types"]["method"];
+  path: E["__types"]["path"];
+  params: E["__types"]["params"];
+  query: InferIn<E["__types"]["query"]>;        // schema INPUT: what the FE sends
+  body: InferIn<E["__types"]["body"]>;
+  headers: InferIn<E["__types"]["headers"]>;
+  response: InferOut<E["__types"]["response"]>; // schema OUTPUT: what the server serializes
+  status: E["__types"]["status"];
+  errors: ErrorResponse<E["__types"]["errors"]>;
 };
-export type ApiTypes<A>;                 // { [contract]: { [endpoint]: EndpointTypes<...> } }
+export type ApiTypes<A> = {
+  [C in keyof A]: { [K in EndpointKeys<A[C]>]: A[C][K] extends AnyEndpoint ? EndpointTypes<A[C][K]> : never };
+};
 export interface EndpointShape { method: string; path: string; params: object; query: unknown; body: unknown;
   headers: unknown; response: unknown; status: number; errors: { status: number; body: unknown } }
 export type ApiShape<A> = { [C in keyof A]: { [K in keyof A[C]]: EndpointShape } };

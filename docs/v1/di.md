@@ -38,7 +38,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Method injection](#method-injection) | planned → #158 |
 
 Area rules (S3 [#86](https://github.com/Laratypes/Laratype/issues/86), [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md)):
-- App code must use `import type` for type-only imports (`verbatimModuleSyntax`). An interface imported as a value fails in different ways: a Node ESM link error, `vite build` "is not exported", or a resolve-time `DiError` in `sauf dev`. The repo-wide migration is planned → [#185](https://github.com/Laratypes/Laratype/issues/185).
+- App code must use `import type` for type-only imports (`verbatimModuleSyntax`). An interface imported as a value fails in different ways: a Node ESM link error, `vite build` "is not exported", or a resolve-time `DiError` in `sauf dev`. The repo-wide migration (B11 [#185](https://github.com/Laratypes/Laratype/issues/185)) is proposed: PR #203 @ 16080c9.
 - SWC `decoratorMetadata` stays `true` while TypeORM is in use (S5 [#88](https://github.com/Laratypes/Laratype/issues/88)).
 - Runtime diagnostics are kept, because in `sauf dev` they are the only signal.
 
@@ -126,6 +126,7 @@ export class Container {
 - **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count. This may change: [#112](https://github.com/Laratypes/Laratype/issues/112).
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
+- `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
 - Abstract classes are guarded at the type level only. A runtime guard is an open question in [#112](https://github.com/Laratypes/Laratype/issues/112).
 
 ### Diagnostics
@@ -292,10 +293,11 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
   | `import type` / `{ type X }`, interface, type alias, type param, local enum, primitive, other union, array, function type, literal, `typeof x`, unbound global (`Date`, `Map`, `Promise`), ambient class, missing annotation | `{ unresolved: "<type text>", index }` (`"unknown"` when there is no annotation) |
 
 - **`optional`** lists the indices of `?` params, params with a default, and nullable unions. A resolvable class type is still injected, so its JS default is ignored. Only an unresolved slot (or a thunk that returns `undefined`) falls back to `undefined`, which lets the default apply. An *imported* enum can't be told apart from a class, so it becomes a thunk. `meta.params` holds the param names (`#<i>` for destructured params).
-- **Placement:** the call goes **after** the class, so under SWC legacy decorators it runs after `X = _ts_decorate(...)` and registers the final binding. Class expressions keep name inference: `const X = class {}`, assignments (`=`, `||=`, `&&=`, `??=`), object properties, static fields, defaults, casts and `export default`. An anonymous `export default class {}` gets the binding name `__laratype_default`, so its `.name` changes from `"default"`.
+- **Placement, class declarations:** the call is a statement placed **after** the class. Under SWC legacy decorators it therefore runs after `X = _ts_decorate(...)` and registers the final binding. An anonymous `export default class {}` gets the binding name `__laratype_default`, so its `.name` changes from `"default"`.
+- **Placement, class expressions:** the expression is wrapped in place, `__laratype_deps(class { ... }, [slots], meta)`. Where NamedEvaluation would name the class, the wrap keeps the name: `const Expr = __laratype_deps({ "Expr": class { ... } }["Expr"], [slots], meta)`. That covers `const X = class {}`, assignments (`=`, `||=`, `&&=`, `??=`), object properties, static fields, defaults, casts and `export default`. A class expression passed as a call argument keeps its empty name, as before. See the T3 snapshot [`__snapshots__/class-expression/main.ts` @ 8a8e9c7](https://github.com/Laratypes/Laratype/blob/8a8e9c71f9b6d3e7677a77ace2b6695560a74619/packages/sauf/__tests__/di/__snapshots__/class-expression/main.ts).
 - **Helper import:** added once, after directives and any hashbang. If the file already has an identifier named `__laratype_deps`, the helper is aliased `__laratype_deps_1`, `_2`, and so on (only identifiers count, not strings or comments).
 - **Scope model:** resolution honours declaration merging, class type params, function and block scopes, hoisted `var`, namespaces, and nested shadowing. A type name whose runtime value is shadowed at a different depth becomes unresolved.
-- **Source maps:** `hires: 'boundary'`, chained through SWC via `inputSourceMap`. UTF-16 offsets are correct for non-ASCII source.
+- **Source maps:** the transform returns a magic-string map (`hires: 'boundary'`) with correct UTF-16 offsets for non-ASCII source. The transform doesn't chain maps itself. The T3 test pipeline (`__tests__/di/support/pipeline.ts`) chains it into SWC via `inputSourceMap`, and the Vite wiring is T2 [#102](https://github.com/Laratypes/Laratype/issues/102).
 - **Cost** (S3): about 0.3 ms warm for 43 files with the pre-check.
 
 ### Diagnostics
@@ -328,21 +330,33 @@ proposed: PR #202 @ 18c01f5 (D4 [#99](https://github.com/Laratypes/Laratype/issu
 
 ```ts
 // @laratype/support
+export enum ServiceProviderType {
+  CORE_PROVIDER = "core_provider",
+  APP_PROVIDER = "app_provider",
+  ROUTE_PROVIDER = "route_provider",
+}
 export const HTTP_APP: InjectionToken<Hono>;              // TEMPORARY: kept on globalThis until #188 (B13)
 export class ServiceProvider {
-  static type: ServiceProviderType;                        // CORE_PROVIDER
+  static type: ServiceProviderType;                        // ServiceProviderType.CORE_PROVIDER
   readonly app: Container;
   constructor(app: Container);
   register(): void | Promise<void>;                        // bindings only
   boot(): void | Promise<void>;                            // all bindings available
   down(): Promise<void>;
 }
-export class AppServiceProvider extends ServiceProvider { apps: Hono /* = app.make(HTTP_APP) */; bindings: [] }
-export abstract class RouteAppServiceProvider extends AppServiceProvider { abstract routes(): Array<Record<string, any>> }
+export class AppServiceProvider extends ServiceProvider {
+  static type: ServiceProviderType;                        // ServiceProviderType.APP_PROVIDER
+  apps: Hono;                                              // = app.make(HTTP_APP)
+  bindings: [];                                            // unused 0.5 leftover
+}
+export abstract class RouteAppServiceProvider extends AppServiceProvider {
+  static type: ServiceProviderType;                        // ServiceProviderType.ROUTE_PROVIDER
+  abstract routes(): Array<Record<string, any>>;
+}
 export function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>>;
 
-// laratype
-export class Serve { static getContainer(): Container; /* ... */ }   // HTTP_APP bound to the Hono instance
+// laratype: `Serve` is the default export of serve.ts, re-exported by name
+export { default as Serve } from "./serve";   // class Serve { static getContainer(): Container; /* abridged */ }
 export { bootProviders } from "@laratype/support";
 ```
 

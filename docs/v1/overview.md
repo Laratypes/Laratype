@@ -30,7 +30,7 @@ This file holds what every area shares: principles, the package graph, cross-cut
 
 Status: decided ([#83](https://github.com/Laratypes/Laratype/issues/83) "Key decisions"; S1/S2 in [DECISIONS-S1-S2.md](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md) on #197; S3 in [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md) on #183).
 
-1. **Contract first. Schemas are runtime values.** An endpoint is a runtime object that holds [Standard Schema](https://standardschema.dev) schemas (zod 3.25+, valibot, arktype). The same object drives runtime validation, handler types, the FE client, OpenAPI and Detective. Types are inferred from schemas, never from decorators.
+1. **Contract first. Schemas are runtime values.** An endpoint is a runtime object that holds [Standard Schema](https://standardschema.dev) schemas (zod 3.25+, valibot, arktype). The same object drives runtime validation, handler types, the FE client, OpenAPI and Detective (G4 [#144](https://github.com/Laratypes/Laratype/issues/144)). Types are inferred from schemas, never from decorators.
 2. **Decorators are for DI and the ORM only, never for API types.** TS decorators cannot change types. Routes, validation and responses are declared in contracts. Decorators are used for `@Inject(token)`, for `@Injectable({ scope })` when the default scope is wrong, and for ORM entities.
 3. **Constructor DI without mandatory decorators.** A build transform (oxc, before SWC) emits dependency thunks for every class with an own constructor. Concrete classes autowire, while interfaces and primitives need a token.
 4. **The FE never imports server code.** The FE imports only `app/contracts/index.ts` (`defineApi(...)`), never `typeof routes` (S2). `@laratype/contract` and `@laratype/client` are browser-safe.
@@ -56,7 +56,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | planned → #133, #143 | contract |
 | `laratype` | Kernel / `Serve` | 0.5; container boot proposed: PR #202 @ 18c01f5 | core, support |
 
-Other 0.5 packages (`console`, `log`, `detective`, `mail`, `i18n`, `schedule`, `broadcast`, `storage`) are ported or built in M3/M4. See the issues listed on #83.
+Other 0.5 packages (`console`, `log`, `mail`, `i18n`, `schedule`, `broadcast`, `storage`) are ported or built in M3/M4. See the issues listed on #83.
 
 ### Invariants
 - `@laratype/contract` compiles with `lib: [ES2022, DOM]` and `types: []`. This is enforced by `packages/contract/__tests__/typecheck.test.ts` ("src is browser-safe").
@@ -67,7 +67,7 @@ Other 0.5 packages (`console`, `log`, `detective`, `mail`, `i18n`, `schedule`, `
 
 | Rule | Why | Status / source |
 |---|---|---|
-| App code uses `import type` for type-only imports (`verbatimModuleSyntax: true`) | An interface imported as a value breaks DI differently in each environment: a Node ESM link error, a `vite build` "is not exported" error, or a `sauf dev` resolve-time `DiError`. Only TS1484 catches it consistently. | S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). Not enabled repo-wide yet. Migration planned → [#185](https://github.com/Laratypes/Laratype/issues/185) (B11). |
+| App code uses `import type` for type-only imports (`verbatimModuleSyntax: true`) | An interface imported as a value breaks DI differently in each environment: a Node ESM link error, a `vite build` "is not exported" error, or a `sauf dev` resolve-time `DiError`. Only TS1484 catches it consistently. | S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). Not enabled repo-wide yet. Migration B11 [#185](https://github.com/Laratypes/Laratype/issues/185): proposed: PR #203 @ 16080c9. |
 | Keep SWC `decoratorMetadata: true` | TypeORM's bare `@Column()` needs `design:type`, and throws `ColumnTypeUndefinedError` without it | S3 condition 2. Revisit if S5 ([#88](https://github.com/Laratypes/Laratype/issues/88)) drops TypeORM |
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
