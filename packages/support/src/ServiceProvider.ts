@@ -13,7 +13,7 @@ export enum ServiceProviderType {
  * TEMPORARY: kept on globalThis because every package dist inlines its own copy of
  * @laratype/support (the @laratype externals regex in bun.build.js has no effect), so a
  * module-level token would be a different key per bundle. Make it a plain module-level
- * `token()` once the @laratype packages are real externals (tracked with B12 #187).
+ * `token()` once the @laratype packages are real externals (remove after #188 (B13)).
  */
 const tokens = globalThis as { __laratype_http_app_token?: InjectionToken<Hono> };
 export const HTTP_APP = tokens.__laratype_http_app_token ??= token<Hono>("http.app");
