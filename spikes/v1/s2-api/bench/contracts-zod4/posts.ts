@@ -1,4 +1,4 @@
-import * as z from "zod";
+import * as z from "zod/v4";
 import { defineContract, endpoint, errors } from "../../../contract";
 
 export const PostDto = z.object({ id: z.number(), userId: z.number(), title: z.string(), body: z.string() });

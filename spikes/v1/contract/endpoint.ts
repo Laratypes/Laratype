@@ -42,7 +42,9 @@ export class Endpoint<
     return new Endpoint({ ...this.def, body: schema });
   }
 
-  response<S extends StandardSchemaV1, C extends number = 200>(schema: S, status?: C): Endpoint<M, P, Q, B, S, C, E> {
+  // NoInfer: without it, `defineContract(..., { x: e.response(s) })` infers C = any from the contextual
+  // return type (AnyEndpoint = Endpoint<any, ...>) instead of falling back to the 200 default (found in S2).
+  response<S extends StandardSchemaV1, C extends number = 200>(schema: S, status?: C): Endpoint<M, P, Q, B, S, NoInfer<C>, E> {
     return new Endpoint({ ...this.def, response: schema, status: status ?? 200 });
   }
 

@@ -1,13 +1,13 @@
-import * as z from "zod";
+import * as z from "zod/v4-mini";
 import { defineContract, endpoint, errors } from "../../../contract";
 
 export const PostDto = z.object({ id: z.number(), userId: z.number(), title: z.string(), body: z.string() });
 
 export const posts = defineContract("posts", {
-  index: endpoint.get("/users/:user/posts").query(z.object({ q: z.string().optional() })).response(z.array(PostDto)),
+  index: endpoint.get("/users/:user/posts").query(z.object({ q: z.optional(z.string()) })).response(z.array(PostDto)),
   store: endpoint
     .post("/users/:user/posts")
-    .body(z.object({ title: z.string().min(1), body: z.string() }))
+    .body(z.object({ title: z.string().check(z.minLength(1)), body: z.string() }))
     .response(PostDto, 201)
     .errors(errors.validation, errors.forbidden),
 });
