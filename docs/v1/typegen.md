@@ -26,16 +26,15 @@ planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1, M2). T
 
 ### Design (non-binding)
 - **Purpose:** support FEs outside the monorepo (S2 option c). Done when a separate FE project compiles using only the generated files.
-- **S2 decision:** generate one `api.ts` that holds:
+- **Canonical output (S2; #133 updated):** one generated `api.ts` that holds:
   - a flattened `AppApi` type alias, the shape of `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection));
   - a slim runtime manifest with method, path and declared error codes.
 
   The file contains no contract lib and no zod. The generator uses **only the TS checker** and never executes contract modules. The spike prints types with `typeToString(NoTruncation)`.
-- **#133 tasks:** emit a self-contained `laratype-api.d.ts` from `defineApi` (tsc `emitDeclarationOnly` + `rollup-plugin-dts`), plus the S2 runtime manifest.
 - **Generated types:** they may be `interface` declarations, because the client's `ApiShape<A>` self-constraint accepts them.
 
 ### Open questions
-- Output shape: one `api.ts` (S2 decision) or a `laratype-api.d.ts` plus a manifest file (#133 tasks)? Raised with PM in the DOC3 report → [#133](https://github.com/Laratypes/Laratype/issues/133)
+- Resolved: the earlier `laratype-api.d.ts` + `rollup-plugin-dts` task is superseded by S2 ([#133](https://github.com/Laratypes/Laratype/issues/133)).
 
 ### Acceptance
 [#133 Done when](https://github.com/Laratypes/Laratype/issues/133)
