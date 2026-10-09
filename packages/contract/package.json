@@ -27,6 +27,17 @@
     "./*": "./*"
   },
   "buildOptions": {},
+  "devDependencies": {
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.4"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
   "files": [
     "dist"
   ]

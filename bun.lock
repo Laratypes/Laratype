@@ -75,6 +75,15 @@
     "packages/contract": {
       "name": "@laratype/contract",
       "version": "0.5.4",
+      "devDependencies": {
+        "zod": "catalog:",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.4",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
     },
     "packages/core": {
       "name": "@laratype/core",
