@@ -27,6 +27,9 @@
     "./*": "./*"
   },
   "buildOptions": {},
+  "devDependencies": {
+    "zod": "catalog:"
+  },
   "files": [
     "dist"
   ]

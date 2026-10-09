@@ -75,6 +75,9 @@
     "packages/contract": {
       "name": "@laratype/contract",
       "version": "0.5.4",
+      "devDependencies": {
+        "zod": "catalog:",
+      },
     },
     "packages/core": {
       "name": "@laratype/core",
