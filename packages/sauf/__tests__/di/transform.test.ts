@@ -4,7 +4,10 @@ import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import { DI_DEFAULT_CLASS_NAME, transformDi } from '../../src/di';
 import { warmupSwcOptions } from './support/pipeline';
 
-const HEADER = 'import { __laratype_deps } from "virtual:laratype/di";\n';
+// Targeted unit cases: options, pre-checks, source maps, and edge cases that need no runtime.
+// End-to-end behaviour + output snapshots per edge case live in `fixtures.test.ts`.
+
+const HEADER ='import { __laratype_deps } from "virtual:laratype/di";\n';
 
 const run = (code: string, id = '/app/src/main.ts') => transformDi(code, id)?.code ?? null;
 
@@ -45,10 +48,6 @@ describe('transformDi', () => {
       ]);
     });
 
-    it('emits [] for an explicit zero-arg constructor', () => {
-      expect(calls('class A { constructor() {} }')).toEqual(['A: [], { params: [] }']);
-    });
-
     it('marks everything without a runtime value as unresolved, never skipping a param', () => {
       expect(calls(`
         import type { Cache } from './cache';
@@ -82,20 +81,9 @@ describe('transformDi', () => {
         .toEqual(['A: [{ unresolved: "User", index: 0 }], { params: ["u"] }']);
     });
 
-    it('erases generics (Repo<User> -> Repo)', () => {
-      expect(calls('class Repo<T> {}\nclass User {}\nclass A { constructor(r: Repo<User>) {} }'))
-        .toEqual(['A: [() => Repo], { params: ["r"] }']);
-    });
   });
 
   describe('carried from S3 (#101)', () => {
-    it('keeps globals (Date, Map, Promise) unresolved', () => {
-      expect(calls('class A { constructor(d: Date, m: Map<string, number>, p: Promise<void>) {} }')).toEqual([
-        'A: [{ unresolved: "Date", index: 0 }, { unresolved: "Map<string, number>", index: 1 }, '
-        + '{ unresolved: "Promise<void>", index: 2 }], { params: ["d","m","p"] }',
-      ]);
-    });
-
     it('a local class named like a global wins', () => {
       expect(calls('class Map {}\nclass A { constructor(m: Map) {} }')).toEqual(['A: [() => Map], { params: ["m"] }']);
     });
@@ -250,18 +238,6 @@ describe('transformDi', () => {
       ]);
     });
 
-    it('handles default, optional, rest and destructured params', () => {
-      expect(calls(`
-        class Clock {}
-        class A {
-          constructor(c: Clock = new Clock(), n?: number, public m: number = 3, { x }: { x: 1 }, ...rest: any[]) {}
-        }
-        class PassThrough extends A { constructor(...args: any[]) { super(...args); } }
-      `)).toEqual([
-        'A: [() => Clock, { unresolved: "number", index: 1 }, { unresolved: "number", index: 2 }, '
-        + '{ unresolved: "{ x: 1 }", index: 3 }], { params: ["c","n","m","#3"], optional: [0,1,2] }',
-      ]);
-    });
   });
 
   describe('@Inject', () => {
@@ -280,10 +256,6 @@ describe('transformDi', () => {
       );
     });
 
-    it('supports a configured injectNames entry for wrapper decorators with a token argument', () => {
-      expect(transformDi('class A { constructor(@Use(TOKEN) a: string) {} }', '/a.ts', { injectNames: ['Use'] })!.code)
-        .toContain('__laratype_deps(A, [() => TOKEN], { params: ["a"] });');
-    });
   });
 
   describe('placement and scopes', () => {
