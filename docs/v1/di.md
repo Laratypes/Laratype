@@ -151,6 +151,9 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 
 ### Open questions
 - Default scope for autowired classes, whether `has()` should count autowirable classes, and a runtime abstract-class guard → [#112](https://github.com/Laratypes/Laratype/issues/112) ("Carried from D1").
+- **Interim behaviour:**
+  - The transient default for `bind()` and autowired classes is interim until [#112](https://github.com/Laratypes/Laratype/issues/112) decides.
+  - The container does not yet detect `@Inject`-vs-thunk conflicts (S3 condition 3). That arrives with the runtime decorator records ([#98](https://github.com/Laratypes/Laratype/issues/98)) and the fix-hint messages ([#100](https://github.com/Laratypes/Laratype/issues/100)).
 
 ### Acceptance
 [#96 Done when](https://github.com/Laratypes/Laratype/issues/96)
@@ -361,7 +364,7 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 - No deferred providers.
 
 ### Open questions
-- `Serve.getContainer()` creates `new Container()` without `{ deps: depsRegistry }`, so the kernel can only autowire zero-arg classes. Question raised with PM (DOC2 report); no issue yet.
+- `Serve.getContainer()` creates `new Container()` without `{ deps: depsRegistry }`, so the kernel can only autowire zero-arg classes. After D2 and D4 merge, T2 switches it to `new Container({ deps: depsRegistry })` → [#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635).
 
 ### Acceptance
 [#99 Done when](https://github.com/Laratypes/Laratype/issues/99)
@@ -371,12 +374,15 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 ## Decorators: @Inject and @Injectable
 
 ### Status
-planned → [#98](https://github.com/Laratypes/Laratype/issues/98) (D3). No runtime `Inject` or `Injectable` exists in any package yet. The T1/T3 tests use a test-only stub (`packages/sauf/__tests__/di/support/runtime.ts`).
+planned → [#98](https://github.com/Laratypes/Laratype/issues/98) (D3). No runtime `Inject` or `Injectable` exists in any package yet. The T1/T3 tests use a test-only stub (`packages/sauf/__tests__/di/support/runtime.ts`). Both will be exported from `@laratype/core`. Signatures are not specified until #98 lands.
 
 ### Design (non-binding)
 - `@Inject(token)` is a parameter decorator for interfaces, primitives and generics. The transform already reads it syntactically and emits `() => TOKEN`. At runtime it must still record `(class, index) → token`, so the container can detect a disagreement with the transform. That happens with wrapper decorators, which the transform can't see (S3 finding #9: `Conflicting metadata for <C> constructor param #<i> ...`).
 - `@Injectable({ scope })` is optional, for non-default scopes only.
 - It must work with the SWC legacy decorator config in `packages/sauf/src/bin/warmup.ts`.
+
+### Open questions
+- Export location (`@laratype/core`) and a T1 fixture that imports `Inject` from it → [#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050).
 
 ### Acceptance
 [#98 Done when](https://github.com/Laratypes/Laratype/issues/98)
