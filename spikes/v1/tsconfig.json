@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "experimentalDecorators": true,
+    "types": []
+  },
+  "include": ["contract", "s1-controller", "s2-api/app"],
+  "exclude": ["s1-controller/tests/*.fixture.ts"]
+}

@@ -1,0 +1,5 @@
+{
+  "extends": "../fe/tsconfig.json",
+  "compilerOptions": { "paths": {} },
+  "include": ["contracts-zod4", "contracts-zod4-mini", "type-tests.ts"]
+}
