@@ -1,6 +1,6 @@
-import { ExcludeFirstParameter, MetaDataKey } from "@laratype/support";
+import { type ExcludeFirstParameter, MetaDataKey } from "@laratype/support";
 import { Policy } from "../policies";
-import { Ability } from "../policies/Policy";
+import type { Ability } from "../policies/Policy";
 import PolicyHandler from "../policies/PolicyHandler";
 
 export interface UsePolicy<T extends Policy> {

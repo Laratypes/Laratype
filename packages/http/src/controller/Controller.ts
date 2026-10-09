@@ -1,4 +1,4 @@
-import { safeMethods } from "../contracts/Controller";
+import type { safeMethods } from "../contracts/Controller";
 
 export default class Controller {
 

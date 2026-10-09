@@ -1,5 +1,5 @@
 import { Hash } from "@laratype/support";
-import { BaseEntity, DeepPartial, SaveOptions, FindOptionsWhere } from "typeorm";
+import { BaseEntity, type DeepPartial, type SaveOptions, type FindOptionsWhere } from "typeorm";
 
 const cast = (input: Record<string, any>) => {
   const result: Record<string, any> = {};

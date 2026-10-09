@@ -6,7 +6,7 @@ import path from "path";
 import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
-import { Runner } from "../utils/runner/Runner";
+import type { Runner } from "../utils/runner/Runner";
 
 export default class LaratypeDevCommand extends Command {
 

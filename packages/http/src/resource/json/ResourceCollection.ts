@@ -1,4 +1,4 @@
-import CollectionInterface from "../../contracts/Collection";
+import type CollectionInterface from "../../contracts/Collection";
 import JsonResource from "./JsonResource";
 
 export default class ResourceCollection<T extends unknown = {}> extends JsonResource implements CollectionInterface {

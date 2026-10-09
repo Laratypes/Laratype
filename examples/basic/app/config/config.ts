@@ -1,4 +1,4 @@
-import { LaratypeConfig as ConfigContract, Env } from "@laratype/support";
+import { type LaratypeConfig as ConfigContract, Env } from "@laratype/support";
 
 export default {
   locale: "vi",

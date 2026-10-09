@@ -2,7 +2,7 @@ import { dirname, resolve } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 import winston from "winston";
-import { LaratypeConfig as Config } from "@laratype/support";
+import type { LaratypeConfig as Config } from "@laratype/support";
 import DriverNotImplement from "./exceptions/DriverNotImplement";
 
 type Driver = Config.Logging.CHANNEL

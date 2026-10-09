@@ -1,5 +1,5 @@
 import { Command as Commander } from 'commander'
-import { ArgumentType, Command as CommandInstance } from '@laratype/console';
+import { type ArgumentType, Command as CommandInstance } from '@laratype/console';
 import Transpile from './transplie';
 import { resolveSync } from '@laratype/support';
 import SignatureNotConfigYet from '../exceptions/SignatureNotConfigYet';

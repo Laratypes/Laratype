@@ -1,4 +1,4 @@
-import { StatusCode } from "hono/utils/http-status";
+import type { StatusCode } from "hono/utils/http-status";
 import { Exception } from "./Exception";
 
 export default class Exceptions extends Exception {

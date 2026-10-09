@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import RequestKernel from "../request/Request";
 import type { AppServiceProvider } from "@laratype/support";
-import { RouteOptions, RouteParams } from "../contracts/Route";
+import type { RouteOptions, RouteParams } from "../contracts/Route";
 
 const __filterMiddleware = (allMiddleware: NonNullable<RouteOptions['middleware']>, withoutMiddleware: NonNullable<RouteOptions['middleware']>) => {
   return allMiddleware.filter((middleware) => {
