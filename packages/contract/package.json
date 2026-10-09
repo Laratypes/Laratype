@@ -28,6 +28,7 @@
   },
   "buildOptions": {},
   "devDependencies": {
+    "valibot": "^1.5.0",
     "zod": "catalog:"
   },
   "peerDependencies": {
