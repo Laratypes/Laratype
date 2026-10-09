@@ -17,7 +17,6 @@
   "author": "Ily1606",
   "license": "MIT",
   "description": "Log module for laratype framework",
-  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
