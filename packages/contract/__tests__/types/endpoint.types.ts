@@ -98,3 +98,13 @@ bare.def.path = '/x'
 // @ts-expect-error unknown path param
 bare.__types.params.post
 expectTypeOf(bare.__types.params).not.toEqualTypeOf<{ user: string; extra: string }>()
+
+// --- regression: in a contextually typed position (e.g. defineContract), the AnyEndpoint
+// return type must not become an inference candidate for the status (would give `any`)
+const contextual = <T extends Record<string, AnyEndpoint>>(x: T): T => x
+const ctx = contextual({
+  index: endpoint.get('/').query(query).response(response),
+  created: endpoint.post('/').response(response, 201),
+})
+expectTypeOf(ctx.index.__types.status).toEqualTypeOf<200>()
+expectTypeOf(ctx.created.__types.status).toEqualTypeOf<201>()

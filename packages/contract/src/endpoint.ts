@@ -71,7 +71,8 @@ export class Endpoint<
     return new Endpoint({ ...this.def, headers: schema });
   }
 
-  response<S extends StandardSchemaV1, C extends number = 200>(schema: S, status?: C): Endpoint<M, P, Q, B, H, S, C, E> {
+  // NoInfer: a contextual return type (e.g. AnyEndpoint) must not infer C, so the 200 default applies
+  response<S extends StandardSchemaV1, C extends number = 200>(schema: S, status?: C): Endpoint<M, P, Q, B, H, S, NoInfer<C>, E> {
     return new Endpoint({ ...this.def, response: schema, status: status ?? 200 });
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { Endpoint, PACKAGE_NAME, endpoint } from '@laratype/contract'
-import type { ErrorDef } from '@laratype/contract'
+import type { AnyEndpoint, ErrorDef } from '@laratype/contract'
 
 const notFound: ErrorDef<404, { message: string }> = { status: 404, code: 'NOT_FOUND' }
 const forbidden: ErrorDef<403, { message: string }> = { status: 403, code: 'FORBIDDEN' }
@@ -49,6 +49,13 @@ describe('endpoint builder', () => {
 
   it('defaults the response status to 200', () => {
     expect(endpoint.get('/').response(z.string()).def.status).toBe(200)
+  })
+
+  it('keeps the default 200 status in a contextually typed position', () => {
+    const contextual = <T extends Record<string, AnyEndpoint>>(x: T): T => x
+    const ctx = contextual({ index: endpoint.get('/').response(z.string()) })
+
+    expect(ctx.index.def.status).toBe(200)
   })
 
   it('appends errors in order across calls', () => {
