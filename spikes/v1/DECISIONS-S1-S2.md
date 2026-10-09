@@ -191,6 +191,8 @@ Readings:
 >
 > Details, raw tsc output and the DI runtime table: `spikes/v1/DECISIONS-S1-S2.md`, `spikes/v1/s1-controller/tsc-errors.txt`. Repro: `node spikes/v1/scripts/check-s1-s2.mjs`.
 > Open for H2/H6/H7: per-endpoint middleware within one contract, optional-param binding, `ctx.endpoint` runtime vs phantom, type-perf at 50+ endpoints (S6).
+>
+> Carried to: H2 #105, H6 #117, H7 #118, S6 #95
 
 ## Draft comment for #85 (PM to review before posting)
 
@@ -201,3 +203,5 @@ Readings:
 > Side findings: C1 `.response()` needs `NoInfer<C>` (otherwise status is `any` when `.response()` ends the chain); zod 4 `z.coerce.number()` input is `unknown`, so use `z.coerce.number<number>()`; generated API types must be type aliases (index-signature constraint); the client response type needs a JSON/wire-type decision (CL2/H4).
 >
 > Details and tables: `spikes/v1/DECISIONS-S1-S2.md`. Repro: `node spikes/v1/scripts/check-s1-s2.mjs`.
+>
+> Carried to: C5 #93, C3 #91, CL1 #109, CL2 #110, H4 #107, G1 #133, CL4 #140
