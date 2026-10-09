@@ -24,10 +24,9 @@ export interface EndpointDef {
 
 type Schema = StandardSchemaV1 | undefined;
 
-const freeze = (def: EndpointDef): EndpointDef => {
-  Object.freeze(def.errors);
-  return Object.freeze(def);
-};
+// Copy before freezing: the constructor is public, so a caller's def and errors array stay mutable
+const freeze = (def: EndpointDef): EndpointDef =>
+  Object.freeze({ ...def, errors: Object.freeze([...def.errors]) });
 
 /** Immutable builder: every method returns a new Endpoint and leaves `this` untouched. */
 export class Endpoint<

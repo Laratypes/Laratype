@@ -86,6 +86,18 @@ describe('endpoint builder', () => {
     }).toThrow(TypeError)
   })
 
+  it('does not freeze a def passed to the constructor', () => {
+    const errors: ErrorDef[] = [notFound]
+    const def = { method: 'get' as const, path: '/', status: 200, errors }
+    const e = new Endpoint(def)
+
+    expect(Object.isFrozen(def)).toBe(false)
+    expect(Object.isFrozen(errors)).toBe(false)
+    expect(Object.isFrozen(e.def.errors)).toBe(true)
+    errors.push(forbidden)
+    expect(e.def.errors).toEqual([notFound])
+  })
+
   it('keeps __types phantom (no runtime property)', () => {
     const e = endpoint.get('/users/:user')
 
