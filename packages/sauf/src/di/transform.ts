@@ -74,6 +74,24 @@ const langOf = (id: string): 'ts' | 'tsx' | 'js' | 'jsx' => {
   return ext.endsWith('ts') ? 'ts' : 'js';
 };
 
+/** Names of all identifiers in the tree starting with `prefix` (strings and comments don't count). */
+const identifiersWithPrefix = (root: AstNode, prefix: string): Set<string> => {
+  const names = new Set<string>();
+  const visit = (node: AstNode) => {
+    if (node.type === 'Identifier' && node.name.startsWith(prefix)) names.add(node.name);
+    for (const key of visitorKeys[node.type] ?? []) {
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) if (c && typeof c.type === 'string') visit(c);
+      } else if (child && typeof child.type === 'string') {
+        visit(child);
+      }
+    }
+  };
+  visit(root);
+  return names;
+};
+
 export function transformDi(code: string, id: string, options: DiTransformOptions = {}): DiTransformResult | null {
   // Fast pre-check: only classes with an own constructor emit anything.
   if (!code.includes('constructor')) return null;
@@ -84,6 +102,13 @@ export function transformDi(code: string, id: string, options: DiTransformOption
   const { program, errors } = parseSync(cleanId(id), code, { sourceType: 'module', lang: langOf(id) });
   // Let SWC report syntax errors with its own diagnostics.
   if (errors.length) return null;
+
+  // Local name of the helper: aliased if the file already has an identifier `__laratype_deps` (e.g. declares its own).
+  let helper = DI_HELPER;
+  if (code.includes(DI_HELPER)) {
+    const taken = identifiersWithPrefix(program, DI_HELPER);
+    for (let n = 1; taken.has(helper); n++) helper = `${DI_HELPER}_${n}`;
+  }
 
   const s = new MagicString(code);
   const scopes: Scope[] = [];
@@ -385,19 +410,19 @@ export function transformDi(code: string, id: string, options: DiTransformOption
         s.appendLeft(classKeywordEnd(cls), ` ${name}`);
       }
       // After the class, so it runs after SWC's `X = _ts_decorate([...], X)` and registers the final binding.
-      s.appendLeft(cls.end, `\n${DI_HELPER}(${name}, ${args});`);
+      s.appendLeft(cls.end, `\n${helper}(${name}, ${args});`);
       return;
     }
     const name = cls.id ? undefined : inferredName(cls);
     if (name === undefined) {
       // Named class expression or no name inference: a plain wrap keeps `.name` as it was.
-      s.prependRight(cls.start, `${DI_HELPER}(`);
+      s.prependRight(cls.start, `${helper}(`);
       s.appendLeft(cls.end, `, ${args})`);
       return;
     }
     // `X = class {}`, `{ X: class {} }`... keep name inference by evaluating the class as a keyed property.
     const key = JSON.stringify(name);
-    s.prependRight(cls.start, `${DI_HELPER}({ ${key}: `);
+    s.prependRight(cls.start, `${helper}({ ${key}: `);
     s.appendLeft(cls.end, ` }[${key}], ${args})`);
   };
 
@@ -486,7 +511,7 @@ export function transformDi(code: string, id: string, options: DiTransformOption
 
   // Before the first non-directive statement: keeps a hashbang, directives and leading pragma comments in place.
   const first = program.body.find((stmt: AstNode) => !stmt.directive);
-  s.prependLeft(first?.start ?? 0, `import { ${DI_HELPER} } from ${JSON.stringify(helperId)};\n`);
+  s.prependLeft(first?.start ?? 0, `import { ${helper === DI_HELPER ? helper : `${DI_HELPER} as ${helper}`} } from ${JSON.stringify(helperId)};\n`);
 
   return {
     code: s.toString(),

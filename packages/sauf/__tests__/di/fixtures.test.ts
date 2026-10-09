@@ -21,6 +21,7 @@ const passing = [
   'nullable',
   'var-hoisting',
   'non-ascii',
+  'name-collision',
 ];
 
 const LINK_ERROR = /SyntaxError: The requested module '\.\/types\.js' does not provide an export named 'Mailer'/;

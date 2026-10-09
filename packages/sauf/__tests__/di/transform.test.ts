@@ -295,6 +295,20 @@ describe('transformDi', () => {
       expect(out.match(/import \{ __laratype_deps \}/g)).toHaveLength(1);
     });
 
+    it('aliases the helper when the file already uses its name, and never emits internal names like `bind`', () => {
+      const plain = run('function bind() {}\nclass Dep {}\nclass A { constructor(d: Dep) {} }')!;
+      expect(plain).toContain(HEADER);
+      expect(plain).toContain('\n__laratype_deps(A, [() => Dep], { params: ["d"] });');
+      expect(plain.match(/\bbind\b/g)).toHaveLength(1);
+
+      const out = run('const __laratype_deps = 1, __laratype_deps_1 = 2;\nclass Dep {}\nclass A { constructor(d: Dep) {} }')!;
+      expect(out).toContain('import { __laratype_deps as __laratype_deps_2 } from "virtual:laratype/di";\n');
+      expect(out).toContain('\n__laratype_deps_2(A, [() => Dep], { params: ["d"] });');
+
+      // Mentions in strings and comments are not identifiers: no alias.
+      expect(run('// __laratype_deps\nlog("__laratype_deps");\nclass A { constructor() {} }')).toContain(HEADER);
+    });
+
     it('handles named and anonymous export default classes (decorated too)', () => {
       expect(calls('class Dep {}\nexport default class Named { constructor(d: Dep) {} }'))
         .toEqual(['Named: [() => Dep], { params: ["d"] }']);
