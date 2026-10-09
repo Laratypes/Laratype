@@ -1,7 +1,7 @@
 name: 'CI'
 on:
+  # Any base branch, so stacked PRs (based on another PR's branch) are checked too
   pull_request:
-    branches: [ "master" ]
   push:
     branches: [ "master" ]
 
