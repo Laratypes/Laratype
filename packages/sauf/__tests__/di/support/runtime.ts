@@ -1,6 +1,9 @@
 /**
- * Test-only copy of the S3 spike runtime (#86): the shape `virtual:laratype/di` is expected to export.
- * The real container is D2 (#97) / D3 (#98); this exists so fixtures can execute the transform output.
+ * Test stub for `virtual:laratype/di`, shaped like D2 (#97): the registry is a hidden, configurable own
+ * property under `Symbol.for('laratype.di.deps')`, `__laratype_deps(Cls, slots, meta?)` returns `Cls`, and
+ * lookup uses the own entry first, walking to the parent only when there is none.
+ * The container is a minimal stand-in for D2/D3 so fixtures can resolve graphs; swap this module for
+ * `@laratype/core`'s DI runtime once it lands (only `runtimeSource` in `pipeline.ts` points here).
  */
 type Ctor = abstract new (...args: any[]) => any;
 type Token = Ctor | symbol | string;
@@ -18,15 +21,19 @@ export interface DepsMeta {
 
 export interface DepsEntry {
   slots: Slot[];
-  meta: DepsMeta;
+  meta?: DepsMeta;
 }
 
-const registry = new WeakMap<Function, DepsEntry>();
+export const DEPS_KEY = Symbol.for('laratype.di.deps');
+
 const injectOverrides = new WeakMap<Function, Map<number, Token>>();
 
+const ownEntry = (cls: Function): DepsEntry | undefined =>
+  Object.prototype.hasOwnProperty.call(cls, DEPS_KEY) ? (cls as any)[DEPS_KEY] : undefined;
+
 /** Emitted by the transform after each class with an own constructor. Returns the class (for wrapped expressions). */
-export function __laratype_deps<T extends Function>(cls: T, slots: Slot[], meta: DepsMeta): T {
-  registry.set(cls, { slots, meta });
+export function __laratype_deps<T extends Function>(cls: T, slots: Slot[], meta?: DepsMeta): T {
+  Object.defineProperty(cls, DEPS_KEY, { value: { slots, meta }, configurable: true, enumerable: false, writable: false });
   return cls;
 }
 
@@ -36,14 +43,14 @@ export function __laratype_deps<T extends Function>(cls: T, slots: Slot[], meta:
  */
 export function getDeps(cls: Function): { owner: Function; entry: DepsEntry } | undefined {
   for (let c: any = cls; typeof c === 'function' && c !== Function.prototype; c = Object.getPrototypeOf(c)) {
-    const entry = registry.get(c);
+    const entry = ownEntry(c);
     if (entry) return { owner: c, entry };
   }
   return undefined;
 }
 
 export function hasOwnDeps(cls: Function): boolean {
-  return registry.has(cls);
+  return ownEntry(cls) !== undefined;
 }
 
 /** `@Inject(token)`: kept as a runtime record only to detect disagreement with the transform. */
@@ -95,9 +102,9 @@ export class Container {
     const { owner, entry } = found;
     const overrides = injectOverrides.get(owner);
     return entry.slots.map((slot, index) => {
-      const param = `${cls.name || '<anonymous class>'} constructor param #${index} \`${entry.meta.params[index] ?? '?'}\``;
+      const param = `${cls.name || '<anonymous class>'} constructor param #${index} \`${entry.meta?.params[index] ?? '?'}\``;
       const override = overrides?.get(index);
-      const optional = entry.meta.optional?.includes(index) ?? false;
+      const optional = entry.meta?.optional?.includes(index) ?? false;
 
       if (typeof slot !== 'function') {
         // Unresolved marker: legal only if a decorator the transform did not recognise supplied a token.

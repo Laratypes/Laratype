@@ -1,49 +1,47 @@
+import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { runFixture } from './support/pipeline';
+import { fixturesDir, runFixture, transformFixture } from './support/pipeline';
 
-// S3 fixtures (#86, PR #183) executed end to end: transform -> SWC -> Node ESM. Each `main.ts` asserts at runtime.
-const passing = [
-  'param-properties',
-  'inject-token',
-  'unresolved',
-  'generics',
-  'defaults',
-  'export-default',
-  'class-expression',
-  'inheritance',
-  'circular',
-  'class-decorator',
-  'nested-shadowing',
-  'inject-conflict',
-  'metadata-import-type',
-  // Added for the items carried from S3.
-  'named-evaluation',
-  'nullable',
-  'var-hoisting',
-  'non-ascii',
-  'name-collision',
-];
+/**
+ * One directory per edge case (S3 #86 fixtures + T1 #101 additions). Each `main.ts` asserts at runtime.
+ * - Snapshots: the DI transform output of every fixture file, in `__snapshots__/<case>/<file>`.
+ * - Runtime: transform -> SWC (warmup.ts options) -> Node ESM, against the D2-shaped stub in `support/runtime.ts`.
+ */
+const cases = readdirSync(fixturesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
 
 const LINK_ERROR = /SyntaxError: The requested module '\.\/types\.js' does not provide an export named 'Mailer'/;
 
-describe('DI transform fixtures (Node ESM)', () => {
-  it.each(passing)('%s', (dir) => {
+/** An interface imported without `type` (TS1484 under verbatimModuleSyntax, see #87) fails to link under Node ESM. */
+const expectedFailures: Record<string, RegExp> = {
+  'interface-value-import': LINK_ERROR,
+  'metadata-keeps-import': LINK_ERROR,
+};
+
+describe('DI transform output snapshots', () => {
+  it.each(cases)('%s', async (dir) => {
+    for (const [file, code] of Object.entries(transformFixture(dir))) {
+      await expect(code ?? '// not transformed\n').toMatchFileSnapshot(`__snapshots__/${dir}/${file}`);
+    }
+  });
+});
+
+describe('DI transform runtime (Node ESM)', () => {
+  it.each(cases.filter((dir) => !(dir in expectedFailures)))('%s', (dir) => {
     const r = runFixture(dir);
     expect(r.stderr).toBe('');
     expect(r.status).toBe(0);
+  });
+
+  it.each(Object.entries(expectedFailures))('%s fails to link', (dir, error) => {
+    const r = runFixture(dir);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(error);
   });
 
   it('metadata-keeps-import passes with decoratorMetadata off', () => {
     const r = runFixture('metadata-keeps-import', { decoratorMetadata: false });
     expect(r.stderr).toBe('');
     expect(r.status).toBe(0);
-  });
-
-  // Expected failures: an interface imported without `type` (TS1484 under verbatimModuleSyntax, see #87).
-  it.each(['interface-value-import', 'metadata-keeps-import'])('%s fails with an ESM link error', (dir) => {
-    const r = runFixture(dir);
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).toMatch(LINK_ERROR);
   });
 
   it('places __laratype_deps after SWC reassigns the decorated class', () => {

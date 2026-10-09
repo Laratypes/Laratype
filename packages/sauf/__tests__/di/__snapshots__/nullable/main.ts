@@ -1,3 +1,4 @@
+import { __laratype_deps } from "virtual:laratype/di";
 import { Container, getDeps, assertEqual } from 'virtual:laratype/di';
 
 class Clock {}
@@ -5,6 +6,7 @@ class Clock {}
 export class Report {
   constructor(public clock: Clock | undefined, public fallback: Clock | null, public label: string | undefined) {}
 }
+__laratype_deps(Report, [() => Clock, () => Clock, { unresolved: "string", index: 2 }], { params: ["clock","fallback","label"], optional: [0,1,2] });
 
 const entry = getDeps(Report)!.entry;
 assertEqual(JSON.stringify(entry.meta?.optional), '[0,1,2]', '`T | undefined` / `T | null` are optional');

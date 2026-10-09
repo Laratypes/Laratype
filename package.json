@@ -22,7 +22,8 @@
     "build": "bun bun.build.js",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "iv": "node ./scripts/incrementalVersion.js",
-    "test": "vitest"
+    "test": "vitest",
+    "test:di": "vitest run packages/sauf/__tests__/di"
   },
   "dependencies": {
     "@hono/node-server": "^1.4.1",

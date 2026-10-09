@@ -1,0 +1,2 @@
+# Fixture sources and transform snapshots are compared byte for byte: keep LF on every checkout.
+* text eol=lf
