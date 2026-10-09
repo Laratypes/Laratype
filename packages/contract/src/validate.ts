@@ -1,6 +1,9 @@
 import type { InferOut, StandardIssue, StandardResult, StandardSchemaV1 } from "./standard-schema";
 
-/** dot path -> messages, e.g. { "items.0.name": ["Required"] }; issues without a path go under "". */
+/**
+ * dot path -> messages, e.g. { "items.0.name": ["Required"] }; issues without a path go under "".
+ * Null prototype: there is no `hasOwnProperty`, use `Object.hasOwn(bag, key)` or `key in bag`.
+ */
 export type ErrorBag = Record<string, string[]>;
 
 export type ValidationResult<O> =
@@ -27,7 +30,7 @@ const toResult = <O>(result: StandardResult<unknown>): ValidationResult<O> =>
  * Invalid input resolves to `{ ok: false, errors }`; it never rejects for it.
  *
  * @example
- * // `import * as z` tree-shakes (~16 KiB gzip vs ~47 KiB for `import { z }`); FE bundles can use "zod/v4-mini" (~8.3 KiB)
+ * // zod 4: `import * as z` tree-shakes (~16 KiB gzip vs ~47 KiB for `import { z }`, S2 #85); FE bundles can use "zod/v4-mini" (~8.3 KiB)
  * import * as z from "zod";
  * // zod 4: plain z.coerce.number() has input type `unknown`
  * const Query = z.object({ page: z.coerce.number<number>() });
@@ -39,8 +42,9 @@ export const validate = async <S extends StandardSchemaV1>(schema: S, value: unk
 /** Same as `validate` without the Promise; throws a TypeError when the schema is async. */
 export const validateSync = <S extends StandardSchemaV1>(schema: S, value: unknown): ValidationResult<InferOut<S>> => {
   const result = schema["~standard"].validate(value);
-  if (result instanceof Promise) {
+  // any thenable, not just this realm's Promise
+  if (typeof (result as PromiseLike<unknown>).then === "function") {
     throw new TypeError(`validateSync: the ${schema["~standard"].vendor} schema is async, use validate() instead`);
   }
-  return toResult(result);
+  return toResult(result as StandardResult<unknown>);
 };

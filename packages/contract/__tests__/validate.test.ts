@@ -121,3 +121,17 @@ describe('toErrorBag', () => {
     expect(toErrorBag([])).toEqual({})
   })
 })
+
+describe('validateSync', () => {
+  it('throws on a thenable that is not a native Promise', () => {
+    const schema: StandardSchemaV1<number> = {
+      '~standard': {
+        version: 1,
+        vendor: 'custom',
+        validate: () => ({ then: () => {} }) as unknown as Promise<{ value: number }>,
+      },
+    }
+
+    expect(() => validateSync(schema, 1)).toThrow(/custom schema is async/)
+  })
+})
