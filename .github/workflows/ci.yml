@@ -1,0 +1,27 @@
+name: 'CI'
+on:
+  # Any base branch, so stacked PRs (based on another PR's branch) are checked too
+  pull_request:
+  push:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs bun and runs `bun install`
+      - name: Setup bun
+        uses: ./.github/setup-bun
+
+      - name: Build
+        run: bun run build && bun run build:type
+
+      # Only the v1 packages for now; full suite tracked in #184 (H16)
+      - name: Smoke test v1 packages
+        run: bunx vitest run packages/contract packages/core packages/client

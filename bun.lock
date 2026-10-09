@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "laratype",
@@ -44,7 +45,7 @@
     },
     "packages/auth": {
       "name": "@laratype/auth",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/http": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -58,18 +59,39 @@
     },
     "packages/broadcast": {
       "name": "@laratype/broadcast",
-      "version": "0.5.1",
+      "version": "0.5.4",
+    },
+    "packages/client": {
+      "name": "@laratype/client",
+      "version": "0.5.4",
     },
     "packages/console": {
       "name": "@laratype/console",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "consola": "^3.4.2",
       },
     },
+    "packages/contract": {
+      "name": "@laratype/contract",
+      "version": "0.5.4",
+      "devDependencies": {
+        "zod": "catalog:",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.4",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
+    "packages/core": {
+      "name": "@laratype/core",
+      "version": "0.5.4",
+    },
     "packages/database": {
       "name": "@laratype/database",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/log": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -84,7 +106,7 @@
     },
     "packages/http": {
       "name": "@laratype/http",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/support": "workspace:*",
         "@laratype/validation": "workspace:*",
@@ -97,11 +119,11 @@
     },
     "packages/i18n": {
       "name": "@laratype/i18n",
-      "version": "0.5.1",
+      "version": "0.5.4",
     },
     "packages/laratype": {
       "name": "laratype",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/console": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -112,7 +134,7 @@
     },
     "packages/log": {
       "name": "@laratype/log",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/support": "workspace:*",
         "winston": "^3.17.0",
@@ -120,11 +142,11 @@
     },
     "packages/mail": {
       "name": "@laratype/mail",
-      "version": "0.5.1",
+      "version": "0.5.4",
     },
     "packages/sauf": {
       "name": "sauf",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "bin": "dist/index.esm.js",
       "dependencies": {
         "@laratype/console": "workspace:*",
@@ -153,15 +175,15 @@
     },
     "packages/schedule": {
       "name": "@laratype/schedule",
-      "version": "0.5.1",
+      "version": "0.5.4",
     },
     "packages/storage": {
       "name": "@laratype/storage",
-      "version": "0.5.1",
+      "version": "0.5.4",
     },
     "packages/support": {
       "name": "@laratype/support",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/console": "workspace:*",
       },
@@ -182,11 +204,11 @@
     },
     "packages/ts-gen": {
       "name": "@laratype/ts-gen",
-      "version": "0.5.1",
+      "version": "0.5.4",
     },
     "packages/validation": {
       "name": "@laratype/validation",
-      "version": "0.5.1",
+      "version": "0.5.4",
       "dependencies": {
         "@laratype/support": "workspace:*",
       },
@@ -198,7 +220,7 @@
   "catalog": {
     "hono": "^4.6.18",
     "vite": "^7.1.9",
-    "zod": "^3.23.8",
+    "zod": "^3.25",
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.27.1", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.27.1", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg=="],
@@ -287,7 +309,13 @@
 
     "@laratype/broadcast": ["@laratype/broadcast@workspace:packages/broadcast"],
 
+    "@laratype/client": ["@laratype/client@workspace:packages/client"],
+
     "@laratype/console": ["@laratype/console@workspace:packages/console"],
+
+    "@laratype/contract": ["@laratype/contract@workspace:packages/contract"],
+
+    "@laratype/core": ["@laratype/core@workspace:packages/core"],
 
     "@laratype/database": ["@laratype/database@workspace:packages/database"],
 
