@@ -2,13 +2,13 @@
 area: typegen
 packages: ["sauf", "@laratype/ts-gen"]
 issues: [85, 133, 142, 143, 144]
-verified-against: Laratype@d70daa7
+verified-against: Laratype@d70daa7 (+ 256a743 and v0.5.4 @ 053be38 for the 0.5 state)
 last-verified: 2026-10-09
 ---
 
 # Typegen, skeleton
 
-> **Skeleton.** Every section is planned and no v1 typegen code exists. `packages/ts-gen` on master is the 0.5 oxc AST approach. oxc has no type checker, so that approach cannot infer handler return types, and v1 replaces it. Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DECISIONS-S1-S2.md §S2](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s2-85-decision). The prototype generator is `spikes/v1/s2-api/scripts/gen.mjs` on PR #197 @ 4c558fd.
+> **Skeleton.** Every section is planned and no v1 typegen code exists. On master (`256a743`) and on `v0.5.4`, `packages/ts-gen` contains only `package.json`, so there is no 0.5 generator to port. [#133](https://github.com/Laratypes/Laratype/issues/133) records why the earlier oxc AST approach was dropped: oxc has no type checker, so it cannot infer handler return types. Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DECISIONS-S1-S2.md §S2](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s2-85-decision). The prototype generator is `spikes/v1/s2-api/scripts/gen.mjs` on PR #197 @ 4c558fd.
 
 | Section | Status |
 |---|---|
@@ -75,7 +75,10 @@ planned → [#144](https://github.com/Laratypes/Laratype/issues/144) (G4, M3).
 
 ### Design (non-binding)
 - **Data:** the Detective devtools UI consumes `openapi.json` and the route registry, so controller, middleware and schemas are visible.
-- **Manifest fix:** `BuildRoute.normalize()` uses `constructor.name` of an array, so the controller shows as `null` in `.laratype/app-manifest.json`. G4 fixes this.
+- **Manifest fix:** #144 reports that `BuildRoute.normalize()` uses `constructor.name` of an array, so the controller shows as `null` in `.laratype/app-manifest.json`, and G4 fixes this. Neither `BuildRoute`, that manifest nor the Detective UI is in this repo on master (`256a743`) or on `v0.5.4`.
+
+### Open questions
+- Where the Detective source and `BuildRoute` live → [#144](https://github.com/Laratypes/Laratype/issues/144)
 
 ### Acceptance
 [#144 Done when](https://github.com/Laratypes/Laratype/issues/144)
