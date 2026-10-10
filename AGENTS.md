@@ -22,9 +22,8 @@ Bun workspace monorepo (`packages/*`, `examples/*`). npm has 0.5.4; v1 is in pro
 
 v1:
 - `packages/contract` (`@laratype/contract`): endpoint builder, path params, error definitions, Standard Schema types. Shared by the server and the FE.
-- `packages/core` (`@laratype/core`): v1 DI container (D-series). Scaffold only on master; the container is proposed: PR #196.
+- `packages/core` (`@laratype/core`): v1 DI container (D-series), scaffold only so far.
 - `packages/client` (`@laratype/client`): typed FE client (CL-series), scaffold only so far.
-- `packages/sauf/src/di` (proposed: PR #194): compile-time constructor-DI transform (T-series, oxc-parser + magic-string).
 
 0.5, maintained and being migrated: `laratype` (app entry, kernel), `sauf` (CLI: `sauf dev` with Vite SSR, `sauf build`), `http`, `support` (ServiceProvider, helpers), `validation`, `auth`, `database`, `console`, `log`, `mail`, `i18n`, `storage`, `schedule`, `broadcast`, `ts-gen`. `examples/basic` is the example app.
 
@@ -33,7 +32,7 @@ Design spikes live on spike branches only (draft PRs #183 and #197); the S1/S2 d
 Boundaries:
 - `@laratype/contract` stays browser-pure: no `node:*` imports, no Node globals, no runtime dependencies. Schema libraries (zod, valibot) are devDependencies only. `packages/contract/__tests__/typecheck.test.ts` compiles `src` with the DOM lib and no Node types.
 - Contracts depend on the Standard Schema v1 types, never on one schema library.
-- The FE imports contracts only (`app/contracts`, `defineApi`, proposed: PR #204), never `typeof routes` or any server module.
+- The FE imports contracts only (`app/contracts`), never `typeof routes` or any server module.
 - `@laratype/*` resolves to `packages/*/src` (`tsconfig.app.json` paths, `scripts/alias` for vitest).
 
 ## Commands
@@ -47,17 +46,15 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Contract tests | `bunx vitest run packages/contract` |
 | CI smoke set | `bunx vitest run packages/contract packages/core packages/client` |
 | Full suite | `bun run test --run`. `packages/http/__tests__/Request.test.ts` already fails on `master` (`ControllerMock.prototype.__invoke is not a function`); leave it alone unless that is your task. |
-| Dist check | `bun run build && bun run check:dist` (B13, proposed: PR #193) |
-| DI transform tests | `CI=true bun run test:di` (T3, proposed: PR #199). `CI=true` makes a missing snapshot fail instead of being written. |
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations and the smoke set on every PR, whatever its base, and on push to `master`.
 
 ## Code rules
 
-- Type-only imports use `import type`. `verbatimModuleSyntax` is not on yet; enforcing it repo-wide is B11, proposed: PR #203.
+- Type-only imports use `import type`.
 - TypeScript >= 5.4: public types use `NoInfer`, and the contract package declares an optional `typescript >=5.4` peer.
 - Keep SWC `legacyDecorator: true` and `decoratorMetadata: true` (`packages/sauf/src/bin/warmup.ts`) and `emitDecoratorMetadata` in `tsconfig.app.json` until S5 #88 decides otherwise. TypeORM entities rely on them.
-- v1 DI is constructor injection with no mandatory decorators; the sauf transform (proposed: PR #194) generates the dependency metadata.
+- v1 DI is constructor injection with no mandatory decorators; a sauf build transform generates the dependency metadata.
 - Match the surrounding code: naming, quotes, comment density. New public API gets runtime tests and type tests.
 - Don't bump package versions; release PRs do that.
 
@@ -84,7 +81,7 @@ Rebasing a pushed branch means a force-push, which needs the user (see the top).
 
 ### Line endings on Windows
 
-The repo has no `.gitattributes` yet (#189). With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and the sauf DI snapshot tests (T3, proposed: PR #199) fail with whitespace-only diffs. Fix it locally by deleting the files and checking them out again with `git -c core.autocrlf=false checkout HEAD -- <paths>`. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
+The repo has no `.gitattributes`. With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and snapshot tests fail with whitespace-only diffs. Fix it locally by deleting the files and checking them out again with `git -c core.autocrlf=false checkout HEAD -- <paths>`. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
 
 ### Automated review
 
