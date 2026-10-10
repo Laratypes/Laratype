@@ -1,7 +1,7 @@
 ---
 area: di
 packages: ["@laratype/core", "sauf", "@laratype/support", "laratype"]
-issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 158]
+issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158]
 verified-against: Laratype@d70daa7 (+ PR #196 @ 5d51b16, PR #201 @ 1bddcff, PR #202 @ 18c01f5, PR #194 @ 5460e6d, PR #199 @ 8a8e9c7)
 last-verified: 2026-10-09
 ---
@@ -36,6 +36,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
 | [Bun build plugin](#bun-build-plugin) | planned → #116 |
 | [Method injection](#method-injection) | planned → #158 |
+| [Modules](#modules) | planned → #153 |
 
 Area rules (S3 [#86](https://github.com/Laratypes/Laratype/issues/86), [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md)):
 - App code must use `import type` for type-only imports (`verbatimModuleSyntax`). An interface imported as a value fails in different ways: a Node ESM link error, `vite build` "is not exported", or a resolve-time `DiError` in `sauf dev`. The repo-wide migration (B11 [#185](https://github.com/Laratypes/Laratype/issues/185)) is proposed: PR #203 @ 16080c9.
@@ -374,7 +375,7 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 [`examples/di/proposed/provider.ts`](./examples/di/proposed/provider.ts) (checked against PR #202 @ 18c01f5).
 
 ### Non-goals
-- No `defineModule` (K2 [#153](https://github.com/Laratypes/Laratype/issues/153)).
+- No `defineModule`. Modules are K2 [#153](https://github.com/Laratypes/Laratype/issues/153), see [Modules](#modules).
 - No deferred providers.
 
 ### Open questions
@@ -501,3 +502,21 @@ The transform also emits deps for handler params after `ctx` (`async store(ctx, 
 
 ### Acceptance
 [#158 Done when](https://github.com/Laratypes/Laratype/issues/158)
+
+---
+
+## Modules
+
+### Status
+planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). Depends on D4 #99.
+
+### Design (non-binding)
+- **Optional:** NestJS-style modules for large apps split by domain. An app made of plain providers keeps working.
+- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists route groups ([http.md › Router v2](./http.md#router-v2)) and `imports` lists other modules.
+- **Layout:** modules sit in the optional `app/modules/` ([overview.md › Project structure](./overview.md#project-structure)).
+
+### Open questions
+- How a module is registered with the kernel → [#153](https://github.com/Laratypes/Laratype/issues/153)
+
+### Acceptance
+[#153 Done when](https://github.com/Laratypes/Laratype/issues/153)

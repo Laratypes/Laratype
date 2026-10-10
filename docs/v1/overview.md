@@ -1,8 +1,8 @@
 ---
 area: overview
 packages: ["@laratype/contract", "@laratype/core", "@laratype/client", "@laratype/http", "@laratype/validation", "@laratype/database", "@laratype/auth", "sauf"]
-issues: [83, 84, 85, 86, 87, 88]
-verified-against: Laratype@d70daa7
+issues: [83, 84, 85, 86, 87, 88, 125]
+verified-against: Laratype@d70daa7 (+ 256a743 for Project structure)
 last-verified: 2026-10-09
 ---
 
@@ -10,21 +10,25 @@ last-verified: 2026-10-09
 
 The v1 redesign keeps Laravel's ergonomics (route files, FormRequest, Resources, Policies, facades, `sauf make:*`) and adds NestJS structure (a DI container, an explicit request pipeline) with types carried end to end. Tracking: [#83](https://github.com/Laratypes/Laratype/issues/83).
 
-This file holds what every area shares: principles, the package graph, cross-cutting rules and the decision log. Each area's API is specified in its own file (table below). How to read a spec (Status values, section skeleton, examples) is in [README.md](./README.md).
+This file holds what every area shares: principles, the package graph, the project structure, cross-cutting rules and the decision log. Each area's API is specified in its own file (table below). How to read a spec (Status values, section skeleton, examples) is in [README.md](./README.md).
 
 ## Areas
 
 | Area | Spec | Packages | Issues |
 |---|---|---|---|
 | Contract | [contract.md](./contract.md) | `@laratype/contract` | C1–C6 (#89–#94) |
-| DI | [di.md](./di.md) | `@laratype/core`, `sauf` (transform), `@laratype/support` (ServiceProvider) | D1–D8 (#96–#100, #112–#115), T1–T5 (#101–#103, #116, #158) |
+| DI | [di.md](./di.md) | `@laratype/core`, `sauf` (transform), `@laratype/support` (ServiceProvider) | D1–D8 (#96–#100, #112–#115), T1–T5 (#101–#103, #116, #158), K2 (#153) |
+| Config | [config.md](./config.md) | `@laratype/core` | K1 (#152) |
 | Client | [client.md](./client.md) | `@laratype/client` | CL1–CL6 (#109, #110, #124, #140, #141, #159) |
 | Validation | [validation.md](./validation.md) | `@laratype/validation` | H3 (#106), H10 (#137) |
-| HTTP | [http.md](./http.md) | `@laratype/http` | H1–H16 |
+| HTTP | [http.md](./http.md) | `@laratype/http` | H1–H16, X3 (#157) |
 | Build | [build.md](./build.md) | `sauf` | B1–B16 |
+| CLI | [cli.md](./cli.md) | `sauf` | E2 (#134), command list |
 | Auth | [auth.md](./auth.md) (skeleton) | `@laratype/auth` | A1–A4 (#119–#121, #151) |
 | Typegen | [typegen.md](./typegen.md) (skeleton) | `sauf`, typegen | G1–G4 (#133, #142–#144) |
-| Database | after S5 (#88) | `@laratype/database` | DB1–DB6 (#145–#150) |
+| Database | [database.md](./database.md) (placeholder until S5 #88) | `@laratype/database` | DB1–DB6 (#145–#150) |
+| Services | [services.md](./services.md) | `@laratype/core` (Manager), `console`, `log`, `cache`, `storage`, `queue`, `mail`, `i18n`, `schedule`, `broadcast` | F1–F2 (#160, #161), EV1 (#165), CA1 (#166), I1 (#167), ST1 (#168), Q1–Q2 (#169, #175), ML1 (#170), SC1 (#171), PR1 (#176), BR1–BR2 (#177, #178) |
+| View | [view.md](./view.md) | `sauf`, `@laratype/contract` | VW1–VW3 (#174, #181, #182) |
 
 ## Principles
 
@@ -56,12 +60,49 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | planned → #133, #143 | contract |
 | `laratype` | Kernel / `Serve` | 0.5; container boot proposed: PR #202 @ 18c01f5 | core, support |
 
-Other 0.5 packages (`console`, `log`, `mail`, `i18n`, `schedule`, `broadcast`, `storage`) are ported or built in M3/M4. See the issues listed on #83.
+The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `storage` are ported or built in M3/M4, together with the new `cache` and `queue` packages. They are specified in [services.md](./services.md). On master, `mail`, `i18n`, `schedule`, `broadcast` and `storage` contain only `package.json`.
 
 ### Invariants
 - `@laratype/contract` compiles with `lib: [ES2022, DOM]` and `types: []`. This is enforced by `packages/contract/__tests__/typecheck.test.ts` ("src is browser-safe").
 - `@laratype/client` imports only `@laratype/contract`. The FE bundle budget is under 5 kB gzip for the runtime of `@laratype/client` + `@laratype/contract`, excluding the user-chosen schema library (B8 [#132](https://github.com/Laratypes/Laratype/issues/132)).
 - `@laratype/core` has no dependency on HTTP. The Hono app enters the container as a binding (`HTTP_APP`, see [di.md](./di.md#serviceprovider-v2-and-kernel-boot)).
+
+## Project structure
+
+### Status
+planned → [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest discovery). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
+
+### Design (non-binding)
+```
+app/
+  contracts/        the only folder the FE imports (index.ts holds defineApi)
+  http/
+    controllers/
+    middleware/
+    requests/
+    resources/
+  models/
+  policies/
+  providers/
+  modules/          optional (K2, di.md › Modules)
+  routes/
+    api.ts
+    console.ts
+  config/*.ts       (K1, config.md)
+database/
+  migrations/
+  factories/
+  seeders/
+```
+- **Discovery:** the `laratype:manifest` virtual module (B1) imports providers, configs, routes, commands, models, migrations and seeders statically. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
+- **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
+- **Paths named by other issues** but not placed in this tree yet: `lang/{locale}/*.ts` ([services.md › Localization](./services.md#localization)), `routes/channels.ts` ([services.md › Broadcasting server](./services.md#broadcasting-server)) and `public/` ([view.md › Serving a Vite SPA](./view.md#serving-a-vite-spa)).
+
+### Open questions
+- Where `lang/`, `routes/channels.ts` and `public/` sit → [#167](https://github.com/Laratypes/Laratype/issues/167), [#177](https://github.com/Laratypes/Laratype/issues/177), [#174](https://github.com/Laratypes/Laratype/issues/174)
+
+### Acceptance
+[#125 Done when](https://github.com/Laratypes/Laratype/issues/125)
 
 ## Cross-cutting rules
 
