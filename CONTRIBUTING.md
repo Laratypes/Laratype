@@ -48,8 +48,6 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Contract tests | `bunx vitest run packages/contract` |
 | CI smoke set | `bunx vitest run packages/contract packages/core packages/client` |
 | Full suite | `bun run test --run`. `packages/http/__tests__/Request.test.ts` already fails on `master` (`ControllerMock.prototype.__invoke is not a function`); leave it alone unless that is your task. |
-| Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
-| DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
 
 If you change `docs/v1`, also run `bunx vitest run docs/v1/examples`. It type-checks the spec examples.
 
@@ -84,7 +82,7 @@ After the parent PR merges:
 
 ## Line endings on Windows
 
-The repo has no `.gitattributes` yet ([#189](https://github.com/Laratypes/Laratype/issues/189)). With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and the sauf DI snapshot tests fail with whitespace-only diffs.
+The repo has no `.gitattributes`. With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and snapshot tests fail with whitespace-only diffs.
 
 - To fix a working copy, delete the affected files and check them out again: `git -c core.autocrlf=false checkout HEAD -- <paths>`.
 - Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
