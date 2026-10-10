@@ -21,6 +21,7 @@
   "scripts": {
     "build": "bun bun.build.js",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
+    "check:dist": "node scripts/check-dist.mjs",
     "iv": "node ./scripts/incrementalVersion.js",
     "test": "vitest"
   },

@@ -2,7 +2,7 @@
   "name": "sauf",
   "version": "0.5.4",
   "private": false,
-  "main": "index.js",
+  "main": "./dist/index.cjs",
   "bin": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -19,7 +19,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
-      "require": "./dist/index.js"
+      "require": "./dist/index.cjs"
     },
     "./*": "./*"
   },

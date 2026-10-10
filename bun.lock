@@ -137,8 +137,6 @@
       "version": "0.5.4",
       "dependencies": {
         "@laratype/support": "workspace:*",
-      },
-      "devDependencies": {
         "winston": "^3.17.0",
       },
     },

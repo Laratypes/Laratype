@@ -13,14 +13,14 @@
     "url": "git+https://github.com/Laratypes/Laratype.git",
     "directory": "packages/laratype"
   },
-  "main": "dist/index.js",
+  "main": "./dist/index.cjs",
   "types": "dist/index.d.ts",
   "exports": {
     "./package.json": "./package.json",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
-      "require": "./dist/index.js"
+      "require": "./dist/index.cjs"
     },
     "./*": "./*"
   },
