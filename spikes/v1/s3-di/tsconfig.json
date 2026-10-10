@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "virtual:laratype/di": ["./src/runtime.ts"]
+    }
+  },
+  "include": ["src", "fixtures"]
+}
