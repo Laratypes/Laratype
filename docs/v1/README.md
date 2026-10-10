@@ -6,6 +6,8 @@ Internal API spec for Laratype v1, written for contributors and AI agents. User 
 
 One file per area (`contract.md`, `di.md`, ...). The v1 issues link to the sections that describe their API. Tracking: #83.
 
+Start at [overview.md](./overview.md). It covers the principles, the package graph and the decision log shared by every area, and its table links each area's file.
+
 ## File format
 
 Each file starts with frontmatter:
