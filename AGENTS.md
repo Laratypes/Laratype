@@ -54,7 +54,7 @@ CI (`.github/workflows/ci.yml`) runs the build, the declarations and the smoke s
 - Type-only imports use `import type`.
 - TypeScript >= 5.4: public types use `NoInfer`, and the contract package declares an optional `typescript >=5.4` peer.
 - Keep SWC `legacyDecorator: true` and `decoratorMetadata: true` (`packages/sauf/src/bin/warmup.ts`) and `emitDecoratorMetadata` in `tsconfig.app.json` until S5 #88 decides otherwise. TypeORM entities rely on them.
-- v1 DI is constructor injection with no mandatory decorators; a sauf build transform generates the dependency metadata.
+- v1 DI is constructor injection with no mandatory decorators (design: `docs/v1/di.md`).
 - Match the surrounding code: naming, quotes, comment density. New public API gets runtime tests and type tests.
 - Don't bump package versions; release PRs do that.
 
