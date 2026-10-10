@@ -18,12 +18,12 @@ This file holds what every area shares: principles, the package graph, cross-cut
 |---|---|---|---|
 | Contract | [contract.md](./contract.md) | `@laratype/contract` | C1–C6 (#89–#94) |
 | DI | [di.md](./di.md) | `@laratype/core`, `sauf` (transform), `@laratype/support` (ServiceProvider) | D1–D8 (#96–#100, #112–#115), T1–T5 (#101–#103, #116, #158) |
-| Client | client.md (DOC3 #208) | `@laratype/client` | CL1–CL6 (#109, #110, #124, #140, #141, #159) |
-| Validation | validation.md (DOC3 #208) | `@laratype/validation` | H3 (#106), H10 (#137) |
-| HTTP | http.md (DOC3 #208) | `@laratype/http` | H1–H16 |
-| Build | build.md (DOC3 #208) | `sauf` | B1–B16 |
-| Auth | auth.md (DOC3 #208, skeleton) | `@laratype/auth` | A1–A4 (#119–#121, #151) |
-| Typegen | typegen.md (DOC3 #208, skeleton) | `sauf`, typegen | G1–G4 (#133, #142–#144) |
+| Client | [client.md](./client.md) | `@laratype/client` | CL1–CL6 (#109, #110, #124, #140, #141, #159) |
+| Validation | [validation.md](./validation.md) | `@laratype/validation` | H3 (#106), H10 (#137) |
+| HTTP | [http.md](./http.md) | `@laratype/http` | H1–H16 |
+| Build | [build.md](./build.md) | `sauf` | B1–B16 |
+| Auth | [auth.md](./auth.md) (skeleton) | `@laratype/auth` | A1–A4 (#119–#121, #151) |
+| Typegen | [typegen.md](./typegen.md) (skeleton) | `sauf`, typegen | G1–G4 (#133, #142–#144) |
 | Database | after S5 (#88) | `@laratype/database` | DB1–DB6 (#145–#150) |
 
 ## Principles
