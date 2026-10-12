@@ -70,11 +70,12 @@ planned → [#106](https://github.com/Laratypes/Laratype/issues/106) (H3). The s
 planned → [#137](https://github.com/Laratypes/Laratype/issues/137) (H10, M3).
 
 ### Design (non-binding)
-- **Base class (#137):** `FormRequest<typeof users.store>`, with `authorize()` and `messages()`. Message keys are inferred from the schema.
+- **Base class (#137):** `FormRequest<typeof users.store>`, with `messages()`. Message keys are inferred from the schema.
+- **No `authorize()`:** a 403 only comes from the `authorize` capability and its policy ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
 - **Async rules:** for example a unique email, run as async refinements.
 - **i18n:** messages through `@laratype/i18n` ([#167](https://github.com/Laratypes/Laratype/issues/167)).
-- **Rules:** the rules default to the contract's body schema. FormRequest only **adds** authorization, messages and async rules, and never redefines the schema.
-- **Pipeline position:** after route guards and policies, and before validation (see [http.md › Request pipeline](./http.md#request-pipeline)).
+- **Rules:** the rules default to the contract's body schema. FormRequest only **adds** messages and async rules, and never redefines the schema.
+- **Pipeline position:** it runs with validation, after the policies (see [http.md › Request pipeline](./http.md#request-pipeline)).
 
 ### Acceptance
 [#137 Done when](https://github.com/Laratypes/Laratype/issues/137)

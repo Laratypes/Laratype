@@ -1,7 +1,7 @@
 ---
 area: auth
 packages: ["@laratype/auth"]
-issues: [119, 120, 121, 122, 151, 179, 180]
+issues: [119, 120, 121, 122, 151, 179, 180, 228]
 verified-against: Laratype@d70daa7
 last-verified: 2026-10-09
 ---
@@ -13,7 +13,7 @@ last-verified: 2026-10-09
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | planned → #119 |
-| [auth() middleware](#auth-middleware) | planned → #120 |
+| [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
 | [Guards in the container](#guards-in-the-container) | planned → #151 |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
@@ -31,6 +31,7 @@ planned → [#119](https://github.com/Laratypes/Laratype/issues/119) (A1, M2).
   declare module '@laratype/auth' { interface Register { user: User; guards: { /* ... */ } } }
   ```
 - **Effect:** `Auth.user()` is then typed `User | null`, which removes the 0.5 `Auth.user<User>()` casts.
+- **Guard names:** `guards` is the registry that types `auth: '<guard>'` in contracts ([Authentication from the contract](#authentication-from-the-contract)).
 - **Facade:** `Auth` becomes a container facade ([#115](https://github.com/Laratypes/Laratype/issues/115)).
 
 ### Acceptance
@@ -38,15 +39,18 @@ planned → [#119](https://github.com/Laratypes/Laratype/issues/119) (A1, M2).
 
 ---
 
-## auth() middleware
+## Authentication from the contract
 
 ### Status
-planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2). Built on typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
+planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), with the contract types in [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b).
 
 ### Design (non-binding)
-- **Context:** `auth('api')` adds `{ user }` to the handler context, typed from the selected guard.
+- **Declared in the contract:** `auth: true | '<guard>'` on a scope, a contract or an endpoint. `true` uses the default guard. The nearest level wins, and `.public()` opts an endpoint out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
+- **Applied by the framework:** the guard runs from the contract. API routes don't use `.middleware(auth())`.
+- **Guard names** are typed from the app's guard registry ([Typed Register](#typed-register), [#119](https://github.com/Laratypes/Laratype/issues/119)).
+- **Context:** `ctx.user` is typed per guard ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)).
 - **Unauthenticated:** a 401 (`errors.unauthorized`).
-- **Route proof:** a handler that requires `user` on a route without `auth()` is a compile error at `r.contract()` ([http.md › Route proof](./http.md#route-proof-at-rcontract)).
+- **Other 403s from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws` ([contract.md › Domain errors](./contract.md#domain-errors)).
 
 ### Acceptance
 [#120 Done when](https://github.com/Laratypes/Laratype/issues/120)
@@ -56,12 +60,16 @@ planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2). B
 ## Policies and gates
 
 ### Status
-planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3, M2). Route integration: [#122](https://github.com/Laratypes/Laratype/issues/122) (H8, [http.md › Policies on routes](./http.md#policies-on-routes-can)).
+planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8).
 
 ### Design (non-binding)
 Abilities are `keyof Policy`, and `Gate.allows` and `user.can()` are typed. An unknown ability is a type error. This replaces the 0.5 string abilities.
 
-A policy is linked to its model explicitly, with `Gate.policy(Model, Policy)` in a service provider, as in Laravel's `Gate::policy` ([#121](https://github.com/Laratypes/Laratype/issues/121), [#122](https://github.com/Laratypes/Laratype/issues/122)).
+Two mechanisms stay side by side:
+- **`{ policy }`** on `r.scope()` and `r.contract()` drives the `authorize` capability and its compile check ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
+- **`Gate.policy(Model, Policy)`** in a service provider links a policy to its model for imperative checks, such as `user.can('update', post)` in a service, as in Laravel's `Gate::policy` ([#121](https://github.com/Laratypes/Laratype/issues/121)).
+
+A scope policy can define `before(user, params)` for the check shared by every endpoint under the scope.
 
 ### Acceptance
 [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)

@@ -280,7 +280,7 @@ planned → [#177](https://github.com/Laratypes/Laratype/issues/177) (BR1, M4, `
 ### Design (non-binding)
 - **Events:** `ShouldBroadcast` events ([Events and listeners](#events-and-listeners)) with `broadcastOn()` and a typed payload, queued through the [Queue](#queue).
 - **Channels:** public, private and presence. Channels are declared in `app/routes/channels.ts`, and params are inferred from channel names (`orders.:id`), as in the contract's path params ([contract.md › Path params](./contract.md#path-params)).
-- **Auth:** a `/broadcasting/auth` endpoint that uses `auth()` ([auth.md › auth() middleware](./auth.md#auth-middleware)).
+- **Auth:** a `/broadcasting/auth` endpoint that applies the auth guard ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract)).
 - **Drivers:** the Pusher protocol (Pusher, Soketi), redis pub/sub, a built-in WebSocket server (`@hono/node-ws` / Bun), log and null. Built on the [Manager](#driver-manager).
 
 ### Open questions

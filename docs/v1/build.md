@@ -100,6 +100,7 @@ planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plu
 laratype:manifest  →  laratype:di  →  swc (decorators for the ORM)  →  alias (tsconfig paths)
 ```
 - **`laratype:manifest` (B1):** a virtual module `virtual:laratype/app` with static imports of providers, configs, routes, commands, models, migrations and seeders. It replaces runtime path discovery, which prevents bundling. Done when dev boots from the manifest.
+- **Contract tree:** in dev the server scans the [contract folder tree](./contract.md#contract-folder-tree) at startup and rescans on change. The production build writes the tree into the manifest, so production does no scanning ([#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **`laratype:di` (T2):**
   - runs `transformDi` with `enforce: 'pre'`, before `RollupPluginSwc`;
   - resolves `virtual:laratype/di` to `@laratype/core` and chains source maps;
@@ -150,7 +151,8 @@ planned → [#131](https://github.com/Laratypes/Laratype/issues/131) (B7, `@lara
 ### Design (non-binding)
 - Vitest uses esbuild by default, so it would skip the DI transform and decorator metadata.
 - `defineLaratypeConfig()` therefore reuses the [plugin chain](#plugin-chain).
-- `createTestApp()` boots from the manifest and provides `app.swap()` and a typed `request()`. That `request()` is typed by `AppApi`; `AppRouter` is retired.
+- `createTestApp()` boots from the manifest and provides `app.swap()` and a typed `request()`. That `request()` is typed by `AppApi`, the type of the generated `appApi`; `AppRouter` is retired.
+- Tests fail when an endpoint throws an error it doesn't declare, and `sauf test` reports declared errors no test triggers ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 - Done when the `examples/basic` tests run through the preset.
 
 ### Acceptance

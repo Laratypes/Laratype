@@ -26,9 +26,12 @@ planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1, M2). T
 
 ### Design (non-binding)
 - **Purpose:** support FEs outside the monorepo (S2 option c). Done when a separate FE project compiles using only the generated files.
+- **Folder tree (E13, [#133](https://github.com/Laratypes/Laratype/issues/133)):** it also scans the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, never file contents, and writes:
+  - a per-folder `$types.d.ts` under `.laratype/types/...` with `Prefix`, overlaid through tsconfig `rootDirs`;
+  - `index.gen.ts` with the aggregated `appApi`.
 - **Canonical output (S2; #133 updated):** one generated `api.ts` that holds:
   - a flattened `AppApi` type alias, the shape of `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection));
-  - a slim runtime manifest with method, path and declared error codes.
+  - a slim runtime manifest with method, path and the error codes derived for each endpoint ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 
   The file contains no contract lib and no zod. The generator uses **only the TS checker** and never executes contract modules. The spike prints types with `typeToString(NoTruncation)`.
 - **Generated types:** they may be `interface` declarations, because the client's `ApiShape<A>` self-constraint accepts them.
@@ -47,7 +50,8 @@ planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1, M2). T
 planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, M3).
 
 ### Design (non-binding)
-`sauf dev` watches `app/contracts/**` and writes incremental output to `.laratype/types/`, so a monorepo FE sees new types without a restart.
+- **Watch:** `sauf dev` watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and regenerates `$types.d.ts` and `index.gen.ts` incrementally under `.laratype/types/`, so a monorepo FE sees new types without a restart.
+- **Server:** in dev the server rescans the tree on the same events.
 
 ### Acceptance
 [#142 Done when](https://github.com/Laratypes/Laratype/issues/142)
@@ -62,6 +66,7 @@ planned → [#143](https://github.com/Laratypes/Laratype/issues/143) (G3, M3).
 ### Design (non-binding)
 - **Generation:** `openapi.json` comes from the route registry (H1 [#104](https://github.com/Laratypes/Laratype/issues/104)), with each schema converted to JSON Schema. Done when it passes `redocly lint`.
 - **Exclusions:** ad-hoc routes without a contract are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
+- **Errors and security:** each operation's error responses are the endpoint's derived errors, and `auth` maps to the operation's security requirement ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 
 ### Acceptance
 [#143 Done when](https://github.com/Laratypes/Laratype/issues/143)

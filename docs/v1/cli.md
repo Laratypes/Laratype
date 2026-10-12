@@ -39,7 +39,8 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 |---|---|---|---|
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
-| `sauf types:generate` | Writes `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf types:generate` | Writes `$types.d.ts` and `index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry | planned → #104 | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | planned → #134 | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
@@ -69,9 +70,9 @@ planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the build manifest (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
-- **Type watch:** it watches `app/contracts/**` and writes incremental types to `.laratype/types/` ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
+- **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` and `index.gen.ts` under `.laratype/types/` ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
 - **Options:** `-p, --port`, `-H, --host` and `--hmr` carry over from 0.5. HMR stays opt-in through `--hmr` ([#126](https://github.com/Laratypes/Laratype/issues/126)).
-- **`--strict-contract`:** warns or fails when a thrown error or a response does not match the contract ([http.md › Strict contract mode](./http.md#strict-contract-mode)).
+- **Undeclared errors:** an error thrown but not declared on the running endpoint is reported loudly, with the stack. The check is always on, so there is no `--strict-contract` flag ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 
 ### Open questions
 - Resolved: `--port`, `--host` and `--hmr` carry over ([#126](https://github.com/Laratypes/Laratype/issues/126)).
@@ -110,7 +111,7 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). Depends on H2 #105, H9 #123. Templates live under `packages/sauf/src/commands/make`.
 
 ### Design (non-binding)
-- **New:** `make:contract`.
+- **New:** `make:contract`. It writes a contract file into the [folder tree](./contract.md#contract-folder-tree) under the API root, with the `import type { Prefix } from './$types'` line.
 - **Scope of E2:** `make:contract`, `make:controller`, `make:request` and `make:resource`.
 - **0.5 generators ported with their area:** `make:middleware` with H6 [#117](https://github.com/Laratypes/Laratype/issues/117), `make:policy` and `make:gate` with A3 [#121](https://github.com/Laratypes/Laratype/issues/121), `make:command` with F2 [#161](https://github.com/Laratypes/Laratype/issues/161), `make:model` with DB1 [#145](https://github.com/Laratypes/Laratype/issues/145), `make:factory` and `make:seeder` with DB5 [#149](https://github.com/Laratypes/Laratype/issues/149).
 - **Service generators, with Laravel names:** `make:event` and `make:listener` with EV1 [#165](https://github.com/Laratypes/Laratype/issues/165), `make:job` with Q1 [#169](https://github.com/Laratypes/Laratype/issues/169), `make:mail` with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170).

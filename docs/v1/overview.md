@@ -34,10 +34,10 @@ This file holds what every area shares: principles, the package graph, the proje
 
 Status: decided ([#83](https://github.com/Laratypes/Laratype/issues/83) "Key decisions"; S1/S2 in [DECISIONS-S1-S2.md](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md) on #197; S3 in [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md) on #183).
 
-1. **Contract first. Schemas are runtime values.** An endpoint is a runtime object that holds [Standard Schema](https://standardschema.dev) schemas (zod 3.25+, valibot, arktype). The same object drives runtime validation, handler types, the FE client, OpenAPI and Detective (G4 [#144](https://github.com/Laratypes/Laratype/issues/144)). Types are inferred from schemas, never from decorators.
+1. **Contract first. Schemas are runtime values.** An endpoint is a runtime object that holds [Standard Schema](https://standardschema.dev) schemas (zod 3.25+, valibot, arktype). The same object drives runtime validation, handler types, the FE client, OpenAPI and Detective (G4 [#144](https://github.com/Laratypes/Laratype/issues/144)). Types are inferred from schemas, never from decorators. The contract also declares capabilities (`auth`, `authorize`, `throttle`, `throws`), and the framework derives its errors from them ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 2. **Decorators are for DI and the ORM only, never for API types.** TS decorators cannot change types. Routes, validation and responses are declared in contracts. Decorators are used for `@Inject(token)`, for `@Injectable({ scope })` when the default scope is wrong, and for ORM entities.
 3. **Constructor DI without mandatory decorators.** A build transform (oxc, before SWC) emits dependency thunks for every class with an own constructor. Concrete classes autowire, while interfaces and primitives need a token.
-4. **The FE never imports server code.** The FE imports only `app/contracts/index.ts` (`defineApi(...)`), never `typeof routes` (S2). `@laratype/contract` and `@laratype/client` are browser-safe.
+4. **The FE never imports server code.** The FE imports only contracts: the generated `appApi` (`index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree), never `typeof routes` (S2). `@laratype/contract` and `@laratype/client` are browser-safe.
 5. **The controller declares, the route proves.** Handlers are class methods annotated with `Ctx<typeof endpoint, Requires>`. The route (middleware + `.bind()`) proves those requirements at `r.contract()` with a conditional-type check (S1, option A).
 6. **One build pipeline.** `sauf dev`, `sauf build` and tests share one plugin chain: manifest → di → swc → alias.
 7. **Clean break.** v1 is a redesign with breaking changes. Migration from 0.5 is tracked in K3 [#154](https://github.com/Laratypes/Laratype/issues/154).
@@ -48,7 +48,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 
 | Package | Role in v1 | Status | Depends on (v1) |
 |---|---|---|---|
-| `@laratype/contract` | `endpoint`, path params, error catalog, Standard Schema types | merged @ d70daa7 (C1/C2/C4); C3 proposed: PR #205 @ 8791758; C5 proposed: PR #204 @ ded1bfc | none (browser-safe, no `node:*`) |
+| `@laratype/contract` | `endpoint`, path params, error catalog, Standard Schema types; capabilities and derived errors (planned → #228) | merged @ d70daa7 (C1/C2/C4); C3 proposed: PR #205 @ 8791758; C5 proposed: PR #204 @ ded1bfc | none (browser-safe, no `node:*`) |
 | `@laratype/core` | DI container, tokens, deps registry | scaffold merged @ d70daa7; D1 proposed: PR #196 @ 5d51b16; D2 proposed: PR #201 @ 1bddcff | none |
 | `@laratype/client` | `createClient(appApi)` | scaffold merged @ d70daa7 (`PACKAGE_NAME` only); API planned → #109 | `@laratype/contract` only |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 proposed: PR #202 @ 18c01f5 | `@laratype/core` |
@@ -75,7 +75,12 @@ planned → [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manife
 ### Design (non-binding)
 ```
 app/
-  contracts/        the only folder the FE imports (index.ts holds defineApi)
+  api/              contract folder tree, the only folder the FE imports (contract.md › Contract folder tree)
+    users.ts        /api/users
+    users/
+      [user]/
+        _scope.ts   folder scope
+        posts.ts    /api/users/:user/posts
   http/
     controllers/
     middleware/
@@ -100,6 +105,7 @@ public/             static files (view.md › Serving a Vite SPA)
 resources/
   js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
+- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder and `index.gen.ts` (`appApi`) under `.laratype/types/` ([typegen.md](./typegen.md#sauf-typesgenerate)).
 - **Discovery:** the `laratype:manifest` virtual module (B1) imports providers, configs, routes, commands, models, migrations and seeders statically. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
 
@@ -118,7 +124,7 @@ resources/
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
 | Zod 4 coerce in contracts: `z.coerce.number<number>()` | Plain `z.coerce.number()` has input type `unknown`, so client query types become `unknown` | S2 finding for C3 |
-| The FE type is `AppApi = typeof appApi` (from `defineApi`). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` on PR #204 |
+| The FE type is `AppApi = typeof appApi`, from the generated `index.gen.ts` (planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` on PR #204 |
 
 ## Decision log
 
@@ -129,6 +135,8 @@ resources/
 | S3 | Constructor DI metadata transform | **GO**, with 3 conditions: `verbatimModuleSyntax`, keep `decoratorMetadata`, keep runtime diagnostics. Output: `__laratype_deps(Cls, [slots], { params, optional })`. Cost: about 0.3 ms warm for 43 files. | [#86](https://github.com/Laratypes/Laratype/issues/86) (closed), [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md) |
 | S4 | Package scaffold | `contract`, `core` and `client` exist and build (ESM/CJS + d.ts). The zod catalog is `^3.25`. | [#87](https://github.com/Laratypes/Laratype/issues/87) (closed), merged in 037b6d5 |
 | S5 | ORM for v1 (Kysely vs keep TypeORM) | **Two steps.** First a minimal `BindableModel` interface (find by key, primary-key metadata) that either ORM can satisfy; it unblocks H7 (#118) and model serialization in queued jobs (#169). Then an ADR compares Kysely and TypeORM, and the ORM follows the ADR. The ORM choice still blocks H14 (#163) and DB1–DB6. | [#88](https://github.com/Laratypes/Laratype/issues/88) |
+
+| E | Errors from contract capabilities (E3–E13) | **The contract declares capabilities** (`auth`, `authorize`, `throttle`, `throws`) and the framework derives 401/403/404/422/429 from them. Domain errors use `defineError(status, code, body?)`, are thrown at any depth and are declared with `throws`. Contracts live in a folder tree (`app/api/users/[user]/posts.ts` → `/api/users/:user/posts`), with `_scope.ts` folder scopes. Server wiring: `Route.api(appApi, ...)`, `r.scope()`, `r.contract(c, Ctrl, { policy, endpoints })`. `.errors()`, `fail()` and `ErrorReply` are superseded. | [#230](https://github.com/Laratypes/Laratype/issues/230) (spec), [#228](https://github.com/Laratypes/Laratype/issues/228) (contract package). Server: [#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#108](https://github.com/Laratypes/Laratype/issues/108), [#120](https://github.com/Laratypes/Laratype/issues/120), [#121](https://github.com/Laratypes/Laratype/issues/121), [#157](https://github.com/Laratypes/Laratype/issues/157), [#229](https://github.com/Laratypes/Laratype/issues/229) |
 
 Later rulings (recorded here because they settle conflicting wording in older sources):
 

@@ -28,12 +28,13 @@ Each section uses these headings, in this order:
    - `merged @ <sha>`
    - `proposed: PR #N @ <head sha>`
    - `planned → #N`. A planned section contains no invented signatures. It may carry a short **Design (non-binding)** note; never cite the plan.
+   - A merged or proposed API that a planned design replaces adds `superseded by planned → #N` to its Status (for example `available; superseded by planned → #228`). Its section stays until the replacing code lands.
 2. **Public API**: TypeScript signatures, permalinked to the SHA in Status.
 3. **Invariants**
 4. **Diagnostics**: the exact runtime error and TypeScript error strings.
 5. **Example**
 6. **Non-goals**
-7. **Open questions**: issue links only. The spec never answers them itself.
+7. **Open questions**: issue links only. The spec never answers them itself. Once an issue records a decision, the bullet becomes `Resolved: <decision> ([#N](…))` and the decision moves into the section's Invariants or Design note.
 8. **Acceptance**: a link to the issue's Done-when, never a copy of it.
 
 ## Examples
