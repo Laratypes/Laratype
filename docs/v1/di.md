@@ -2,32 +2,26 @@
 area: di
 packages: ["@laratype/core", "sauf", "@laratype/support", "laratype"]
 issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158]
-verified-against: Laratype@d70daa7 (+ PR #196 @ 5d51b16, PR #201 @ 1bddcff, PR #202 @ 18c01f5, PR #194 @ 5460e6d, PR #199 @ 8a8e9c7)
-last-verified: 2026-10-09
+verified-against: Laratype@d9e8df2
+last-verified: 2026-10-12
 ---
 
 # Dependency injection
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master `@laratype/core` is still the S4 scaffold (`PACKAGE_NAME` only, merged @ d70daa7). Everything else below is in open PRs, stacked like this:
-
-```
-PR #196 D1 container ─┬─ PR #201 D2 deps registry
-                      └─ PR #202 D4 ServiceProvider v2 + kernel boot
-PR #194 T1 transform ─── PR #199 T3 snapshot + runtime tests
-```
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
 | Section | Status |
 |---|---|
-| [Tokens](#tokens) | proposed: PR #196 @ 5d51b16 |
-| [Container](#container) | proposed: PR #196 @ 5d51b16 |
-| [Dependency metadata](#dependency-metadata) | proposed: PR #196 @ 5d51b16 |
-| [Deps registry](#deps-registry) | proposed: PR #201 @ 1bddcff |
-| [DI transform](#di-transform) | proposed: PR #194 @ 5460e6d; tests proposed: PR #199 @ 8a8e9c7 |
-| [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | proposed: PR #202 @ 18c01f5 |
+| [Tokens](#tokens) | merged @ cfa85c3 |
+| [Container](#container) | merged @ cfa85c3 |
+| [Dependency metadata](#dependency-metadata) | merged @ cfa85c3 |
+| [Deps registry](#deps-registry) | merged @ 36ba917 |
+| [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag planned → #101 |
+| [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | planned → #98 |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | planned → #100 |
@@ -39,7 +33,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Modules](#modules) | planned → #153 |
 
 Area rules (S3 [#86](https://github.com/Laratypes/Laratype/issues/86), [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md)):
-- App code must use `import type` for type-only imports (`verbatimModuleSyntax`). An interface imported as a value fails in different ways: a Node ESM link error, `vite build` "is not exported", or a resolve-time `DiError` in `sauf dev`. The repo-wide migration (B11 [#185](https://github.com/Laratypes/Laratype/issues/185)) is proposed: PR #203 @ 16080c9.
+- App code must use `import type` for type-only imports (`verbatimModuleSyntax`). An interface imported as a value fails in different ways: a Node ESM link error, `vite build` "is not exported", or a resolve-time `DiError` in `sauf dev`. The repo-wide migration (B11 [#185](https://github.com/Laratypes/Laratype/issues/185)) is merged @ f66eafd.
 - SWC `decoratorMetadata` stays `true` while TypeORM is in use (S5 [#88](https://github.com/Laratypes/Laratype/issues/88)).
 - Runtime diagnostics are kept, because in `sauf dev` they are the only signal.
 
@@ -48,10 +42,10 @@ Area rules (S3 [#86](https://github.com/Laratypes/Laratype/issues/86), [FINDINGS
 ## Tokens
 
 ### Status
-proposed: PR #196 @ 5d51b16 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
+merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
 
 ### Public API
-[`token.ts` @ 5d51b16](https://github.com/Laratypes/Laratype/blob/5d51b16f6dbec82d14b4940ad21bd95c9982b87f/packages/core/src/token.ts#L1-L18)
+[`token.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/token.ts#L1-L18)
 
 ```ts
 export class InjectionToken<T = unknown> {
@@ -70,7 +64,7 @@ export function token<T>(name: string): InjectionToken<T>;
 - Type-only (`container.types.test.ts`): tokens are typed apart (`const n: string = c.make(PORT)` fails when `PORT` is `InjectionToken<number>`).
 
 ### Example
-[`examples/di/proposed/container.ts`](./examples/di/proposed/container.ts) (checked against PR #201 @ 1bddcff, which includes D1).
+[`examples/di/container.ts`](./examples/di/container.ts).
 
 ### Non-goals
 - No string or symbol keys. Use a token.
@@ -86,10 +80,10 @@ export function token<T>(name: string): InjectionToken<T>;
 ## Container
 
 ### Status
-proposed: PR #196 @ 5d51b16 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
+merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
 
 ### Public API
-[`container.ts` @ 5d51b16](https://github.com/Laratypes/Laratype/blob/5d51b16f6dbec82d14b4940ad21bd95c9982b87f/packages/core/src/container.ts#L1-L180)
+[`container.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/container.ts#L1-L180)
 
 ```ts
 export type Newable<T = unknown> = new (...args: any[]) => T;
@@ -145,7 +139,7 @@ The `` `<name>` `` part appears only when `meta.params` has a name. Fix hints ar
 Type-only (`container.types.test.ts`): binding an unrelated class, a factory with the wrong return type, `instance()` with the wrong value type, self-binding an abstract class or a token.
 
 ### Example
-[`examples/di/proposed/container.ts`](./examples/di/proposed/container.ts)
+[`examples/di/container.ts`](./examples/di/container.ts)
 
 ### Non-goals
 - No decorators in D1 (see [#98](https://github.com/Laratypes/Laratype/issues/98)).
@@ -165,10 +159,10 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ## Dependency metadata
 
 ### Status
-proposed: PR #196 @ 5d51b16 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
+merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
 
 ### Public API
-[`deps.ts` @ 5d51b16](https://github.com/Laratypes/Laratype/blob/5d51b16f6dbec82d14b4940ad21bd95c9982b87f/packages/core/src/deps.ts#L1-L36)
+[`deps.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/deps.ts#L1-L36)
 
 ```ts
 export interface UnresolvedSlot { unresolved: string; index: number }
@@ -189,7 +183,7 @@ export const noDeps: DepsLookup;                          // default: no metadat
 See [Container](#container): unresolved slots and thunks that return `undefined`.
 
 ### Example
-[`examples/di/proposed/container.ts`](./examples/di/proposed/container.ts)
+[`examples/di/container.ts`](./examples/di/container.ts)
 
 ### Non-goals
 - No metadata for methods (see [#158](https://github.com/Laratypes/Laratype/issues/158)).
@@ -205,10 +199,10 @@ See [Container](#container): unresolved slots and thunks that return `undefined`
 ## Deps registry
 
 ### Status
-proposed: PR #201 @ 1bddcff (D2 [#97](https://github.com/Laratypes/Laratype/issues/97); stacked on PR #196).
+merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)).
 
 ### Public API
-[`registry.ts` @ 1bddcff](https://github.com/Laratypes/Laratype/blob/1bddcffd0e0e67e494baad59e58d75a65b4bc55c/packages/core/src/registry.ts#L1-L64)
+[`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64)
 
 ```ts
 export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[], meta?: DepsMeta): T;  // returns cls unchanged
@@ -235,7 +229,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
 None of its own. Resolution errors come from the [Container](#container).
 
 ### Example
-[`examples/di/proposed/container.ts`](./examples/di/proposed/container.ts) calls `__laratype_deps` by hand to show what the transform emits.
+[`examples/di/container.ts`](./examples/di/container.ts) calls `__laratype_deps` by hand to show what the transform emits.
 
 ### Non-goals
 - No `@Inject` override records (see [#98](https://github.com/Laratypes/Laratype/issues/98)).
@@ -251,10 +245,10 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-proposed: PR #194 @ 5460e6d (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests proposed: PR #199 @ 8a8e9c7 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103); stacked on PR #194). Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is planned → [#101](https://github.com/Laratypes/Laratype/issues/101), which stays open for it. Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
-[`transform.ts` @ 5460e6d](https://github.com/Laratypes/Laratype/blob/5460e6d5a6bda0c7f81162f9b5b093c595535754/packages/sauf/src/di/transform.ts#L1-L95)
+[`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
 
 ```ts
 export const DI_HELPER = '__laratype_deps';
@@ -295,8 +289,8 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
   | `import type` / `{ type X }`, interface, type alias, type param, local enum, primitive, other union, array, function type, literal, `typeof x`, unbound global (`Date`, `Map`, `Promise`), ambient class, missing annotation | `{ unresolved: "<type text>", index }` (`"unknown"` when there is no annotation) |
 
 - **`optional`** lists the indices of `?` params, params with a default, and nullable unions. A resolvable class type is still injected, so its JS default is ignored. Only an unresolved slot (or a thunk that returns `undefined`) falls back to `undefined`, which lets the default apply. An *imported* enum can't be told apart from a class, so it becomes a thunk. `meta.params` holds the param names (`#<i>` for destructured params).
-- **Placement, class declarations:** the call is a statement placed **after** the class. Under SWC legacy decorators it therefore runs after `X = _ts_decorate(...)` and registers the final binding. An anonymous `export default class {}` gets the binding name `__laratype_default`, so its `.name` changes from `"default"`.
-- **Placement, class expressions:** the expression is wrapped in place, `__laratype_deps(class { ... }, [slots], meta)`. Where NamedEvaluation would name the class, the wrap keeps the name: `const Expr = __laratype_deps({ "Expr": class { ... } }["Expr"], [slots], meta)`. That covers `const X = class {}`, assignments (`=`, `||=`, `&&=`, `??=`), object properties, static fields, defaults, casts and `export default`. A class expression passed as a call argument keeps its empty name, as before. See the T3 snapshot [`__snapshots__/class-expression/main.ts` @ 8a8e9c7](https://github.com/Laratypes/Laratype/blob/8a8e9c71f9b6d3e7677a77ace2b6695560a74619/packages/sauf/__tests__/di/__snapshots__/class-expression/main.ts).
+- **Placement, class declarations:** the call is a statement placed **after** the class. Under SWC legacy decorators it therefore runs after `X = _ts_decorate(...)` and registers the final binding. An anonymous `export default class {}` gets the binding name `__laratype_default`, so its `.name` changes from `"default"`. If the file already has an identifier with that name, the binding is aliased `__laratype_default_1`, `_2`, and so on.
+- **Placement, class expressions:** the expression is wrapped in place, `__laratype_deps(class { ... }, [slots], meta)`. Where NamedEvaluation would name the class, the wrap keeps the name: `const Expr = __laratype_deps({ ["Expr"]: class { ... } }["Expr"], [slots], meta)`. The key is computed, so a name of `__proto__` defines a property instead of setting the prototype. A class written as the value of `{ __proto__: class {} }` keeps the empty name, as in plain JS. That covers `const X = class {}`, assignments (`=`, `||=`, `&&=`, `??=`), object properties, static fields, defaults, casts and `export default`. A class expression passed as a call argument keeps its empty name, as before. See the T3 snapshot [`__snapshots__/class-expression/main.ts` @ d9e8df2](https://github.com/Laratypes/Laratype/blob/d9e8df28cb3ee175c93dcf0894a1a43a9abd4ea3/packages/sauf/__tests__/di/__snapshots__/class-expression/main.ts).
 - **Helper import:** added once, after directives and any hashbang. If the file already has an identifier named `__laratype_deps`, the helper is aliased `__laratype_deps_1`, `_2`, and so on (only identifiers count, not strings or comments).
 - **Scope model:** resolution honours declaration merging, class type params, function and block scopes, hoisted `var`, namespaces, and nested shadowing. A type name whose runtime value is shadowed at a different depth becomes unresolved.
 - **Source maps:** the transform returns a magic-string map (`hires: 'boundary'`) with correct UTF-16 offsets for non-ASCII source. The transform doesn't chain maps itself. The T3 test pipeline (`__tests__/di/support/pipeline.ts`) chains it into SWC via `inputSourceMap`, and the Vite wiring is T2 [#102](https://github.com/Laratypes/Laratype/issues/102).
@@ -306,7 +300,7 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 The transform never throws on user code. Resolve-time failures surface as [Container](#container) `DiError`s.
 
 ### Example
-Output snapshots: `packages/sauf/__tests__/di/` on PR #199 (`bun run test:di`).
+Output snapshots: `packages/sauf/__tests__/di/` (`bun run test:di`).
 
 ### Non-goals
 - No type checker. Decisions are purely syntactic, so inferred or aliased types that need checking are `{ unresolved }`.
@@ -314,7 +308,7 @@ Output snapshots: `packages/sauf/__tests__/di/` on PR #199 (`bun run test:di`).
 - No method params (see [#158](https://github.com/Laratypes/Laratype/issues/158)).
 
 ### Open questions
-- Known review findings on PR #194: `__laratype_default` is not collision-aliased, and the inferred name `__proto__` loses the class name → [#101](https://github.com/Laratypes/Laratype/issues/101).
+- Resolved: `__laratype_default` is collision-aliased, and a `__proto__` name is kept through a computed key (fixed before T1 merged, a74dd31; [#101](https://github.com/Laratypes/Laratype/issues/101)).
 - CI wiring of `bun run test:di` → [#189](https://github.com/Laratypes/Laratype/issues/189).
 
 ### Acceptance
@@ -325,10 +319,10 @@ Output snapshots: `packages/sauf/__tests__/di/` on PR #199 (`bun run test:di`).
 ## ServiceProvider v2 and kernel boot
 
 ### Status
-proposed: PR #202 @ 18c01f5 (D4 [#99](https://github.com/Laratypes/Laratype/issues/99); stacked on PR #196).
+merged @ 468c2ec (D4 [#99](https://github.com/Laratypes/Laratype/issues/99)).
 
 ### Public API
-[`ServiceProvider.ts` @ 18c01f5](https://github.com/Laratypes/Laratype/blob/18c01f5e65b30cb27bdf9d31cfaead69fca5fdcf/packages/support/src/ServiceProvider.ts#L1-L86) · [`serve.ts` @ 18c01f5](https://github.com/Laratypes/Laratype/blob/18c01f5e65b30cb27bdf9d31cfaead69fca5fdcf/packages/laratype/src/serve.ts)
+[`ServiceProvider.ts` @ 468c2ec](https://github.com/Laratypes/Laratype/blob/468c2ec5b2ba51e92d52ebcd25c41128ea39067c/packages/support/src/ServiceProvider.ts#L1-L86) · [`serve.ts` @ 468c2ec](https://github.com/Laratypes/Laratype/blob/468c2ec5b2ba51e92d52ebcd25c41128ea39067c/packages/laratype/src/serve.ts)
 
 ```ts
 // @laratype/support
@@ -366,21 +360,21 @@ export { bootProviders } from "@laratype/support";
 - **Two phases:** `bootProviders` instantiates every provider with the container, awaits `register()` on all of them in order, then awaits `boot()` on all of them in order. It returns the `down()` cleanups in **reverse** order.
 - Providers receive the **container**, not the Hono app. Code that needs the app resolves `HTTP_APP` (`AppServiceProvider.apps` does this in its constructor).
 - `Serve.getContainer()` lazily creates one container per process and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
-- `HTTP_APP` is stored on `globalThis.__laratype_http_app_token`, because every package dist currently inlines its own copy of `@laratype/support`. It becomes a plain module-level `token()` after [#188](https://github.com/Laratypes/Laratype/issues/188) (B13).
+- `HTTP_APP` is stored on `globalThis.__laratype_http_app_token`. The code marks this as temporary: it was needed while every package dist inlined its own copy of `@laratype/support`, which B13 [#188](https://github.com/Laratypes/Laratype/issues/188) fixed.
 - `RouteAppServiceProvider.boot()` still writes `globalThis.__laratype_routes`, which is replaced in [#114](https://github.com/Laratypes/Laratype/issues/114). `AppServiceProvider.bindings` is an unused 0.5 leftover.
 
 ### Diagnostics
 None of its own. Errors thrown in `register()` or `boot()` propagate and abort the boot.
 
 ### Example
-[`examples/di/proposed/provider.ts`](./examples/di/proposed/provider.ts) (checked against PR #202 @ 18c01f5).
+[`examples/di/provider.ts`](./examples/di/provider.ts).
 
 ### Non-goals
 - No `defineModule`. Modules are K2 [#153](https://github.com/Laratypes/Laratype/issues/153), see [Modules](#modules).
 - No deferred providers.
 
 ### Open questions
-- `Serve.getContainer()` creates `new Container()` without `{ deps: depsRegistry }`, so the kernel can only autowire zero-arg classes. After D2 and D4 merge, T2 switches it to `new Container({ deps: depsRegistry })` → [#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635).
+- `Serve.getContainer()` creates `new Container()` without `{ deps: depsRegistry }`, so the kernel can only autowire zero-arg classes. T2 switches it to `new Container({ deps: depsRegistry })` → [#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635).
 
 ### Acceptance
 [#99 Done when](https://github.com/Laratypes/Laratype/issues/99)
@@ -513,7 +507,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Design (non-binding)
 - **Optional:** NestJS-style modules for large apps split by domain. An app made of plain providers keeps working.
-- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists route groups ([http.md › Router v2](./http.md#router-v2)) and `imports` lists other modules.
+- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes keep `Route.prefix(...)` and `group(...)` and `imports` lists other modules.
 - **Layout:** modules sit in the optional `app/modules/` ([overview.md › Project structure](./overview.md#project-structure)).
 
 ### Open questions

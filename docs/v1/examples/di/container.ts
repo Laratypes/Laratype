@@ -1,4 +1,4 @@
-// docs/v1/di.md: Container + token + deps registry. Proposed in PR #196 (D1) and PR #201 (D2); moves up one level on merge.
+// docs/v1/di.md: Container + token + deps registry (D1, D2, merged on master).
 import { expectTypeOf } from 'vitest'
 import { __laratype_deps, Container, DiError, depsRegistry, token } from '@laratype/core'
 
@@ -18,7 +18,7 @@ export class UserService {
   // App code is written like this; with `import type { Mailer }` + `@Inject(MAILER)` once D3 (#98) ships.
   constructor(readonly users: UserRepository, readonly mailer: Mailer) {}
 }
-// What the DI transform (T1 #194, wired by T2 #102) emits after the class. Written by hand here because
+// What the DI transform (T1, wired by T2 #102) emits after the class. Written by hand here because
 // the transform is not part of the example's compile step:
 __laratype_deps(UserService, [() => UserRepository, () => MAILER], { params: ['users', 'mailer'] })
 
