@@ -105,8 +105,18 @@ describe('transformDi', () => {
         export default (class { constructor(d: Dep) {} });
       `)!;
       for (const key of ['X', 'Y', 'Key', 'k-2', '3', 'Inner', '#priv', 'P', 'Casted', 'default']) {
-        expect(out).toContain(`__laratype_deps({ ${JSON.stringify(key)}: class { constructor(d: Dep) {} } }[${JSON.stringify(key)}], [() => Dep]`);
+        expect(out).toContain(`__laratype_deps({ [${JSON.stringify(key)}]: class { constructor(d: Dep) {} } }[${JSON.stringify(key)}], [() => Dep]`);
       }
+    });
+
+    it('names a `__proto__` binding through a computed key, and leaves a `__proto__:` property unnamed', () => {
+      const out = run(`
+        class Dep {}
+        const __proto__ = class { constructor(d: Dep) {} };
+        const o = { __proto__: class { constructor(d: Dep) {} } };
+      `)!;
+      expect(out).toContain('const __proto__ = __laratype_deps({ ["__proto__"]: class { constructor(d: Dep) {} } }["__proto__"], [() => Dep]');
+      expect(out).toContain('const o = { __proto__: __laratype_deps(class { constructor(d: Dep) {} }, [() => Dep]');
     });
 
     it('plain-wraps class expressions without name inference', () => {
@@ -287,6 +297,12 @@ describe('transformDi', () => {
       const out = run('class Dep {}\n@Injectable() /* class */ export default abstract class<T> { constructor(d: Dep) {} }')!;
       expect(out).toContain(`export default abstract class ${DI_DEFAULT_CLASS_NAME}<T> {`);
       expect(out).toContain(`}\n__laratype_deps(${DI_DEFAULT_CLASS_NAME}, [() => Dep], { params: ["d"] });`);
+    });
+
+    it('aliases the anonymous default class name when the file already uses it', () => {
+      const out = run(`class ${DI_DEFAULT_CLASS_NAME} {}\nconst ${DI_DEFAULT_CLASS_NAME}_1 = 1;\nclass Dep {}\nexport default class { constructor(d: Dep) {} }`)!;
+      expect(out).toContain(`export default class ${DI_DEFAULT_CLASS_NAME}_2 {`);
+      expect(out).toContain(`}\n__laratype_deps(${DI_DEFAULT_CLASS_NAME}_2, [() => Dep], { params: ["d"] });`);
     });
 
     it('places the call after a decorated class declaration', () => {

@@ -109,6 +109,12 @@ export function transformDi(code: string, id: string, options: DiTransformOption
     const taken = identifiersWithPrefix(program, DI_HELPER);
     for (let n = 1; taken.has(helper); n++) helper = `${DI_HELPER}_${n}`;
   }
+  // Same for the binding given to an anonymous `export default class {}`.
+  let defaultClassName = DI_DEFAULT_CLASS_NAME;
+  if (code.includes(DI_DEFAULT_CLASS_NAME)) {
+    const taken = identifiersWithPrefix(program, DI_DEFAULT_CLASS_NAME);
+    for (let n = 1; taken.has(defaultClassName); n++) defaultClassName = `${DI_DEFAULT_CLASS_NAME}_${n}`;
+  }
 
   const s = new MagicString(code);
   const scopes: Scope[] = [];
@@ -387,9 +393,12 @@ export function transformDi(code: string, id: string, options: DiTransformOption
           ? parent.left.name : undefined;
       case 'AssignmentPattern':
         return parent.right === child && parent.left.type === 'Identifier' ? parent.left.name : undefined;
-      case 'Property':
-        return parent.value === child && parent.kind === 'init' && !parent.method && !parent.shorthand
-          ? keyName(parent.key, parent.computed) : undefined;
+      case 'Property': {
+        if (parent.value !== child || parent.kind !== 'init' || parent.method || parent.shorthand) return undefined;
+        const key = keyName(parent.key, parent.computed);
+        // `{ __proto__: class {} }` sets the object's prototype: no NamedEvaluation, so the class keeps the name ''.
+        return key === '__proto__' ? undefined : key;
+      }
       case 'PropertyDefinition':
         return parent.value === child ? keyName(parent.key, parent.computed) : undefined;
       case 'ExportDefaultDeclaration':
@@ -406,7 +415,8 @@ export function transformDi(code: string, id: string, options: DiTransformOption
       let name = cls.id?.name;
       if (!name) {
         // Anonymous `export default class {}`: give it a binding so the call can reference it.
-        name = DI_DEFAULT_CLASS_NAME;
+        // Aliased like the helper, so user code that already declares the internal name doesn't collide.
+        name = defaultClassName;
         s.appendLeft(classKeywordEnd(cls), ` ${name}`);
       }
       // After the class, so it runs after SWC's `X = _ts_decorate([...], X)` and registers the final binding.
@@ -421,8 +431,9 @@ export function transformDi(code: string, id: string, options: DiTransformOption
       return;
     }
     // `X = class {}`, `{ X: class {} }`... keep name inference by evaluating the class as a keyed property.
+    // The key is computed, so a name of `__proto__` defines a property instead of setting the prototype.
     const key = JSON.stringify(name);
-    s.prependRight(cls.start, `${helper}({ ${key}: `);
+    s.prependRight(cls.start, `${helper}({ [${key}]: `);
     s.appendLeft(cls.end, ` }[${key}], ${args})`);
   };
 
