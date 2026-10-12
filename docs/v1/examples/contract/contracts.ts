@@ -1,4 +1,4 @@
-// docs/v1/contract.md: defineContract / defineApi / ApiTypes. Proposed in PR #204 (C5); moves up one level on merge.
+// docs/v1/contract.md: defineContract / defineApi / ApiTypes (C5, merged on master).
 import { expectTypeOf } from 'vitest'
 import * as z from 'zod'
 import { apiEndpoint, apiRoutes, defineApi, defineContract, endpoint, errors, routeName } from '@laratype/contract'

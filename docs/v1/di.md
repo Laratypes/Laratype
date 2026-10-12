@@ -119,20 +119,21 @@ export class Container {
 
 ### Invariants
 - **Scopes in D1:** `transient` and `singleton`. `bind()` is transient unless `{ scope: 'singleton' }` is passed. `request` scope is planned → [#112](https://github.com/Laratypes/Laratype/issues/112). Final scope names: `singleton | request | transient`.
-- **Autowire:** `make(Cls)` with no binding builds the class from the deps lookup, so unregistered concrete classes need no registration. Autowired classes are **transient** for now, Laravel-style. Whether the default becomes singleton is decided in [#112](https://github.com/Laratypes/Laratype/issues/112).
+- **Autowire:** `make(Cls)` with no binding builds the class from the deps lookup, so unregistered concrete classes need no registration. Autowired classes are **transient**, Laravel-style ([#112](https://github.com/Laratypes/Laratype/issues/112)). A singleton needs an explicit binding or `@Injectable({ scope })` ([#98](https://github.com/Laratypes/Laratype/issues/98)).
 - **Resolution order:** look up the binding through the parent chain. If none is found and the key is a class, autowire it. Otherwise throw.
 - **Singletons** are built by the container that **owns** the binding, so a child's overrides never leak into a shared instance. The first result is cached. Rebinding replaces both the binding and its cached instance.
 - **Children** (`createChild`) see the parent's bindings, and their own bindings shadow them without touching the parent. Transient parent bindings and autowired classes resolve with the child's overrides.
 - **Self-binding:** `bind(Cls)` / `singleton(Cls)` without a concrete binds the class to itself. Tokens and abstract classes cannot self-bind (type error, plus a runtime `DiError` for tokens).
-- **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count. This may change: [#112](https://github.com/Laratypes/Laratype/issues/112).
+- **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
-- Abstract classes are guarded at the type level only. A runtime guard is an open question in [#112](https://github.com/Laratypes/Laratype/issues/112).
+- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class's own entry only, never an inherited one. Code planned → [#101](https://github.com/Laratypes/Laratype/issues/101) (flag), [#100](https://github.com/Laratypes/Laratype/issues/100) (error).
 
 ### Diagnostics
 `DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`):
 - `No binding for <key>.`
+- `No binding for abstract class <C>.` (planned → [#100](https://github.com/Laratypes/Laratype/issues/100))
 - `Cannot bind <key> to itself: only a class can be self-bound.`
 - `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found.`
 - `Cannot resolve <C> constructor param #<i> \`<name>\`: type \`<TypeText>\` has no runtime value.`
@@ -152,9 +153,8 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 - No eager boot-time validation (see [#113](https://github.com/Laratypes/Laratype/issues/113)).
 
 ### Open questions
-- Default scope for autowired classes, whether `has()` should count autowirable classes, and a runtime abstract-class guard → [#112](https://github.com/Laratypes/Laratype/issues/112) ("Carried from D1").
+- Resolved: autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Interim behaviour:**
-  - The transient default for `bind()` and autowired classes is interim until [#112](https://github.com/Laratypes/Laratype/issues/112) decides.
   - The container does not yet detect `@Inject`-vs-thunk conflicts (S3 condition 3). That arrives with the runtime decorator records ([#98](https://github.com/Laratypes/Laratype/issues/98)) and the fix-hint messages ([#100](https://github.com/Laratypes/Laratype/issues/100)).
 
 ### Acceptance
@@ -281,6 +281,7 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 
 ### Invariants
 - **Which classes:** every class with an **own constructor implementation** emits a call. A class with no own constructor emits nothing, so the runtime walks to the parent. An explicit `constructor() {}` emits `[]`. `constructor(...args) { super(...args) }` (first param is a rest) counts as no own constructor. `declare class` and overload signatures are skipped.
+- **Abstract classes** (planned → [#101](https://github.com/Laratypes/Laratype/issues/101), decided on [#112](https://github.com/Laratypes/Laratype/issues/112)): every `abstract` class also emits an entry, including one with no own constructor (empty params), and the entry flags it as abstract. The flag is never inherited. The container uses it for the runtime guard ([Container](#container)).
 - **Returns `null`** when the file contains no `constructor` (a fast pre-check), when nothing is emitted, or on a syntax error, which SWC then reports.
 - **Slots,** one per param, never skipped (a trailing rest gets none):
 
@@ -445,7 +446,7 @@ planned → [#112](https://github.com/Laratypes/Laratype/issues/112) (D6).
 ### Design (non-binding)
 - Adds the third scope, `request`: a per-request cache in the AsyncLocalStorage store of `packages/support/src/context/ContextApi.ts`, disposed when the request ends.
 - **Scope bubbling:** a controller that depends on a request-scoped provider becomes request-scoped, with a dev warning.
-- Also settles the D1 carry-overs (autowire default scope, `has()`, runtime abstract guard).
+- The D1 carry-overs are settled: autowired classes stay transient, `has()` counts explicit bindings only, and abstract classes get the transform-flag guard ([Container](#container)).
 
 ### Acceptance
 [#112 Done when](https://github.com/Laratypes/Laratype/issues/112)
@@ -517,6 +518,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Open questions
 - How a module is registered with the kernel → [#153](https://github.com/Laratypes/Laratype/issues/153)
+- How a module's contracts fit the `app/api` contract tree and `Route.api` → [#153](https://github.com/Laratypes/Laratype/issues/153)
 
 ### Acceptance
 [#153 Done when](https://github.com/Laratypes/Laratype/issues/153)

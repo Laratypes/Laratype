@@ -100,13 +100,14 @@ planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plu
 laratype:manifest  →  laratype:di  →  swc (decorators for the ORM)  →  alias (tsconfig paths)
 ```
 - **`laratype:manifest` (B1):** a virtual module `virtual:laratype/app` with static imports of providers, configs, routes, commands, models, migrations and seeders. It replaces runtime path discovery, which prevents bundling. Done when dev boots from the manifest.
+- **Contract tree:** in dev the server scans the [contract folder tree](./contract.md#contract-folder-tree) at startup and rescans on change. The production build writes the tree into the manifest, so production does no scanning ([#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **`laratype:di` (T2):**
   - runs `transformDi` with `enforce: 'pre'`, before `RollupPluginSwc`;
   - resolves `virtual:laratype/di` to `@laratype/core` and chains source maps;
   - works with the HMR restart;
   - Done when `sauf dev` on `examples/basic` resolves a controller with constructor DI.
 - **SWC:** keeps `decoratorMetadata: true` while TypeORM is in use ([#88](https://github.com/Laratypes/Laratype/issues/88)).
-- **Alias:** resolved in the bundler, which removes `tsc-alias`.
+- **Alias:** resolved in the bundler, which removes `tsc-alias`. It also resolves `$api` to the generated `.laratype/api/index.gen.ts` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)).
 - **Shared (B2):** one `laratypePlugins()` used by `warmup.ts`, `dev.ts`, `sauf build` and the vitest preset. Done when dev and build produce the same DI metadata snapshot.
 
 ### Acceptance
@@ -150,7 +151,8 @@ planned → [#131](https://github.com/Laratypes/Laratype/issues/131) (B7, `@lara
 ### Design (non-binding)
 - Vitest uses esbuild by default, so it would skip the DI transform and decorator metadata.
 - `defineLaratypeConfig()` therefore reuses the [plugin chain](#plugin-chain).
-- `createTestApp()` boots from the manifest and provides `app.swap()` and a typed `request()`. That `request()` is typed by `AppApi`; `AppRouter` is retired.
+- `createTestApp()` boots from the manifest and provides `app.swap()` and a typed `request()`. That `request()` is typed by `AppApi`, the type of the generated `appApi`; `AppRouter` is retired.
+- Tests fail when an endpoint throws an error it doesn't declare, and `sauf test` reports declared errors no test triggers ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 - Done when the `examples/basic` tests run through the preset.
 
 ### Acceptance

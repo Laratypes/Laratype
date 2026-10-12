@@ -1,7 +1,7 @@
 ---
 area: client
 packages: ["@laratype/client", "@laratype/client-query"]
-issues: [85, 109, 110, 124, 132, 133, 140, 141, 159]
+issues: [85, 109, 110, 124, 132, 133, 140, 141, 159, 228]
 verified-against: Laratype@d70daa7
 last-verified: 2026-10-09
 ---
@@ -15,7 +15,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | Section | Status |
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
-| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, proposed: PR #204 @ ded1bfc |
+| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; entry superseded by planned → #133, #228 |
 | [createClient](#createclient) | planned → #109 |
 | [Result union](#result-union) | planned → #110 |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
@@ -62,7 +62,7 @@ None yet.
 ## FE import rule
 
 ### Status
-Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, proposed: PR #204 @ ded1bfc (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib).
+Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, merged @ e2eac4b (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
 
 ### Public API
 None of its own. The FE entry is `app/contracts/index.ts`:
@@ -79,10 +79,10 @@ export type AppApi = typeof appApi
 - FEs need TypeScript ≥ 5.4.
 
 ### Diagnostics
-- The negative-control fixture `fe/bad.ts` (PR #204) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.
+- The negative-control fixture `fe/bad.ts` (C5, merged @ e2eac4b) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.
 
 ### Example
-[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts) (`AppApi`, `ApiTypes`).
+[`examples/contract/contracts.ts`](./examples/contract/contracts.ts) (`AppApi`, `ApiTypes`).
 
 ### Non-goals
 - No FE type inference from controllers or routes.
@@ -101,7 +101,8 @@ export type AppApi = typeof appApi
 planned → [#109](https://github.com/Laratypes/Laratype/issues/109) (CL1).
 
 ### Design (non-binding)
-- **Monorepo default (S2 option a):** `createClient(appApi, options)` takes the contract **values**, so the same schemas are available for client-side form validation. There is no build step.
+- **Monorepo default (S2 option a):** `createClient(appApi, options)` takes the contract **values**, so the same schemas are available for client-side form validation. `appApi` is the generated one from `$api` (`.laratype/api/index.gen.ts`), or a single contract file. Since the [folder tree](./contract.md#contract-folder-tree), this mode needs `sauf dev` or `sauf types:generate` to have run, so it is no longer build-free.
+- **Names** follow the folder tree (`api.users.posts`). URLs come from the contracts, so no base path is needed beyond the domain.
 - **Name-style calls are primary:** `api.users.show({ params: { user: 1 } })`.
 - **Runtime:** path interpolation with encoding, query serialization, a JSON body, and an injectable `fetch`. No Node dependencies (#109 tasks).
 - **Reference shape from the S2 spike** (`s2-api/client/create-client.ts` @ 4c558fd), non-binding:
@@ -123,12 +124,14 @@ planned → [#109](https://github.com/Laratypes/Laratype/issues/109) (CL1).
 planned → [#110](https://github.com/Laratypes/Laratype/issues/110) (CL2).
 
 ### Design (non-binding)
-- Calls resolve to a union that callers narrow by `ok` and then `status`, quoted from #110: `{ ok: true, status, data } | { ok: false, status, error }`. Here `data` is the response type and `error` is the body of the matching contract error (`ErrorResponse`, see [contract.md › Error catalog](./contract.md#error-catalog)).
-- There is also a variant for network errors and undeclared statuses. The S2 spike marks an undeclared status with `unexpected: true`.
-- Done when type tests show that narrowing by `status` gives the right body type.
+- Calls resolve to a union quoted from #110: `{ ok: true, status, data } | { ok: false, status, error }`. Here `data` is the response type and `error` is the body of the matching contract error.
+- **Error union:** derived from the endpoint's capabilities across all levels, plus the union of its `throws` ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
+- **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `EMAIL_NOT_VERIFIED` are both 403), so `status` alone doesn't identify the error.
+- There is also a variant for network errors and undeclared statuses. The S2 spike marks an undeclared status with `unexpected: true`. This is unchanged.
+- Done when type tests show that narrowing by `code` gives the right body type.
 
 ### Open questions
-- The response type is the schema **output**, but it arrives as JSON (`Date` → `string`). A `Jsonify<>` / wire-type decision → [#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107).
+- Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)). Parsing by schema on the client is CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
 
 ### Acceptance
 [#110 Done when](https://github.com/Laratypes/Laratype/issues/110)
@@ -170,7 +173,7 @@ planned → [#140](https://github.com/Laratypes/Laratype/issues/140) (CL4, M3).
 planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1). Generation is specified in [typegen.md](./typegen.md).
 
 ### Design (non-binding)
-- **S2 option (c):** `sauf types:generate` writes one `api.ts`, containing a flattened `AppApi` type alias plus a slim runtime manifest (method, path, declared error codes). It has no contract lib and no schema lib.
+- **S2 option (c):** `sauf types:generate` writes one `api.ts`, containing a flattened `AppApi` type alias plus a slim runtime manifest (method, path, the error codes derived for each endpoint). It has no contract lib and no schema lib.
 - The FE program then holds 2 generated or own files and 4 client files, about 0.7 KiB gzip in total (S2).
 - The same manifest is an opt-in for monorepo FEs that want schema-free bundles.
 - Generated API types must satisfy `ApiShape<A>` as a self-constraint, which `interface` declarations do (see [contract.md › API type projection](./contract.md#api-type-projection)).

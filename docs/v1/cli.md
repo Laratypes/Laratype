@@ -39,7 +39,8 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 |---|---|---|---|
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
-| `sauf types:generate` | Writes `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry | planned → #104 | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | planned → #134 | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
@@ -65,15 +66,16 @@ Each command's issue, linked in the table.
 ## sauf dev
 
 ### Status
-planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, `--strict-contract`).
+planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the build manifest (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
-- **Type watch:** it watches `app/contracts/**` and writes incremental types to `.laratype/types/` ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
-- **`--strict-contract`:** warns or fails when a thrown error or a response does not match the contract ([http.md › Strict contract mode](./http.md#strict-contract-mode)).
+- **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` under `.laratype/types/` and `.laratype/api/index.gen.ts` (`$api`) ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
+- **Options:** `-p, --port`, `-H, --host` and `--hmr` carry over from 0.5. HMR stays opt-in through `--hmr` ([#126](https://github.com/Laratypes/Laratype/issues/126)).
+- **Undeclared errors:** an error thrown but not declared on the running endpoint is reported loudly, with the stack. The check is always on, so there is no `--strict-contract` flag ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 
 ### Open questions
-- Which 0.5 options (`--port`, `--host`, `--hmr`) carry over to v1 → [#126](https://github.com/Laratypes/Laratype/issues/126)
+- Resolved: `--port`, `--host` and `--hmr` carry over ([#126](https://github.com/Laratypes/Laratype/issues/126)).
 
 ### Acceptance
 [#126 Done when](https://github.com/Laratypes/Laratype/issues/126) · [#157 Done when](https://github.com/Laratypes/Laratype/issues/157)
@@ -109,7 +111,10 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). Depends on H2 #105, H9 #123. Templates live under `packages/sauf/src/commands/make`.
 
 ### Design (non-binding)
-- **New:** `make:contract`.
+- **New:** `make:contract`. It writes a contract file into the [folder tree](./contract.md#contract-folder-tree) under the API root, with the `import type { Prefix } from './$types'` line.
+- **Scope of E2:** `make:contract`, `make:controller`, `make:request` and `make:resource`.
+- **0.5 generators ported with their area:** `make:middleware` with H6 [#117](https://github.com/Laratypes/Laratype/issues/117), `make:policy` and `make:gate` with A3 [#121](https://github.com/Laratypes/Laratype/issues/121), `make:command` with F2 [#161](https://github.com/Laratypes/Laratype/issues/161), `make:model` with DB1 [#145](https://github.com/Laratypes/Laratype/issues/145), `make:factory` and `make:seeder` with DB5 [#149](https://github.com/Laratypes/Laratype/issues/149).
+- **Service generators, with Laravel names:** `make:event` and `make:listener` with EV1 [#165](https://github.com/Laratypes/Laratype/issues/165), `make:job` with Q1 [#169](https://github.com/Laratypes/Laratype/issues/169), `make:mail` with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170).
 - **Updated to the v1 API:** the controller template ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)), the request template ([validation.md › FormRequest v2](./validation.md#formrequest-v2)) and the resource template ([http.md › Resources](./http.md#resources)).
 - **Generated files type-check** in `examples/basic`.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
@@ -118,8 +123,7 @@ planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). D
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 
 ### Open questions
-- What happens in v1 to the 0.5 generators #134 does not mention (`make:command`, `make:factory`, `make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:seeder`) → [#134](https://github.com/Laratypes/Laratype/issues/134)
-- Generators for the v1 services (jobs, events, listeners, mailables) are implied by those services but named by no issue → [#134](https://github.com/Laratypes/Laratype/issues/134)
+- Resolved: each remaining 0.5 generator and each service generator ships with its area's issue, listed above ([#134](https://github.com/Laratypes/Laratype/issues/134)).
 
 ### Acceptance
 [#134 Done when](https://github.com/Laratypes/Laratype/issues/134)
