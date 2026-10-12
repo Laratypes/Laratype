@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@laratype/console": "workspace:*",
+    "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*"
   },
   "devDependencies": {
