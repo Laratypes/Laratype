@@ -518,6 +518,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Open questions
 - How a module is registered with the kernel → [#153](https://github.com/Laratypes/Laratype/issues/153)
+- How a module's contracts fit the `app/api` contract tree and `Route.api` → [#153](https://github.com/Laratypes/Laratype/issues/153)
 
 ### Acceptance
 [#153 Done when](https://github.com/Laratypes/Laratype/issues/153)

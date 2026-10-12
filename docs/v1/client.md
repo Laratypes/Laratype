@@ -62,7 +62,7 @@ None yet.
 ## FE import rule
 
 ### Status
-Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, proposed: PR #204 @ ded1bfc (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `index.gen.ts` (`appApi`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
+Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, proposed: PR #204 @ ded1bfc (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
 
 ### Public API
 None of its own. The FE entry is `app/contracts/index.ts`:
@@ -101,7 +101,7 @@ export type AppApi = typeof appApi
 planned → [#109](https://github.com/Laratypes/Laratype/issues/109) (CL1).
 
 ### Design (non-binding)
-- **Monorepo default (S2 option a):** `createClient(appApi, options)` takes the contract **values**, so the same schemas are available for client-side form validation. `appApi` is the generated one in `index.gen.ts`, or a single contract file. Since the [folder tree](./contract.md#contract-folder-tree), this mode needs `sauf dev` or `sauf types:generate` to have run, so it is no longer build-free.
+- **Monorepo default (S2 option a):** `createClient(appApi, options)` takes the contract **values**, so the same schemas are available for client-side form validation. `appApi` is the generated one from `$api` (`.laratype/api/index.gen.ts`), or a single contract file. Since the [folder tree](./contract.md#contract-folder-tree), this mode needs `sauf dev` or `sauf types:generate` to have run, so it is no longer build-free.
 - **Names** follow the folder tree (`api.users.posts`). URLs come from the contracts, so no base path is needed beyond the domain.
 - **Name-style calls are primary:** `api.users.show({ params: { user: 1 } })`.
 - **Runtime:** path interpolation with encoding, query serialization, a JSON body, and an injectable `fetch`. No Node dependencies (#109 tasks).

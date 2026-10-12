@@ -350,7 +350,7 @@ Type-only: `routeName(users, 'nope')` (unknown key) is an error, and a plain rec
 ## defineApi and route names
 
 ### Status
-proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the hand-written `defineApi({...})` is replaced by the `appApi` generated into `index.gen.ts`, and route names come from the [contract folder tree](#contract-folder-tree).
+proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the hand-written `defineApi({...})` is replaced by the `appApi` generated into `.laratype/api/index.gen.ts`, and route names come from the [contract folder tree](#contract-folder-tree).
 
 ### Public API
 [`contract.ts` @ ded1bfc](https://github.com/Laratypes/Laratype/blob/ded1bfcf76dbbf3b0aadd1886c157e2cf1939dc4/packages/contract/src/contract.ts#L58-L107)
@@ -463,13 +463,14 @@ export default defineContract<Prefix>({
 - **Signature (#228):** `defineContract<Prefix>(endpoints, { auth, throws, throttle })`. The options are the contract level of the [capabilities](#capabilities-and-derived-errors).
 - **Root:** the API root folder and its base path are configuration. The default is `app/api` → `/api`.
 - **Index files:** `users.ts` and `users/index.ts` are equivalent. Both give `/api/users` and `api.users`. Having both is a scan error.
+- **Unique names:** `[x]` folders are dropped from names, so `users/posts.ts` and `users/[user]/posts.ts` would both be `api.users.posts` (`users.posts.*`). Two contracts with the same client or route name are a scan error.
 - **Path params:** a `[x]` folder is the path param `:x`. Every contract below it gets `x` in its params and the path-param 404. `[x]` folders don't appear in client names or route names. Paths inside the file add their own params, as before ([Path params](#path-params)).
 - **Versioning:** through folders. `app/api/v1/users.ts` gives `/api/v1/users` and `api.v1.users`.
 - **Route names:** the folder names plus the endpoint key, for example `users.posts.update` ([URL builder](#url-builder)).
 - **Scope files:** `_scope.ts` is a [folder scope](#folder-scopes), not a contract.
 - **Generated types:** `sauf dev` and `sauf types:generate` scan the tree for file add, rename and delete, never file contents. They write:
   - a per-folder `$types.d.ts` under `.laratype/types/...` with `Prefix`, overlaid next to the sources through tsconfig `rootDirs`, so `./$types` resolves (the SvelteKit model);
-  - `index.gen.ts` with the aggregated `appApi`. It is a convenience: controllers and the FE can import a contract file directly, with full types ([typegen.md](./typegen.md#sauf-typesgenerate)).
+  - `.laratype/api/index.gen.ts` with the aggregated `appApi`. It is a runtime module, not a declaration file, because it holds the contract values and their schemas. The server and the FE import it through the `$api` path alias (`import { appApi } from '$api'`), which tsconfig `paths` and the alias step of the [plugin chain](./build.md#plugin-chain) resolve. It is a convenience: controllers and the FE can also import a contract file directly, with full types ([typegen.md](./typegen.md#sauf-typesgenerate)).
 - **Runtime:** in dev the server scans the tree at startup and rescans on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production it reads the manifest the build writes ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
@@ -532,7 +533,7 @@ export default defineContract<Prefix>({
 | `throws` | each declared domain error | none |
 
 - **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names are typed from the app's guard registry ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract)). A 401 can only come from `auth`; it can't be declared directly.
-- **`authorize`:** `authorize: true` on a [scope](#folder-scopes), or `.authorize()` on an endpoint.
+- **`authorize`:** `authorize: true` on a [scope](#folder-scopes), or `.authorize()` on an endpoint. It requires `auth` at the same level or an outer one, because a policy checks a signed-in user. `.public()` on an endpoint under a scope with `authorize` is a compile error.
 - **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)).
 - **`throws`:** `.throws(...errors)` on an endpoint, and `throws: [...]` in the options of a contract or a scope ([Domain errors](#domain-errors)).
 
@@ -580,6 +581,7 @@ if (await this.emailExists(input.email)) throw EmailTaken(input.email)
 - **Codes** are `UPPER_SNAKE`, like the built-in catalog.
 - **Built-in catalog:** `unauthorized` 401, `forbidden` 403, `notFound` 404, `validation` 422 and `tooManyRequests` 429. These are the errors the framework derives. `conflict` 409 is removed: a conflict is a domain error, and the app defines it with `defineError`.
 - **Declaring:** `throws` on an endpoint, a contract or a scope. The levels add up ([inheritance](#capabilities-and-derived-errors)).
+- **Built-in errors in `throws`:** `throws` also accepts the built-in catalog errors. For example, a search endpoint with no path param whose service throws `notFound` declares `.throws(errors.notFound)`, so the undeclared-error check accepts it.
 - **403 from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws`. There is no separate capability for it.
 - **Undeclared errors:** in dev and test, throwing an error the running endpoint doesn't declare is reported, and fails the test ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 - **Status outside HTTP:** errors carry an HTTP status. Jobs and CLI code that reuse them ignore it.

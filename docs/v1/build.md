@@ -107,7 +107,7 @@ laratype:manifest  →  laratype:di  →  swc (decorators for the ORM)  →  ali
   - works with the HMR restart;
   - Done when `sauf dev` on `examples/basic` resolves a controller with constructor DI.
 - **SWC:** keeps `decoratorMetadata: true` while TypeORM is in use ([#88](https://github.com/Laratypes/Laratype/issues/88)).
-- **Alias:** resolved in the bundler, which removes `tsc-alias`.
+- **Alias:** resolved in the bundler, which removes `tsc-alias`. It also resolves `$api` to the generated `.laratype/api/index.gen.ts` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)).
 - **Shared (B2):** one `laratypePlugins()` used by `warmup.ts`, `dev.ts`, `sauf build` and the vitest preset. Done when dev and build produce the same DI metadata snapshot.
 
 ### Acceptance

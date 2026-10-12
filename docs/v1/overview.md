@@ -37,7 +37,7 @@ Status: decided ([#83](https://github.com/Laratypes/Laratype/issues/83) "Key dec
 1. **Contract first. Schemas are runtime values.** An endpoint is a runtime object that holds [Standard Schema](https://standardschema.dev) schemas (zod 3.25+, valibot, arktype). The same object drives runtime validation, handler types, the FE client, OpenAPI and Detective (G4 [#144](https://github.com/Laratypes/Laratype/issues/144)). Types are inferred from schemas, never from decorators. The contract also declares capabilities (`auth`, `authorize`, `throttle`, `throws`), and the framework derives its errors from them ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 2. **Decorators are for DI and the ORM only, never for API types.** TS decorators cannot change types. Routes, validation and responses are declared in contracts. Decorators are used for `@Inject(token)`, for `@Injectable({ scope })` when the default scope is wrong, and for ORM entities.
 3. **Constructor DI without mandatory decorators.** A build transform (oxc, before SWC) emits dependency thunks for every class with an own constructor. Concrete classes autowire, while interfaces and primitives need a token.
-4. **The FE never imports server code.** The FE imports only contracts: the generated `appApi` (`index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree), never `typeof routes` (S2). `@laratype/contract` and `@laratype/client` are browser-safe.
+4. **The FE never imports server code.** The FE imports only contracts: the generated `appApi` (`$api`, `.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree), never `typeof routes` (S2). `@laratype/contract` and `@laratype/client` are browser-safe.
 5. **The controller declares, the route proves.** Handlers are class methods annotated with `Ctx<typeof endpoint, Requires>`. The route (middleware + `.bind()`) proves those requirements at `r.contract()` with a conditional-type check (S1, option A).
 6. **One build pipeline.** `sauf dev`, `sauf build` and tests share one plugin chain: manifest → di → swc → alias.
 7. **Clean break.** v1 is a redesign with breaking changes. Migration from 0.5 is tracked in K3 [#154](https://github.com/Laratypes/Laratype/issues/154).
@@ -105,7 +105,7 @@ public/             static files (view.md › Serving a Vite SPA)
 resources/
   js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
-- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder and `index.gen.ts` (`appApi`) under `.laratype/types/` ([typegen.md](./typegen.md#sauf-typesgenerate)).
+- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
 - **Discovery:** the `laratype:manifest` virtual module (B1) imports providers, configs, routes, commands, models, migrations and seeders statically. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
 
@@ -124,7 +124,7 @@ resources/
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
 | Zod 4 coerce in contracts: `z.coerce.number<number>()` | Plain `z.coerce.number()` has input type `unknown`, so client query types become `unknown` | S2 finding for C3 |
-| The FE type is `AppApi = typeof appApi`, from the generated `index.gen.ts` (planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` on PR #204 |
+| The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` on PR #204 |
 
 ## Decision log
 

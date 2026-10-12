@@ -329,7 +329,8 @@ planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2, compil
 - **Mounted on the server:** `r.scope('<folder>', { policy })` for a scope, and `r.contract(c, Ctrl, { policy })` for endpoints.
 - **Compile check:**
   - every endpoint with `.authorize()` needs a policy that has a method for that endpoint (named after the endpoint key), or a `before` hook;
-  - a scope with `authorize` and no mounted policy is a compile error in `Route.api`, with a runtime check too.
+  - a scope with `authorize` and no mounted policy is a compile error in `Route.api`, with a runtime check too;
+  - `authorize` without `auth` at the same or an outer level, including `.public()` under a scope with `authorize`, is a compile error ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Order:** scope policies run once per request, outer to inner, then the endpoint's policy. Bound models are resolved once and reused.
 - **Scope hook:** a scope policy's `before(user, params)` receives the signed-in user and the scope's bound params (the resolved models).
 - **`Gate.policy`:** `Gate.policy(Model, Policy)` stays for imperative checks such as `user.can('update', post)` in services ([auth.md › Policies and gates](./auth.md#policies-and-gates)).

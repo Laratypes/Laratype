@@ -28,7 +28,7 @@ planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1, M2). T
 - **Purpose:** support FEs outside the monorepo (S2 option c). Done when a separate FE project compiles using only the generated files.
 - **Folder tree (E13, [#133](https://github.com/Laratypes/Laratype/issues/133)):** it also scans the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, never file contents, and writes:
   - a per-folder `$types.d.ts` under `.laratype/types/...` with `Prefix`, overlaid through tsconfig `rootDirs`;
-  - `index.gen.ts` with the aggregated `appApi`.
+  - `.laratype/api/index.gen.ts`, a runtime module with the aggregated `appApi`, imported as `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)).
 - **Canonical output (S2; #133 updated):** one generated `api.ts` that holds:
   - a flattened `AppApi` type alias, the shape of `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection));
   - a slim runtime manifest with method, path and the error codes derived for each endpoint ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
@@ -50,7 +50,7 @@ planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1, M2). T
 planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, M3).
 
 ### Design (non-binding)
-- **Watch:** `sauf dev` watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and regenerates `$types.d.ts` and `index.gen.ts` incrementally under `.laratype/types/`, so a monorepo FE sees new types without a restart.
+- **Watch:** `sauf dev` watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and regenerates `$types.d.ts` (under `.laratype/types/`) and `.laratype/api/index.gen.ts` incrementally, so a monorepo FE sees new types without a restart.
 - **Server:** in dev the server rescans the tree on the same events.
 
 ### Acceptance

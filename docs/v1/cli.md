@@ -39,7 +39,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 |---|---|---|---|
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
-| `sauf types:generate` | Writes `$types.d.ts` and `index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry | planned → #104 | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | planned → #134 | [make:* generators](#make-generators) |
@@ -66,11 +66,11 @@ Each command's issue, linked in the table.
 ## sauf dev
 
 ### Status
-planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, `--strict-contract`).
+planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the build manifest (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
-- **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` and `index.gen.ts` under `.laratype/types/` ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
+- **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` under `.laratype/types/` and `.laratype/api/index.gen.ts` (`$api`) ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
 - **Options:** `-p, --port`, `-H, --host` and `--hmr` carry over from 0.5. HMR stays opt-in through `--hmr` ([#126](https://github.com/Laratypes/Laratype/issues/126)).
 - **Undeclared errors:** an error thrown but not declared on the running endpoint is reported loudly, with the stack. The check is always on, so there is no `--strict-contract` flag ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 
