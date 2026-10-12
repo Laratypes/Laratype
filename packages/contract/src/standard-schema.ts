@@ -9,9 +9,14 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
+export interface StandardIssue {
+  readonly message: string;
+  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined;
+}
+
 export type StandardResult<O> =
   | { readonly value: O; readonly issues?: undefined }
-  | { readonly issues: ReadonlyArray<{ readonly message: string; readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined }> };
+  | { readonly issues: ReadonlyArray<StandardIssue> };
 
 export type InferIn<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["input"] : undefined;
 export type InferOut<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["output"] : undefined;
