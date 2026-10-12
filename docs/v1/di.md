@@ -153,7 +153,7 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 - No eager boot-time validation (see [#113](https://github.com/Laratypes/Laratype/issues/113)).
 
 ### Open questions
-- Resolved ([#112](https://github.com/Laratypes/Laratype/issues/112)): autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag.
+- Resolved: autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Interim behaviour:**
   - The container does not yet detect `@Inject`-vs-thunk conflicts (S3 condition 3). That arrives with the runtime decorator records ([#98](https://github.com/Laratypes/Laratype/issues/98)) and the fix-hint messages ([#100](https://github.com/Laratypes/Laratype/issues/100)).
 
