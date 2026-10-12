@@ -22,6 +22,10 @@ jobs:
       - name: Build
         run: bun run build && bun run build:type
 
+      # B13 guard (#188): no workspace package inlined, every entry loads (ESM + CJS)
+      - name: Check dist
+        run: bun run check:dist
+
       # Only the v1 packages for now; full suite tracked in #184 (H16)
       - name: Smoke test v1 packages
         run: bunx vitest run packages/contract packages/core packages/client
