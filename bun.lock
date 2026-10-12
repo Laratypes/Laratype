@@ -89,6 +89,9 @@
     "packages/core": {
       "name": "@laratype/core",
       "version": "0.5.4",
+      "devDependencies": {
+        "reflect-metadata": "^0.2.2",
+      },
     },
     "packages/database": {
       "name": "@laratype/database",
