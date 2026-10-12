@@ -1,6 +1,6 @@
 import jsonwebtoken from 'jsonwebtoken';
 import { Config } from '@laratype/support';
-import { JWTSignOptions } from './AuthVerification';
+import type { JWTSignOptions } from './AuthVerification';
 
 export default class JWTVerification {
 

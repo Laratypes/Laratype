@@ -1,5 +1,5 @@
-import { type InlineConfig, ViteDevServer, createServer } from "vite";
-import { Runner } from "./Runner";
+import { type InlineConfig, type ViteDevServer, createServer } from "vite";
+import type { Runner } from "./Runner";
 
 export default class DevRunner implements Runner {
   private vite: Promise<ViteDevServer>;

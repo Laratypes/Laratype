@@ -1,4 +1,4 @@
-import { controller, RouteOptions } from "@laratype/http";
+import { controller, type RouteOptions } from "@laratype/http";
 import { AuthGuard, can } from "@laratype/auth";
 import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/middleware/Middleware";
 import LoginController from "../../src/http/controllers/LoginController";

@@ -7,6 +7,7 @@ import { InitDatabaseCommand, SeedDatabaseCommand } from "./commands/db";
 import { RouteListCommand } from "./commands/route";
 import "./utils/banner"
 
+globalThis.__PROD__ = true;
 globalThis.__APP_PROD__ = true;
 
 class AppCommandManager {

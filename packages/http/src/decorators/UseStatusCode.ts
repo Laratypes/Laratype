@@ -1,6 +1,6 @@
 
 
-import { MetaDataKey, StatusCode } from "@laratype/support";
+import { MetaDataKey, type StatusCode } from "@laratype/support";
 
 export function UseStatusCode(statusCode: StatusCode) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {

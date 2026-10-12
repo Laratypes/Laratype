@@ -1,4 +1,4 @@
-import { Middleware as MiddlewareContract } from "../contracts";
+import type { Middleware as MiddlewareContract } from "../contracts";
 import Request from "../supports/Request";
 
 export default class Middleware<T = any> implements MiddlewareContract {

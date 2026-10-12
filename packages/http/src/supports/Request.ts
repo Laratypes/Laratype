@@ -1,6 +1,6 @@
 import { HonoRequest } from "hono/request";
 import { z, ZodType } from "zod";
-import { RequestInterface } from "../contracts/Request";
+import type { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
 import { has } from "es-toolkit/compat"
 

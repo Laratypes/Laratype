@@ -1,4 +1,4 @@
-import { controller, RouteOptions } from "@laratype/http"
+import { controller, type RouteOptions } from "@laratype/http"
 import { AuthGuard, can } from "@laratype/auth"
 import CreateAdminRequest from "../../src/http/requests/admin/CreateAdminRequest"
 import { AdminLocalAuthentication, Web } from "../../src/http/middleware/Middleware"

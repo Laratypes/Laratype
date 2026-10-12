@@ -2,7 +2,7 @@
   "name": "@laratype/core",
   "version": "0.5.4",
   "private": false,
-  "main": "dist/index.js",
+  "main": "./dist/index.cjs",
   "types": "dist/index.d.ts",
   "type": "module",
   "repository": {
@@ -22,11 +22,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
-      "require": "./dist/index.js"
+      "require": "./dist/index.cjs"
     },
     "./*": "./*"
   },
   "buildOptions": {},
+  "devDependencies": {
+    "reflect-metadata": "^0.2.2"
+  },
   "files": [
     "dist"
   ]

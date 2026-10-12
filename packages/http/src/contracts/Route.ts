@@ -2,7 +2,7 @@ import type { Ability, Policy } from "@laratype/auth";
 import Controller from "../controller/Controller"
 import Middleware from "../middleware/Middleware"
 import Request from "../supports/Request";
-import { METHOD } from "./Request";
+import type { METHOD } from "./Request";
 
 export { };
 

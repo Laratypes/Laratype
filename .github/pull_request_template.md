@@ -82,5 +82,6 @@ Closes vs Refs:
 - [ ] No generated or local files committed (`node_modules`, `out/`, `dist/`, junctions)
 - [ ] Package versions not bumped (done in the release PR)
 - [ ] Public API / CLI changes documented (README or docs)
+- [ ] Spec section updated? If this PR implements a section of `docs/v1/<area>.md`, its Status is flipped to `merged @ <sha>` (and its signatures updated) in this PR. Otherwise write "N/A" or name the follow-up issue.
 - [ ] Tests added or updated, or the reason they're not needed is given above
 
