@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 117, 118, 122, 123, 138, 139, 162, 163, 164, 184]
+issues: [84, 104, 105, 106, 107, 108, 117, 118, 122, 123, 138, 139, 157, 162, 163, 164, 184]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -31,6 +31,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
 | [CORS](#cors) | planned → #164 |
+| [Strict contract mode](#strict-contract-mode) | planned → #157 |
 
 ---
 
@@ -234,7 +235,7 @@ planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
 - **`HttpException`:** built from an `ErrorDef` ([contract.md › Error catalog](./contract.md#error-catalog)) and mapped to the contract's error response `{ status, body }`.
 - **Unknown errors:** a 500 that doesn't leak details.
 - **Replaces:** `Response.resolveException`.
-- **Strict mode:** a dev `--strict-contract` mode checks that a thrown error is declared in `.errors()` → [#157](https://github.com/Laratypes/Laratype/issues/157) (X3).
+- **Strict mode:** a dev `--strict-contract` mode checks that a thrown error is declared in `.errors()` → [Strict contract mode](#strict-contract-mode) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
 - **Done when:** runtime tests for the 404, 403, 422 and 500 bodies.
 
 ### Acceptance
@@ -362,3 +363,20 @@ planned → [#164](https://github.com/Laratypes/Laratype/issues/164) (H15, M3).
 
 ### Acceptance
 [#164 Done when](https://github.com/Laratypes/Laratype/issues/164)
+
+---
+
+## Strict contract mode
+
+### Status
+planned → [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, M4). Depends on H5 #108.
+
+### Design (non-binding)
+- **Dev only:** `sauf dev --strict-contract` ([cli.md › sauf dev](./cli.md#sauf-dev)).
+- **Checks:** it warns or fails when a thrown error is not declared in the endpoint's `.errors()` ([Exceptions](#exceptions)), or when the handler's output does not match the response schema ([Response from the contract](#response-from-the-contract)).
+
+### Open questions
+- When it warns and when it fails → [#157](https://github.com/Laratypes/Laratype/issues/157)
+
+### Acceptance
+[#157 Done when](https://github.com/Laratypes/Laratype/issues/157)
