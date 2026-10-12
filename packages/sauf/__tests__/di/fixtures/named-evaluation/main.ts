@@ -35,6 +35,17 @@ const Named = class Own {
   constructor(public dep: Dep) {}
 };
 
+// A binding named `__proto__` is named through NamedEvaluation; a `__proto__:` property sets the prototype instead.
+const __proto__ = class {
+  constructor(public dep: Dep) {}
+};
+const withProto: any = {
+  __proto__: class {
+    constructor(public dep: Dep) {}
+  },
+};
+const ProtoValue = Object.getPrototypeOf(withProto);
+
 const c = new Container();
 for (const [cls, name] of [
   [Assigned, 'Assigned'],
@@ -44,6 +55,8 @@ for (const [cls, name] of [
   [Holder.Inner, 'Inner'],
   [Casted, 'Casted'],
   [Named, 'Own'],
+  [__proto__, '__proto__'],
+  [ProtoValue, ''],
 ] as const) {
   assertEqual(cls.name, name, `name inference kept for ${name}`);
   assertEqual(hasOwnDeps(cls), true, `${name} registered`);
