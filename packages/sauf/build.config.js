@@ -12,8 +12,11 @@ const esmConfigure = {
     "globalThis.__PROD__": "true",
     "globalThis.__APP_PROD__": "true",
   },
+  // Strings only: Bun ignores a RegExp external. The app that runs these bundles
+  // (copied into its dist by `sauf build`) provides the @laratype packages.
   external: [
-    /@laratype\/.*/,
+    "@laratype/*",
+    "laratype",
   ]
 }
 
