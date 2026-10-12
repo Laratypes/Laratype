@@ -21,18 +21,18 @@ Before starting an issue, read the spec section it links to ([docs/v1/README.md]
 Bun workspace monorepo (`packages/*`, `examples/*`). npm has 0.5.4; v1 is in progress, tracked in #83.
 
 v1:
-- `packages/contract` (`@laratype/contract`): endpoint builder, path params, error definitions, Standard Schema types. Shared by the server and the FE.
-- `packages/core` (`@laratype/core`): v1 DI container (D-series), scaffold only so far.
+- `packages/contract` (`@laratype/contract`): endpoint builder, path params, error definitions, Standard Schema types, the validation adapter, `defineContract` and `defineApi`. Shared by the server and the FE.
+- `packages/core` (`@laratype/core`): v1 DI container: tokens, `Container`, dependency metadata and the deps registry (D1, D2).
 - `packages/client` (`@laratype/client`): typed FE client (CL-series), scaffold only so far.
 
-0.5, maintained and being migrated: `laratype` (app entry, kernel), `sauf` (CLI: `sauf dev` with Vite SSR, `sauf build`), `http`, `support` (ServiceProvider, helpers), `validation`, `auth`, `database`, `console`, `log`, `mail`, `i18n`, `storage`, `schedule`, `broadcast`, `ts-gen`. `examples/basic` is the example app.
+0.5, maintained and being migrated: `laratype` (app entry, kernel), `sauf` (CLI: `sauf dev` with Vite SSR, `sauf build`), `http`, `support` (ServiceProvider v2 from D4, 0.5 helpers), `validation`, `auth`, `database`, `console`, `log`, `mail`, `i18n`, `storage`, `schedule`, `broadcast`, `ts-gen`. `examples/basic` is the example app.
 
 Design spikes live on spike branches only (draft PRs #183 and #197); the S1/S2 decisions are in `spikes/v1/DECISIONS-S1-S2.md` there.
 
 Boundaries:
 - `@laratype/contract` stays browser-pure: no `node:*` imports, no Node globals, no runtime dependencies. Schema libraries (zod, valibot) are devDependencies only. `packages/contract/__tests__/typecheck.test.ts` compiles `src` with the DOM lib and no Node types.
 - Contracts depend on the Standard Schema v1 types, never on one schema library.
-- The FE imports contracts only (`app/contracts`), never `typeof routes` or any server module.
+- The FE imports contracts only (the `defineApi` object from `app/contracts`), never `typeof routes` or any server module.
 - `@laratype/*` resolves to `packages/*/src` (`tsconfig.app.json` paths, `scripts/alias` for vitest).
 
 ## Commands

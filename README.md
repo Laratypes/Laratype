@@ -63,17 +63,17 @@ Status as recorded in [`docs/v1/overview.md`](docs/v1/overview.md#package-graph)
 
 | Package | Role in v1 | Status |
 |---|---|---|
-| `@laratype/contract` | Endpoint builder, path params, error catalog, Standard Schema types | Available (C1, C2, C4). In review: C3 [#205](https://github.com/Laratypes/Laratype/pull/205), C5 [#204](https://github.com/Laratypes/Laratype/pull/204) |
-| `@laratype/core` | DI container, tokens, dependency registry | Scaffold only. In review: D1 [#196](https://github.com/Laratypes/Laratype/pull/196), D2 [#201](https://github.com/Laratypes/Laratype/pull/201) |
+| `@laratype/contract` | Endpoint builder, path params, error catalog, Standard Schema types, validation adapter, `defineContract`, `defineApi` | Available (C1–C5) |
+| `@laratype/core` | DI container, tokens, dependency registry | Available (D1, D2) |
 | `@laratype/client` | Typed frontend client, `createClient(appApi)` | Scaffold only. API planned → [#109](https://github.com/Laratypes/Laratype/issues/109) |
-| `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5. In review: ServiceProvider v2 [#202](https://github.com/Laratypes/Laratype/pull/202) |
-| `sauf` | CLI, dev server, constructor DI transform | 0.5. In review: transform core [#194](https://github.com/Laratypes/Laratype/pull/194). Vite wiring planned → [#102](https://github.com/Laratypes/Laratype/issues/102) |
+| `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | ServiceProvider v2 available (D4); other helpers 0.5 |
+| `sauf` | CLI, dev server, constructor DI transform | 0.5. Constructor DI transform planned → [#101](https://github.com/Laratypes/Laratype/issues/101), Vite wiring → [#102](https://github.com/Laratypes/Laratype/issues/102) |
 | `@laratype/http` | Router v2, request pipeline, controllers | 0.5. v1 planned → [#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#106](https://github.com/Laratypes/Laratype/issues/106) |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5. v1 planned → [#137](https://github.com/Laratypes/Laratype/issues/137) |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5. v1 planned → [#119](https://github.com/Laratypes/Laratype/issues/119), [#120](https://github.com/Laratypes/Laratype/issues/120), [#121](https://github.com/Laratypes/Laratype/issues/121) |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM). v1 waits for the ORM decision → [#88](https://github.com/Laratypes/Laratype/issues/88) |
 | typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | Planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#143](https://github.com/Laratypes/Laratype/issues/143) |
-| `laratype` | Kernel / `Serve` | 0.5. In review: container boot [#202](https://github.com/Laratypes/Laratype/pull/202) |
+| `laratype` | Kernel / `Serve` | Container boot available (D4); the rest is 0.5 |
 
 The other 0.5 packages (`console`, `log`, `mail`, `i18n`, `schedule`, `broadcast`, `storage`) are ported later in v1; see [#83](https://github.com/Laratypes/Laratype/issues/83).
 
