@@ -1,4 +1,4 @@
-import { Exception, ExceptionConstructorParams } from "@laratype/support";
+import { Exception, type ExceptionConstructorParams } from "@laratype/support";
 
 export default class UnsupportedVerificationModeException extends Exception {
 

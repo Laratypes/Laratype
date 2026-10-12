@@ -1,6 +1,6 @@
 import { Object } from "ts-toolbelt"
 import { ConfigLoaderNotLoadYet } from "../exception/ConfigLoaderNotLoadYet";
-import { LaratypeConfig as ConfigContract } from "../contracts/Config";
+import type { LaratypeConfig as ConfigContract } from "../contracts/Config";
 
 export default class Config {
 

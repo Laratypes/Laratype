@@ -1,5 +1,5 @@
 import { type InlineConfig } from "vite";
-import { Runner } from "./runner/Runner";
+import type { Runner } from "./runner/Runner";
 
 export default class Transpile {
 

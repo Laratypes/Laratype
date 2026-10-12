@@ -1,4 +1,4 @@
-import { Runner } from "./Runner";
+import type { Runner } from "./Runner";
 
 export default class ProductionRunner implements Runner {
 

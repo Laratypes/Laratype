@@ -1,8 +1,8 @@
-import { Context } from "hono";
+import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
-import { PolicyFactory, RouteParams } from "../contracts/Route";
+import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";

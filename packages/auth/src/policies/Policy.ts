@@ -1,4 +1,4 @@
-import { PromiseAble } from "@laratype/support";
+import type { PromiseAble } from "@laratype/support";
 
 export type Ability = Exclude<keyof Policy, 'before'>;
 
