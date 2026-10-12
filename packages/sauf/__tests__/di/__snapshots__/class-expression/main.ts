@@ -4,7 +4,7 @@ import { Container, assertEqual } from 'virtual:laratype/di';
 class Dep {}
 const identity = <T>(x: T) => x;
 
-export const Expr = __laratype_deps({ "Expr": class {
+export const Expr = __laratype_deps({ ["Expr"]: class {
   constructor(public dep: Dep) {}
 } }["Expr"], [() => Dep], { params: ["dep"] });
 
