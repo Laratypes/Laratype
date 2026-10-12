@@ -2,8 +2,8 @@
 area: validation
 packages: ["@laratype/contract", "@laratype/validation", "@laratype/http"]
 issues: [91, 106, 137]
-verified-against: Laratype@d70daa7 (+ PR #205 @ 8791758)
-last-verified: 2026-10-09
+verified-against: Laratype@883a8e2
+last-verified: 2026-10-12
 ---
 
 # Validation
@@ -12,7 +12,7 @@ v1 validates requests against the contract's Standard Schema slots (query, body,
 
 | Section | Status |
 |---|---|
-| [Standard Schema adapter](#standard-schema-adapter) | proposed: PR #205 @ 8791758 |
+| [Standard Schema adapter](#standard-schema-adapter) | merged @ 883a8e2 |
 | [Pipeline validation and 422](#pipeline-validation-and-422) | planned → #106 |
 | [FormRequest v2](#formrequest-v2) | planned → #137 |
 
@@ -21,7 +21,7 @@ v1 validates requests against the contract's Standard Schema slots (query, body,
 ## Standard Schema adapter
 
 ### Status
-proposed: PR #205 @ 8791758 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
 
 ### Public API
 Specified in full in [contract.md › Validation adapter](./contract.md#validation-adapter). It is not repeated here, so the two copies can't drift. In summary: `validate(schema, value)` and `validateSync(schema, value)` return `ValidationResult<O>`, `toErrorBag(issues)` builds an `ErrorBag`, and the `StandardIssue` type is exported.
@@ -35,7 +35,7 @@ Specified in full in [contract.md › Validation adapter](./contract.md#validati
 See [contract.md › Validation adapter](./contract.md#validation-adapter).
 
 ### Example
-[`examples/contract/proposed/validate.ts`](./examples/contract/proposed/validate.ts)
+[`examples/contract/validate.ts`](./examples/contract/validate.ts)
 
 ### Non-goals
 - No messages, i18n, `authorize()` or DB rules at this layer.

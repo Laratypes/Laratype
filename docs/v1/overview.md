@@ -48,7 +48,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 
 | Package | Role in v1 | Status | Depends on (v1) |
 |---|---|---|---|
-| `@laratype/contract` | `endpoint`, path params, error catalog, Standard Schema types; capabilities and derived errors (planned → #228) | merged @ d70daa7 (C1/C2/C4); C3 proposed: PR #205 @ 8791758; C5 proposed: PR #204 @ ded1bfc | none (browser-safe, no `node:*`) |
+| `@laratype/contract` | `endpoint`, path params, error catalog, Standard Schema types; capabilities and derived errors (planned → #228) | merged @ d70daa7 (C1/C2/C4); C3 merged @ 883a8e2; C5 merged @ e2eac4b | none (browser-safe, no `node:*`) |
 | `@laratype/core` | DI container, tokens, deps registry | scaffold merged @ d70daa7; D1 proposed: PR #196 @ 5d51b16; D2 proposed: PR #201 @ 1bddcff | none |
 | `@laratype/client` | `createClient(appApi)` | scaffold merged @ d70daa7 (`PACKAGE_NAME` only); API planned → #109 | `@laratype/contract` only |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 proposed: PR #202 @ 18c01f5 | `@laratype/core` |
@@ -124,7 +124,7 @@ resources/
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
 | Zod 4 coerce in contracts: `z.coerce.number<number>()` | Plain `z.coerce.number()` has input type `unknown`, so client query types become `unknown` | S2 finding for C3 |
-| The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` on PR #204 |
+| The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` (merged @ e2eac4b) |
 
 ## Decision log
 

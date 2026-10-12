@@ -2,8 +2,8 @@
 area: contract
 packages: ["@laratype/contract"]
 issues: [89, 90, 91, 92, 93, 94, 162, 228]
-verified-against: Laratype@d70daa7 (+ PR #205 @ 8791758, PR #204 @ ded1bfc)
-last-verified: 2026-10-09
+verified-against: Laratype@e2eac4b
+last-verified: 2026-10-12
 ---
 
 # Contract (`@laratype/contract`)
@@ -14,14 +14,14 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 
 | Section | Status |
 |---|---|
-| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` proposed: PR #205 @ 8791758 |
+| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2 |
 | [Path params](#path-params) | merged @ d70daa7 |
 | [Endpoint builder](#endpoint-builder) | merged @ d70daa7; `.errors()` available; superseded by planned → #228 |
 | [Error catalog](#error-catalog) | merged @ d70daa7; available; superseded by planned → #228 |
-| [Validation adapter](#validation-adapter) | proposed: PR #205 @ 8791758 |
-| [defineContract](#definecontract) | proposed: PR #204 @ ded1bfc; superseded by planned → #228 |
-| [defineApi and route names](#defineapi-and-route-names) | proposed: PR #204 @ ded1bfc; superseded by planned → #133, #228 |
-| [API type projection](#api-type-projection) | proposed: PR #204 @ ded1bfc |
+| [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
+| [defineContract](#definecontract) | merged @ e2eac4b; superseded by planned → #228 |
+| [defineApi and route names](#defineapi-and-route-names) | merged @ e2eac4b; superseded by planned → #133, #228 |
+| [API type projection](#api-type-projection) | merged @ e2eac4b |
 | [Contract folder tree](#contract-folder-tree) | planned → #228, #133, #142, #104 |
 | [Folder scopes](#folder-scopes) | planned → #228, #104 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | planned → #228 |
@@ -40,10 +40,10 @@ Package-level invariants:
 ## Standard Schema types
 
 ### Status
-merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is proposed: PR #205 @ 8791758.
+merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is merged @ 883a8e2.
 
 ### Public API
-[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 8791758](https://github.com/Laratypes/Laratype/blob/879175840605c45ee703eaf2a3005ed85337b5e5/packages/contract/src/standard-schema.ts#L12-L15)
+[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/standard-schema.ts#L12-L15)
 
 ```ts
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
@@ -54,7 +54,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
     readonly types?: { readonly input: Input; readonly output: Output } | undefined;
   };
 }
-export interface StandardIssue {                         // PR #205
+export interface StandardIssue {                         // C3, merged @ 883a8e2
   readonly message: string;
   readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined;
 }
@@ -178,7 +178,7 @@ export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any>;
 ### Invariants
 - **Immutable.** Every builder call returns a new `Endpoint` and leaves `this` untouched. `def` and `def.errors` are frozen. The constructor copies its argument before freezing, so a caller's object stays mutable (b54ca7c).
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.errors()` **appends**, in call order.
-- **Status.** The default is `200`. `.response(schema, 201)` gives the literal type `201`. Because of `NoInfer<C>`, a contextual return type (for example inside `defineContract`) never infers `C`, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and on PR #204).
+- **Status.** The default is `200`. `.response(schema, 201)` gives the literal type `201`. Because of `NoInfer<C>`, a contextual return type (for example inside `defineContract`) never infers `C`, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and in C5's `types/contract.types.ts`).
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E>`).
 
 ### Diagnostics
@@ -254,10 +254,10 @@ Type-only (`types/errors.types.ts`): a string status, a missing `code`, an expli
 ## Validation adapter
 
 ### Status
-proposed: PR #205 @ 8791758 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
 
 ### Public API
-[`validate.ts` @ 8791758](https://github.com/Laratypes/Laratype/blob/879175840605c45ee703eaf2a3005ed85337b5e5/packages/contract/src/validate.ts#L1-L50)
+[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50)
 
 ```ts
 export type ErrorBag = Record<string, string[]>;   // dot path -> messages; "" for issues without a path
@@ -281,7 +281,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - Type-only: passing a non-Standard-Schema value (`{ parse }`, `undefined`) is an error. `result.errors` doesn't exist on success, and `result.value` doesn't exist on failure.
 
 ### Example
-[`examples/contract/proposed/validate.ts`](./examples/contract/proposed/validate.ts) (checked against PR #205 @ 8791758).
+[`examples/contract/validate.ts`](./examples/contract/validate.ts).
 
 ### Non-goals
 - No FormRequest, messages or async DB rules here. That is H10 [#137](https://github.com/Laratypes/Laratype/issues/137) in `@laratype/validation`.
@@ -298,10 +298,10 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 ## defineContract
 
 ### Status
-proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#228](https://github.com/Laratypes/Laratype/issues/228): the name argument goes away, and the name and URL prefix come from the [contract folder tree](#contract-folder-tree).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#228](https://github.com/Laratypes/Laratype/issues/228): the name argument goes away, and the name and URL prefix come from the [contract folder tree](#contract-folder-tree).
 
 ### Public API
-[`contract.ts` @ ded1bfc](https://github.com/Laratypes/Laratype/blob/ded1bfcf76dbbf3b0aadd1886c157e2cf1939dc4/packages/contract/src/contract.ts#L1-L57)
+[`contract.ts` @ e2eac4b](https://github.com/Laratypes/Laratype/blob/e2eac4b1a0e98e1385b428883f0fb3b44d7057d6/packages/contract/src/contract.ts#L1-L57)
 
 ```ts
 export const CONTRACT_NAME: unique symbol;            // Symbol.for("laratype.contract")
@@ -334,7 +334,7 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 Type-only: `routeName(users, 'nope')` (unknown key) is an error, and a plain record of endpoints is not assignable to `Contract`.
 
 ### Example
-[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts) (checked against PR #204 @ ded1bfc).
+[`examples/contract/contracts.ts`](./examples/contract/contracts.ts).
 
 ### Non-goals
 - No routes, controllers or middleware. Binding a contract to a controller is `r.contract()` in H2 [#105](https://github.com/Laratypes/Laratype/issues/105).
@@ -350,10 +350,10 @@ Type-only: `routeName(users, 'nope')` (unknown key) is an error, and a plain rec
 ## defineApi and route names
 
 ### Status
-proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the hand-written `defineApi({...})` is replaced by the `appApi` generated into `.laratype/api/index.gen.ts`, and route names come from the [contract folder tree](#contract-folder-tree).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the hand-written `defineApi({...})` is replaced by the `appApi` generated into `.laratype/api/index.gen.ts`, and route names come from the [contract folder tree](#contract-folder-tree).
 
 ### Public API
-[`contract.ts` @ ded1bfc](https://github.com/Laratypes/Laratype/blob/ded1bfcf76dbbf3b0aadd1886c157e2cf1939dc4/packages/contract/src/contract.ts#L58-L107)
+[`contract.ts` @ e2eac4b](https://github.com/Laratypes/Laratype/blob/e2eac4b1a0e98e1385b428883f0fb3b44d7057d6/packages/contract/src/contract.ts#L58-L107)
 
 ```ts
 // abridged: CheckApi and ApiEndpoint bodies elided, see the permalink
@@ -382,7 +382,7 @@ Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 Type-level: the same two `defineApi` messages appear as the `error` property of the offending key. `apiEndpoint(appApi, 'users.nope')` is a type error.
 
 ### Example
-[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
+[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
 
 ### Non-goals
 - No server registration. The router reads `apiRoutes()` (H1/H2).
@@ -398,10 +398,10 @@ Type-level: the same two `defineApi` messages appear as the `error` property of 
 ## API type projection
 
 ### Status
-proposed: PR #204 @ ded1bfc (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). The `errors` member becomes the [derived error union](#capabilities-and-derived-errors), planned → [#228](https://github.com/Laratypes/Laratype/issues/228).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). The `errors` member becomes the [derived error union](#capabilities-and-derived-errors), planned → [#228](https://github.com/Laratypes/Laratype/issues/228).
 
 ### Public API
-[`api-types.ts` @ ded1bfc](https://github.com/Laratypes/Laratype/blob/ded1bfcf76dbbf3b0aadd1886c157e2cf1939dc4/packages/contract/src/api-types.ts#L1-L47)
+[`api-types.ts` @ e2eac4b](https://github.com/Laratypes/Laratype/blob/e2eac4b1a0e98e1385b428883f0fb3b44d7057d6/packages/contract/src/api-types.ts#L1-L47)
 
 ```ts
 export type EndpointTypes<E extends AnyEndpoint> = {
@@ -431,7 +431,7 @@ export type ApiShape<A> = { [C in keyof A]: { [K in keyof A[C]]: EndpointShape }
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint.
 
 ### Example
-[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
+[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
 
 ### Non-goals
 - The projection keeps the schema output (`Date` stays `Date`). The client applies `Jsonify<>` to it ([#110](https://github.com/Laratypes/Laratype/issues/110)).

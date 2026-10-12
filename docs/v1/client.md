@@ -15,7 +15,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | Section | Status |
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
-| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, proposed: PR #204 @ ded1bfc; entry superseded by planned → #133, #228 |
+| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; entry superseded by planned → #133, #228 |
 | [createClient](#createclient) | planned → #109 |
 | [Result union](#result-union) | planned → #110 |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
@@ -62,7 +62,7 @@ None yet.
 ## FE import rule
 
 ### Status
-Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, proposed: PR #204 @ ded1bfc (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
+Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, merged @ e2eac4b (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
 
 ### Public API
 None of its own. The FE entry is `app/contracts/index.ts`:
@@ -79,10 +79,10 @@ export type AppApi = typeof appApi
 - FEs need TypeScript ≥ 5.4.
 
 ### Diagnostics
-- The negative-control fixture `fe/bad.ts` (PR #204) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.
+- The negative-control fixture `fe/bad.ts` (C5, merged @ e2eac4b) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.
 
 ### Example
-[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts) (`AppApi`, `ApiTypes`).
+[`examples/contract/contracts.ts`](./examples/contract/contracts.ts) (`AppApi`, `ApiTypes`).
 
 ### Non-goals
 - No FE type inference from controllers or routes.

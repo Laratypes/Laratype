@@ -1,4 +1,4 @@
-// docs/v1/contract.md: Standard Schema adapter. Proposed in PR #205 (C3); moves up one level on merge.
+// docs/v1/contract.md: Standard Schema adapter (C3, merged on master).
 import { expectTypeOf } from 'vitest'
 import * as z from 'zod'
 import { endpoint, errors, validate, validateSync } from '@laratype/contract'
