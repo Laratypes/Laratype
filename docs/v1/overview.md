@@ -87,19 +87,24 @@ app/
   modules/          optional (K2, di.md › Modules)
   routes/
     api.ts
+    channels.ts     broadcast channels (services.md › Broadcasting server)
     console.ts
   config/*.ts       (K1, config.md)
 database/
   migrations/
   factories/
   seeders/
+lang/
+  {locale}/*.ts     translations (services.md › Localization)
+public/             static files (view.md › Serving a Vite SPA)
+resources/
+  js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
 - **Discovery:** the `laratype:manifest` virtual module (B1) imports providers, configs, routes, commands, models, migrations and seeders statically. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
-- **Paths named by other issues** but not placed in this tree yet: `lang/{locale}/*.ts` ([services.md › Localization](./services.md#localization)), `routes/channels.ts` ([services.md › Broadcasting server](./services.md#broadcasting-server)) and `public/` ([view.md › Serving a Vite SPA](./view.md#serving-a-vite-spa)).
 
 ### Open questions
-- Where `lang/`, `routes/channels.ts` and `public/` sit → [#167](https://github.com/Laratypes/Laratype/issues/167), [#177](https://github.com/Laratypes/Laratype/issues/177), [#174](https://github.com/Laratypes/Laratype/issues/174)
+- Resolved: Laravel layout. `lang/`, `public/` and `resources/js/app.ts` sit at the project root, and `app/routes/channels.ts` sits next to `api.ts` ([#125](https://github.com/Laratypes/Laratype/issues/125), [#167](https://github.com/Laratypes/Laratype/issues/167), [#174](https://github.com/Laratypes/Laratype/issues/174), [#177](https://github.com/Laratypes/Laratype/issues/177)).
 
 ### Acceptance
 [#125 Done when](https://github.com/Laratypes/Laratype/issues/125)
@@ -123,7 +128,7 @@ database/
 | S2 | FE API surface and client runtime | **FE imports contracts only** (`defineApi`). **Monorepo:** (a) `createClient(appApi)` by default; (c) a generated slim manifest as an opt-in. **Separate repo:** (c) `sauf types:generate` writes `api.ts` (`AppApi` + manifest). The named call style `api.users.show()` is primary; the path style is type-only (CL4). | [#85](https://github.com/Laratypes/Laratype/issues/85), [DECISIONS-S1-S2.md §S2](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s2-85-decision) |
 | S3 | Constructor DI metadata transform | **GO**, with 3 conditions: `verbatimModuleSyntax`, keep `decoratorMetadata`, keep runtime diagnostics. Output: `__laratype_deps(Cls, [slots], { params, optional })`. Cost: about 0.3 ms warm for 43 files. | [#86](https://github.com/Laratypes/Laratype/issues/86) (closed), [FINDINGS.md](https://github.com/Laratypes/Laratype/blob/bddc5d8c56c18c2bced6594e87c5b757ba3709c3/spikes/v1/s3-di/FINDINGS.md) |
 | S4 | Package scaffold | `contract`, `core` and `client` exist and build (ESM/CJS + d.ts). The zod catalog is `^3.25`. | [#87](https://github.com/Laratypes/Laratype/issues/87) (closed), merged in 037b6d5 |
-| S5 | ORM for v1 (Kysely vs keep TypeORM) | **Open.** Blocks H7 (#118), H14 (#163) and DB1–DB6. Also defines the minimal `BindableModel` interface. | [#88](https://github.com/Laratypes/Laratype/issues/88) |
+| S5 | ORM for v1 (Kysely vs keep TypeORM) | **Two steps.** First a minimal `BindableModel` interface (find by key, primary-key metadata) that either ORM can satisfy; it unblocks H7 (#118) and model serialization in queued jobs (#169). Then an ADR compares Kysely and TypeORM, and the ORM follows the ADR. The ORM choice still blocks H14 (#163) and DB1–DB6. | [#88](https://github.com/Laratypes/Laratype/issues/88) |
 
 Later rulings (recorded here because they settle conflicting wording in older sources):
 

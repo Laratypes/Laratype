@@ -76,7 +76,7 @@ See [`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) (`InferIn
 - No schema-library adapters. zod 3.25+, valibot and arktype implement the spec natively.
 
 ### Open questions
-- JSON wire types: a `Date` output is typed `Date` but arrives as `string` → [#110](https://github.com/Laratypes/Laratype/issues/110) (CL2), [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
+- Resolved: the frontend type of a response is `Jsonify<output>`, a browser-safe utility type in `@laratype/contract`, so a `Date` output is typed `string` on the client ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)). Parsing the response by schema on the client is CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
 
 ### Acceptance
 [#89 Done when](https://github.com/Laratypes/Laratype/issues/89) · [#91 Done when](https://github.com/Laratypes/Laratype/issues/91)
@@ -117,7 +117,7 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 - Runtime path matching. The router (H1 [#104](https://github.com/Laratypes/Laratype/issues/104)) delegates matching to Hono.
 
 ### Open questions
-- Optional params combined with `.bind()`: should the bound value be `Model | undefined`? → [#118](https://github.com/Laratypes/Laratype/issues/118)
+- Resolved: an optional param with `.bind()` is typed `Model | undefined`. An absent param gives `undefined`; a present param with no match gives 404 ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 
 ### Acceptance
 [#90 Done when](https://github.com/Laratypes/Laratype/issues/90)
@@ -188,7 +188,7 @@ Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-s
 - No per-endpoint middleware or auth in the contract. Those belong to routes (H2/H6).
 
 ### Open questions
-- Per-endpoint middleware inside one contract → [#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)
+- Resolved: per-endpoint middleware is set on the route, with a callback map keyed by endpoint name ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract), [#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Acceptance
 [#89 Done when](https://github.com/Laratypes/Laratype/issues/89)
@@ -430,10 +430,10 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint.
 [`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
-- No JSON wire types yet (`Date` stays `Date`). See the open question below.
+- The projection keeps the schema output (`Date` stays `Date`). The client applies `Jsonify<>` to it ([#110](https://github.com/Laratypes/Laratype/issues/110)).
 
 ### Open questions
-- Response wire type (`Jsonify<>`) → [#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)
+- Resolved: the response wire type is `Jsonify<output>` ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
 
 ### Acceptance
 [#93 Done when](https://github.com/Laratypes/Laratype/issues/93)

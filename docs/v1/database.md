@@ -8,7 +8,7 @@ last-verified: 2026-10-10
 
 # Database, placeholder
 
-> **Placeholder.** The v1 database API waits for the ORM decision, S5 [#88](https://github.com/Laratypes/Laratype/issues/88): Kysely, or keep TypeORM. Until S5 closes, each section's Design note only restates its issue's tasks. No section gains signatures before S5's ADR is posted. S5 also defines the minimal `BindableModel` interface (find by key, primary key metadata) that model binding needs ([http.md › Model binding](./http.md#model-binding)).
+> **Placeholder.** The v1 database API waits for the ORM decision, S5 [#88](https://github.com/Laratypes/Laratype/issues/88): Kysely, or keep TypeORM. S5 runs in two steps: the `BindableModel` interface first, then an ADR that picks the ORM. Until S5 closes, each section's Design note only restates its issue's tasks. No section gains signatures before S5's ADR is posted. S5 also defines the minimal `BindableModel` interface (find by key, primary key metadata) that model binding needs ([http.md › Model binding](./http.md#model-binding)).
 
 **State on master (0.5):** `@laratype/database` is built on TypeORM (`typeorm` `^0.3.20` in its `package.json`). It has an Eloquent-style `Model` in `packages/database/src/eloquent/Model.ts`, plus factories and seeders under `packages/database/src/factories` and `seeders`.
 

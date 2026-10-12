@@ -144,13 +144,13 @@ planned → [#168](https://github.com/Laratypes/Laratype/issues/168) (ST1, M3, `
 ### Design (non-binding)
 - **Disks:** local, and s3 (`@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`) with a custom endpoint for R2 and MinIO. Built on the [Manager](#driver-manager).
 - **Operations:** `put`, `get`, `stream`, `delete`, `exists`, `url`, `temporaryUrl`, `copy`, `move`.
-- **Uploads:** `UploadedFile.store()` for multipart uploads parsed by the request pipeline ([http.md › Request pipeline](./http.md#request-pipeline)).
+- **Uploads:** the request pipeline gives multipart file fields as the web `File` ([validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). ST1 decides whether storage wraps it as `UploadedFile` with `store()`.
 - **Testing:** `Storage.fake()`.
 - **CLI:** `sauf storage:link` ([cli.md](./cli.md#command-list)).
 - **Config:** a typed `config/filesystems.ts`.
 
 ### Open questions
-- `UploadedFile` is not specified in the request pipeline yet → [#106](https://github.com/Laratypes/Laratype/issues/106)
+- Whether to wrap the web `File` as `UploadedFile` → [#168](https://github.com/Laratypes/Laratype/issues/168)
 
 ### Acceptance
 [#168 Done when](https://github.com/Laratypes/Laratype/issues/168)
@@ -174,7 +174,7 @@ planned → [#169](https://github.com/Laratypes/Laratype/issues/169) (Q1, M3, `@
 - **Deployment:** the Heroku `Procfile` stub runs `worker: sauf queue:work` ([#172](https://github.com/Laratypes/Laratype/issues/172)). Vercel has no long-running queue worker ([#173](https://github.com/Laratypes/Laratype/issues/173)).
 
 ### Open questions
-- How a model is serialized by primary key before the ORM is chosen → [#88](https://github.com/Laratypes/Laratype/issues/88)
+- Resolved: jobs serialize models through the `BindableModel` interface (primary-key metadata), which S5 settles before the ORM is chosen ([#88](https://github.com/Laratypes/Laratype/issues/88)).
 
 ### Acceptance
 [#169 Done when](https://github.com/Laratypes/Laratype/issues/169)
@@ -227,7 +227,7 @@ planned → [#167](https://github.com/Laratypes/Laratype/issues/167) (I1, M3, `@
 - **FE:** an optional JSON export per locale.
 
 ### Open questions
-- Where `lang/` sits in the project layout ([overview.md › Project structure](./overview.md#project-structure)) → [#167](https://github.com/Laratypes/Laratype/issues/167)
+- Resolved: `lang/` sits at the project root ([overview.md › Project structure](./overview.md#project-structure), [#167](https://github.com/Laratypes/Laratype/issues/167)).
 
 ### Acceptance
 [#167 Done when](https://github.com/Laratypes/Laratype/issues/167)
@@ -279,12 +279,12 @@ planned → [#177](https://github.com/Laratypes/Laratype/issues/177) (BR1, M4, `
 
 ### Design (non-binding)
 - **Events:** `ShouldBroadcast` events ([Events and listeners](#events-and-listeners)) with `broadcastOn()` and a typed payload, queued through the [Queue](#queue).
-- **Channels:** public, private and presence. Channels are declared in `routes/channels.ts`, and params are inferred from channel names (`orders.:id`), as in the contract's path params ([contract.md › Path params](./contract.md#path-params)).
+- **Channels:** public, private and presence. Channels are declared in `app/routes/channels.ts`, and params are inferred from channel names (`orders.:id`), as in the contract's path params ([contract.md › Path params](./contract.md#path-params)).
 - **Auth:** a `/broadcasting/auth` endpoint that uses `auth()` ([auth.md › auth() middleware](./auth.md#auth-middleware)).
 - **Drivers:** the Pusher protocol (Pusher, Soketi), redis pub/sub, a built-in WebSocket server (`@hono/node-ws` / Bun), log and null. Built on the [Manager](#driver-manager).
 
 ### Open questions
-- Where `routes/channels.ts` sits in the project layout ([overview.md › Project structure](./overview.md#project-structure)) → [#177](https://github.com/Laratypes/Laratype/issues/177)
+- Resolved: `app/routes/channels.ts` sits next to `api.ts` ([overview.md › Project structure](./overview.md#project-structure), [#177](https://github.com/Laratypes/Laratype/issues/177)).
 
 ### Acceptance
 [#177 Done when](https://github.com/Laratypes/Laratype/issues/177)

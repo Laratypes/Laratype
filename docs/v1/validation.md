@@ -54,7 +54,7 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 planned → [#106](https://github.com/Laratypes/Laratype/issues/106) (H3). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Design (non-binding)
-- **Parsing (#106):** params, query and body are parsed by contract (JSON, form, multipart), and query values are coerced.
+- **Parsing (#106):** params, query and body are parsed by contract (JSON, form, multipart), and query values are coerced. A multipart file field is the standard web `File` that Hono's `parseBody()` returns, so contracts stay browser-safe.
 - **Validation:** each slot goes through `validate()` (C3). On failure the response is **422** with the `errors.validation` body, `{ message, errors: ErrorBag }`.
 - **Context:** the handler context is built from the validated **output** types (`InferOut`), so handlers see coerced and defaulted values.
 - **Done when:** runtime tests cover valid input, invalid input (422) and coercion.

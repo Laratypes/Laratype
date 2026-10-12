@@ -69,6 +69,7 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 - Handlers are **class methods**, and each one annotates its first parameter `Ctx<typeof contract.endpoint, Requires>`. `implements` doesn't contextually type params (TS #23911), so the annotation is required.
 - `Requires` is what the handler **needs from the route**: middleware extensions (for example `user`) and `.bind()`-resolved params.
 - `ctx.query` and `ctx.body` use the schema **output**, because they hold validated values.
+- `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it ([#105](https://github.com/Laratypes/Laratype/issues/105)).
 - **Return value:** a handler returns the response schema **input**, since the serializer runs afterwards. For an error it returns `fail(errorDef, body)`, but only for errors **declared** on the endpoint.
 - `implements ControllerOf<typeof c>` is optional. With it, a wrong return shape or a missing handler is reported at the method. Without it, the error appears at `r.contract()`.
 - The runtime always calls `instance[key](ctx)`, never a detached reference (option A methods lose `this`).
@@ -85,7 +86,7 @@ None compiled yet. The usage above is the S1 fixture `s1-controller/app/controll
 - No contextual typing of handler params.
 
 ### Open questions
-- `ctx.endpoint`: a runtime field (useful for interceptors and logging), or phantom only? → [#105](https://github.com/Laratypes/Laratype/issues/105)
+- Resolved: `ctx.endpoint` is a read-only runtime field ([#105](https://github.com/Laratypes/Laratype/issues/105)).
 
 ### Acceptance
 [#84](https://github.com/Laratypes/Laratype/issues/84) (decision) · [#105 Done when](https://github.com/Laratypes/Laratype/issues/105)
@@ -142,8 +143,8 @@ r.middleware(auth()).bind({ user: User }).contract(users, UserController);
 - No runtime re-check of what the types already prove.
 
 ### Open questions
-- Per-endpoint middleware inside one contract (for example `auth()` only on `destroy`) → [#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)
-- Optional path params with `.bind()` (`Model | undefined`?) → [#118](https://github.com/Laratypes/Laratype/issues/118)
+- Resolved: middleware for a single endpoint of a contract goes in a callback map keyed by endpoint name ([#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)).
+- Resolved: an optional path param with `.bind()` is typed `Model | undefined`. An absent param gives `undefined`; a present param with no match gives 404 ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - Type performance of `VerifyController` with 50+ endpoints → [#95](https://github.com/Laratypes/Laratype/issues/95) (S6)
 
 ### Acceptance
@@ -219,7 +220,7 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 - **Done when:** runtime tests for 200, 201 and 204.
 
 ### Open questions
-- Wire type of the response (`Date` → `string`) → [#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)
+- Resolved: the frontend sees the response as `Jsonify<output>` (`Date` → `string`) ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
 
 ### Acceptance
 [#107 Done when](https://github.com/Laratypes/Laratype/issues/107)
@@ -233,7 +234,7 @@ planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
 
 ### Design (non-binding)
 - **`HttpException`:** built from an `ErrorDef` ([contract.md › Error catalog](./contract.md#error-catalog)) and mapped to the contract's error response `{ status, body }`.
-- **Unknown errors:** a 500 that doesn't leak details.
+- **Unknown errors:** a 500 with the body `{ message: "Server Error" }` (`MessageBody`), with no details ([#108](https://github.com/Laratypes/Laratype/issues/108)). A dev-mode detail view is out of scope for M1.
 - **Replaces:** `Response.resolveException`.
 - **Strict mode:** a dev `--strict-contract` mode checks that a thrown error is declared in `.errors()` → [Strict contract mode](#strict-contract-mode) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
 - **Done when:** runtime tests for the 404, 403, 422 and 500 bodies.

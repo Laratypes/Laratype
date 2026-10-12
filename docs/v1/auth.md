@@ -61,6 +61,8 @@ planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3, M2). R
 ### Design (non-binding)
 Abilities are `keyof Policy`, and `Gate.allows` and `user.can()` are typed. An unknown ability is a type error. This replaces the 0.5 string abilities.
 
+A policy is linked to its model explicitly, with `Gate.policy(Model, Policy)` in a service provider, as in Laravel's `Gate::policy` ([#121](https://github.com/Laratypes/Laratype/issues/121), [#122](https://github.com/Laratypes/Laratype/issues/122)).
+
 ### Acceptance
 [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
 

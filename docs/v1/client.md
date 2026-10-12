@@ -128,7 +128,7 @@ planned → [#110](https://github.com/Laratypes/Laratype/issues/110) (CL2).
 - Done when type tests show that narrowing by `status` gives the right body type.
 
 ### Open questions
-- The response type is the schema **output**, but it arrives as JSON (`Date` → `string`). A `Jsonify<>` / wire-type decision → [#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107).
+- Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)). Parsing by schema on the client is CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)..
 
 ### Acceptance
 [#110 Done when](https://github.com/Laratypes/Laratype/issues/110)

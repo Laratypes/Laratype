@@ -33,7 +33,7 @@ planned → [#174](https://github.com/Laratypes/Laratype/issues/174) (VW1, M3). 
 
 ### Open questions
 - The package that holds `vite()` (#174 names none) → [#174](https://github.com/Laratypes/Laratype/issues/174)
-- Where `public/` and the frontend entry sit in the project layout ([overview.md › Project structure](./overview.md#project-structure)) → [#174](https://github.com/Laratypes/Laratype/issues/174)
+- Resolved: `public/` and the frontend entry `resources/js/app.ts` sit at the project root ([overview.md › Project structure](./overview.md#project-structure), [#174](https://github.com/Laratypes/Laratype/issues/174)).
 
 ### Acceptance
 [#174 Done when](https://github.com/Laratypes/Laratype/issues/174)
