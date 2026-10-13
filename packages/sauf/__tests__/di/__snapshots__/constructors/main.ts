@@ -13,7 +13,7 @@ __laratype_deps(Overloads, [() => Clock, { unresolved: "string", index: 1 }], { 
 export abstract class Base {
   constructor(public clock: Clock) {}
 }
-__laratype_deps(Base, [() => Clock], { params: ["clock"] });
+__laratype_deps(Base, [() => Clock], { params: ["clock"], abstract: true });
 export class FromAbstract extends Base {}
 
 export class Params {

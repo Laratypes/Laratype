@@ -8,6 +8,10 @@
  * `import type`, type params, unions, globals...). Params are never skipped, so
  * indices always line up with the real constructor.
  *
+ * An `abstract` class also gets `abstract: true` in its meta (DOC10 Q9, #112). One without its own
+ * constructor gets a flag-only call, `__laratype_deps(Cls, null, { params: [], abstract: true })`:
+ * no deps entry, so a subclass still inherits the nearest ancestor's constructor deps.
+ *
  * Ported from the S3 spike (#86, `spikes/v1/s3-di`).
  */
 import { parseSync, visitorKeys } from 'oxc-parser';
@@ -93,8 +97,8 @@ const identifiersWithPrefix = (root: AstNode, prefix: string): Set<string> => {
 };
 
 export function transformDi(code: string, id: string, options: DiTransformOptions = {}): DiTransformResult | null {
-  // Fast pre-check: only classes with an own constructor emit anything.
-  if (!code.includes('constructor')) return null;
+  // Fast pre-check: only classes with an own constructor, or abstract classes, emit anything.
+  if (!code.includes('constructor') && !code.includes('abstract')) return null;
 
   const helperId = options.helperId ?? DI_VIRTUAL_ID;
   const injectNames = new Set(['Inject', ...(options.injectNames ?? [])]);
@@ -326,16 +330,19 @@ export function transformDi(code: string, id: string, options: DiTransformOption
     return { name, typeAnnotation: p.typeAnnotation?.typeAnnotation, decorators, optional };
   };
 
-  /** `[slots], meta` for a class with an own constructor implementation, else null. */
+  /**
+   * `[slots], meta` for a class with an own constructor implementation, `null, meta` (flag only)
+   * for an abstract class without one, else null.
+   */
   const depsArgs = (cls: AstNode): string | null => {
     if (cls.declare) return null;
+    const abstract = cls.abstract === true;
     const ctor = cls.body.body.find((m: AstNode) =>
       m.type === 'MethodDefinition' && m.kind === 'constructor' && m.value.body);
-    // No own constructor: emit nothing, the runtime walks the parent chain.
-    if (!ctor) return null;
-    const params: AstNode[] = ctor.value.params;
-    // `constructor(...args) { super(...args) }` is a pass-through: treated as "no own constructor".
-    if (params[0]?.type === 'RestElement') return null;
+    const params: AstNode[] = ctor?.value.params ?? [];
+    // No own constructor, or `constructor(...args) { super(...args) }` (a pass-through): emit no deps,
+    // the runtime walks the parent chain. An abstract class still gets its own flag.
+    if (!ctor || params[0]?.type === 'RestElement') return abstract ? 'null, { params: [], abstract: true }' : null;
 
     const slots: string[] = [];
     const names: string[] = [];
@@ -357,7 +364,7 @@ export function transformDi(code: string, id: string, options: DiTransformOption
         ? `() => ${slot.thunk}`
         : `{ unresolved: ${JSON.stringify(slot.text)}, index: ${index} }`);
     });
-    const meta = `{ params: ${JSON.stringify(names)}${optional.length ? `, optional: ${JSON.stringify(optional)}` : ''} }`;
+    const meta = `{ params: ${JSON.stringify(names)}${optional.length ? `, optional: ${JSON.stringify(optional)}` : ''}${abstract ? ', abstract: true' : ''} }`;
     return `[${slots.join(', ')}], ${meta}`;
   };
 

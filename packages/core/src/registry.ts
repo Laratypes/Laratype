@@ -5,6 +5,8 @@ import type { DepSlot, DepsEntry, DepsLookup, DepsMeta } from './deps'
  * `@laratype/core` in one bundle still see each other's registrations.
  */
 const DEPS = Symbol.for('laratype.di.deps')
+/** Own-property flag set on `abstract` classes. Separate from `DEPS` so it is never inherited through a deps entry. */
+const ABSTRACT = Symbol.for('laratype.di.abstract')
 
 /** Types `design:paramtypes` reports for things with no injectable runtime value (interfaces erase to `Object`). */
 const UNINJECTABLE: ReadonlySet<unknown> = new Set([undefined, Object, String, Number, Boolean, Symbol, BigInt, Function, Array, Promise])
@@ -13,12 +15,22 @@ const UNINJECTABLE: ReadonlySet<unknown> = new Set([undefined, Object, String, N
  * Emitted by the DI build transform (T1) after each class with an own constructor, or wrapped
  * around a class expression: `__laratype_deps(Cls, [() => Dep | () => TOKEN | { unresolved, index }], { params, optional })`.
  * Stores the entry as an own property of `Cls` and returns `Cls` unchanged.
+ * `meta.abstract` flags an abstract class. `slots: null` (an abstract class without its own constructor)
+ * stores only the flag, so the class keeps inheriting its parent's deps.
  */
-export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[], meta?: DepsMeta): T {
-  const entry: DepsEntry = meta ? { slots, meta } : { slots }
+export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[] | null, meta?: DepsMeta): T {
   // Configurable so a re-run of the same module (HMR) can register again.
-  Object.defineProperty(cls, DEPS, { value: entry, configurable: true, enumerable: false, writable: false })
+  if (meta?.abstract) Object.defineProperty(cls, ABSTRACT, { value: true, configurable: true, enumerable: false, writable: false })
+  if (slots) {
+    const entry: DepsEntry = meta ? { slots, meta } : { slots }
+    Object.defineProperty(cls, DEPS, { value: entry, configurable: true, enumerable: false, writable: false })
+  }
   return cls
+}
+
+/** Whether the transform flagged `cls` itself as `abstract`. Own property only: a concrete subclass is never abstract. */
+export function isAbstract(cls: Function): boolean {
+  return Object.prototype.hasOwnProperty.call(cls, ABSTRACT)
 }
 
 /** Whether `cls` itself was registered (it has an own constructor that the transform saw). */

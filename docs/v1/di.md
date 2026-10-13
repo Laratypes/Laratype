@@ -20,7 +20,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Container](#container) | merged @ cfa85c3 |
 | [Dependency metadata](#dependency-metadata) | merged @ cfa85c3 |
 | [Deps registry](#deps-registry) | merged @ 36ba917 |
-| [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag planned → #101 |
+| [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag merged (#101) |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | planned → #98 |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
@@ -122,7 +122,7 @@ export class Container {
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
-- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class's own entry only, never an inherited one. Code planned → [#101](https://github.com/Laratypes/Laratype/issues/101) (flag), [#100](https://github.com/Laratypes/Laratype/issues/100) (error).
+- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)); the error is planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
 
 ### Diagnostics
 `DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`):
@@ -167,7 +167,7 @@ merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
 ```ts
 export interface UnresolvedSlot { unresolved: string; index: number }
 export type DepSlot = (() => unknown) | UnresolvedSlot;   // lazy thunk to the key, or a marker for a type with no runtime value
-export interface DepsMeta { params: string[]; optional?: number[] }
+export interface DepsMeta { params: string[]; optional?: number[]; abstract?: true }  // abstract: see isAbstract()
 export interface DepsEntry { slots: DepSlot[]; meta?: DepsMeta }
 export interface DepsLookup { get(cls: Function): DepsEntry | undefined }   // a Map/WeakMap satisfies it
 export const noDeps: DepsLookup;                          // default: no metadata
@@ -205,8 +205,9 @@ merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)).
 [`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64)
 
 ```ts
-export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[], meta?: DepsMeta): T;  // returns cls unchanged
+export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[] | null, meta?: DepsMeta): T;  // returns cls unchanged
 export function hasOwnDeps(cls: Function): boolean;
+export function isAbstract(cls: Function): boolean;  // own flag only, never inherited
 export function getDeps(cls: Function): { owner: Function; entry: DepsEntry } | undefined;
 export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry })
 ```
@@ -215,6 +216,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
 - `__laratype_deps` is the call the [DI transform](#di-transform) emits. It stores the entry as an **own, non-enumerable, configurable** property under `Symbol.for('laratype.di.deps')`:
   - `configurable`, so an HMR re-run can register the class again;
   - `Symbol.for`, so two copies of `@laratype/core` in one bundle agree on the key.
+- `meta.abstract` also sets an own flag under `Symbol.for('laratype.di.abstract')`, read by `isAbstract()`. With `slots: null` only the flag is stored, and no deps entry ([DI transform › Abstract classes](#di-transform)).
 - `getDeps` walks from `cls` up the prototype chain. At each class it uses, in order:
   1. its own registered entry;
   2. otherwise its own `design:paramtypes`, for third-party decorated classes, only when `reflect-metadata` is loaded;
@@ -245,7 +247,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is planned → [#101](https://github.com/Laratypes/Laratype/issues/101), which stays open for it. Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -275,8 +277,11 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 
 ### Invariants
 - **Which classes:** every class with an **own constructor implementation** emits a call. A class with no own constructor emits nothing, so the runtime walks to the parent. An explicit `constructor() {}` emits `[]`. `constructor(...args) { super(...args) }` (first param is a rest) counts as no own constructor. `declare class` and overload signatures are skipped.
-- **Abstract classes** (planned → [#101](https://github.com/Laratypes/Laratype/issues/101), decided on [#112](https://github.com/Laratypes/Laratype/issues/112)): every `abstract` class also emits an entry, including one with no own constructor (empty params), and the entry flags it as abstract. The flag is never inherited. The container uses it for the runtime guard ([Container](#container)).
-- **Returns `null`** when the file contains no `constructor` (a fast pre-check), when nothing is emitted, or on a syntax error, which SWC then reports.
+- **Abstract classes** (decided on [#112](https://github.com/Laratypes/Laratype/issues/112)): every `abstract` class is flagged with `abstract: true` in its meta.
+  - With an own constructor, the flag is added to the normal call: `__laratype_deps(Port, [() => Clock], { params: ["clock"], abstract: true })`.
+  - Without one (or with a rest pass-through), the call is flag-only: `__laratype_deps(Mid, null, { params: [], abstract: true })`. `null` slots register no deps entry, so a subclass still inherits the nearest ancestor's constructor deps.
+  - The flag is stored apart from the deps entry and read with `isAbstract(cls)`, which checks the class itself only. It is never inherited. The container uses it for the runtime guard ([Container](#container)).
+- **Returns `null`** when the file contains neither `constructor` nor `abstract` (a fast pre-check), when nothing is emitted, or on a syntax error, which SWC then reports.
 - **Slots,** one per param, never skipped (a trailing rest gets none):
 
   | Param type | Slot |
