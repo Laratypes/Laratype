@@ -15,12 +15,12 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | Section | Status |
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
-| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; entry superseded by planned → #133, #228 |
+| [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [createClient](#createclient) | planned → #109 |
 | [Result union](#result-union) | planned → #110 |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
 | [Path-style calls](#path-style-calls) | planned → #140 |
-| [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | planned → #133 |
+| [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
 | [Dev-mode response validation](#dev-mode-response-validation) | planned → #159 |
@@ -62,18 +62,18 @@ None yet.
 ## FE import rule
 
 ### Status
-Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, merged @ e2eac4b (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is superseded by planned → [#133](https://github.com/Laratypes/Laratype/issues/133), [#228](https://github.com/Laratypes/Laratype/issues/228): the FE imports the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`) or a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
+Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced by the C5 FE fixtures, merged @ e2eac4b (`packages/contract/__tests__/fixtures/fe/*`, compiled with `types: []` and the DOM lib). The entry module is the generated `appApi`, merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)): the FE imports it from `$api` (`.laratype/api/index.gen.ts`) or imports a contract file from the [folder tree](./contract.md#contract-folder-tree). The rule itself (contracts only, never server code) is unchanged.
 
 ### Public API
-None of its own. The FE entry is `app/contracts/index.ts`:
+None of its own. The FE entry is `.laratype/api/index.gen.ts`, written by `sauf types:generate` and imported as `$api`:
 
 ```ts
-export const appApi = defineApi({ users, posts })   // see contract.md › defineApi
+export const appApi = defineApi({ 'users': { contract, path, scopes }, 'users.posts': { ... } })   // see contract.md › defineApi
 export type AppApi = typeof appApi
 ```
 
 ### Invariants
-- The FE imports **only** `app/contracts/index.ts` (`appApi` / `AppApi`), never `typeof routes`. In the S2 fixture, `tsc --listFilesOnly` loads 0 server files this way and 8 through `typeof routes`.
+- The FE imports **only** `$api` (`appApi` / `AppApi`) or contract files, never `typeof routes`. In the S2 fixture, `tsc --listFilesOnly` loads 0 server files this way and 8 through `typeof routes`.
 - `AppRouter` is retired. The FE type is `AppApi`, projected with `ApiTypes<AppApi>`.
 - Contracts and docs write `import * as z from "zod"` (tree-shaking) and `z.coerce.number<number>()` with zod 4.
 - FEs need TypeScript ≥ 5.4.
@@ -170,13 +170,16 @@ planned → [#140](https://github.com/Laratypes/Laratype/issues/140) (CL4, M3).
 ## Separate-repo FE (generated manifest)
 
 ### Status
-planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1). Generation is specified in [typegen.md](./typegen.md).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). Generation is specified in [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate).
+
+### Invariants
+- **S2 option (c):** `sauf types:generate` writes one `api.ts` (default `.laratype/api.ts`, `--api-out` to place it in the FE repo). It holds a flattened `AppApi` type alias and a slim runtime manifest keyed by route name (method, full path, the derived and declared error codes). It has no import, no contract lib and no schema lib.
+- A separate FE compiles against `api.ts` alone, with `types: []` and the DOM lib; the test loads no other file (`packages/sauf/__tests__/typegen/generate.test.ts`).
+- The generated `AppApi` satisfies `ApiShape<A>` and is mutually assignable with `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection)).
+- S2 measured the FE program at 2 generated or own files and 4 client files, about 0.7 KiB gzip in total.
 
 ### Design (non-binding)
-- **S2 option (c):** `sauf types:generate` writes one `api.ts`, containing a flattened `AppApi` type alias plus a slim runtime manifest (method, path, the error codes derived for each endpoint). It has no contract lib and no schema lib.
-- The FE program then holds 2 generated or own files and 4 client files, about 0.7 KiB gzip in total (S2).
-- The same manifest is an opt-in for monorepo FEs that want schema-free bundles.
-- Generated API types must satisfy `ApiShape<A>` as a self-constraint, which `interface` declarations do (see [contract.md › API type projection](./contract.md#api-type-projection)).
+- The same manifest is an opt-in for monorepo FEs that want schema-free bundles. Typing it for the client (`Manifest<AppApi>`) belongs to CL1 [#109](https://github.com/Laratypes/Laratype/issues/109).
 
 ### Acceptance
 [#133 Done when](https://github.com/Laratypes/Laratype/issues/133)

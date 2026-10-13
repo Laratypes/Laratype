@@ -1,7 +1,7 @@
 ---
 area: contract
 packages: ["@laratype/contract"]
-issues: [89, 90, 91, 92, 93, 94, 162, 228]
+issues: [89, 90, 91, 92, 93, 94, 133, 162, 228]
 verified-against: Laratype@e2eac4b
 last-verified: 2026-10-13
 ---
@@ -20,9 +20,9 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` planned → #133 |
+| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); planned → #133, #142, #104 |
+| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); planned → #142, #104 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` planned → #104 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
@@ -369,7 +369,7 @@ Type-level: a plain record of endpoints is not assignable to `Contract`. An endp
 ## defineApi and route names
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). Generating the `appApi` module (`.laratype/api/index.gen.ts`) is planned → [#133](https://github.com/Laratypes/Laratype/issues/133).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)).
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
@@ -404,7 +404,7 @@ export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRout
 export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name>;
 ```
 
-The module `.laratype/api/index.gen.ts` (G1 [#133](https://github.com/Laratypes/Laratype/issues/133)) calls `defineApi` with one entry per contract file:
+The module `.laratype/api/index.gen.ts`, written by `sauf types:generate`, calls `defineApi` with one entry per contract file:
 
 ```ts
 export const appApi = defineApi({
@@ -443,7 +443,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 
 ### Non-goals
 - No server registration. The router reads `apiRoutes()` (H1/H2).
-- No folder scan. Generating the entries is G1 [#133](https://github.com/Laratypes/Laratype/issues/133); scanning at runtime is H1 [#104](https://github.com/Laratypes/Laratype/issues/104).
+- No folder scan in `@laratype/contract`. `sauf types:generate` generates the entries ([typegen.md](./typegen.md#sauf-typesgenerate)); scanning at runtime is H1 [#104](https://github.com/Laratypes/Laratype/issues/104).
 
 ### Open questions
 - None recorded.
@@ -508,7 +508,7 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and s
 ## Contract folder tree
 
 ### Status
-The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The generated types and `appApi` are planned → [#133](https://github.com/Laratypes/Laratype/issues/133) (G1), the watch → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2), and the runtime scan → [#104](https://github.com/Laratypes/Laratype/issues/104) (H1).
+The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The watch is planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2), and the runtime scan → [#104](https://github.com/Laratypes/Laratype/issues/104) (H1).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -539,24 +539,34 @@ export default defineContract<Prefix>()({
 - **Source of truth:** the folder tree is the only source of a contract's URL prefix and name. The contract file holds neither.
 - **The extra `()`:** `defineContract<Prefix>()(...)` and `defineScope<ScopePrefix>()(...)` are curried because TypeScript has no partial type-argument inference: with `Prefix` passed explicitly, the endpoints and options could not be inferred in the same call.
 
-Generated `$types.d.ts` for `app/api/users/[user]/` (G1 [#133](https://github.com/Laratypes/Laratype/issues/133) emits it; the shape is fixed here):
+- **Root:** the tree root and its URL base are CLI flags today (`sauf types:generate --root --base --out`, default `app/api` → `/api`, output `.laratype`). The config-file key is planned → [#104](https://github.com/Laratypes/Laratype/issues/104).
+- **What is in the tree:** every `*.ts` file under the root is a contract, except:
+  - `_scope.ts`, which is read as the [folder scope](#folder-scopes);
+  - every other file or folder whose name starts with `_` or `$` (for example `_errors.ts` or `$types.d.ts`), which is skipped as private;
+  - `*.d.ts`, `*.test.ts` and `*.spec.ts`.
+
+  Domain errors therefore live in `_errors.ts` or outside the tree.
+- **Index files:** `users.ts` and `users/index.ts` are equivalent. Both give `/api/users` and `api.users`. Having both is a scan error. A root `index.ts` has no name and is a scan error.
+- **Unique names:** `[x]` folders are dropped from names, so `users/posts.ts` and `users/[user]/posts.ts` would both be `api.users.posts` (`users.posts.*`). Two contracts with the same client or route name are a scan error.
+- **Param folders:** `[name]` only, where `name` is an identifier. Optional and rest param folders (`[x?]`, `[[x]]`, `[...x]`) are scan errors.
+- **Names:** folder and file names use letters, digits, `_` and `-`. A `.` in a file name is a scan error.
+- **Versioning:** through folders. `app/api/v1/users.ts` gives `/api/v1/users` and `api.v1.users`.
+- **Route names:** the folder names plus the endpoint key, for example `users.posts.update` ([defineApi and route names](#defineapi-and-route-names), [URL builder](#url-builder)).
+- **Scan:** `sauf types:generate` reads file and folder names only, never file contents ([typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate)). It writes:
+  - one `$types.d.ts` per folder that holds a contract or a scope, under `.laratype/types/<root>/<folder>/`. It is overlaid next to the sources through tsconfig `rootDirs` (`[".", ".laratype/types"]`), so `./$types` resolves (the SvelteKit model);
+  - `.laratype/api/index.gen.ts`, with the aggregated `appApi` built with [`defineApi`](#defineapi-and-route-names). It is a runtime module, not a declaration file, because it holds the contract values and their schemas. The server and the FE import it through the `$api` path alias (`import { appApi } from '$api'`), which tsconfig `paths` (`"$api": ["./.laratype/api/index.gen.ts"]`) and the alias step of the [plugin chain](./build.md#plugin-chain) resolve. It is a convenience: controllers and the FE can also import a contract file directly, with full types.
+- **`.laratype/` is generated** and belongs in `.gitignore`.
+
+Generated `$types.d.ts` for `app/api/users/[user]/`, with a scope in `app/api/` and one in `app/api/users/[user]/`:
 ```ts
 import type { ContractPrefix } from '@laratype/contract'
-export type Prefix = ContractPrefix<'/api/users/:user', [typeof import('./_scope').default]>
-export type ScopePrefix = ContractPrefix<'/api/users/:user', []>
+export type Prefix = ContractPrefix<'/api/users/:user', [typeof import('../../_scope').default, typeof import('./_scope').default]>
+export type ScopePrefix = ContractPrefix<'/api/users/:user', [typeof import('../../_scope').default]>
 ```
 
 ### Design (non-binding)
-The parts that G1, G2 and H1 will build:
-- **Root:** the API root folder and its base path are configuration. The default is `app/api` → `/api`.
-- **Index files:** `users.ts` and `users/index.ts` are equivalent. Both give `/api/users` and `api.users`. Having both is a scan error.
-- **Unique names:** `[x]` folders are dropped from names, so `users/posts.ts` and `users/[user]/posts.ts` would both be `api.users.posts` (`users.posts.*`). Two contracts with the same client or route name are a scan error.
-- **Versioning:** through folders. `app/api/v1/users.ts` gives `/api/v1/users` and `api.v1.users`.
-- **Route names:** the folder names plus the endpoint key, for example `users.posts.update` ([defineApi and route names](#defineapi-and-route-names), [URL builder](#url-builder)).
-- **Scope files:** `_scope.ts` is a [folder scope](#folder-scopes), not a contract.
-- **Generated types:** `sauf dev` and `sauf types:generate` scan the tree for file add, rename and delete, never file contents. They write:
-  - a per-folder `$types.d.ts` under `.laratype/types/...` with `Prefix` and `ScopePrefix`, overlaid next to the sources through tsconfig `rootDirs`, so `./$types` resolves (the SvelteKit model);
-  - `.laratype/api/index.gen.ts` with the aggregated `appApi`, built with [`defineApi`](#defineapi-and-route-names). It is a runtime module, not a declaration file, because it holds the contract values and their schemas. The server and the FE import it through the `$api` path alias (`import { appApi } from '$api'`), which tsconfig `paths` and the alias step of the [plugin chain](./build.md#plugin-chain) resolve. It is a convenience: controllers and the FE can also import a contract file directly, with full types ([typegen.md](./typegen.md#sauf-typesgenerate)).
+The parts that G2 and H1 will build:
+- **Watch:** `sauf dev` rescans the tree on file add, rename and delete, and regenerates the files above ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 - **Runtime:** in dev the server scans the tree at startup and rescans on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production it reads the manifest the build writes ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
@@ -740,7 +750,7 @@ export function defineError<const St extends number, const Code extends string, 
 ```
 
 ```ts
-// app/api/errors.ts, an FE-importable module
+// app/api/_errors.ts, an FE-importable module ("_": not a contract)
 export const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ message: 'The email is taken.', email }))
 
 // a service, at any depth: no propagation code

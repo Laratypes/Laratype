@@ -180,6 +180,12 @@
         "handlebars": "^4.7.8",
         "kolorist": "^1.8.0",
       },
+      "peerDependencies": {
+        "typescript": ">=5",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
     },
     "packages/schedule": {
       "name": "@laratype/schedule",

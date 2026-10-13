@@ -20,7 +20,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 
 | Section | Status |
 |---|---|
-| [Command list](#command-list) | planned → #126, #133, #104, #134, #148, #149, #168, #169, #171, #179, #180 |
+| [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); planned → #126, #104, #134, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | planned → #126, #102, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
 | [make:* generators](#make-generators) | planned → #134 |
@@ -39,7 +39,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 |---|---|---|---|
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
-| `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | planned → #133 | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry | planned → #104 | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | planned → #134 | [make:* generators](#make-generators) |
