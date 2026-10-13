@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -22,7 +22,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Deps registry](#deps-registry) | merged @ 36ba917 |
 | [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag planned → #101 |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
-| [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | planned → #98 |
+| [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | planned → #100 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
@@ -149,7 +149,7 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ### Open questions
 - Resolved: autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Interim behaviour:**
-  - The container does not yet detect `@Inject`-vs-thunk conflicts (S3 condition 3). That arrives with the runtime decorator records ([#98](https://github.com/Laratypes/Laratype/issues/98)) and the fix-hint messages ([#100](https://github.com/Laratypes/Laratype/issues/100)).
+  - The container detects `@Inject`-vs-thunk conflicts (S3 condition 3) through the runtime decorator records ([Decorators](#decorators-inject-and-injectable)). The fix-hint messages are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
 
 ### Acceptance
 [#96 Done when](https://github.com/Laratypes/Laratype/issues/96)
@@ -383,15 +383,46 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 ## Decorators: @Inject and @Injectable
 
 ### Status
-planned → [#98](https://github.com/Laratypes/Laratype/issues/98) (D3). No runtime `Inject` or `Injectable` exists in any package yet. The T1/T3 tests use a test-only stub (`packages/sauf/__tests__/di/support/runtime.ts`). Both will be exported from `@laratype/core`. Signatures are not specified until #98 lands.
+merged ([#98](https://github.com/Laratypes/Laratype/issues/98)).
 
-### Design (non-binding)
-- `@Inject(token)` is a parameter decorator for interfaces, primitives and generics. The transform already reads it syntactically and emits `() => TOKEN`. At runtime it must still record `(class, index) → token`, so the container can detect a disagreement with the transform. That happens with wrapper decorators, which the transform can't see (S3 finding #9: `Conflicting metadata for <C> constructor param #<i> ...`).
-- `@Injectable({ scope })` is optional, for non-default scopes only.
-- It must work with the SWC legacy decorator config in `packages/sauf/src/bin/warmup.ts`.
+### Public API
+[`decorators.ts`](../../packages/core/src/decorators.ts)
+
+```ts
+export interface InjectableOptions { scope?: Scope }   // default 'transient'
+export function Inject<T>(token: Token<T>):
+  (target: object, propertyKey: string | symbol | undefined, parameterIndex: number) => void;   // constructor param decorator
+export function Injectable(options?: InjectableOptions): (target: Function) => void;           // class decorator
+```
+
+### Invariants
+- **Legacy decorators only:** both are TypeScript `experimentalDecorators`. They work with the SWC config in `packages/sauf/src/bin/warmup.ts` (`legacyDecorator: true`), with `decoratorMetadata` on or off.
+- **`@Inject(token)`** marks a constructor param that has no runtime class (an interface, a primitive, or a generic that needs its own key). The [DI transform](#di-transform) reads it syntactically and emits `() => TOKEN`. At runtime the decorator also records `index → token` as an own, non-enumerable, configurable property of the class, under `Symbol.for('laratype.di.inject')`.
+- **How the container uses the record**, for the class that owns the constructor (`getDeps(cls).owner`, so a class without its own constructor uses its parent's records):
+  - An `{ unresolved }` slot, or a thunk that returns `undefined`, resolves the record's token. This covers a wrapper decorator (`const InjectMailer = () => Inject(MAILER)`), which the transform can't see.
+  - A thunk that returns a different key throws the conflict error below.
+  - The record takes precedence over `optional`, so an unbound token still throws `No binding for <key>.`
+- **`@Injectable({ scope })`** is optional and is needed only for a non-default lifetime. The scope belongs to the class itself and is not inherited by subclasses.
+  - An autowired class (no binding) with `scope: 'singleton'` is built once per container tree. The root container builds and caches it, so a child's overrides never leak into it, and `has()` stays `false`.
+  - `bind(Cls)` and `bind(TOKEN, Cls)` without a `scope` option use the class's scope. An explicit `scope`, `singleton()` or `transient()` wins.
+  - `@Injectable()` without a scope changes nothing: the class stays transient.
+
+### Diagnostics
+`DiError` messages (exact text):
+- `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` Fix hints are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+- `@Inject() is only supported on constructor parameters (found on \`<method>\`).` This is thrown when the class is defined. Method injection is planned → [#158](https://github.com/Laratypes/Laratype/issues/158).
+
+Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and `Injectable({ scope: 'request' })`.
+
+### Example
+[`examples/di/decorators.ts`](./examples/di/decorators.ts). SWC pipeline fixture: `packages/sauf/__tests__/di/fixtures/inject-core/`.
+
+### Non-goals
+- No TC39 (stage 3) decorators: they have no parameter decorators.
+- No `request` scope yet (see [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Open questions
-- Export location (`@laratype/core`) and a T1 fixture that imports `Inject` from it → [#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050).
+- Resolved: both are exported from `@laratype/core`, and the T1 fixture `inject-core` imports them from there ([#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050)).
 
 ### Acceptance
 [#98 Done when](https://github.com/Laratypes/Laratype/issues/98)
