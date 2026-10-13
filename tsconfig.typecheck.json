@@ -1,0 +1,12 @@
+{
+  // `vitest --typecheck` (C6 #94) runs tsc on this project: the type-test files plus whatever they import
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false
+  },
+  "include": [
+    "packages/*/__tests__/**/*.test-d.ts"
+  ]
+}
