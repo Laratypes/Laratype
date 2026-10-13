@@ -1,16 +1,16 @@
-import type { CockroachConnectionOptions } from "typeorm/driver/cockroachdb/CockroachConnectionOptions";
-import type { MysqlConnectionOptions } from "typeorm/driver/mysql/MysqlConnectionOptions";
-import type { PostgresConnectionOptions } from "typeorm/driver/postgres/PostgresConnectionOptions";
-import type { SqliteConnectionOptions } from "typeorm/driver/sqlite/SqliteConnectionOptions";
-import type { SqlServerConnectionOptions } from "typeorm/driver/sqlserver/SqlServerConnectionOptions";
-import type { OracleConnectionOptions } from "typeorm/driver/oracle/OracleConnectionOptions";
-import type { MongoConnectionOptions } from "typeorm/driver/mongodb/MongoConnectionOptions";
-import type { CordovaConnectionOptions } from "typeorm/driver/cordova/CordovaConnectionOptions";
-import type { ReactNativeConnectionOptions } from "typeorm/driver/react-native/ReactNativeConnectionOptions";
-import type { NativescriptConnectionOptions } from "typeorm/driver/nativescript/NativescriptConnectionOptions";
-import type { ExpoConnectionOptions } from "typeorm/driver/expo/ExpoConnectionOptions";
-import type { SapConnectionOptions } from "typeorm/driver/sap/SapConnectionOptions";
-import type { SpannerConnectionOptions } from "typeorm/driver/spanner/SpannerConnectionOptions";
+import type { CockroachConnectionOptions } from "typeorm/driver/cockroachdb/CockroachConnectionOptions.js";
+import type { MysqlConnectionOptions } from "typeorm/driver/mysql/MysqlConnectionOptions.js";
+import type { PostgresConnectionOptions } from "typeorm/driver/postgres/PostgresConnectionOptions.js";
+import type { SqliteConnectionOptions } from "typeorm/driver/sqlite/SqliteConnectionOptions.js";
+import type { SqlServerConnectionOptions } from "typeorm/driver/sqlserver/SqlServerConnectionOptions.js";
+import type { OracleConnectionOptions } from "typeorm/driver/oracle/OracleConnectionOptions.js";
+import type { MongoConnectionOptions } from "typeorm/driver/mongodb/MongoConnectionOptions.js";
+import type { CordovaConnectionOptions } from "typeorm/driver/cordova/CordovaConnectionOptions.js";
+import type { ReactNativeConnectionOptions } from "typeorm/driver/react-native/ReactNativeConnectionOptions.js";
+import type { NativescriptConnectionOptions } from "typeorm/driver/nativescript/NativescriptConnectionOptions.js";
+import type { ExpoConnectionOptions } from "typeorm/driver/expo/ExpoConnectionOptions.js";
+import type { SapConnectionOptions } from "typeorm/driver/sap/SapConnectionOptions.js";
+import type { SpannerConnectionOptions } from "typeorm/driver/spanner/SpannerConnectionOptions.js";
 import type { Strategy } from "passport"
 import { O } from "ts-toolbelt"
 

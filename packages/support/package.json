@@ -3,7 +3,7 @@
   "version": "0.5.4",
   "private": false,
   "main": "./dist/index.cjs",
-  "module": "dist/shared.esm-bundler.js",
+  "module": "./dist/index.esm.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "repository": {
@@ -20,9 +20,14 @@
   "description": "Support module for laratype framework",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./env": {
       "types": "./env.d.ts"
@@ -36,23 +41,39 @@
   },
   "dependencies": {
     "@laratype/console": "workspace:*",
-    "@laratype/core": "workspace:*"
+    "@laratype/core": "workspace:*",
+    "dotenv": "^16.4.5",
+    "glob": "^11.0.0",
+    "mlly": "^1.7.4",
+    "ts-toolbelt": "^9.6.0"
   },
   "peerDependencies": {
     "dayjs": "^1.11.13",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.20",
+    "hono": "^4.6.18",
+    "@laratype/http": "workspace:*",
+    "passport": "^0.7.0",
+    "@types/passport": "^1.0.17"
   },
   "files": [
-    "dist"
+    "dist",
+    "env.d.ts"
   ],
   "devDependencies": {
     "@laratype/http": "workspace:*",
     "@types/passport": "^1.0.17",
     "passport": "^0.7.0",
-    "dotenv": "^16.4.5",
-    "glob": "^11.0.0",
-    "hono": "catalog:",
-    "mlly": "^1.7.4",
-    "ts-toolbelt": "^9.6.0"
+    "hono": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@laratype/http": {
+      "optional": true
+    },
+    "passport": {
+      "optional": true
+    },
+    "@types/passport": {
+      "optional": true
+    }
   }
 }

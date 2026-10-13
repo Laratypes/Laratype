@@ -1,8 +1,9 @@
 // @ts-check
 // Checks the package dists built by `bun run build` (bun.build.js):
-//  1. no build inlines another workspace package (from the Bun metafiles in dist_tmp/bun-meta),
+//  1. no build inlines another workspace package, or a third-party package that its package.json
+//     declares only in devDependencies (from the Bun metafiles in dist_tmp/bun-meta),
 //  2. every package dist loads under plain Node via ESM import() and CJS require(),
-//     with every export defined,
+//     with every export defined, and every ESM chunk loads too,
 //  3. the sauf resources bundles (copied into apps by `sauf build`) pass `node --check`.
 // Usage: bun run build && bun run check:dist
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -34,6 +35,12 @@ if (process.argv[2] === '--load') {
   const [, , , mode, file, name] = process.argv
   // A bin dist (sauf) runs its CLI on load: make it print its version instead of parsing our args.
   process.argv = [process.argv[0], name, '--version']
+  if (mode === 'chunk') {
+    // Chunk exports are internal (minified names): loading and linking is the check.
+    await import(pathToFileURL(file).href)
+    console.log(JSON.stringify({ keys: 0, undefinedKeys: [], missing: [] }))
+    process.exit(0)
+  }
   const mod = mode === 'esm'
     ? await import(pathToFileURL(file).href)
     : createRequire(import.meta.url)(file)
@@ -71,9 +78,31 @@ const workspace = readdirSync(path.join(root, 'packages'))
   })
 const workspaceDirs = new Set(workspace.map(w => w.dir))
 const workspaceNames = workspace.map(w => w.name)
+const pkgByDir = new Map(workspace.map(w => [w.dir, w.pkg]))
+
+/**
+ * Package names a build inlined but whose package.json declares only in devDependencies.
+ * A runtime import of a devDependency gets bundled, which ships a second copy of it
+ * (hono's `HTTPException` / `instanceof`). Transitive packages are not listed in
+ * devDependencies, so only the package the build imports directly is reported.
+ * @param {Record<string, any> | undefined} pkg
+ * @param {string[]} inputs
+ */
+const inlinedDevDeps = (pkg, inputs) => {
+  const devOnly = Object.keys(pkg?.devDependencies ?? {})
+    .filter(name => !pkg?.dependencies?.[name] && !pkg?.peerDependencies?.[name])
+  /** @type {Record<string, number>} */
+  const counts = {}
+  for (const input of inputs) {
+    // The last node_modules segment names the package the file belongs to (hoisted or nested).
+    const name = [...input.matchAll(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//g)].at(-1)?.[1]
+    if (name && devOnly.includes(name)) counts[name] = (counts[name] ?? 0) + 1
+  }
+  return Object.entries(counts).map(([name, count]) => `${name} (${count} inputs)`)
+}
 
 // 1. Inlining
-console.log('Inlined workspace packages (Bun metafiles):')
+console.log('Inlined workspace packages and devDependencies (Bun metafiles):')
 if (!existsSync(META_DIR)) {
   fail(`${path.relative(root, META_DIR)} is missing, run \`bun run build\` first`)
 }
@@ -81,16 +110,21 @@ else {
   for (const file of readdirSync(META_DIR).sort()) {
     const meta = JSON.parse(readFileSync(path.join(META_DIR, file), 'utf-8'))
     const own = norm(meta.entrypoint).match(/(?:^|\/)packages\/([^/]+)\//)?.[1]
+    const inputs = meta.inputs.map(norm)
     const inlined = new Set()
-    for (const input of meta.inputs.map(norm)) {
+    for (const input of inputs) {
       const dir = input.match(/(?:^|\/)packages\/([^/]+)\//)?.[1]
       if (dir && dir !== own && workspaceDirs.has(dir)) inlined.add(`packages/${dir}`)
       for (const name of workspaceNames) {
         if (input.includes(`node_modules/${name}/`)) inlined.add(name)
       }
     }
+    const devDeps = inlinedDevDeps(own ? pkgByDir.get(own) : undefined, inputs)
     if (inlined.size) fail(`${file}: inlines ${[...inlined].join(', ')}`)
-    else console.log(`  ok   ${file} (${meta.inputs.length} inputs)`)
+    if (devDeps.length) {
+      fail(`${file}: inlines ${devDeps.join(', ')}, declared only in devDependencies (declare runtime imports in dependencies or peerDependencies)`)
+    }
+    if (!inlined.size && !devDeps.length) console.log(`  ok   ${file} (${meta.inputs.length} inputs)`)
   }
   for (const { dir, name } of workspace) {
     if (!existsSync(path.join(root, 'packages', dir, 'src/index.ts'))) continue
@@ -107,7 +141,20 @@ console.log('Load under Node (import() / require()):')
 for (const { dir, name, pkg } of workspace) {
   const entry = pkg.exports?.['.']
   if (!entry?.import && !entry?.require) continue
-  for (const [mode, target] of [['esm', entry.import], ['cjs', entry.require]]) {
+  // A condition is a path, or `{ types, default }` (B16 splits the types per condition).
+  /** @param {string | { default?: string } | undefined} condition */
+  const runtimeTarget = (condition) => typeof condition === 'object' ? condition.default : condition
+  /** @type {[string, string | undefined][]} */
+  const targets = [['esm', runtimeTarget(entry.import)], ['cjs', runtimeTarget(entry.require)]]
+  // ESM chunks from `splitting: true` load lazily (sauf's commands), so the entry load misses
+  // their imports, e.g. a named import from a CJS dependency that is now external.
+  const distDir = path.join(root, 'packages', dir, 'dist')
+  if (existsSync(distDir)) {
+    for (const chunk of readdirSync(distDir).filter(f => /^chunk-.*\.js$/.test(f)).sort()) {
+      targets.push(['chunk', `dist/${chunk}`])
+    }
+  }
+  for (const [mode, target] of targets) {
     if (!target) {
       fail(`${name}: exports["."] has no ${mode === 'esm' ? 'import' : 'require'} target`)
       continue
@@ -133,7 +180,7 @@ for (const { dir, name, pkg } of workspace) {
       fail(`${label}: undefined exports [${result.undefinedKeys}] missing exports [${result.missing}]`)
     }
     else {
-      console.log(`  ok   ${label} (${result.keys} exports)`)
+      console.log(`  ok   ${label}${mode === 'chunk' ? '' : ` (${result.keys} exports)`}`)
     }
   }
 }

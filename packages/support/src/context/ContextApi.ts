@@ -44,7 +44,7 @@ export default class ContextApi {
     }
   }
 
-  static run(ctx: ReturnType<typeof globalThis.requestGlobalStore.getStore>, callback: (...args: any[]) => void) {
+  static run(ctx: ReturnType<ReturnType<typeof ContextApi.getRequestStore>["getStore"]>, callback: (...args: any[]) => void) {
     if(!ctx) {
       throw new Error("Request context is not available. Make sure you are using ContextApi inside a request context.");
     }

@@ -17,9 +17,14 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": "./*"
   },
@@ -36,25 +41,27 @@
     "magic-string": "^0.30.18",
     "oxc-parser": "^0.102.0",
     "tsc-alias": "^1.8.16",
-    "vite": "^7.1.9"
-  },
-  "devDependencies": {
+    "vite": "^7.1.9",
     "@hono/node-server": "^1.19.6",
-    "@jridgewell/trace-mapping": "^0.3.25",
-    "@rollup/plugin-commonjs": "^29.0.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-replace": "^6.0.3",
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.1.2",
     "@rollup/pluginutils": "^5.3.0",
-    "@types/figlet": "^1.7.0",
     "commander": "^13.1.0",
     "figlet": "^1.8.0",
     "glob": "^11.0.0",
     "handlebars": "^4.7.8",
-    "kolorist": "^1.8.0"
+    "kolorist": "^1.8.0",
+    "rollup": "^4.34.8"
+  },
+  "devDependencies": {
+    "@jridgewell/trace-mapping": "^0.3.25",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-typescript": "^12.1.2",
+    "@types/figlet": "^1.7.0"
   },
   "buildOptions": {
+    "banner": "#!/usr/bin/env node",
     "external": [
       "vite",
       "@swc/core",
@@ -67,5 +74,17 @@
   "files": [
     "dist",
     "resources"
-  ]
+  ],
+  "peerDependencies": {
+    "@laratype/database": "workspace:*",
+    "laratype": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@laratype/database": {
+      "optional": true
+    },
+    "laratype": {
+      "optional": true
+    }
+  }
 }
