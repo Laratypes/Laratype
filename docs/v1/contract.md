@@ -537,6 +537,7 @@ export default defineContract<Prefix>()({
 - **`ScopePrefix`** is what the same `$types.d.ts` exports for the folder's `_scope.ts`. It holds the outer scopes only: a scope that appeared in its own `Prefix` would be a circular type.
 - **Folder params:** every contract below a `[x]` folder gets `x` in its params and the path-param 404, typed from `Prefix`.
 - **Source of truth:** the folder tree is the only source of a contract's URL prefix and name. The contract file holds neither.
+- **The extra `()`:** `defineContract<Prefix>()(...)` and `defineScope<ScopePrefix>()(...)` are curried because TypeScript has no partial type-argument inference: with `Prefix` passed explicitly, the endpoints and options could not be inferred in the same call.
 
 Generated `$types.d.ts` for `app/api/users/[user]/` (G1 [#133](https://github.com/Laratypes/Laratype/issues/133) emits it; the shape is fixed here):
 ```ts
@@ -560,7 +561,7 @@ The parts that G1, G2 and H1 will build:
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
 ### Open questions
-- A folder syntax for optional path params → [#228](https://github.com/Laratypes/Laratype/issues/228)
+- A folder syntax for optional path params → (new issue)
 
 ### Acceptance
 [#228 Done when](https://github.com/Laratypes/Laratype/issues/228) · [#133 Done when](https://github.com/Laratypes/Laratype/issues/133) · [#142 Done when](https://github.com/Laratypes/Laratype/issues/142)
