@@ -15,9 +15,14 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": "./*"
   },
@@ -33,5 +38,8 @@
   "description": "Validation module for laratype framework",
   "files": [
     "dist"
-  ]
+  ],
+  "peerDependencies": {
+    "zod": "^3.25.0"
+  }
 }

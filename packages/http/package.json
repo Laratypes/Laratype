@@ -16,23 +16,38 @@
   "description": "Http module for laratype framework",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": "./*"
   },
   "dependencies": {
     "@laratype/support": "workspace:*",
-    "@laratype/validation": "workspace:*"
+    "@laratype/validation": "workspace:*",
+    "es-toolkit": "^1.31.0"
   },
   "devDependencies": {
-    "es-toolkit": "^1.31.0",
     "zod": "catalog:",
     "hono": "catalog:"
   },
   "buildOptions": {},
   "files": [
     "dist"
-  ]
+  ],
+  "peerDependencies": {
+    "hono": "^4.6.18",
+    "zod": "^3.25.0",
+    "@laratype/auth": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@laratype/auth": {
+      "optional": true
+    }
+  }
 }

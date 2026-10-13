@@ -16,19 +16,22 @@
   "description": "Database module for laratype framework",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./*": "./*"
   },
   "dependencies": {
     "@laratype/log": "workspace:*",
-    "@laratype/support": "workspace:*"
-  },
-  "devDependencies": {
-    "reflect-metadata": "^0.2.2",
-    "glob": "^11.0.3"
+    "@laratype/support": "workspace:*",
+    "glob": "^11.0.3",
+    "reflect-metadata": "^0.2.2"
   },
   "buildOptions": {
     "external": [
