@@ -308,7 +308,6 @@ Output snapshots: `packages/sauf/__tests__/di/` (`bun run test:di`).
 - No method params (see [#158](https://github.com/Laratypes/Laratype/issues/158)).
 
 ### Open questions
-- Resolved: `__laratype_default` is collision-aliased, and a `__proto__` name is kept through a computed key (fixed before T1 merged, a74dd31; [#101](https://github.com/Laratypes/Laratype/issues/101)).
 - CI wiring of `bun run test:di` → [#189](https://github.com/Laratypes/Laratype/issues/189).
 
 ### Acceptance
@@ -507,7 +506,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Design (non-binding)
 - **Optional:** NestJS-style modules for large apps split by domain. An app made of plain providers keeps working.
-- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes keep `Route.prefix(...)` and `group(...)` and `imports` lists other modules.
+- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes keep `Route.prefix(...)` and `group(...)`; `imports` lists other modules.
 - **Layout:** modules sit in the optional `app/modules/` ([overview.md › Project structure](./overview.md#project-structure)).
 
 ### Open questions
