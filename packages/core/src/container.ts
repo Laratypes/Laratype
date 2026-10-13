@@ -1,6 +1,7 @@
 import { noDeps } from './deps'
 import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
+import { injectableScope, injectTokens } from './decorators'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -49,6 +50,8 @@ export class Container {
   protected readonly deps: DepsLookup
   /** Keys currently being built, shared by the whole container tree (circular dependency detection). */
   protected readonly resolving: unknown[]
+  /** Unbound classes autowired as `@Injectable({ scope: 'singleton' })`, cached on the root container. */
+  protected readonly autowired = new Map<unknown, { value: unknown }>()
 
   constructor(options: ContainerOptions = {}, parent?: Container) {
     this.parent = parent
@@ -56,11 +59,16 @@ export class Container {
     this.resolving = parent?.resolving ?? []
   }
 
-  /** Bind `token` to a class or factory. Transient unless `scope: 'singleton'`. Omit `concrete` to bind a class to itself. */
+  /**
+   * Bind `token` to a class or factory. Without `scope`, a class bound uses its `@Injectable({ scope })`,
+   * else transient. Omit `concrete` to bind a class to itself.
+   */
   bind<T>(token: Newable<T>, concrete?: undefined, options?: BindOptions): this
   bind<T>(token: Token<T>, concrete: NoInfer<Concrete<T>>, options?: BindOptions): this
   bind(token: Token, concrete?: Concrete<unknown>, options: BindOptions = {}): this {
-    return this.register(token, concrete, options.scope ?? 'transient')
+    const target = concrete ?? token
+    const scope = options.scope ?? (typeof target === 'function' ? injectableScope(target) : undefined)
+    return this.register(token, concrete, scope ?? 'transient')
   }
 
   /** Bind `token` once per owning container: the first `make()` result is reused. */
@@ -124,12 +132,22 @@ export class Container {
       return this.withCycleCheck(key, () => binding.create(this))
     }
     if (typeof key === 'function') {
+      if (injectableScope(key) === 'singleton') {
+        // Built by the root so a child's overrides never leak into the shared instance.
+        let root: Container = this
+        while (root.parent) root = root.parent
+        const cached = root.autowired.get(key)
+        if (cached) return cached.value
+        const value = root.withCycleCheck(key, () => root.build(key as Newable))
+        root.autowired.set(key, { value })
+        return value
+      }
       return this.withCycleCheck(key, () => this.build(key as Newable))
     }
     throw new DiError(`No binding for ${keyName(key)}.`)
   }
 
-  /** Construct `cls`, resolving its constructor params from the deps lookup. */
+  /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
   protected build(cls: Newable): unknown {
     const entry = this.deps.get(cls)
     if (!entry) {
@@ -140,15 +158,24 @@ export class Container {
       }
       return new cls()
     }
+    const injected = injectTokens(cls)
     const args = entry.slots.map((slot, index) => {
       const optional = entry.meta?.optional?.includes(index) ?? false
       const param = `${keyName(cls)} constructor param #${index}`
         + (entry.meta?.params[index] ? ` \`${entry.meta.params[index]}\`` : '')
+      const override = injected?.get(index)
       if (typeof slot !== 'function') {
+        if (override !== undefined) return this.resolve(override)
         if (optional) return undefined
         throw new DiError(`Cannot resolve ${param}: type \`${slot.unresolved}\` has no runtime value.`)
       }
       const dep = slot()
+      if (override !== undefined) {
+        if (dep !== undefined && dep !== override) {
+          throw new DiError(`Conflicting metadata for ${param}: transform says ${keyName(dep)}, @Inject says ${keyName(override)}.`)
+        }
+        return this.resolve(override)
+      }
       if (dep === undefined) {
         if (optional) return undefined
         throw new DiError(`Cannot resolve ${param}: its type resolved to undefined at runtime.`)
