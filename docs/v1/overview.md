@@ -49,16 +49,16 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | Package | Role in v1 | Status | Depends on (v1) |
 |---|---|---|---|
 | `@laratype/contract` | `endpoint`, path params, error catalog, Standard Schema types; capabilities and derived errors (planned → #228) | merged @ d70daa7 (C1/C2/C4); C3 merged @ 883a8e2; C5 merged @ e2eac4b | none (browser-safe, no `node:*`) |
-| `@laratype/core` | DI container, tokens, deps registry | scaffold merged @ d70daa7; D1 proposed: PR #196 @ 5d51b16; D2 proposed: PR #201 @ 1bddcff | none |
+| `@laratype/core` | DI container, tokens, deps registry | D1 merged @ cfa85c3; D2 merged @ 36ba917 | none |
 | `@laratype/client` | `createClient(appApi)` | scaffold merged @ d70daa7 (`PACKAGE_NAME` only); API planned → #109 | `@laratype/contract` only |
-| `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 proposed: PR #202 @ 18c01f5 | `@laratype/core` |
-| `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core proposed: PR #194 @ 5460e6d; Vite wiring planned → #102 | `@laratype/core` (runtime helper) |
+| `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 merged @ 468c2ec | `@laratype/core` |
+| `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core merged @ 8dc389b (abstract-class flag planned → #101); Vite wiring planned → #102 | `@laratype/core` (runtime helper) |
 | `@laratype/http` | Router v2, pipeline, controllers, `Ctx` | 0.5; v1 planned → #104, #105, #106 | contract, core |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5; v1 planned → #119, #120, #121 | core, http |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM); v1 waits for S5 → #88 | core |
 | typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | planned → #133, #143 | contract |
-| `laratype` | Kernel / `Serve` | 0.5; container boot proposed: PR #202 @ 18c01f5 | core, support |
+| `laratype` | Kernel / `Serve` | 0.5; container boot merged @ 468c2ec | core, support |
 
 The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `storage` are ported or built in M3/M4, together with the new `cache` and `queue` packages. They are specified in [services.md](./services.md). On master, `mail`, `i18n`, `schedule`, `broadcast` and `storage` contain only `package.json`.
 
@@ -119,7 +119,7 @@ resources/
 
 | Rule | Why | Status / source |
 |---|---|---|
-| App code uses `import type` for type-only imports (`verbatimModuleSyntax: true`) | An interface imported as a value breaks DI differently in each environment: a Node ESM link error, a `vite build` "is not exported" error, or a `sauf dev` resolve-time `DiError`. Only TS1484 catches it consistently. | S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). Not enabled repo-wide yet. Migration B11 [#185](https://github.com/Laratypes/Laratype/issues/185): proposed: PR #203 @ 16080c9. |
+| App code uses `import type` for type-only imports (`verbatimModuleSyntax: true`) | An interface imported as a value breaks DI differently in each environment: a Node ESM link error, a `vite build` "is not exported" error, or a `sauf dev` resolve-time `DiError`. Only TS1484 catches it consistently. | S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). Enabled repo-wide by B11 [#185](https://github.com/Laratypes/Laratype/issues/185), merged @ f66eafd. |
 | Keep SWC `decoratorMetadata: true` | TypeORM's bare `@Column()` needs `design:type`, and throws `ColumnTypeUndefinedError` without it | S3 condition 2. Revisit if S5 ([#88](https://github.com/Laratypes/Laratype/issues/88)) drops TypeORM |
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |

@@ -2,8 +2,8 @@
 area: build
 packages: ["sauf", "@laratype/testing"]
 issues: [102, 116, 125, 126, 127, 128, 129, 130, 131, 132, 155, 156, 172, 173, 185, 187, 188, 189, 190, 191]
-verified-against: Laratype@d70daa7 (+ PR #193 @ ccf9894, PR #198 @ 28d0c20, PR #203 @ 16080c9)
-last-verified: 2026-10-09
+verified-against: Laratype@d9e8df2
+last-verified: 2026-10-12
 ---
 
 # Build
@@ -18,7 +18,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 
 | Section | Status |
 |---|---|
-| [Package build fixes (B11–B13)](#package-build-fixes-b11b13) | proposed: PR #193 @ ccf9894 → PR #198 @ 28d0c20 → PR #203 @ 16080c9 |
+| [Package build fixes (B11–B13)](#package-build-fixes-b11b13) | merged @ 2ad49ad (B13), acf9f2a (B13 CI), e3112eb (B12), f66eafd (B11) |
 | [Packaging follow-ups (B16)](#packaging-follow-ups-b16) | planned → #191 |
 | [Plugin chain](#plugin-chain) | planned → #102, #125, #126 |
 | [sauf build steps](#sauf-build-steps) | planned → #127, #128, #129, #130, #172, #173, #155, #156 |
@@ -32,10 +32,10 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 ## Package build fixes (B11–B13)
 
 ### Status
-Three stacked PRs, which merge in this order:
-1. proposed: PR #193 @ ccf9894 (B13 [#188](https://github.com/Laratypes/Laratype/issues/188), base master);
-2. proposed: PR #198 @ 28d0c20 (B12 [#187](https://github.com/Laratypes/Laratype/issues/187), base #193);
-3. proposed: PR #203 @ 16080c9 (B11 [#185](https://github.com/Laratypes/Laratype/issues/185), base #198).
+Merged in this order:
+1. merged @ 2ad49ad (B13 [#188](https://github.com/Laratypes/Laratype/issues/188)), and its CI step `bun run check:dist` merged @ acf9f2a;
+2. merged @ e3112eb (B12 [#187](https://github.com/Laratypes/Laratype/issues/187));
+3. merged @ f66eafd (B11 [#185](https://github.com/Laratypes/Laratype/issues/185)).
 
 ### Public API
 No public API. These are build configuration and scripts:
@@ -44,7 +44,7 @@ No public API. These are build configuration and scripts:
 - B11 sets `"verbatimModuleSyntax": true` in `tsconfig.app.json` and `examples/basic/tsconfig.build.json`.
 
 ### Invariants
-Constraints every package build must keep once these PRs merge:
+Constraints every package build must keep:
 - **No dist inlines another workspace package.** Bun's `external` takes strings and wildcards only; a RegExp is silently ignored. So externals are `"@laratype/*"`, plus every workspace package name, plus each package's own `dependencies` / `peerDependencies` and `buildOptions.external`. Inlined copies gave module singletons (tokens, the container, `ContextApi`) a different identity in each bundle. This is why D4's `HTTP_APP` is temporarily kept on `globalThis` ([di.md](./di.md#serviceprovider-v2-and-kernel-boot)).
 - **No `"sideEffects": false` on packages that re-export defaults** (http, database, log). Bun 1.3.14 drops `export { default as X } from './mod'` re-exports under that flag, which left http's `Middleware` `undefined`. That was the root cause of the B12 "superclass is not a constructor" error. `@laratype/contract` and `@laratype/core` keep `sideEffects: false`.
 - **CJS output is named `dist/index.cjs`** in `"type": "module"` packages. `main` / `exports.require` point at it. This includes the v1 packages contract, core and client, which S4 added after B13 branched (fixed in ccf9894). This is a breaking change for CJS consumers.
@@ -63,7 +63,7 @@ None.
 - No change to sauf's SSR logic or `plugin.ts` (B12 needed none).
 
 ### Open questions
-- CI wiring of `check:dist` and `devSsr.test.ts` → [#189](https://github.com/Laratypes/Laratype/issues/189)
+- CI wiring of `devSsr.test.ts` → [#189](https://github.com/Laratypes/Laratype/issues/189). `check:dist` runs in CI since acf9f2a.
 - Removing the `HTTP_APP` `globalThis` workaround after B13 → [#188](https://github.com/Laratypes/Laratype/issues/188) follow-up
 
 ### Acceptance
@@ -93,7 +93,7 @@ Fixes listed in #191:
 ## Plugin chain
 
 ### Status
-planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin in `sauf dev`), [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest), [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain). The DI transform core itself is proposed: PR #194 ([di.md › DI transform](./di.md#di-transform)).
+planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin in `sauf dev`), [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest), [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain). The DI transform core itself is merged @ 8dc389b ([di.md › DI transform](./di.md#di-transform)).
 
 ### Design (non-binding)
 ```

@@ -1,4 +1,4 @@
-// docs/v1/di.md: ServiceProvider v2 + two-phase boot. Proposed in PR #202 (D4); moves up one level on merge.
+// docs/v1/di.md: ServiceProvider v2 + two-phase boot (D4, merged on master).
 import { Container, token } from '@laratype/core'
 import { bootProviders, ServiceProvider } from '@laratype/support'
 
