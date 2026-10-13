@@ -40,6 +40,25 @@ interface Binding {
 const keyName = (key: unknown): string =>
   typeof key === 'function' ? key.name || '<anonymous class>' : String(key)
 
+/** `<C> constructor param #<i>`, plus the param name in backticks when the metadata has one. */
+const paramLabel = (cls: Function, index: number, name: string | undefined): string =>
+  `${keyName(cls)} constructor param #${index}` + (name ? ` \`${name}\`` : '')
+
+/** `DiError` messages with fix hints (D5a). The first sentence of each is the D1 base message. */
+const errors = {
+  noBinding: (key: unknown, requiredBy?: string): string =>
+    `No binding for ${keyName(key)}.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + ' Fix: bind it in a service provider `register()`, e.g. `container.bind(token, factory)` or `container.instance(token, value)`.',
+  unresolvedParam: (param: string, typeText: string): string =>
+    `Cannot resolve ${param}: type \`${typeText}\` has no runtime value.`
+    + ' Fix: add @Inject(token) to the parameter, or import the class as a value (not `import type`).',
+  undefinedThunk: (param: string): string =>
+    `Cannot resolve ${param}: its type resolved to undefined at runtime.`
+    + ' It is probably an interface/type imported without `import type`, or a circular import evaluated too early.'
+    + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
+}
+
 const isFactory = (concrete: Concrete<unknown>): concrete is Factory<unknown> =>
   concrete.prototype === undefined
 
@@ -110,7 +129,8 @@ export class Container {
     return this
   }
 
-  protected resolve(key: unknown): unknown {
+  /** `requiredBy` names the constructor param that asked for `key`, for the error message. */
+  protected resolve(key: unknown, requiredBy?: string): unknown {
     const found = this.findBinding(key)
     if (found) {
       const { binding, owner } = found
@@ -126,7 +146,7 @@ export class Container {
     if (typeof key === 'function') {
       return this.withCycleCheck(key, () => this.build(key as Newable))
     }
-    throw new DiError(`No binding for ${keyName(key)}.`)
+    throw new DiError(errors.noBinding(key, requiredBy))
   }
 
   /** Construct `cls`, resolving its constructor params from the deps lookup. */
@@ -142,18 +162,17 @@ export class Container {
     }
     const args = entry.slots.map((slot, index) => {
       const optional = entry.meta?.optional?.includes(index) ?? false
-      const param = `${keyName(cls)} constructor param #${index}`
-        + (entry.meta?.params[index] ? ` \`${entry.meta.params[index]}\`` : '')
+      const param = paramLabel(cls, index, entry.meta?.params[index])
       if (typeof slot !== 'function') {
         if (optional) return undefined
-        throw new DiError(`Cannot resolve ${param}: type \`${slot.unresolved}\` has no runtime value.`)
+        throw new DiError(errors.unresolvedParam(param, slot.unresolved))
       }
       const dep = slot()
       if (dep === undefined) {
         if (optional) return undefined
-        throw new DiError(`Cannot resolve ${param}: its type resolved to undefined at runtime.`)
+        throw new DiError(errors.undefinedThunk(param))
       }
-      return this.resolve(dep)
+      return this.resolve(dep, param)
     })
     return new cls(...args)
   }
