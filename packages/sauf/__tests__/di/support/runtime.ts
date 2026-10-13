@@ -17,6 +17,7 @@ export type Slot = (() => unknown) | UnresolvedSlot;
 export interface DepsMeta {
   params: string[];
   optional?: number[];
+  abstract?: true;
 }
 
 export interface DepsEntry {
@@ -25,6 +26,7 @@ export interface DepsEntry {
 }
 
 export const DEPS_KEY = Symbol.for('laratype.di.deps');
+const ABSTRACT_KEY = Symbol.for('laratype.di.abstract');
 
 const injectOverrides = new WeakMap<Function, Map<number, Token>>();
 
@@ -32,9 +34,16 @@ const ownEntry = (cls: Function): DepsEntry | undefined =>
   Object.prototype.hasOwnProperty.call(cls, DEPS_KEY) ? (cls as any)[DEPS_KEY] : undefined;
 
 /** Emitted by the transform after each class with an own constructor. Returns the class (for wrapped expressions). */
-export function __laratype_deps<T extends Function>(cls: T, slots: Slot[], meta?: DepsMeta): T {
-  Object.defineProperty(cls, DEPS_KEY, { value: { slots, meta }, configurable: true, enumerable: false, writable: false });
+export function __laratype_deps<T extends Function>(cls: T, slots: Slot[] | null, meta?: DepsMeta): T {
+  if (meta?.abstract) Object.defineProperty(cls, ABSTRACT_KEY, { value: true, configurable: true, enumerable: false, writable: false });
+  // `null` slots: an abstract class without its own constructor, flag only (D2's registry does the same).
+  if (slots) Object.defineProperty(cls, DEPS_KEY, { value: { slots, meta }, configurable: true, enumerable: false, writable: false });
   return cls;
+}
+
+/** Own flag only, never inherited. */
+export function isAbstract(cls: Function): boolean {
+  return Object.prototype.hasOwnProperty.call(cls, ABSTRACT_KEY);
 }
 
 /**

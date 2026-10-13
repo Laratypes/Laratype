@@ -28,6 +28,10 @@ describe('transformDi', () => {
       expect(run('// constructor\nexport class A extends B {}')).toBeNull();
     });
 
+    it('does not skip a file whose only class is abstract and has no constructor', () => {
+      expect(calls('export abstract class Port {}')).toEqual(['Port: null, { params: [], abstract: true }']);
+    });
+
     it('returns null on syntax errors so SWC reports them', () => {
       expect(run('class A { constructor(a: A) {')).toBeNull();
     });
@@ -244,7 +248,25 @@ describe('transformDi', () => {
       `)).toEqual([
         'Base: [() => Base], { params: ["a"] }',
         'Overloads: [{ unresolved: "Base | string", index: 0 }], { params: ["a"] }',
-        'Abstract: [() => Base], { params: ["a"] }',
+        'Abstract: [() => Base], { params: ["a"], abstract: true }',
+      ]);
+    });
+
+    it('flags every abstract class, own entry only (DOC10 Q9)', () => {
+      expect(calls(`
+        class Base { constructor(a: Base) {} }
+        abstract class Mid extends Base {}
+        abstract class PassThrough extends Base { constructor(...args: any[]) { super(...args); } }
+        abstract class WithOptional { constructor(a?: Base) {} }
+        class Leaf extends Mid {}
+        declare abstract class Ambient {}
+        export default abstract class {}
+      `)).toEqual([
+        'Base: [() => Base], { params: ["a"] }',
+        'Mid: null, { params: [], abstract: true }',
+        'PassThrough: null, { params: [], abstract: true }',
+        'WithOptional: [() => Base], { params: ["a"], optional: [0], abstract: true }',
+        `${DI_DEFAULT_CLASS_NAME}: null, { params: [], abstract: true }`,
       ]);
     });
 
@@ -296,7 +318,7 @@ describe('transformDi', () => {
         .toEqual(['Named: [() => Dep], { params: ["d"] }']);
       const out = run('class Dep {}\n@Injectable() /* class */ export default abstract class<T> { constructor(d: Dep) {} }')!;
       expect(out).toContain(`export default abstract class ${DI_DEFAULT_CLASS_NAME}<T> {`);
-      expect(out).toContain(`}\n__laratype_deps(${DI_DEFAULT_CLASS_NAME}, [() => Dep], { params: ["d"] });`);
+      expect(out).toContain(`}\n__laratype_deps(${DI_DEFAULT_CLASS_NAME}, [() => Dep], { params: ["d"], abstract: true });`);
     });
 
     it('aliases the anonymous default class name when the file already uses it', () => {

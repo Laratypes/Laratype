@@ -14,6 +14,8 @@ export type DepSlot = (() => unknown) | UnresolvedSlot
 export interface DepsMeta {
   params: string[]
   optional?: number[]
+  /** Set by the transform on an `abstract` class (DOC10 Q9). Read with `isAbstract()`, never inherited. */
+  abstract?: true
 }
 
 export interface DepsEntry {
