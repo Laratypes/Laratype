@@ -561,7 +561,7 @@ The parts that G1, G2 and H1 will build:
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
 ### Open questions
-- A folder syntax for optional path params → (new issue)
+- A folder syntax for optional path params → [#244](https://github.com/Laratypes/Laratype/issues/244)
 
 ### Acceptance
 [#228 Done when](https://github.com/Laratypes/Laratype/issues/228) · [#133 Done when](https://github.com/Laratypes/Laratype/issues/133) · [#142 Done when](https://github.com/Laratypes/Laratype/issues/142)
