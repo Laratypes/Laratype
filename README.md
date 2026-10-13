@@ -35,7 +35,7 @@ A v1 endpoint is a runtime object that holds [Standard Schema](https://standards
 
 ```ts
 import * as z from 'zod'
-import { endpoint, errors } from '@laratype/contract'
+import { endpoint } from '@laratype/contract'
 
 const UserDto = z.object({ id: z.number(), name: z.string() })
 
@@ -44,12 +44,13 @@ export const showPost = endpoint
   .get('/users/:user/posts/:post?')
   .query(z.object({ page: z.coerce.number().default(1) }))
   .response(UserDto)
-  .errors(errors.notFound, errors.forbidden)
+  .auth()
+  .authorize()
 
 // Inferred from the endpoint:
 //   params: { user: string; post?: string }
 //   status: 200
-//   error statuses: 404 | 403
+//   errors, derived from its capabilities: 422 (query), 404 (path param), 401 (auth), 403 (authorize)
 ```
 
 Planned (not on `master` yet):

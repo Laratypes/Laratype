@@ -5,7 +5,8 @@ import { endpoint, errors, validate, validateSync } from '@laratype/contract'
 import type { ValidationErrorBody } from '@laratype/contract'
 
 const StoreBody = z.object({ name: z.string().min(1), address: z.object({ zip: z.string() }) })
-export const store = endpoint.post('/users').body(StoreBody).errors(errors.validation)
+// The body schema alone derives the endpoint's 422 (errors.validation).
+export const store = endpoint.post('/users').body(StoreBody)
 
 export async function check(input: unknown): Promise<ValidationErrorBody | { name: string }> {
   // Works with any Standard Schema (zod 3.25+, valibot, arktype). The value type comes from the schema output.
@@ -16,7 +17,7 @@ export async function check(input: unknown): Promise<ValidationErrorBody | { nam
     return result.value
   }
   // errors: dot path -> messages, e.g. { "address.zip": ["Required"] }: the 422 body shape.
-  return { message: 'The given data was invalid.', errors: result.errors }
+  return errors.validation(result.errors).body
 }
 
 // Sync variant: throws a TypeError when the schema is async.

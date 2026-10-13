@@ -30,7 +30,7 @@ describe('@laratype/contract types', () => {
   }, 60_000)
 })
 
-describe('FE fixture (defineApi is the only FE entry)', () => {
+describe('FE fixture (the appApi module is the only FE entry)', () => {
   // An FE tsconfig: DOM lib, no ambient types. `jsxImportSource` is dropped: the repo's tsconfig.app.json sets
   // "hono/jsx", which makes TS load hono's JSX runtime types into every program (a server dep the FE must not see).
   const feOptions = (): ts.CompilerOptions => ({ ...baseOptions(), lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'], types: [], jsxImportSource: undefined })
@@ -43,7 +43,7 @@ describe('FE fixture (defineApi is the only FE entry)', () => {
     if (/\/typescript\/lib\/lib\.[^/]+\.d\.ts$/.test(f)) return 'typescript lib'
     if (/\/node_modules\/(\.bun\/[^/]+\/node_modules\/)?zod\//.test(f)) return 'schema lib (zod)'
     if (f.startsWith(contractSrc)) return '@laratype/contract'
-    if (f.startsWith(`${fixtures}app/contracts/`)) return 'app contracts'
+    if (f.startsWith(`${fixtures}app/api/`)) return 'app contracts'
     if (f.startsWith(`${fixtures}fe/`)) return 'fe'
     return `server: ${f.startsWith(root.replace(/\\/g, '/')) ? f.slice(root.length) : f}`
   }
@@ -62,7 +62,8 @@ describe('FE fixture (defineApi is the only FE entry)', () => {
     expect(diagnostics([`${fixtures}fe/main.ts`], feOptions())).toEqual([])
     const g = groups(p)
     expect(Object.keys(g).filter((k) => k.startsWith('server:'))).toEqual([])
-    expect(g['app contracts']).toBe(3)
+    // index (the generated appApi stand-in), users, posts, _scope, $types.d.ts, errors
+    expect(g['app contracts']).toBe(6)
     expect(g['@laratype/contract']).toBeGreaterThan(0)
     expect(g['schema lib (zod)']).toBeGreaterThan(0)
   }, 60_000)
