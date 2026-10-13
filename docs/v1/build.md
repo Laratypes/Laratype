@@ -197,7 +197,7 @@ Exposes the same core transform as a Bun plugin in `bun.build.js`, so framework 
 planned → [#189](https://github.com/Laratypes/Laratype/issues/189) (B14, CI consolidation), [#190](https://github.com/Laratypes/Laratype/issues/190) (B15, npm release).
 
 ### Design (non-binding)
-- **B14:** one CI that runs the tests not wired today. Those are `check:dist`, `devSsr.test.ts`, `bun run test:di` (T3) and `docs/v1/examples/typecheck.test.ts`. B14 also covers pkg-pr-new previews and workflow hardening.
+- **B14:** one CI that runs the tests not wired today. Those are `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`; `check:dist` (acf9f2a) and the T3 DI tests (b560fc9) already run in CI. B14 also covers pkg-pr-new previews and workflow hardening.
 - **B15:** npm releases with Trusted Publishing (OIDC), provenance and changesets.
 - `.github/` changes need user review.
 

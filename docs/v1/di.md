@@ -300,7 +300,7 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 The transform never throws on user code. Resolve-time failures surface as [Container](#container) `DiError`s.
 
 ### Example
-Output snapshots: `packages/sauf/__tests__/di/` (`bun run test:di`).
+Output snapshots: `packages/sauf/__tests__/di/` (`bun run test:di`). CI runs them since b560fc9.
 
 ### Non-goals
 - No type checker. Decisions are purely syntactic, so inferred or aliased types that need checking are `{ unresolved }`.
@@ -308,7 +308,7 @@ Output snapshots: `packages/sauf/__tests__/di/` (`bun run test:di`).
 - No method params (see [#158](https://github.com/Laratypes/Laratype/issues/158)).
 
 ### Open questions
-- CI wiring of `bun run test:di` → [#189](https://github.com/Laratypes/Laratype/issues/189).
+- None recorded.
 
 ### Acceptance
 [#101 Done when](https://github.com/Laratypes/Laratype/issues/101) · [#103 Done when](https://github.com/Laratypes/Laratype/issues/103)
