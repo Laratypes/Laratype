@@ -4,7 +4,7 @@ import type * as TS from "typescript";
 import { generateApiFile } from "./api";
 import { emitTree } from "./emit";
 import type { GeneratedFile } from "./emit";
-import { scanTree } from "./scan";
+import { ScanError, scanTree } from "./scan";
 import type { ContractTree } from "./scan";
 
 export { ScanError, isTreeFile, listTreeFiles, scanFiles, scanTree } from "./scan";
@@ -70,6 +70,7 @@ export async function generateTypes(options: GenerateOptions, ts?: typeof TS): P
   const apiOut = (options.apiOut ?? posix.join(outDir, "api.ts")).replace(/\\/g, "/");
   const base = options.base ?? "/api";
 
+  if (!existsSync(join(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root)`);
   const tree = scanTree(join(projectDir, root), base);
   const files = emitTree(tree, { root, outDir });
 

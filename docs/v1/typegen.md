@@ -70,6 +70,7 @@ The app's tsconfig needs:
 - **Options:** `--root`, `--base` and `--out` are CLI flags today, with defaults `app/api` → `/api` and `.laratype`. The config-file key is not specced yet; it is planned → [#104](https://github.com/Laratypes/Laratype/issues/104).
 - **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. Each run rewrites `<out>/types` entirely, so the `$types.d.ts` of a deleted folder goes away.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
+- **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
 - **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. No contract module is executed. A type error in the tree fails the command.
 - **`api.ts` is self-contained:** it has no import, no contract library and no schema library. Named types are inlined structurally, for example a user interface or the contract's `MessageBody`. Types from the TypeScript default lib keep their names (`Date`, `Record<string, boolean>`). A type met again while it is being printed (a recursive type) prints `unknown`. Optional members print as `x?: T | undefined`.
 - **Manifest:** a flat map keyed by route name, `'users.posts.update': { method, path, errors }`. `path` is the full path, and `errors` is the endpoint's derived and declared error codes, sorted. It has no client type until CL lands ([#109](https://github.com/Laratypes/Laratype/issues/109)).
@@ -78,12 +79,14 @@ The app's tsconfig needs:
 
 ### Diagnostics
 Errors are printed by the command, which exits with code 1. All messages are prefixed `[sauf types:generate] `:
+- `the contract tree root "<root>" does not exist (set it with --root)`
 - `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
 - `<file> and <file> have the same name "<name>" ([x] folders are dropped from names)`
 - `<file>: a contract needs a name; put it in a named folder (the root index.ts has none)`
 - `<dir>: "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
 - `<dir>: folder name "<name>" may only use letters, digits, "_" and "-"`
 - `<file>: file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
+- `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`
 

@@ -133,6 +133,9 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   const entrySource = `import type { ApiTypes } from '@laratype/contract'\nimport type { AppApi } from '${indexSpecifier}'\nexport type Flat = ApiTypes<AppApi>\n`;
 
   const compilerOpts = compilerOptions(ts, options);
+  if (!(compilerOpts.strictNullChecks ?? compilerOpts.strict)) {
+    throw new ApiGenerationError(`the contract types need strictNullChecks: set "strict": true in ${options.tsconfig ?? "the project's tsconfig"}`);
+  }
   const host = ts.createCompilerHost(compilerOpts);
   const same = (a: string) => resolve(a) === entryFile;
   const { getSourceFile, fileExists, readFile } = host;

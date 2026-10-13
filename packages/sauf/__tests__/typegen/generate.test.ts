@@ -186,6 +186,20 @@ describe('sauf types:generate', () => {
     expect(existsSync(join(copy, '.laratype'))).toBe(false);
   });
 
+  it('needs strictNullChecks: without it the contract types do not resolve', async () => {
+    const copy = join(tmp, 'loose');
+    cpSync(join(fixtures, 'project'), copy, { recursive: true });
+    const loose = { ...appTsconfig, compilerOptions: { ...appTsconfig.compilerOptions, strict: false } };
+    writeFileSync(join(copy, 'tsconfig.json'), JSON.stringify(loose));
+    await expect(generateTypes({ projectDir: copy }, ts)).rejects.toThrow(/the contract types need strictNullChecks: set "strict": true in .*tsconfig\.json/);
+  });
+
+  it('fails clearly when the root folder does not exist', async () => {
+    await expect(generateTypes({ projectDir: tmp, root: 'nope/api' }, ts)).rejects.toThrow(
+      '[sauf types:generate] the contract tree root "nope/api" does not exist (set it with --root)',
+    );
+  });
+
   it('reports contract type errors with their location', async () => {
     const copy = join(tmp, 'broken');
     cpSync(project, copy, { recursive: true });
