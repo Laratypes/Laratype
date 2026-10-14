@@ -1,55 +1,119 @@
+import { SCOPE, checkOptions, joinPath, resolveCapabilities } from "./capabilities";
+import type {
+  AnyPrefix,
+  AnyScope,
+  AuthOption,
+  CapabilityProblem,
+  ContractOptions,
+  ContractPrefix,
+  EndpointContext,
+  PrefixPath,
+  PrefixScopes,
+  ResolvedCapabilities,
+  RootContext,
+  Scope,
+  ScopeOptions,
+} from "./capabilities";
 import { Endpoint } from "./endpoint";
-import type { AnyEndpoint } from "./endpoint";
+import type { AnyEndpoint, Method } from "./endpoint";
 
-/** Brand carrying a contract's name. Non-enumerable, so it never shows up in keys, spreads or JSON. */
-export const CONTRACT_NAME: unique symbol = Symbol.for("laratype.contract");
+/** Brand of a contract: holds its options. Non-enumerable, so it never shows up in keys, spreads or JSON. */
+export const CONTRACT: unique symbol = Symbol.for("laratype.contract");
 
 export type ContractDef = Record<string, AnyEndpoint>;
 
-/** A named group of endpoints: `defineContract("users", { index, show })`. */
-export type Contract<N extends string = string, D extends ContractDef = ContractDef> = Readonly<D> & { readonly [CONTRACT_NAME]: N };
+export interface ContractMeta<P extends AnyPrefix = AnyPrefix, O extends ContractOptions = ContractOptions> {
+  readonly options: O;
+  /** phantom: the folder context (`Prefix`), type-only */
+  readonly prefix?: P;
+}
 
-export type AnyContract = Contract<string, any>;
+/** A group of endpoints from one file of the contract folder tree. Its name and URL prefix come from the tree. */
+export type Contract<P extends AnyPrefix = AnyPrefix, D extends ContractDef = ContractDef, O extends ContractOptions = ContractOptions> =
+  Readonly<D> & { readonly [CONTRACT]: ContractMeta<P, O> };
+
+export type AnyContract = Contract<any, any, any>;
 
 /** Endpoint keys of a contract, without the brand: `"index" | "show"`. */
-export type EndpointKeys<C> = Exclude<keyof C, typeof CONTRACT_NAME> & string;
+export type EndpointKeys<C> = Exclude<keyof C, typeof CONTRACT> & string;
 
-/** The literal name a contract was defined with. */
-export type ContractName<C> = C extends { readonly [CONTRACT_NAME]: infer N extends string } ? N : never;
+export type ContractPrefixOf<C> = C extends { readonly [CONTRACT]: ContractMeta<infer P, any> } ? P : never;
+export type ContractOptionsOf<C> = C extends { readonly [CONTRACT]: ContractMeta<any, infer O> } ? O : never;
 
-/** Route registry names of one contract: `"users.index" | "users.show"`. */
-export type ContractRouteName<C> = C extends AnyContract ? `${ContractName<C>}.${EndpointKeys<C>}` : never;
+/** The context of a contract's endpoints in its own file: folder path, scope chain, contract options. */
+export type ContractContext<P extends AnyPrefix, O extends ContractOptions> = { path: PrefixPath<P>; scopes: PrefixScopes<P>; options: O };
+
+/** Each endpoint must have consistent capabilities, e.g. no `.public()` under a scope with `authorize`. */
+export type CheckEndpoints<D, Ctx extends EndpointContext> = {
+  [K in keyof D]: D[K] extends AnyEndpoint
+    ? [CapabilityProblem<D[K], Ctx>] extends [never]
+      ? D[K]
+      : { error: `${K & string}: ${CapabilityProblem<D[K], Ctx>}` }
+    : D[K];
+};
+
+type HasAuth<S extends readonly unknown[]> = true extends { [I in keyof S]: S[I] extends { readonly auth: AuthOption } ? true : false }[number] ? true : false;
+
+/** A scope's `authorize` needs `auth` at the same level or an outer one. */
+export type CheckScope<P extends AnyPrefix, O> = O extends { readonly authorize: true }
+  ? HasAuth<[...PrefixScopes<P>, O]> extends true
+    ? unknown
+    : { error: "defineScope: authorize needs auth in this scope or an outer one" }
+  : unknown;
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);
 };
 
-/**
- * Groups endpoints under a name. The name prefixes every route registry name (`users.show`),
- * so it must be non-empty, and endpoint keys must not contain ".".
- */
-export function defineContract<const N extends string, const D extends ContractDef>(name: N, endpoints: D): Contract<N, D> {
-  if (typeof name !== "string" || name === "" || name.split(".").some((s) => s === "")) {
-    fail(`defineContract: invalid contract name ${JSON.stringify(name)}`);
-  }
+function buildContract(endpoints: ContractDef, options: ContractOptions): AnyContract {
+  if (typeof endpoints !== "object" || endpoints === null) fail("defineContract: endpoints must be an object");
   const contract = Object.create(null) as Record<string | symbol, unknown>;
   for (const [key, value] of Object.entries(endpoints)) {
-    if (key.includes(".")) fail(`defineContract("${name}"): endpoint key "${key}" must not contain "."`);
-    if (!(value instanceof Endpoint)) fail(`defineContract("${name}"): "${key}" is not an endpoint`);
+    if (key === "" || key.includes(".")) fail(`defineContract: endpoint key "${key}" must be non-empty and must not contain "."`);
+    if (!(value instanceof Endpoint)) fail(`defineContract: "${key}" is not an endpoint`);
     contract[key] = value;
   }
-  Object.defineProperty(contract, CONTRACT_NAME, { value: name, enumerable: false });
-  return Object.freeze(contract) as Contract<N, D>;
+  const meta = Object.freeze({ options: Object.freeze(checkOptions(options, ["auth", "throws", "throttle"], "defineContract")) });
+  Object.defineProperty(contract, CONTRACT, { value: meta, enumerable: false });
+  return Object.freeze(contract) as AnyContract;
 }
 
+function buildScope(options: ScopeOptions): AnyScope {
+  const scope = checkOptions(options, ["auth", "authorize", "throws", "throttle"], "defineScope") as Record<string | symbol, unknown>;
+  Object.defineProperty(scope, SCOPE, { value: true, enumerable: false });
+  return Object.freeze(scope) as AnyScope;
+}
+
+/**
+ * A contract file of the folder tree. `Prefix` comes from the generated `./$types` and types the folder
+ * params and the inherited scopes; the options are the contract level of the capabilities.
+ *
+ * @example
+ * import type { Prefix } from './$types'
+ * export default defineContract<Prefix>()({ index: endpoint.get('/'), update: endpoint.patch('/:post') }, { auth: true })
+ */
+export const defineContract =
+  <P extends AnyPrefix = ContractPrefix>() =>
+  <const D extends ContractDef, const O extends ContractOptions = {}>(
+    endpoints: D & CheckEndpoints<D, ContractContext<P, O>>,
+    options?: O,
+  ): Contract<P, D, O> =>
+    buildContract(endpoints, options ?? {}) as Contract<P, D, O>;
+
+/**
+ * A folder scope (`_scope.ts`): capabilities inherited by every contract in the folder and its subfolders.
+ * `ScopePrefix` (from `./$types`) holds the outer scopes only.
+ */
+export const defineScope =
+  <P extends AnyPrefix = ContractPrefix>() =>
+  <const O extends ScopeOptions>(options: O & CheckScope<P, O>): Scope<O> =>
+    buildScope(options) as Scope<O>;
+
 export const isContract = (value: unknown): value is AnyContract =>
-  typeof value === "object" && value !== null && typeof (value as Record<symbol, unknown>)[CONTRACT_NAME] === "string";
+  typeof value === "object" && value !== null && typeof (value as Record<symbol, unknown>)[CONTRACT] === "object";
 
-export const contractName = <C extends AnyContract>(contract: C): ContractName<C> => contract[CONTRACT_NAME] as ContractName<C>;
-
-/** `routeName(users, "show")` → `"users.show"`: the route registry naming convention. */
-export const routeName = <C extends AnyContract, K extends EndpointKeys<C>>(contract: C, key: K): `${ContractName<C>}.${K}` =>
-  `${contractName(contract)}.${key}`;
+export const isScope = (value: unknown): value is AnyScope =>
+  typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[SCOPE] === true;
 
 /** `[key, endpoint]` pairs in definition order. */
 export const contractEndpoints = <C extends AnyContract>(contract: C): Array<[EndpointKeys<C>, AnyEndpoint]> =>
@@ -57,51 +121,181 @@ export const contractEndpoints = <C extends AnyContract>(contract: C): Array<[En
 
 // ---- defineApi --------------------------------------------------------------
 
-export type ApiDef = Record<string, AnyContract>;
+/** Brand of each API tree node, holding its tree name and its entry (none for a pure folder). */
+export const API_NODE: unique symbol = Symbol.for("laratype.api");
 
-/** Each key must be the contract's own name, so `api.users.show` and the registry name `users.show` agree. */
-export type CheckApi<A> = {
-  [K in keyof A]: A[K] extends AnyContract
-    ? ContractName<A[K]> extends K
-      ? A[K]
-      : { error: `defineApi: key "${K & string}" must match the contract name "${ContractName<A[K]>}"` }
-    : { error: `defineApi: "${K & string}" is not a contract (use defineContract)` };
-};
-
-/** The FE-facing API: contracts only, never routes, controllers or server code. */
-export type Api<A extends ApiDef = ApiDef> = Readonly<A>;
-
-/** Every route registry name in an API: `"users.index" | "users.show" | "posts.index" | ...`. */
-export type ApiRouteName<A> = { [K in keyof A]: ContractRouteName<A[K]> }[keyof A];
-
-/** The endpoint behind a registry name: `ApiEndpoint<AppApi, "users.show">` (contract names may contain "."). */
-export type ApiEndpoint<A, Name extends string> = {
-  [C in keyof A]: { [K in EndpointKeys<A[C]>]: `${C & string}.${K}` extends Name ? A[C][K] : never }[EndpointKeys<A[C]>];
-}[keyof A];
-
-/**
- * The single FE entry point (`app/contracts/index.ts`): `export const appApi = defineApi({ users, posts })`.
- * The FE imports this module only, never `typeof routes`, so its type-check never loads server code.
- */
-export function defineApi<const A extends ApiDef>(contracts: A & CheckApi<A>): Api<A> {
-  const api = Object.create(null) as Record<string, AnyContract>;
-  for (const [key, contract] of Object.entries(contracts as A)) {
-    if (!isContract(contract)) fail(`defineApi: "${key}" is not a contract (use defineContract)`);
-    if (contract[CONTRACT_NAME] !== key) fail(`defineApi: key "${key}" must match the contract name "${contract[CONTRACT_NAME]}"`);
-    api[key] = contract;
-  }
-  return Object.freeze(api) as Api<A>;
+/** One contract of the folder tree, as the generated `.laratype/api/index.gen.ts` mounts it. */
+export interface ApiEntry<C extends AnyContract = AnyContract, Path extends string = string, S extends readonly AnyScope[] = readonly AnyScope[]> {
+  readonly contract: C;
+  /** Full URL prefix, file segment included: `/api/users/:user/posts`. */
+  readonly path: Path;
+  /** The `_scope.ts` chain, outer to inner. */
+  readonly scopes: S;
 }
 
-/** All `[registryName, endpoint]` pairs of an API, in definition order. Used by the router, the client and typegen. */
-export const apiRoutes = <A extends ApiDef>(api: Api<A>): Array<[ApiRouteName<A>, AnyEndpoint]> =>
-  Object.values(api).flatMap((c) => contractEndpoints(c).map(([k, e]) => [routeName(c, k), e] as [ApiRouteName<A>, AnyEndpoint]));
+/** Flat map keyed by tree name: `{ 'users': {...}, 'users.posts': {...} }`. */
+export type ApiDef = Record<string, ApiEntry>;
 
-/** `apiEndpoint(appApi, "users.show")` → the `users.show` endpoint (throws on an unknown name). */
-export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<A>>(api: Api<A>, name: Name): ApiEndpoint<A, Name> {
-  const dot = name.lastIndexOf("."); // endpoint keys never contain "."
-  const contract = (api as ApiDef)[name.slice(0, dot)];
-  const endpoint = contract && (contract as Record<string, unknown>)[name.slice(dot + 1)];
-  if (!(endpoint instanceof Endpoint)) fail(`apiEndpoint: unknown route name "${name}"`);
-  return endpoint as ApiEndpoint<A, Name>;
+export interface ApiNodeInfo<N extends string = string, En = ApiEntry | undefined> {
+  readonly name: N;
+  readonly entry: En;
+}
+
+type BadName<K extends string> = K extends "" | `.${string}` | `${string}.` | `${string}..${string}` ? true : false;
+
+/** Per key: the entry, or `{ error }` (bad name, path outside the folder prefix, endpoint/child name clash). */
+export type CheckApi<A> = {
+  [K in keyof A]: K extends string
+    ? BadName<K> extends true
+      ? { error: `defineApi: invalid tree name "${K}"` }
+      : A[K] extends ApiEntry<infer C, infer Path, any>
+        ? Path extends `${PrefixPath<ContractPrefixOf<C>>}${string}`
+          ? [Extract<keyof A, `${K}.${EndpointKeys<C>}` | `${K}.${EndpointKeys<C>}.${string}`>] extends [never]
+            ? A[K]
+            : { error: `defineApi: "${K}" has an endpoint and a child contract with the same name` }
+          : { error: `defineApi: "${K}" path must start with its folder prefix "${PrefixPath<ContractPrefixOf<C>>}"` }
+        : { error: `defineApi: "${K}" must be { contract, path, scopes }` }
+    : A[K];
+};
+
+type Head<K> = K extends `${infer H}.${string}` ? H : K;
+type Sub<A, H extends string> = { [K in keyof A & string as K extends `${H}.${infer T}` ? T : never]: A[K] };
+type EntryAt<A, H> = H extends keyof A ? A[H] : undefined;
+type EndpointsOf<En> = En extends { readonly contract: infer C } ? { readonly [K in EndpointKeys<C>]: C[K & keyof C] } : {};
+
+type Tree<A, Base extends string> = { readonly [H in Head<keyof A & string>]: ApiNode<A, H, `${Base}${H}`> };
+
+/** One node of the API tree: the endpoints of its contract, its child nodes and the brand. */
+export type ApiNode<A, H extends string, Name extends string> = EndpointsOf<EntryAt<A, H>> &
+  Tree<Sub<A, H>, `${Name}.`> & { readonly [API_NODE]: ApiNodeInfo<Name, EntryAt<A, H>> };
+
+/** The nested API tree built from the flat entries: `appApi.users.posts.update`. */
+export type Api<A extends ApiDef = ApiDef> = Tree<A, "">;
+
+type NodeName<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, any> } ? Name : never;
+
+/** Every route name in an API tree: `"users.index" | "users.posts.update" | ...`. */
+export type ApiRouteName<A> = {
+  [K in keyof A & string]: A[K] extends AnyEndpoint ? `${NodeName<A>}.${K}` : ApiRouteName<A[K]>;
+}[keyof A & string];
+
+/** The endpoint behind a route name: `ApiEndpoint<AppApi, "users.posts.update">`. */
+export type ApiEndpoint<A, Name extends string> = Name extends keyof A
+  ? A[Name] extends AnyEndpoint ? A[Name] : never
+  : Name extends `${infer H}.${infer T}`
+    ? H extends keyof A ? ApiEndpoint<A[H], T> : never
+    : never;
+
+/** The context of a mounted endpoint: the full URL prefix, the scope chain and the contract options. */
+export type EntryContext<En> = En extends ApiEntry<infer C, infer Path, any>
+  ? { path: Path; scopes: PrefixScopes<ContractPrefixOf<C>>; options: ContractOptionsOf<C> }
+  : RootContext;
+
+export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, infer En> } ? EntryContext<En> : RootContext;
+
+type TreeNode = Record<string | symbol, unknown>;
+
+/**
+ * Builds the API tree from the flat entries that `.laratype/api/index.gen.ts` emits:
+ * `defineApi({ 'users.posts': { contract, path: '/api/users/:user/posts', scopes: [usersUser] } })`.
+ * The FE imports this module only, never `typeof routes`, so its type-check never loads server code.
+ */
+export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api<A> {
+  const root: TreeNode = Object.create(null);
+  const infos = new Map<TreeNode, { name: string; entry: ApiEntry | undefined }>();
+
+  const nodeAt = (name: string): TreeNode => {
+    let node = root;
+    let path = "";
+    for (const segment of name.split(".")) {
+      path = path ? `${path}.${segment}` : segment;
+      const next = node[segment];
+      if (next instanceof Endpoint) fail(`defineApi: "${path}" is both an endpoint and a contract`);
+      if (next === undefined) {
+        const child: TreeNode = Object.create(null);
+        infos.set(child, { name: path, entry: undefined });
+        node[segment] = child;
+      }
+      node = node[segment] as TreeNode;
+    }
+    return node;
+  };
+
+  for (const [name, entry] of Object.entries(entries as ApiDef)) {
+    if (name.split(".").some((s) => s === "")) fail(`defineApi: invalid tree name "${name}"`);
+    if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes }`);
+    if (typeof entry.path !== "string" || !entry.path.startsWith("/")) fail(`defineApi: "${name}" path must start with "/"`);
+    if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
+    entry.scopes.forEach((scope, i) => {
+      if (scope.authorize === true && !entry.scopes.slice(0, i + 1).some((s) => s.auth)) {
+        fail(`defineApi: "${name}": scope ${i} has authorize but no auth in it or an outer scope`);
+      }
+    });
+    const node = nodeAt(name);
+    infos.get(node)!.entry = Object.freeze({ contract: entry.contract, path: entry.path, scopes: Object.freeze([...entry.scopes]) });
+    for (const [key, endpoint] of contractEndpoints(entry.contract)) {
+      if (node[key] !== undefined) fail(`defineApi: "${name}.${key}" is both an endpoint and a contract`);
+      node[key] = endpoint;
+      resolveCapabilities(endpoint.def, contextOf(infos.get(node)!.entry!), `${name}.${key}`);
+    }
+  }
+
+  for (const [node, info] of infos) {
+    Object.defineProperty(node, API_NODE, { value: Object.freeze(info), enumerable: false });
+    Object.freeze(node);
+  }
+  return Object.freeze(root) as Api<A>;
+}
+
+const contextOf = (entry: ApiEntry) => ({ path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options });
+
+/** One resolved route of an API: tree name, full path, the endpoint and its inherited capabilities. */
+export interface ApiRoute<N extends string = string> extends ResolvedCapabilities {
+  readonly name: N;
+  readonly method: Method;
+  /** Full path: the contract's URL prefix joined with the endpoint path. */
+  readonly path: string;
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly scopes: readonly AnyScope[];
+}
+
+/** Every route of an API, depth-first in definition order. Used by the router, the client and typegen. */
+export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>> {
+  const routes: ApiRoute[] = [];
+  const walk = (current: TreeNode) => {
+    const info = current[API_NODE] as ApiNodeInfo | undefined;
+    for (const [key, value] of Object.entries(current)) {
+      if (!(value instanceof Endpoint)) {
+        walk(value as TreeNode);
+        continue;
+      }
+      const entry = info!.entry!;
+      const name = `${info!.name}.${key}`;
+      const ctx = contextOf(entry);
+      routes.push(
+        Object.freeze({
+          name,
+          method: value.def.method,
+          path: joinPath(ctx.path, value.def.path),
+          endpoint: value,
+          contract: entry.contract,
+          scopes: entry.scopes,
+          ...resolveCapabilities(value.def, ctx, name),
+        }),
+      );
+    }
+  };
+  walk(api as unknown as TreeNode);
+  return routes as Array<ApiRoute<ApiRouteName<Api<A>>>>;
+}
+
+/** `apiEndpoint(appApi, "users.posts.update")` → that endpoint (throws on an unknown name). */
+export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name> {
+  let value: unknown = api;
+  for (const segment of name.split(".")) {
+    value = typeof value === "object" && value !== null && !(value instanceof Endpoint) ? (value as TreeNode)[segment] : undefined;
+  }
+  if (!(value instanceof Endpoint)) fail(`apiEndpoint: unknown route name "${name}"`);
+  return value as ApiEndpoint<Api<A>, Name>;
 }

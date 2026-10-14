@@ -35,7 +35,7 @@ A v1 endpoint is a runtime object that holds [Standard Schema](https://standards
 
 ```ts
 import * as z from 'zod'
-import { endpoint, errors } from '@laratype/contract'
+import { endpoint } from '@laratype/contract'
 
 const UserDto = z.object({ id: z.number(), name: z.string() })
 
@@ -44,12 +44,13 @@ export const showPost = endpoint
   .get('/users/:user/posts/:post?')
   .query(z.object({ page: z.coerce.number().default(1) }))
   .response(UserDto)
-  .errors(errors.notFound, errors.forbidden)
+  .auth()
+  .authorize()
 
 // Inferred from the endpoint:
 //   params: { user: string; post?: string }
 //   status: 200
-//   error statuses: 404 | 403
+//   errors, derived from its capabilities: 422 (query), 404 (path param), 401 (auth), 403 (authorize)
 ```
 
 Planned (not on `master` yet):
@@ -63,7 +64,7 @@ Status as recorded in [`docs/v1/overview.md`](docs/v1/overview.md#package-graph)
 
 | Package | Role in v1 | Status |
 |---|---|---|
-| `@laratype/contract` | Endpoint builder, path params, error catalog, Standard Schema types, validation adapter, `defineContract`, `defineApi` | Available (C1–C5) |
+| `@laratype/contract` | Endpoint builder, path params, capabilities and derived errors, `defineError`, Standard Schema types, validation adapter, `defineContract`, `defineScope`, `defineApi` | Available (C1–C5, C4b) |
 | `@laratype/core` | DI container, tokens, dependency registry | Available (D1, D2) |
 | `@laratype/client` | Typed frontend client, `createClient(appApi)` | Scaffold only. API planned → [#109](https://github.com/Laratypes/Laratype/issues/109) |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | ServiceProvider v2 available (D4); other helpers 0.5 |

@@ -1,13 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { defineError, endpoint, errors } from '@laratype/contract'
+import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
 
 describe('defineError', () => {
-  it('creates a frozen { status, code } def without a runtime body', () => {
+  it('returns a frozen factory carrying status and code', () => {
     const teapot = defineError(418, 'TEAPOT')
 
-    expect(teapot).toEqual({ status: 418, code: 'TEAPOT' })
-    expect('__body' in teapot).toBe(false)
+    expect(typeof teapot).toBe('function')
+    expect([teapot.status, teapot.code]).toEqual([418, 'TEAPOT'])
     expect(Object.isFrozen(teapot)).toBe(true)
+  })
+
+  it('throws a ContractError with { message } as the default body', () => {
+    const teapot = defineError(418, 'TEAPOT')
+    const e = teapot()
+
+    expect(e).toBeInstanceOf(ContractError)
+    expect(e).toBeInstanceOf(Error)
+    expect([e.status, e.code, e.body]).toEqual([418, 'TEAPOT', { message: 'TEAPOT' }])
+    expect(e.message).toBe('TEAPOT')
+    expect(teapot('I am a teapot').body).toEqual({ message: 'I am a teapot' })
+    expect(() => {
+      throw teapot()
+    }).toThrow(ContractError)
+  })
+
+  it('builds the body with the body factory', () => {
+    const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ message: 'Taken.', email }))
+    const e = EmailTaken('ada@example.com')
+
+    expect(e.body).toEqual({ message: 'Taken.', email: 'ada@example.com' })
+    expect(e.message).toBe('Taken.')
+    expect(defineError(409, 'X_Y', () => ({ email: 'a' }))().message).toBe('X_Y')
+  })
+
+  it('.is() compares the code, not instanceof, so it works across bundles', () => {
+    const EmailTaken = defineError(409, 'EMAIL_TAKEN')
+    const otherCopy = defineError(409, 'EMAIL_TAKEN')
+
+    expect(EmailTaken.is(otherCopy())).toBe(true)
+    expect(EmailTaken.is({ code: 'EMAIL_TAKEN' })).toBe(true)
+    expect(EmailTaken.is(defineError(409, 'EMAIL_USED')())).toBe(false)
+    expect(EmailTaken.is(new Error('EMAIL_TAKEN'))).toBe(false)
+    expect(EmailTaken.is(null)).toBe(false)
+    expect(EmailTaken.is('EMAIL_TAKEN')).toBe(false)
+  })
+
+  it.each([['email_taken'], ['EmailTaken'], ['EMAIL-TAKEN'], ['_EMAIL'], ['EMAIL_'], ['A__B'], ['']])('rejects the non-UPPER_SNAKE code %j', (code) => {
+    expect(() => defineError(409, code)).toThrow(/must be UPPER_SNAKE/)
+  })
+
+  it('rejects a non-integer status and a non-function body', () => {
+    expect(() => defineError(4.5, 'X')).toThrow(/invalid status/)
+    expect(() => defineError('404' as never, 'X')).toThrow(/invalid status/)
+    expect(() => defineError(404, 'X', { message: 'x' } as never)).toThrow(/body must be a function/)
   })
 })
 
@@ -16,25 +61,30 @@ describe('built-in errors', () => {
     ['unauthorized', 401, 'UNAUTHORIZED'],
     ['forbidden', 403, 'FORBIDDEN'],
     ['notFound', 404, 'NOT_FOUND'],
-    ['conflict', 409, 'CONFLICT'],
     ['validation', 422, 'VALIDATION_ERROR'],
     ['tooManyRequests', 429, 'TOO_MANY_REQUESTS'],
   ] as const)('%s -> %i %s', (name, status, code) => {
-    expect(errors[name]).toEqual({ status, code })
+    expect([errors[name].status, errors[name].code]).toEqual([status, code])
     expect(Object.isFrozen(errors[name])).toBe(true)
   })
 
-  it('has exactly the documented built-ins and is frozen', () => {
-    expect(Object.keys(errors).sort()).toEqual(
-      ['conflict', 'forbidden', 'notFound', 'tooManyRequests', 'unauthorized', 'validation'],
-    )
+  it('has exactly the documented built-ins (no conflict) and is frozen', () => {
+    expect(Object.keys(errors).sort()).toEqual(['forbidden', 'notFound', 'tooManyRequests', 'unauthorized', 'validation'])
     expect(Object.isFrozen(errors)).toBe(true)
   })
 
-  it('plugs into the endpoint builder as-is', () => {
-    const e = endpoint.get('/users/:user').errors(errors.notFound, errors.forbidden)
+  it('builds default bodies; validation carries the error bag', () => {
+    expect(errors.notFound().body).toEqual({ message: 'Not Found.' })
+    expect(errors.forbidden('Nope.').body).toEqual({ message: 'Nope.' })
+    expect(errors.validation({ email: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { email: ['Required'] } })
+    expect(errors.notFound.is(errors.notFound())).toBe(true)
+    expect(errors.notFound.is(errors.forbidden())).toBe(false)
+  })
 
-    expect(e.def.errors).toEqual([errors.notFound, errors.forbidden])
-    expect(e.def.errors[0]).toBe(errors.notFound)
+  it('plugs into .throws() as-is', () => {
+    const e = endpoint.get('/search').throws(errors.notFound, errors.forbidden)
+
+    expect(e.def.throws).toEqual([errors.notFound, errors.forbidden])
+    expect(e.def.throws[0]).toBe(errors.notFound)
   })
 })
