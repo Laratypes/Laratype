@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Binary files (git ls-files --eol shows -text)
+*.png binary

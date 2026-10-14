@@ -25,7 +25,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | planned → #116 |
-| [CI and release](#ci-and-release) | planned → #189, #190 |
+| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); planned → #189, #190 |
 
 ---
 
@@ -231,10 +231,14 @@ Exposes the same core transform as a Bun plugin in `bun.build.js`, so framework 
 ## CI and release
 
 ### Status
-planned → [#189](https://github.com/Laratypes/Laratype/issues/189) (B14, CI consolidation), [#190](https://github.com/Laratypes/Laratype/issues/190) (B15, npm release).
+Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr-new previews and LF line endings. Workflow hardening is planned → [#189](https://github.com/Laratypes/Laratype/issues/189) (B14), and the npm release → [#190](https://github.com/Laratypes/Laratype/issues/190) (B15).
+
+### Invariants
+- **`pkg-preview.yml` publishes a pkg.pr.new preview of every package that has a `dist`**, on each PR (any base) and on push to `master`. It runs with `permissions: contents: read` and no secrets; the pkg.pr.new GitHub App posts the install links. It packs with `bun pm pack` (`--bun`), because `npm pack` leaves `catalog:` specifiers unresolved. pkg-pr-new skips `"private": true` packages.
+- **Text files are LF in the repo and in every checkout.** `.gitattributes` sets `* text=auto eol=lf` and marks `*.png` binary, so `core.autocrlf=true` on Windows no longer checks fixtures and snapshots out as CRLF.
 
 ### Design (non-binding)
-- **B14:** one CI that runs the tests not wired today. Those are `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`; `check:dist` (acf9f2a) and the T3 DI tests (b560fc9) already run in CI. B14 also covers pkg-pr-new previews and workflow hardening.
+- **B14:** one CI that runs the tests not wired today. Those are `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`; `check:dist` (acf9f2a) and the T3 DI tests (b560fc9) already run in CI. B14 also covers workflow hardening.
 - **B15:** npm releases with Trusted Publishing (OIDC), provenance and changesets.
 - `.github/` changes need user review.
 
