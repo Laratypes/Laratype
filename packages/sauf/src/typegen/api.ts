@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import type * as TS from "typescript";
+import { lines } from "./emit";
 import type { GeneratedFile } from "./emit";
 
 /**
@@ -130,7 +131,11 @@ function createPrinter(ts: typeof TS, program: TS.Program, checker: TS.TypeCheck
 export function generateApiFile(ts: typeof TS, options: ApiFileOptions): GeneratedFile & { manifest: Record<string, ManifestEntry> } {
   const entryFile = resolve(dirname(options.indexFile), ENTRY_NAME);
   const indexSpecifier = `./${options.indexFile.slice(dirname(options.indexFile).length + 1).replace(/\.ts$/, "")}`;
-  const entrySource = `import type { ApiTypes } from '@laratype/contract'\nimport type { AppApi } from '${indexSpecifier}'\nexport type Flat = ApiTypes<AppApi>\n`;
+  const entrySource = lines([
+    "import type { ApiTypes } from '@laratype/contract'",
+    `import type { AppApi } from '${indexSpecifier}'`,
+    "export type Flat = ApiTypes<AppApi>",
+  ]);
 
   const compilerOpts = compilerOptions(ts, options);
   if (!(compilerOpts.strictNullChecks ?? compilerOpts.strict)) {
@@ -194,9 +199,12 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
     .map(([name, e]) => `  ${quote(name)}: { method: ${quote(e.method)}, path: ${quote(e.path)}, errors: [${e.errors.map(quote).join(", ")}] },`);
   const content =
     BANNER +
-    "\n" +
-    `export type AppApi = ${appApi}\n\n` +
-    "/** Route name → method, full path and the error codes the endpoint can answer with. */\n" +
-    (manifestLines.length ? `export const manifest = {\n${manifestLines.join("\n")}\n} as const\n` : "export const manifest = {} as const\n");
+    lines([
+      "",
+      `export type AppApi = ${appApi}`,
+      "",
+      "/** Route name → method, full path and the error codes the endpoint can answer with. */",
+      ...(manifestLines.length ? ["export const manifest = {", ...manifestLines, "} as const"] : ["export const manifest = {} as const"]),
+    ]);
   return { path: options.outFile, content, manifest };
 }
