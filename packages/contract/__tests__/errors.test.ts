@@ -49,6 +49,32 @@ describe('defineError', () => {
     expect(() => defineError(409, code)).toThrow(/must be UPPER_SNAKE/)
   })
 
+  it('rejects, when the error is created, a body with its own code (the wire format is { code, ...body })', () => {
+    const Bad = defineError(409, 'BAD', (() => ({ code: 'OTHER', message: 'x' })) as never)
+    expect(() => Bad()).toThrow(
+      new TypeError('[@laratype/contract] BAD: the body must not have its own "code" key (the error is sent as { code, ...body })'),
+    )
+  })
+
+  it.each([
+    ['a string', 'taken', 'string'],
+    ['a number', 42, 'number'],
+    ['a boolean', true, 'boolean'],
+    ['undefined', undefined, 'undefined'],
+    ['null', null, 'null'],
+    ['an array', ['a'], 'an array'],
+  ])('rejects, when the error is created, a body that is %s', (_, value, got) => {
+    const Bad = defineError(409, 'BAD', (() => value) as never)
+    expect(() => Bad()).toThrow(
+      new TypeError(`[@laratype/contract] BAD: the body must be an object, got ${got} (the error is sent as { code, ...body })`),
+    )
+  })
+
+  it('accepts the default { message } body and the catalog bodies', () => {
+    expect(defineError(409, 'OK')().body).toEqual({ message: 'OK' })
+    expect(errors.validation({ name: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { name: ['Required'] } })
+  })
+
   it('rejects a non-integer status and a non-function body', () => {
     expect(() => defineError(4.5, 'X')).toThrow(/invalid status/)
     expect(() => defineError('404' as never, 'X')).toThrow(/invalid status/)

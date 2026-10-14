@@ -73,6 +73,21 @@ defineError(404)
 defineError(404, 'X', { message: 'x' })
 // @ts-expect-error the factory arguments are typed
 EmailTaken(42)
+// The wire format is { code, ...body }: a body is a plain object without its own code (CL2 #110)
+// @ts-expect-error the body must not have its own code key
+defineError(409, 'X', () => ({ code: 'Y', message: 'x' }))
+// @ts-expect-error not even an optional one
+defineError(409, 'X', (): { message: string; code?: string } => ({ message: 'x' }))
+// @ts-expect-error the body must be an object: a string
+defineError(409, 'X', () => 'taken')
+// @ts-expect-error a number
+defineError(409, 'X', () => 42)
+// @ts-expect-error null
+defineError(409, 'X', () => null)
+// @ts-expect-error an array
+defineError(409, 'X', () => ['a'])
+// a union of objects is fine, and so is a key that only contains "code"
+expectTypeOf(defineError(409, 'X', (n: number) => (n ? { a: 1 } : { b: 'x', errorCode: 'E' }))).toBeFunction()
 // @ts-expect-error `conflict` was removed: a conflict is a domain error (defineError(409, ...))
 errors.conflict
 // @ts-expect-error built-ins are readonly

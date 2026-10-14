@@ -746,7 +746,8 @@ export type ErrorBody<E>;
 export type ErrorResponse<E> = E extends ErrorDef<infer St, infer Code, infer Body, any> ? { status: St; code: Code; body: Body } : never;
 export function defineError<const St extends number, const Code extends string>(status: St, code: Code): ErrorDef<St, Code, MessageBody, [message?: string]>;
 export function defineError<const St extends number, const Code extends string, Args extends unknown[], Body>(
-  status: St, code: Code, body: (...args: Args) => Body): ErrorDef<St, Code, Body, Args>;
+  status: St, code: Code, body: ((...args: Args) => Body) & CheckErrorBody<Body>): ErrorDef<St, Code, Body, Args>;
+export type CheckErrorBody<Body>;                     // unknown for a plain object without "code", else { error: "defineError: ..." }
 ```
 
 ```ts
@@ -764,6 +765,7 @@ if (EmailTaken.is(e)) e.body.email
 - **A factory:** `defineError(status, code, body?)` returns a frozen function that also carries `status`, `code` and `is`. Calling it builds a `ContractError` (an `Error`) to throw. Without a body factory the body is `{ message }`, and the message defaults to the code.
 - **`E.is(e)`** compares `code`, not `instanceof`, so it works across bundles and package copies.
 - **Codes** are `UPPER_SNAKE` (`/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/`), like the built-in [catalog](#error-catalog).
+- **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws. The default `{ message }` body and the catalog bodies already comply.
 - **Declaring:** `throws` on an endpoint, a contract or a scope. The levels add up ([inheritance](#capabilities-and-derived-errors)). `throws` also accepts the built-in catalog errors. For example, a search endpoint with no path param whose service throws `notFound` declares `.throws(errors.notFound)`, so the undeclared-error check accepts it.
 - **403 from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws`. There is no separate capability for it.
 - **Undeclared errors:** in dev and test, throwing an error the running endpoint doesn't declare is reported, and fails the test ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
@@ -774,8 +776,10 @@ Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineError: invalid status <status>` (not an integer)
 - `defineError: code "<code>" must be UPPER_SNAKE`
 - `defineError("<code>"): body must be a function`
+- `<code>: the body must be an object, got <kind> (the error is sent as { code, ...body })`, thrown when the error is created
+- `<code>: the body must not have its own "code" key (the error is sent as { code, ...body })`, thrown when the error is created
 
-Type-only (`types/errors.types.ts`): a string status, a missing code, a non-function body, and factory arguments of the wrong type.
+Type-only (`types/errors.types.ts`): a string status, a missing code, a non-function body, factory arguments of the wrong type, and a body factory that returns a non-object or an object with a `code` key.
 
 ### Example
 [`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) (`EmailTaken`, `.is()`, narrowing by `code`)

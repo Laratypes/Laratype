@@ -60,6 +60,25 @@ const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);
 };
 
+/**
+ * An error goes on the wire as `{ code, ...body }` (client.md › Result union), so a body is a plain object without
+ * its own `code`. Anything else in the body factory's return type is a type error, and creating the error throws.
+ */
+export type CheckErrorBody<Body> = [Body] extends [readonly unknown[]]
+  ? { error: "defineError: the body must be an object, not an array (the error is sent as { code, ...body })" }
+  : [Body] extends [object]
+    ? "code" extends keyof Body
+      ? { error: "defineError: the body must not have its own \"code\" key (the error is sent as { code, ...body })" }
+      : unknown
+    : { error: "defineError: the body must be an object (the error is sent as { code, ...body })" };
+
+const checkBody = (code: string, body: unknown): void => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    fail(`${code}: the body must be an object, got ${Array.isArray(body) ? "an array" : body === null ? "null" : typeof body} (the error is sent as { code, ...body })`);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "code")) fail(`${code}: the body must not have its own "code" key (the error is sent as { code, ...body })`);
+};
+
 const messageBody = (fallback: string) => (message?: string): MessageBody => ({ message: message ?? fallback });
 
 function make<St extends number, Code extends string, Body, Args extends unknown[]>(
@@ -69,7 +88,11 @@ function make<St extends number, Code extends string, Body, Args extends unknown
 ): ErrorDef<St, Code, Body, Args> {
   if (!Number.isInteger(status)) fail(`defineError: invalid status ${JSON.stringify(status)}`);
   if (typeof code !== "string" || !UPPER_SNAKE.test(code)) fail(`defineError: code ${JSON.stringify(code)} must be UPPER_SNAKE`);
-  const factory = (...args: Args) => new ContractError(status, code, body(...args));
+  const factory = (...args: Args) => {
+    const value = body(...args);
+    checkBody(code, value);
+    return new ContractError(status, code, value);
+  };
   const is = (error: unknown): error is ContractError<St, Code, Body> =>
     typeof error === "object" && error !== null && (error as { code?: unknown }).code === code;
   Object.defineProperties(factory, {
@@ -83,6 +106,7 @@ function make<St extends number, Code extends string, Body, Args extends unknown
 /**
  * Defines a domain error: an HTTP status, an `UPPER_SNAKE` code and an optional body factory.
  * Without a body factory the body is `{ message }`, and the message defaults to the code.
+ * The body must be an object without its own `code` key: on the wire the error is `{ code, ...body }`.
  *
  * @example
  * export const EmailTaken = defineError(409, "EMAIL_TAKEN", (email: string) => ({ email }))
@@ -95,7 +119,7 @@ export function defineError<const St extends number, const Code extends string>(
 export function defineError<const St extends number, const Code extends string, Args extends unknown[], Body>(
   status: St,
   code: Code,
-  body: (...args: Args) => Body,
+  body: ((...args: Args) => Body) & CheckErrorBody<Body>,
 ): ErrorDef<St, Code, Body, Args>;
 export function defineError(status: number, code: string, body?: (...args: any[]) => unknown): AnyErrorDef {
   if (body !== undefined && typeof body !== "function") fail(`defineError("${code}"): body must be a function`);
