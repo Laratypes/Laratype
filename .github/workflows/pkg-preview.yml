@@ -1,0 +1,29 @@
+name: 'Pkg preview'
+on:
+  # Any base branch, like ci.yml. No secrets: the pkg.pr.new GitHub App posts the PR comment
+  pull_request:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish preview packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup bun
+        uses: ./.github/setup-bun
+
+      - name: Build
+        run: bun run build && bun run build:type
+
+      # Only packages with a dist; the empty ones (broadcast, i18n, mail, schedule, storage, ts-gen) have none.
+      # --bun packs with `bun pm pack`, which resolves the `catalog:` specifiers that npm pack leaves as-is
+      # Pinned to 0.0.88 (2026-08-14), the newest release older than two weeks when this was written
+      - name: Publish
+        run: bunx pkg-pr-new@0.0.88 publish --bun $(ls -d packages/*/dist | xargs -n1 dirname)
