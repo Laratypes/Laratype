@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Container, DiError, token } from '@laratype/core'
+import { Container, DiError, Inject, __laratype_deps, depsRegistry, token } from '@laratype/core'
 import type { DepsEntry } from '@laratype/core'
 
 /** Resolution error messages with fix hints (D5a #100). */
@@ -87,5 +87,26 @@ describe('thunk returning undefined', () => {
   it('without metadata', () => {
     const deps = depsOf([[Notifier, { slots: [() => Clock, () => undefined] }]])
     expect(messageOf(() => new Container({ deps }).make(Notifier))).toMatchInlineSnapshot(`"Cannot resolve Notifier constructor param #1: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value."`)
+  })
+})
+
+describe('@Inject records (D3)', () => {
+  it('for a record token that is unbound', () => {
+    const InjectMailer = () => Inject(MAILER)
+    class Digest {
+      constructor(@InjectMailer() readonly mailer: unknown) {}
+    }
+    __laratype_deps(Digest, [{ unresolved: 'Mailer', index: 0 }], { params: ['mailer'] })
+    expect(messageOf(() => new Container({ deps: depsRegistry }).make(Digest))).toMatchInlineSnapshot(`"No binding for InjectionToken(mailer). Required by Digest constructor param #0 \`mailer\`. Fix: bind it in a service provider \`register()\`, e.g. \`container.bind(token, factory)\` or \`container.instance(token, value)\`."`)
+  })
+
+  it('for a transform thunk that disagrees with the record', () => {
+    const InjectMailer = () => Inject(MAILER)
+    class ConsoleMailer {}
+    class UsesWrapper {
+      constructor(@InjectMailer() readonly mailer: ConsoleMailer) {}
+    }
+    __laratype_deps(UsesWrapper, [() => ConsoleMailer], { params: ['mailer'] })
+    expect(messageOf(() => new Container({ deps: depsRegistry }).make(UsesWrapper))).toMatchInlineSnapshot(`"Conflicting metadata for UsesWrapper constructor param #0 \`mailer\`: transform says ConsoleMailer, @Inject says InjectionToken(mailer). Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform)."`)
   })
 })

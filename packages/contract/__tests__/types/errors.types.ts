@@ -1,66 +1,85 @@
 // Type tests: compiled by ../typecheck.test.ts with tsc, so a broken expectation fails `vitest run`.
 import { expectTypeOf } from 'vitest'
-import { defineError, endpoint, errors } from '@laratype/contract'
-import type { ErrorBody, ErrorDef, ErrorResponse, ErrorStatus, MessageBody, ValidationErrorBody } from '@laratype/contract'
+import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
+import type { ErrorBag, ErrorBody, ErrorCode, ErrorDef, ErrorResponse, ErrorStatus, MessageBody, ValidationErrorBody } from '@laratype/contract'
 
-// --- defineError: status literal inferred, body defaults to { message }
+// --- defineError: status and code literals inferred, body defaults to { message }
 const teapot = defineError(418, 'TEAPOT')
-expectTypeOf(teapot).toEqualTypeOf<ErrorDef<418, MessageBody>>()
+expectTypeOf(teapot).toEqualTypeOf<ErrorDef<418, 'TEAPOT', MessageBody, [message?: string]>>()
 expectTypeOf(teapot.status).toEqualTypeOf<418>()
+expectTypeOf(teapot.code).toEqualTypeOf<'TEAPOT'>()
 expectTypeOf<ErrorBody<typeof teapot>>().toEqualTypeOf<{ message: string }>()
+expectTypeOf(teapot()).toEqualTypeOf<ContractError<418, 'TEAPOT', MessageBody>>()
+expectTypeOf(teapot).parameters.toEqualTypeOf<[message?: string]>()
 
-const quota = defineError<402, { message: string; remaining: number }>(402, 'QUOTA')
-expectTypeOf<ErrorStatus<typeof quota>>().toEqualTypeOf<402>()
-expectTypeOf<ErrorBody<typeof quota>>().toEqualTypeOf<{ message: string; remaining: number }>()
+// a body factory types the body and the factory's arguments
+const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ email }))
+expectTypeOf<ErrorStatus<typeof EmailTaken>>().toEqualTypeOf<409>()
+expectTypeOf<ErrorCode<typeof EmailTaken>>().toEqualTypeOf<'EMAIL_TAKEN'>()
+expectTypeOf<ErrorBody<typeof EmailTaken>>().toEqualTypeOf<{ email: string }>()
+expectTypeOf(EmailTaken).parameters.toEqualTypeOf<[email: string]>()
+expectTypeOf(EmailTaken('a@b.c').body).toEqualTypeOf<{ email: string }>()
+expectTypeOf(EmailTaken('a@b.c')).toMatchTypeOf<Error>()
 
-// --- built-ins
-expectTypeOf(errors.unauthorized).toEqualTypeOf<ErrorDef<401, MessageBody>>()
-expectTypeOf(errors.forbidden).toEqualTypeOf<ErrorDef<403, MessageBody>>()
-expectTypeOf(errors.notFound).toEqualTypeOf<ErrorDef<404, MessageBody>>()
-expectTypeOf(errors.conflict).toEqualTypeOf<ErrorDef<409, MessageBody>>()
-expectTypeOf(errors.validation).toEqualTypeOf<ErrorDef<422, ValidationErrorBody>>()
-expectTypeOf(errors.tooManyRequests).toEqualTypeOf<ErrorDef<429, MessageBody>>()
+// --- .is() narrows an unknown catch value by code
+declare const caught: unknown
+if (EmailTaken.is(caught)) {
+  expectTypeOf(caught).toEqualTypeOf<ContractError<409, 'EMAIL_TAKEN', { email: string }>>()
+  expectTypeOf(caught.body.email).toEqualTypeOf<string>()
+  expectTypeOf(caught.code).toEqualTypeOf<'EMAIL_TAKEN'>()
+}
+if (errors.validation.is(caught)) {
+  expectTypeOf(caught.body).toEqualTypeOf<ValidationErrorBody>()
+}
+
+// --- built-ins: the errors the framework derives
+expectTypeOf(errors.unauthorized).toEqualTypeOf<ErrorDef<401, 'UNAUTHORIZED', MessageBody, [message?: string]>>()
+expectTypeOf(errors.forbidden).toEqualTypeOf<ErrorDef<403, 'FORBIDDEN', MessageBody, [message?: string]>>()
+expectTypeOf(errors.notFound).toEqualTypeOf<ErrorDef<404, 'NOT_FOUND', MessageBody, [message?: string]>>()
+expectTypeOf(errors.validation).toEqualTypeOf<ErrorDef<422, 'VALIDATION_ERROR', ValidationErrorBody, [errors: ErrorBag, message?: string]>>()
+expectTypeOf(errors.tooManyRequests).toEqualTypeOf<ErrorDef<429, 'TOO_MANY_REQUESTS', MessageBody, [message?: string]>>()
 expectTypeOf<ErrorBody<typeof errors.validation>>().toEqualTypeOf<{ message: string; errors: Record<string, string[]> }>()
 
-// --- wired into the builder: E is the union, ErrorResponse<E> narrows body by status
-const show = endpoint.get('/users/:user').errors(errors.notFound, errors.validation).errors(quota)
-type E = typeof show.__types.errors
-expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<404 | 422 | 402>()
+// --- wired into the builder: ErrorResponse narrows by code (two errors may share a status)
+const NotVerified = defineError(403, 'EMAIL_NOT_VERIFIED', () => ({ message: 'Verify your email.', resend: '/verify' }))
+const show = endpoint.get('/x').throws(errors.forbidden, NotVerified).throws(EmailTaken)
+type E = typeof show.__types.throws
+expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<403 | 409>()
 expectTypeOf<ErrorResponse<E>>().toEqualTypeOf<
-  | { status: 404; body: MessageBody }
-  | { status: 422; body: ValidationErrorBody }
-  | { status: 402; body: { message: string; remaining: number } }
+  | { status: 403; code: 'FORBIDDEN'; body: MessageBody }
+  | { status: 403; code: 'EMAIL_NOT_VERIFIED'; body: { message: string; resend: string } }
+  | { status: 409; code: 'EMAIL_TAKEN'; body: { email: string } }
 >()
 
 declare const res: ErrorResponse<E>
-if (res.status === 422) {
-  expectTypeOf(res.body).toEqualTypeOf<ValidationErrorBody>()
-  expectTypeOf(res.body.errors).toEqualTypeOf<Record<string, string[]>>()
-} else if (res.status === 402) {
-  expectTypeOf(res.body.remaining).toEqualTypeOf<number>()
+if (res.code === 'EMAIL_NOT_VERIFIED') {
+  expectTypeOf(res.body.resend).toEqualTypeOf<string>()
+} else if (res.status === 403) {
+  expectTypeOf(res.code).toEqualTypeOf<'FORBIDDEN'>()
 } else {
-  expectTypeOf(res.status).toEqualTypeOf<404>()
-  expectTypeOf(res.body).toEqualTypeOf<MessageBody>()
+  expectTypeOf(res.body).toEqualTypeOf<{ email: string }>()
 }
 
-// no errors declared -> nothing to narrow
+// no throws declared -> nothing to narrow
 const bare = endpoint.get('/')
-expectTypeOf<ErrorResponse<typeof bare.__types.errors>>().toEqualTypeOf<never>()
+expectTypeOf<ErrorResponse<typeof bare.__types.throws>>().toEqualTypeOf<never>()
 
 // --- negatives
 // @ts-expect-error status must be a number
 defineError('404', 'NOT_FOUND')
 // @ts-expect-error code is required
 defineError(404)
-// @ts-expect-error explicit status generic must match the argument
-defineError<404>(403, 'X')
-// @ts-expect-error unknown built-in
-errors.badRequest
+// @ts-expect-error the body factory must be a function
+defineError(404, 'X', { message: 'x' })
+// @ts-expect-error the factory arguments are typed
+EmailTaken(42)
+// @ts-expect-error `conflict` was removed: a conflict is a domain error (defineError(409, ...))
+errors.conflict
 // @ts-expect-error built-ins are readonly
 errors.notFound = teapot
 // @ts-expect-error def fields are readonly
 errors.notFound.status = 500
 // @ts-expect-error validation body has no `issues`
-errors.validation.__body?.issues
+errors.validation([] as never).body.issues
 // @ts-expect-error 418 is not in the declared error union
-expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<404 | 422 | 402 | 418>()
+expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<403 | 409 | 418>()

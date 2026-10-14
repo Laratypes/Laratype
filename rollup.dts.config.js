@@ -12,9 +12,15 @@ const tasks = Object.entries(entries)
     const dir = path.resolve(`./packages/${pkgName.replace('@laratype', '')}/dist`)
     return {
       input: entryPoint,
+      // index.d.cts types the `require` condition: in a "type": "module" package, index.d.ts
+      // alone is read as ESM types for the CJS build (attw "Masquerading as ESM").
       output: [
         {
           file: `${dir}/index.d.ts`,
+          format: 'es',
+        },
+        {
+          file: `${dir}/index.d.cts`,
           format: 'es',
         },
       ],

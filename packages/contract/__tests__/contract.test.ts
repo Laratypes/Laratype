@@ -1,36 +1,42 @@
 import { describe, expect, it } from 'vitest'
 import * as z from 'zod'
 import {
-  CONTRACT_NAME,
+  API_NODE,
+  CONTRACT,
+  SCOPE,
   apiEndpoint,
   apiRoutes,
   contractEndpoints,
-  contractName,
   defineApi,
   defineContract,
+  defineError,
+  defineScope,
   endpoint,
   errors,
   isContract,
-  routeName,
+  isScope,
 } from '@laratype/contract'
-import { appApi } from './fixtures/app/contracts'
-import { posts } from './fixtures/app/contracts/posts'
-import { users } from './fixtures/app/contracts/users'
+import { appApi } from './fixtures/app/api'
+import { AccountLocked, EmailTaken, PostLimit } from './fixtures/app/api/errors'
+import users from './fixtures/app/api/users'
+import usersUser from './fixtures/app/api/users/[user]/_scope'
+import posts from './fixtures/app/api/users/[user]/posts'
 
 describe('defineContract', () => {
-  it('keeps the endpoints and brands the name with a non-enumerable symbol', () => {
-    expect(users.show).toBeDefined()
-    expect(users.show.def).toMatchObject({ method: 'get', path: '/users/:user', errors: [errors.notFound] })
-    expect(users[CONTRACT_NAME]).toBe('users')
-    expect(contractName(users)).toBe('users')
-    expect(Object.keys(users)).toEqual(['index', 'show', 'store', 'destroy'])
-    expect(Object.getOwnPropertyDescriptor(users, CONTRACT_NAME)?.enumerable).toBe(false)
+  it('keeps the endpoints and brands the options with a non-enumerable symbol', () => {
+    expect(users.show.def).toMatchObject({ method: 'get', path: '/:user', throws: [] })
+    expect(Object.keys(users)).toEqual(['index', 'show', 'store', 'destroy', 'stats'])
+    expect(users[CONTRACT].options).toEqual({ auth: true, throttle: { limit: 60, per: '1m' } })
+    expect(posts[CONTRACT].options).toEqual({ throws: [PostLimit] })
+    expect(Object.getOwnPropertyDescriptor(users, CONTRACT)?.enumerable).toBe(false)
     expect(isContract({ ...users })).toBe(false)
   })
 
-  it('is frozen and has a null prototype', () => {
+  it('is frozen and has a null prototype, options included', () => {
     expect(Object.isFrozen(users)).toBe(true)
     expect(Object.getPrototypeOf(users)).toBeNull()
+    expect(Object.isFrozen(users[CONTRACT].options)).toBe(true)
+    expect(Object.isFrozen(posts[CONTRACT].options.throws)).toBe(true)
     expect(() => {
       (users as Record<string, unknown>).extra = endpoint.get('/x')
     }).toThrow(TypeError)
@@ -46,79 +52,176 @@ describe('defineContract', () => {
     expect(contractEndpoints(posts)).toEqual([
       ['index', posts.index],
       ['store', posts.store],
+      ['search', posts.search],
     ])
   })
 
-  it.each([[''], ['.users'], ['users.'], ['a..b']])('rejects the invalid name %j', (name) => {
-    expect(() => defineContract(name, {})).toThrow(/invalid contract name/)
+  it('works without options', () => {
+    expect(defineContract()({ a: endpoint.get('/') })[CONTRACT].options).toEqual({})
   })
 
-  it('rejects endpoint keys containing "." and non-endpoint values', () => {
-    expect(() => defineContract('x', { 'a.b': endpoint.get('/') })).toThrow(/must not contain "."/)
-    expect(() => defineContract('x', { a: { def: {} } as never })).toThrow(/"a" is not an endpoint/)
-  })
-
-  it('accepts dotted contract names', () => {
-    const admin = defineContract('admin.users', { show: endpoint.get('/admin/users/:user') })
-    expect(routeName(admin, 'show')).toBe('admin.users.show')
-  })
-})
-
-describe('isContract', () => {
-  it('detects branded contracts only', () => {
-    expect(isContract(users)).toBe(true)
-    expect(isContract({ show: users.show })).toBe(false)
-    expect(isContract(null)).toBe(false)
-    expect(isContract('users')).toBe(false)
+  it('rejects bad endpoint keys, non-endpoint values and bad options', () => {
+    expect(() => defineContract()({ 'a.b': endpoint.get('/') })).toThrow(/endpoint key "a.b" must be non-empty and must not contain "."/)
+    expect(() => defineContract()({ '': endpoint.get('/') })).toThrow(/endpoint key ""/)
+    expect(() => defineContract()({ a: { def: {} } as never })).toThrow(/"a" is not an endpoint/)
+    expect(() => defineContract()({}, { authorize: true } as never)).toThrow(/defineContract: unknown option "authorize"/)
+    expect(() => defineContract()({}, { auth: false } as never)).toThrow(/auth must be true or a guard name/)
+    expect(() => defineContract()({}, { throttle: { limit: 0, per: 60 } })).toThrow(/throttle must be/)
+    expect(() => defineContract()({}, { throws: [{ status: 409, code: 'X' }] as never })).toThrow(/use defineError/)
   })
 })
 
-describe('route registry naming', () => {
-  it('names routes `<contract>.<endpoint>`', () => {
-    expect(routeName(users, 'show')).toBe('users.show')
-    expect(apiRoutes(appApi).map(([name]) => name)).toEqual([
-      'users.index',
-      'users.show',
-      'users.store',
-      'users.destroy',
-      'posts.index',
-      'posts.store',
-    ])
-    expect(apiRoutes(appApi)[1]![1]).toBe(users.show)
+describe('defineScope', () => {
+  it('returns the options, frozen and branded', () => {
+    expect(usersUser).toEqual({ auth: true, authorize: true, throws: [AccountLocked] })
+    expect(usersUser[SCOPE]).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(usersUser, SCOPE)?.enumerable).toBe(false)
+    expect(Object.isFrozen(usersUser)).toBe(true)
+    expect(isScope(usersUser)).toBe(true)
+    expect(isScope({ ...usersUser })).toBe(false)
+    expect(isContract(usersUser)).toBe(false)
   })
 
-  it('resolves endpoints by registry name', () => {
-    expect(apiEndpoint(appApi, 'posts.store')).toBe(posts.store)
-    const admin = defineContract('admin.users', { show: endpoint.get('/admin/users/:user') })
-    const api = defineApi({ 'admin.users': admin })
-    expect(apiEndpoint(api, 'admin.users.show')).toBe(admin.show)
-  })
-
-  it('throws on an unknown registry name', () => {
-    expect(() => apiEndpoint(appApi, 'users.nope' as never)).toThrow(/unknown route name "users.nope"/)
-    expect(() => apiEndpoint(appApi, 'nope' as never)).toThrow(/unknown route name "nope"/)
+  it('rejects unknown options and opt-outs', () => {
+    expect(() => defineScope()({ public: true } as never)).toThrow(/defineScope: unknown option "public"/)
+    expect(() => defineScope()({ throttle: false } as never)).toThrow(/throttle must be/)
+    expect(() => defineScope()({ authorize: 'yes' } as never)).toThrow(/authorize must be a boolean/)
   })
 })
 
 describe('defineApi', () => {
-  it('keeps the contracts by name, frozen', () => {
-    expect(appApi.users).toBe(users)
-    expect(appApi.posts).toBe(posts)
-    expect(Object.keys(appApi)).toEqual(['users', 'posts'])
+  it('nests the flat tree names: api.users.posts.store', () => {
+    expect(appApi.users.show).toBe(users.show)
+    expect(appApi.users.posts.store).toBe(posts.store)
+    expect(Object.keys(appApi)).toEqual(['users'])
+    expect(Object.keys(appApi.users)).toEqual(['index', 'show', 'store', 'destroy', 'stats', 'posts'])
+  })
+
+  it('brands each node with its tree name and entry, and freezes the tree', () => {
+    expect(appApi.users[API_NODE]).toEqual({ name: 'users', entry: { contract: users, path: '/api/users', scopes: [] } })
+    expect(appApi.users.posts[API_NODE].name).toBe('users.posts')
+    expect(appApi.users.posts[API_NODE].entry.scopes).toEqual([usersUser])
+    expect(Object.keys(appApi.users.posts)).toEqual(['index', 'store', 'search'])
     expect(Object.isFrozen(appApi)).toBe(true)
+    expect(Object.isFrozen(appApi.users.posts)).toBe(true)
+    expect(Object.getPrototypeOf(appApi.users)).toBeNull()
   })
 
-  it('requires each key to match the contract name', () => {
-    expect(() => defineApi({ people: users } as never)).toThrow(/key "people" must match the contract name "users"/)
+  it('creates pure folder nodes, whatever the entry order', () => {
+    const health = defineContract()({ check: endpoint.get('/') })
+    const api = defineApi({
+      'v1.health.deep': { contract: health, path: '/api/v1/health/deep', scopes: [] },
+      'v1.health': { contract: health, path: '/api/v1/health', scopes: [] },
+    })
+    expect(api.v1[API_NODE]).toEqual({ name: 'v1', entry: undefined })
+    expect(apiRoutes(api).map((r) => [r.name, r.path])).toEqual([
+      ['v1.health.deep.check', '/api/v1/health/deep'],
+      ['v1.health.check', '/api/v1/health'],
+    ])
   })
 
-  it('rejects non-contract values', () => {
-    expect(() => defineApi({ users: { show: users.show } } as never)).toThrow(/"users" is not a contract/)
+  it('rejects bad names, entries and endpoint/child name clashes', () => {
+    const c = defineContract()({ show: endpoint.get('/') })
+    expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [] } } as never)).toThrow(/invalid tree name "a..b"/)
+    expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes \}/)
+    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [] } })).toThrow(/path must start with "\/"/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ auth: true }] } } as never)).toThrow(/use defineScope/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [] }, 'a.show': { contract: c, path: '/a/show', scopes: [] } } as never)).toThrow(
+      /"a.show" is both an endpoint and a contract/,
+    )
+    expect(() => defineApi({ 'a.show': { contract: c, path: '/a/show', scopes: [] }, a: { contract: c, path: '/a', scopes: [] } } as never)).toThrow(
+      /"a.show" is both an endpoint and a contract/,
+    )
+  })
+
+  it('re-checks the capability rules against the real scope chain', () => {
+    const open = defineContract()({ stats: endpoint.get('/stats').public() })
+    const authorize = defineScope()({ auth: true, authorize: true })
+    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [authorize] } })).toThrow(
+      /x.stats: .public\(\) under a scope with authorize: add .authorize\(false\)/,
+    )
+    expect(() => defineApi({ x: { contract: defineContract()({ d: endpoint.delete('/').authorize() }), path: '/x', scopes: [] } })).toThrow(
+      /x.d: .authorize\(\) needs auth on the endpoint, its contract or a scope/,
+    )
+    const bare = defineScope()({ authorize: true } as never)
+    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [bare] } })).toThrow(/scope 0 has authorize but no auth/)
+    const allowed = defineContract()({ stats: endpoint.get('/stats').public().authorize(false) })
+    expect(() => defineApi({ x: { contract: allowed, path: '/x', scopes: [authorize] } })).not.toThrow()
+  })
+})
+
+describe('apiRoutes', () => {
+  const routes = apiRoutes(appApi)
+  const route = (name: string) => routes.find((r) => r.name === name)!
+
+  it('lists every route depth-first in definition order, with full paths', () => {
+    expect(routes.map((r) => [r.name, r.method, r.path])).toEqual([
+      ['users.index', 'get', '/api/users'],
+      ['users.show', 'get', '/api/users/:user'],
+      ['users.store', 'post', '/api/users'],
+      ['users.destroy', 'delete', '/api/users/:user'],
+      ['users.stats', 'get', '/api/users/stats'],
+      ['users.posts.index', 'get', '/api/users/:user/posts'],
+      ['users.posts.store', 'post', '/api/users/:user/posts'],
+      ['users.posts.search', 'get', '/api/users/:user/posts/search'],
+    ])
+    expect(route('users.show').endpoint).toBe(users.show)
+    expect(route('users.posts.index').contract).toBe(posts)
+    expect(route('users.posts.index').scopes).toEqual([usersUser])
+    expect(Object.isFrozen(route('users.show'))).toBe(true)
+  })
+
+  it('resolves the inherited capabilities: nearest auth and throttle, authorize from every level', () => {
+    expect(route('users.index')).toMatchObject({ auth: true, authorize: false, throttle: { limit: 60, per: '1m' } })
+    expect(route('users.destroy')).toMatchObject({ auth: true, authorize: true })
+    expect(route('users.stats')).toMatchObject({ auth: undefined, authorize: false, throttle: undefined })
+    expect(route('users.posts.index')).toMatchObject({ auth: true, authorize: false, throttle: undefined })
+    expect(route('users.posts.store')).toMatchObject({ auth: true, authorize: true, throttle: { limit: 10, per: 60 } })
+    expect(route('users.posts.search')).toMatchObject({ auth: undefined, authorize: false })
+  })
+
+  it('derives the errors (422, 404, 401, 403, 429) and adds throws from every level, unique by code', () => {
+    const codes = (name: string) => route(name).errors.map((e) => e.code)
+    expect(codes('users.index')).toEqual(['VALIDATION_ERROR', 'UNAUTHORIZED', 'TOO_MANY_REQUESTS'])
+    expect(codes('users.store')).toEqual(['VALIDATION_ERROR', 'UNAUTHORIZED', 'TOO_MANY_REQUESTS', 'EMAIL_TAKEN'])
+    expect(codes('users.destroy')).toEqual(['NOT_FOUND', 'UNAUTHORIZED', 'FORBIDDEN', 'TOO_MANY_REQUESTS'])
+    expect(codes('users.stats')).toEqual([])
+    expect(codes('users.posts.index')).toEqual(['VALIDATION_ERROR', 'NOT_FOUND', 'UNAUTHORIZED', 'ACCOUNT_LOCKED', 'POST_LIMIT'])
+    expect(codes('users.posts.store')).toEqual([
+      'VALIDATION_ERROR', 'NOT_FOUND', 'UNAUTHORIZED', 'FORBIDDEN', 'TOO_MANY_REQUESTS', 'ACCOUNT_LOCKED', 'POST_LIMIT',
+    ])
+    // .throws(errors.notFound) on top of the derived 404: kept once
+    expect(codes('users.posts.search')).toEqual(['NOT_FOUND', 'ACCOUNT_LOCKED', 'POST_LIMIT'])
+    expect(route('users.store').errors).toContain(EmailTaken)
+    expect(route('users.index').errors[0]).toBe(errors.validation)
+  })
+
+  it('treats "/" as the contract prefix itself and keeps optional params', () => {
+    const c = defineContract()({ root: endpoint.get('/'), opt: endpoint.get('/:id?') })
+    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
+    expect(apiRoutes(api).map((r) => [r.path, r.errors.map((e) => e.code)])).toEqual([
+      ['/api/things', []],
+      ['/api/things/:id?', ['NOT_FOUND']],
+    ])
+  })
+})
+
+describe('apiEndpoint', () => {
+  it('resolves endpoints by route name', () => {
+    expect(apiEndpoint(appApi, 'users.posts.store')).toBe(posts.store)
+    expect(apiEndpoint(appApi, 'users.show')).toBe(users.show)
+  })
+
+  it('throws on an unknown route name or a node', () => {
+    expect(() => apiEndpoint(appApi, 'users.nope' as never)).toThrow(/unknown route name "users.nope"/)
+    expect(() => apiEndpoint(appApi, 'nope' as never)).toThrow(/unknown route name "nope"/)
+    expect(() => apiEndpoint(appApi, 'users.posts' as never)).toThrow(/unknown route name "users.posts"/)
+    expect(() => apiEndpoint(appApi, 'users.show.x' as never)).toThrow(/unknown route name "users.show.x"/)
   })
 
   it('carries what a value-import client needs: method, path, error codes and the schemas', async () => {
     const store = apiEndpoint(appApi, 'users.store').def
-    expect([store.method, store.path, store.status, store.errors.map((e) => e.status)]).toEqual(['post', '/users', 201, [422]])
+    expect([store.method, store.path, store.status, store.throws.map((e) => e.code)]).toEqual(['post', '/', 201, ['EMAIL_TAKEN']])
     const checked = await store.body!['~standard'].validate({ name: '', email: 'nope' })
     expect(checked.issues?.length).toBe(2)
     const ok = await store.body!['~standard'].validate({ name: 'Ada', email: 'ada@example.com' })
@@ -126,7 +229,8 @@ describe('defineApi', () => {
   })
 
   it('works with an inline contract and schema', () => {
-    const api = defineApi({ health: defineContract('health', { check: endpoint.get('/health').response(z.object({ ok: z.boolean() })) }) })
+    const api = defineApi({ health: { contract: defineContract()({ check: endpoint.get('/').response(z.object({ ok: z.boolean() })) }), path: '/health', scopes: [] } })
     expect(apiEndpoint(api, 'health.check').def.status).toBe(200)
+    expect(defineError(409, 'X').code).toBe('X')
   })
 })

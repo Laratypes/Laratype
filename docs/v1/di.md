@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -20,9 +20,9 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Container](#container) | merged @ cfa85c3 |
 | [Dependency metadata](#dependency-metadata) | merged @ cfa85c3 |
 | [Deps registry](#deps-registry) | merged @ 36ba917 |
-| [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag planned → #101 |
+| [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag merged (#101) |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
-| [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | planned → #98 |
+| [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | planned → #100 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
@@ -122,7 +122,7 @@ export class Container {
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
-- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class's own entry only, never an inherited one. Code planned → [#101](https://github.com/Laratypes/Laratype/issues/101) (flag), [#100](https://github.com/Laratypes/Laratype/issues/100) (error).
+- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)); the error is planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
 
 ### Diagnostics
 `DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`):
@@ -149,7 +149,7 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ### Open questions
 - Resolved: autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Interim behaviour:**
-  - The container does not yet detect `@Inject`-vs-thunk conflicts (S3 condition 3). That arrives with the runtime decorator records ([#98](https://github.com/Laratypes/Laratype/issues/98)) and the fix-hint messages ([#100](https://github.com/Laratypes/Laratype/issues/100)).
+  - The container detects `@Inject`-vs-thunk conflicts (S3 condition 3) through the runtime decorator records ([Decorators](#decorators-inject-and-injectable)). The fix-hint messages are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
 
 ### Acceptance
 [#96 Done when](https://github.com/Laratypes/Laratype/issues/96)
@@ -167,7 +167,7 @@ merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
 ```ts
 export interface UnresolvedSlot { unresolved: string; index: number }
 export type DepSlot = (() => unknown) | UnresolvedSlot;   // lazy thunk to the key, or a marker for a type with no runtime value
-export interface DepsMeta { params: string[]; optional?: number[] }
+export interface DepsMeta { params: string[]; optional?: number[]; abstract?: true }  // abstract: see isAbstract()
 export interface DepsEntry { slots: DepSlot[]; meta?: DepsMeta }
 export interface DepsLookup { get(cls: Function): DepsEntry | undefined }   // a Map/WeakMap satisfies it
 export const noDeps: DepsLookup;                          // default: no metadata
@@ -205,8 +205,9 @@ merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)).
 [`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64)
 
 ```ts
-export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[], meta?: DepsMeta): T;  // returns cls unchanged
+export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[] | null, meta?: DepsMeta): T;  // returns cls unchanged
 export function hasOwnDeps(cls: Function): boolean;
+export function isAbstract(cls: Function): boolean;  // own flag only, never inherited
 export function getDeps(cls: Function): { owner: Function; entry: DepsEntry } | undefined;
 export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry })
 ```
@@ -215,6 +216,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
 - `__laratype_deps` is the call the [DI transform](#di-transform) emits. It stores the entry as an **own, non-enumerable, configurable** property under `Symbol.for('laratype.di.deps')`:
   - `configurable`, so an HMR re-run can register the class again;
   - `Symbol.for`, so two copies of `@laratype/core` in one bundle agree on the key.
+- `meta.abstract` also sets an own flag under `Symbol.for('laratype.di.abstract')`, read by `isAbstract()`. With `slots: null` only the flag is stored, and no deps entry ([DI transform › Abstract classes](#di-transform)).
 - `getDeps` walks from `cls` up the prototype chain. At each class it uses, in order:
   1. its own registered entry;
   2. otherwise its own `design:paramtypes`, for third-party decorated classes, only when `reflect-metadata` is loaded;
@@ -245,7 +247,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is planned → [#101](https://github.com/Laratypes/Laratype/issues/101), which stays open for it. Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -275,8 +277,11 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 
 ### Invariants
 - **Which classes:** every class with an **own constructor implementation** emits a call. A class with no own constructor emits nothing, so the runtime walks to the parent. An explicit `constructor() {}` emits `[]`. `constructor(...args) { super(...args) }` (first param is a rest) counts as no own constructor. `declare class` and overload signatures are skipped.
-- **Abstract classes** (planned → [#101](https://github.com/Laratypes/Laratype/issues/101), decided on [#112](https://github.com/Laratypes/Laratype/issues/112)): every `abstract` class also emits an entry, including one with no own constructor (empty params), and the entry flags it as abstract. The flag is never inherited. The container uses it for the runtime guard ([Container](#container)).
-- **Returns `null`** when the file contains no `constructor` (a fast pre-check), when nothing is emitted, or on a syntax error, which SWC then reports.
+- **Abstract classes** (decided on [#112](https://github.com/Laratypes/Laratype/issues/112)): every `abstract` class is flagged with `abstract: true` in its meta.
+  - With an own constructor, the flag is added to the normal call: `__laratype_deps(Port, [() => Clock], { params: ["clock"], abstract: true })`.
+  - Without one (or with a rest pass-through), the call is flag-only: `__laratype_deps(Mid, null, { params: [], abstract: true })`. `null` slots register no deps entry, so a subclass still inherits the nearest ancestor's constructor deps.
+  - The flag is stored apart from the deps entry and read with `isAbstract(cls)`, which checks the class itself only. It is never inherited. The container uses it for the runtime guard ([Container](#container)).
+- **Returns `null`** when the file contains neither `constructor` nor `abstract` (a fast pre-check), when nothing is emitted, or on a syntax error, which SWC then reports.
 - **Slots,** one per param, never skipped (a trailing rest gets none):
 
   | Param type | Slot |
@@ -383,15 +388,46 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 ## Decorators: @Inject and @Injectable
 
 ### Status
-planned → [#98](https://github.com/Laratypes/Laratype/issues/98) (D3). No runtime `Inject` or `Injectable` exists in any package yet. The T1/T3 tests use a test-only stub (`packages/sauf/__tests__/di/support/runtime.ts`). Both will be exported from `@laratype/core`. Signatures are not specified until #98 lands.
+merged ([#98](https://github.com/Laratypes/Laratype/issues/98)).
 
-### Design (non-binding)
-- `@Inject(token)` is a parameter decorator for interfaces, primitives and generics. The transform already reads it syntactically and emits `() => TOKEN`. At runtime it must still record `(class, index) → token`, so the container can detect a disagreement with the transform. That happens with wrapper decorators, which the transform can't see (S3 finding #9: `Conflicting metadata for <C> constructor param #<i> ...`).
-- `@Injectable({ scope })` is optional, for non-default scopes only.
-- It must work with the SWC legacy decorator config in `packages/sauf/src/bin/warmup.ts`.
+### Public API
+[`decorators.ts`](../../packages/core/src/decorators.ts)
+
+```ts
+export interface InjectableOptions { scope?: Scope }   // default 'transient'
+export function Inject<T>(token: Token<T>):
+  (target: object, propertyKey: string | symbol | undefined, parameterIndex: number) => void;   // constructor param decorator
+export function Injectable(options?: InjectableOptions): (target: Function) => void;           // class decorator
+```
+
+### Invariants
+- **Legacy decorators only:** both are TypeScript `experimentalDecorators`. They work with the SWC config in `packages/sauf/src/bin/warmup.ts` (`legacyDecorator: true`), with `decoratorMetadata` on or off.
+- **`@Inject(token)`** marks a constructor param that has no runtime class (an interface, a primitive, or a generic that needs its own key). The [DI transform](#di-transform) reads it syntactically and emits `() => TOKEN`. At runtime the decorator also records `index → token` as an own, non-enumerable, configurable property of the class, under `Symbol.for('laratype.di.inject')`.
+- **How the container uses the record**, for the class that owns the constructor (`getDeps(cls).owner`, so a class without its own constructor uses its parent's records):
+  - An `{ unresolved }` slot, or a thunk that returns `undefined`, resolves the record's token. This covers a wrapper decorator (`const InjectMailer = () => Inject(MAILER)`), which the transform can't see.
+  - A thunk that returns a different key throws the conflict error below.
+  - The record takes precedence over `optional`, so an unbound token still throws `No binding for <key>.`
+- **`@Injectable({ scope })`** is optional and is needed only for a non-default lifetime. The scope belongs to the class itself and is not inherited by subclasses.
+  - An autowired class (no binding) with `scope: 'singleton'` is built once per container tree. The root container builds and caches it, so a child's overrides never leak into it, and `has()` stays `false`.
+  - `bind(Cls)` and `bind(TOKEN, Cls)` without a `scope` option use the class's scope. An explicit `scope`, `singleton()` or `transient()` wins.
+  - `@Injectable()` without a scope changes nothing: the class stays transient.
+
+### Diagnostics
+`DiError` messages (exact text):
+- `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` Fix hints are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+- `@Inject() is only supported on constructor parameters (found on \`<method>\`).` This is thrown when the class is defined. Method injection is planned → [#158](https://github.com/Laratypes/Laratype/issues/158).
+
+Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and `Injectable({ scope: 'request' })`.
+
+### Example
+[`examples/di/decorators.ts`](./examples/di/decorators.ts). SWC pipeline fixture: `packages/sauf/__tests__/di/fixtures/inject-core/`.
+
+### Non-goals
+- No TC39 (stage 3) decorators: they have no parameter decorators.
+- No `request` scope yet (see [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Open questions
-- Export location (`@laratype/core`) and a T1 fixture that imports `Inject` from it → [#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050).
+- Resolved: both are exported from `@laratype/core`, and the T1 fixture `inject-core` imports them from there ([#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050)).
 
 ### Acceptance
 [#98 Done when](https://github.com/Laratypes/Laratype/issues/98)

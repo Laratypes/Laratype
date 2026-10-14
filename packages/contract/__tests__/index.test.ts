@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { Endpoint, PACKAGE_NAME, endpoint } from '@laratype/contract'
-import type { AnyEndpoint, ErrorDef } from '@laratype/contract'
+import { Endpoint, PACKAGE_NAME, defineError, endpoint } from '@laratype/contract'
+import type { AnyEndpoint, AnyErrorDef } from '@laratype/contract'
 
-const notFound: ErrorDef<404, { message: string }> = { status: 404, code: 'NOT_FOUND' }
-const forbidden: ErrorDef<403, { message: string }> = { status: 403, code: 'FORBIDDEN' }
+const notFound = defineError(404, 'POST_NOT_FOUND')
+const forbidden = defineError(403, 'NOT_OWNER')
 
 describe('@laratype/contract', () => {
   it('can be imported', () => {
@@ -17,10 +17,10 @@ describe('endpoint builder', () => {
     const e = endpoint[method]('/users/:user')
 
     expect(e).toBeInstanceOf(Endpoint)
-    expect(e.def).toEqual({ method, path: '/users/:user', status: 200, errors: [] })
+    expect(e.def).toEqual({ method, path: '/users/:user', status: 200, throws: [] })
   })
 
-  it('stores schemas, status and errors on the def', () => {
+  it('stores schemas, status and throws on the def', () => {
     const query = z.object({ page: z.coerce.number() })
     const body = z.object({ name: z.string() })
     const headers = z.object({ 'x-tenant': z.string() })
@@ -32,8 +32,8 @@ describe('endpoint builder', () => {
       .body(body)
       .headers(headers)
       .response(response, 201)
-      .errors(notFound)
-      .errors(forbidden)
+      .throws(notFound)
+      .throws(forbidden)
 
     expect(e.def).toEqual({
       method: 'post',
@@ -43,7 +43,7 @@ describe('endpoint builder', () => {
       headers,
       response,
       status: 201,
-      errors: [notFound, forbidden],
+      throws: [notFound, forbidden],
     })
   })
 
@@ -58,44 +58,44 @@ describe('endpoint builder', () => {
     expect(ctx.index.def.status).toBe(200)
   })
 
-  it('appends errors in order across calls', () => {
-    const e = endpoint.get('/').errors(notFound, forbidden).errors(notFound)
+  it('appends throws in order across calls', () => {
+    const e = endpoint.get('/').throws(notFound, forbidden).throws(notFound)
 
-    expect(e.def.errors).toEqual([notFound, forbidden, notFound])
+    expect(e.def.throws).toEqual([notFound, forbidden, notFound])
   })
 
   it('is immutable: each call returns a new endpoint and leaves the previous one untouched', () => {
     const base = endpoint.get('/users')
     const withQuery = base.query(z.object({ q: z.string() }))
-    const withErrors = withQuery.errors(notFound)
+    const withThrows = withQuery.throws(notFound)
 
     expect(withQuery).not.toBe(base)
-    expect(base.def).toEqual({ method: 'get', path: '/users', status: 200, errors: [] })
+    expect(base.def).toEqual({ method: 'get', path: '/users', status: 200, throws: [] })
     expect(base.def.query).toBeUndefined()
-    expect(withQuery.def.errors).toEqual([])
-    expect(withErrors.def.errors).toEqual([notFound])
+    expect(withQuery.def.throws).toEqual([])
+    expect(withThrows.def.throws).toEqual([notFound])
   })
 
-  it('freezes the def and its errors list', () => {
-    const e = endpoint.get('/').errors(notFound)
+  it('freezes the def and its throws list', () => {
+    const e = endpoint.get('/').throws(notFound)
 
     expect(Object.isFrozen(e.def)).toBe(true)
-    expect(Object.isFrozen(e.def.errors)).toBe(true)
+    expect(Object.isFrozen(e.def.throws)).toBe(true)
     expect(() => {
       (e.def as { path: string }).path = '/other'
     }).toThrow(TypeError)
   })
 
   it('does not freeze a def passed to the constructor', () => {
-    const errors: ErrorDef[] = [notFound]
-    const def = { method: 'get' as const, path: '/', status: 200, errors }
+    const throws: AnyErrorDef[] = [notFound]
+    const def = { method: 'get' as const, path: '/', status: 200, throws }
     const e = new Endpoint(def)
 
     expect(Object.isFrozen(def)).toBe(false)
-    expect(Object.isFrozen(errors)).toBe(false)
-    expect(Object.isFrozen(e.def.errors)).toBe(true)
-    errors.push(forbidden)
-    expect(e.def.errors).toEqual([notFound])
+    expect(Object.isFrozen(throws)).toBe(false)
+    expect(Object.isFrozen(e.def.throws)).toBe(true)
+    throws.push(forbidden)
+    expect(e.def.throws).toEqual([notFound])
   })
 
   it('keeps __types phantom (no runtime property)', () => {
@@ -115,5 +115,41 @@ describe('endpoint builder', () => {
     }
 
     expect(endpoint.get('/').query(custom).def.query).toBe(custom)
+  })
+})
+
+describe('endpoint capabilities', () => {
+  it('records auth, authorize and throttle on the def, a later call overriding the slot', () => {
+    const e = endpoint.get('/').auth().authorize().throttle({ limit: 10, per: '1m' })
+
+    expect(e.def).toMatchObject({ auth: true, authorize: true, throttle: { limit: 10, per: '1m' } })
+    expect(Object.isFrozen(e.def.throttle)).toBe(true)
+    expect(e.public().def.auth).toBe(false)
+    expect(e.authorize(false).def.authorize).toBe(false)
+    expect(e.throttle(false).def.throttle).toBe(false)
+    expect(endpoint.get('/').auth('api' as never).def.auth).toBe('api')
+    expect(e.def.auth).toBe(true)
+  })
+
+  it('leaves unset capabilities off the def (they are inherited)', () => {
+    expect('auth' in endpoint.get('/').def).toBe(false)
+    expect('throttle' in endpoint.get('/').def).toBe(false)
+  })
+
+  it.each([
+    [{ limit: 0, per: 60 }],
+    [{ limit: 1.5, per: 60 }],
+    [{ limit: 10, per: 0 }],
+    [{ limit: 10, per: '1w' }],
+    [{ limit: 10 }],
+    [null],
+  ])('rejects the throttle %j', (options) => {
+    expect(() => endpoint.get('/').throttle(options as never)).toThrow(/throttle must be/)
+  })
+
+  it('rejects invalid auth, authorize and throws values', () => {
+    expect(() => endpoint.get('/').auth('' as never)).toThrow(/auth must be true or a guard name/)
+    expect(() => endpoint.get('/').authorize('yes' as never)).toThrow(/expected a boolean/)
+    expect(() => endpoint.get('/').throws({ status: 404, code: 'X' } as never)).toThrow(/use defineError/)
   })
 })
