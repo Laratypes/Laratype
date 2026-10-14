@@ -1,7 +1,7 @@
 {
   "name": "@laratype/storage",
   "version": "0.5.4",
-  "private": false,
+  "private": true,
   "main": "index.js",
   "repository": {
     "type": "git",

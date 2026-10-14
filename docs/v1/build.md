@@ -19,7 +19,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | Section | Status |
 |---|---|
 | [Package build fixes (B11–B13)](#package-build-fixes-b11b13) | merged @ 2ad49ad (B13), acf9f2a (B13 CI), e3112eb (B12), f66eafd (B11) |
-| [Packaging follow-ups (B16)](#packaging-follow-ups-b16) | planned → #191 |
+| [Packaging follow-ups (B16)](#packaging-follow-ups-b16) | merged ([#191](https://github.com/Laratypes/Laratype/issues/191)); `bun run check:pkg` lints every public package |
 | [Plugin chain](#plugin-chain) | planned → #102, #125, #126 |
 | [sauf build steps](#sauf-build-steps) | planned → #127, #128, #129, #130, #172, #173, #155, #156 |
 | [Testing preset](#testing-preset) | planned → #131 |
@@ -74,16 +74,53 @@ None.
 ## Packaging follow-ups (B16)
 
 ### Status
-planned → [#191](https://github.com/Laratypes/Laratype/issues/191) (B16).
+merged ([#191](https://github.com/Laratypes/Laratype/issues/191)); `bun run check:pkg` lints every public package.
 
-### Design (non-binding)
-Fixes listed in #191:
-- **Missing file:** support's `./env` export points to `env.d.ts`, which isn't in `files`.
-- **hono:** must be a peer dependency of http, support and laratype. support currently inlines a second Hono copy.
-- **Runtime imports declared only as devDependencies:** `glob` and `mlly` in support must move to real dependencies. `check:dist` is extended to catch this.
-- **Entry points:** check `main` / `exports` for every package.
-- **Empty packages** (broadcast, i18n, mail, schedule, storage, ts-gen) are marked `private: true` until they are implemented.
-- **Package lint:** `publint` and `@arethetypeswrong/cli` must pass for every public package.
+### Public API
+Package manifests, build configuration and scripts:
+- **`exports["."]`** of every public package (auth, client, console, contract, core, database, http, laratype, log, sauf, support, validation) has types for each condition:
+  ```json
+  ".": {
+    "import": { "types": "./dist/index.d.ts", "default": "./dist/index.esm.js" },
+    "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+  }
+  ```
+  `bun run build:type` (`rollup.dts.config.js`) writes `dist/index.d.cts` next to `dist/index.d.ts`.
+- **Peer dependencies:**
+  - `hono` (`^4.6.18`) for http, support and laratype;
+  - `zod` (`^3.25.0`) for http and validation, whose `.d.ts` import zod.
+  - Optional workspace peers for imports that are type-only or loaded on demand: support → http; http → auth; laratype → http, auth; sauf → laratype, database.
+  - support also has `passport` and `@types/passport` as optional peers (the auth config type).
+- **Dependencies** that were devDependencies:
+  - support: `dotenv`, `glob`, `mlly`, `ts-toolbelt`;
+  - http: `es-toolkit`;
+  - auth: `jsonwebtoken`, `@types/jsonwebtoken`, `@types/passport`, plus the workspace packages it imports (`@laratype/console`, `@laratype/database`);
+  - database: `glob`, `reflect-metadata`;
+  - console: `@laratype/support`;
+  - sauf: the CLI's imports (`commander`, `glob`, `handlebars`, `figlet`, `kolorist`, `@hono/node-server`, the rollup plugins and `rollup`).
+- **support** ships `env.d.ts` (`@laratype/support/env`), and its `module` field points at `./dist/index.esm.js`.
+- **sauf**'s `bin` dist starts with `#!/usr/bin/env node` (`buildOptions.banner`).
+- **broadcast, i18n, mail, schedule, storage and ts-gen** are `private: true` until they have code.
+- **`bun run check:pkg`** (`scripts/check-packages.mjs`) runs `publint --strict` and `attw --pack` on every public package. It is not a CI step.
+
+### Invariants
+- **Every runtime import of a third-party package is in `dependencies` or `peerDependencies`.** bun.build.js keeps those external. A runtime import declared only in devDependencies is bundled into the dist, which ships a second copy (hono's `HTTPException` / `instanceof`). `check:dist` fails on it.
+- **A package that exposes another package's types or instances is a peer of it** (hono, zod, typeorm, dayjs). Packages that are only used internally are `dependencies`.
+- **Packages the public `.d.ts` imports are declared too**, as a dependency or a peer (an optional peer when the import is type-only and the edge would be circular). Types-only packages the `.d.ts` needs (`@types/*`, `ts-toolbelt`) are `dependencies`, unless the matching runtime package is an optional peer (support's `@types/passport`).
+- **Peer ranges are explicit** (`^4.6.18`), never `catalog:`. The workspace keeps the `catalog:` devDependency for its own install.
+- **Each `exports` condition has its own `types`:** `.d.ts` for `import`, `.d.cts` for `require`. In a `"type": "module"` package, one `.d.ts` for both is read as ESM types for the CJS build (attw "Masquerading as ESM").
+- **The public `.d.ts` resolve for a consumer** under `moduleResolution: NodeNext`, ESM and CJS, with `skipLibCheck: false`. They do not refer to the repo-only globals in `packages/global.d.ts`. Deep imports use the target's `exports` keys (`typeorm/driver/.../XConnectionOptions.js`).
+- **Named imports from CommonJS packages are not used once the package is external** (`import Handlebars from "handlebars"`, not `import { compile }`). Node's ESM loader cannot always detect CJS named exports. `check:dist` loads every ESM chunk to catch this.
+- **sauf's resources bundles (`resources/app`) stay self-contained.** `sauf build` copies them into the app's `dist`, where sauf's own dependencies are not resolvable.
+
+### Diagnostics
+- `check:dist`: `<metafile>: inlines <pkg> (<n> inputs), declared only in devDependencies`.
+- `check:dist`: an ESM chunk that fails to load (`sauf chunk dist/chunk-*.js: SyntaxError: Named export ... not found`).
+- `check:pkg`: the publint or attw output of the failing package.
+
+### Non-goals
+- No CI step for `check:pkg` (#189/#190 decide CI).
+- publint suggestions are not applied: `engines.node` (would be breaking), and `sideEffects: false` for console and support.
 
 ### Acceptance
 [#191 Done when](https://github.com/Laratypes/Laratype/issues/191)

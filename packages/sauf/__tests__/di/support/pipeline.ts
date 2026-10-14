@@ -32,6 +32,10 @@ export const warmupSwcOptions = (decoratorMetadata = true): Options => ({
 /** The `virtual:laratype/di` implementation fixtures run against (D2-shaped stub until `@laratype/core` lands). */
 export const runtimeSource = join(here, 'runtime.ts');
 
+/** `@laratype/core` sources, compiled next to the stub for fixtures that import from `@laratype/core`. */
+export const coreSourceDir = join(here, '../../../../core/src');
+const CORE_ID = '@laratype/core';
+
 /** SWC options for one file; `.tsx` gets JSX with a classic `h` pragma so fixtures can define their own. */
 const swcOptionsFor = (file: string, decoratorMetadata: boolean): Options => {
   const options = warmupSwcOptions(decoratorMetadata);
@@ -52,6 +56,12 @@ const getOutRoot = () => {
     outRoot = mkdtempSync(join(tmpdir(), 'laratype-di-'));
     const runtime = readFileSync(runtimeSource, 'utf8');
     writeFileSync(join(outRoot, 'runtime.js'), transformSync(runtime, { ...warmupSwcOptions(), filename: 'runtime.ts' }).code);
+    mkdirSync(join(outRoot, 'core'));
+    for (const file of readdirSync(coreSourceDir).filter((f) => f.endsWith('.ts'))) {
+      const { code } = transformSync(readFileSync(join(coreSourceDir, file), 'utf8'), { ...warmupSwcOptions(), filename: file });
+      // Node ESM needs the extension on relative specifiers.
+      writeFileSync(join(outRoot, 'core', file.replace(/\.ts$/, '.js')), code.replace(/(from ["']\.\/[\w-]+)(["'])/g, '$1.js$2'));
+    }
   }
   return outRoot;
 };
@@ -82,18 +92,25 @@ export interface FixtureRun {
   js: Record<string, string>;
 }
 
-/** DI transform -> SWC (warmup options) -> Node ESM, in its own process, like `sauf dev`/`build` would run it. */
+/**
+ * DI transform -> SWC (warmup options) -> Node ESM, in its own process, like `sauf dev`/`build` would run it.
+ * `virtual:laratype/di` maps to the stub, or to the compiled `@laratype/core` when the fixture imports it.
+ */
 export function runFixture(dir: string, { decoratorMetadata = true } = {}): FixtureRun {
   const src = join(fixturesDir, dir);
   const dest = join(getOutRoot(), `${dir}${decoratorMetadata ? '' : '-no-metadata'}`);
   mkdirSync(dest, { recursive: true });
   const transformed = transformFixture(dir);
+  const sources = Object.fromEntries(fixtureFiles(dir).map((file) => [file, transformed[file] ?? readFileSync(join(src, file), 'utf8')]));
+  const usesCore = Object.values(sources).some((code) => code.includes(CORE_ID));
+  const runtime = usesCore ? '"../core/index.js"' : '"../runtime.js"';
   const js: Record<string, string> = {};
-  for (const file of fixtureFiles(dir)) {
-    const code = transformed[file] ?? readFileSync(join(src, file), 'utf8');
+  for (const [file, code] of Object.entries(sources)) {
     const out = transformSync(code, { ...swcOptionsFor(file, decoratorMetadata), filename: join(src, file) }).code
-      .replaceAll(JSON.stringify(DI_VIRTUAL_ID), '"../runtime.js"')
-      .replaceAll(`'${DI_VIRTUAL_ID}'`, '"../runtime.js"');
+      .replaceAll(JSON.stringify(DI_VIRTUAL_ID), runtime)
+      .replaceAll(`'${DI_VIRTUAL_ID}'`, runtime)
+      .replaceAll(JSON.stringify(CORE_ID), '"../core/index.js"')
+      .replaceAll(`'${CORE_ID}'`, '"../core/index.js"');
     js[file] = out;
     writeFileSync(join(dest, file.replace(/\.tsx?$/, '.js')), out);
   }

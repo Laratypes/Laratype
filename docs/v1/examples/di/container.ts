@@ -15,7 +15,7 @@ export class UserRepository {
 }
 
 export class UserService {
-  // App code is written like this; with `import type { Mailer }` + `@Inject(MAILER)` once D3 (#98) ships.
+  // App code adds `@Inject(MAILER)` to the interface param: see decorators.ts.
   constructor(readonly users: UserRepository, readonly mailer: Mailer) {}
 }
 // What the DI transform (T1, wired by T2 #102) emits after the class. Written by hand here because

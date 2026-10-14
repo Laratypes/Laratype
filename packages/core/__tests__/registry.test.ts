@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Container, DiError, __laratype_deps, depsRegistry, getDeps, hasOwnDeps, token } from '@laratype/core'
+import { Container, DiError, __laratype_deps, depsRegistry, getDeps, hasOwnDeps, isAbstract, token } from '@laratype/core'
 
 class A {}
 class B {}
@@ -94,5 +94,33 @@ describe('inheritance', () => {
     expect(getDeps(Plain)).toBeUndefined()
     expect(getDeps(class {})).toBeUndefined()
     expect(() => new Container({ deps: depsRegistry }).make(Plain)).toThrow(DiError)
+  })
+})
+
+describe('abstract flag (DOC10 Q9)', () => {
+  it('flags the class itself, never a subclass', () => {
+    abstract class Port {
+      constructor(public a: A) {}
+    }
+    class Adapter extends Port {}
+    __laratype_deps(Port, [() => A], { params: ['a'], abstract: true })
+    expect(isAbstract(Port)).toBe(true)
+    expect(isAbstract(Adapter)).toBe(false)
+    expect(getDeps(Adapter)?.owner).toBe(Port)
+    expect(isAbstract(class {})).toBe(false)
+  })
+
+  it('null slots store only the flag, so deps are still inherited from the ancestor', () => {
+    class Base {
+      constructor(public a: A) {}
+    }
+    abstract class Mid extends Base {}
+    class Leaf extends Mid {}
+    __laratype_deps(Base, [() => A], { params: ['a'] })
+    __laratype_deps(Mid, null, { params: [], abstract: true })
+    expect(isAbstract(Mid)).toBe(true)
+    expect(hasOwnDeps(Mid)).toBe(false)
+    expect(getDeps(Leaf)?.owner).toBe(Base)
+    expect(new Container({ deps: depsRegistry }).make(Leaf).a).toBeInstanceOf(A)
   })
 })

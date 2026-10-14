@@ -811,7 +811,16 @@ Issue #162 sketches a pure `buildUrl(endpoint, { params, query })` in `@laratype
 planned → [#94](https://github.com/Laratypes/Laratype/issues/94) (C6).
 
 ### Design (non-binding)
-Today `packages/contract/__tests__/typecheck.test.ts` compiles `__tests__/types/*.types.ts` (`expectTypeOf` + `@ts-expect-error`) inside the normal `vitest` run. C6 adds a CI job (`vitest --typecheck` per the issue) that must fail on a deliberately broken type.
+Today `packages/contract/__tests__/typecheck.test.ts` compiles `__tests__/types/*.types.ts` (`expectTypeOf` + `@ts-expect-error`) inside the normal `vitest` run. C6 adds vitest's typecheck mode (`vitest --typecheck` per the issue) and a CI step that must fail on a deliberately broken type:
+
+- **Files:** `packages/*/__tests__/**/*.test-d.ts`. They use `expectTypeOf` for positives and `@ts-expect-error` for negatives, inside `describe`/`test` blocks so a type error is reported against its test. The seed is `packages/contract/__tests__/contract.test-d.ts` (path params, Standard Schema inference with zod 4 and valibot).
+- **Project:** `vitest.typecheck.config.ts` is a workspace project named `types`, with `typecheck: { enabled: true, only: true }`. It is a separate project because vitest 3 does not pass `--typecheck.*` CLI flags to workspace projects.
+- **Checker:** vitest runs `tsc --noEmit` on `tsconfig.typecheck.json`, which extends `tsconfig.app.json` and includes only the `*.test-d.ts` files. Imported sources (`@laratype/*` → `packages/*/src`) are checked too.
+- **Commands:** `bunx vitest run --project types` runs the type tests alone; this is the CI step "Type tests". A plain `vitest run` (with or without a path filter) runs them next to the runtime tests.
+
+### Invariants
+- A failing `expectTypeOf`, an unused `@ts-expect-error`, or a type error in a file the type tests import makes the command exit non-zero.
+- Type-test files are never executed: `*.test-d.ts` does not match the runtime `include`, and the `types` project runs no runtime tests.
 
 ### Acceptance
 [#94 Done when](https://github.com/Laratypes/Laratype/issues/94)

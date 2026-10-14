@@ -1,6 +1,6 @@
 import { Command, Console } from "@laratype/console";
 import { resolvePathSync } from "@laratype/support";
-import { compile } from "handlebars";
+import Handlebars from "handlebars";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -36,7 +36,7 @@ export default class MakeCommand extends Command {
 
   build(source: string, data: any) {
     const file = readFileSync(source, "utf-8");
-    const template = compile(file);
+    const template = Handlebars.compile(file);
     return template(data);
   }
 

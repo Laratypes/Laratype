@@ -11,7 +11,9 @@ export type {
   Scope,
   Token,
 } from './container'
+export { Inject, Injectable } from './decorators'
+export type { InjectableOptions } from './decorators'
 export { InjectionToken, token } from './token'
 export { noDeps } from './deps'
 export type { DepSlot, DepsEntry, DepsLookup, DepsMeta, UnresolvedSlot } from './deps'
-export { __laratype_deps, depsRegistry, getDeps, hasOwnDeps } from './registry'
+export { __laratype_deps, depsRegistry, getDeps, hasOwnDeps, isAbstract } from './registry'
