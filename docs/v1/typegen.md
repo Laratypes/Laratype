@@ -51,7 +51,7 @@ Output, for the default options:
 | File | Content |
 |---|---|
 | `.laratype/types/<root>/<folder>/$types.d.ts` | `Prefix` and `ScopePrefix` for one folder of the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)) |
-| `.laratype/api/index.gen.ts` | `export const appApi = defineApi({ 'users.posts': { contract, path, scopes }, ... })` and `export type AppApi = typeof appApi`, imported as `$api` |
+| `.laratype/api/index.gen.ts` | `export const appApi = defineApi({ 'users.posts': { contract, path, scopes, dirs }, ... })` and `export type AppApi = typeof appApi`, imported as `$api` |
 | `.laratype/api.ts` | the separate-repo file: `export type AppApi = {...}` (flattened `ApiTypes<AppApi>`) and `export const manifest = {...} as const` |
 
 The app's tsconfig needs:

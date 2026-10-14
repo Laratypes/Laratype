@@ -53,6 +53,9 @@ export function emitTypesFile(folder: ScannedFolder, options: EmitOptions): Gene
   return { path: posix.join(options.outDir, "types", dir, "$types.d.ts"), content };
 }
 
+/** The folder of a scope file, root-relative: `users/[user]/_scope.ts` → `users/[user]`, `_scope.ts` → `""`. */
+const scopeDir = (scope: string) => posix.dirname(scope).replace(/^\.$/, "");
+
 /** `<outDir>/api/index.gen.ts`: the aggregated `appApi`, imported as `$api`. */
 export function emitApiIndex(tree: ContractTree, options: EmitOptions): GeneratedFile {
   const outDir = posix.join(options.outDir, "api");
@@ -63,7 +66,8 @@ export function emitApiIndex(tree: ContractTree, options: EmitOptions): Generate
     ...tree.contracts.map((c, i) => `import c${i} from ${quote(specifier(outDir, posix.join(options.root, c.file)))}`),
   ];
   const entries = tree.contracts.map(
-    (c, i) => `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => scopeIds.get(s)).join(", ")}] },`,
+    (c, i) =>
+      `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => scopeIds.get(s)).join(", ")}], dirs: [${c.scopes.map((s) => quote(scopeDir(s))).join(", ")}] },`,
   );
   const content =
     BANNER +

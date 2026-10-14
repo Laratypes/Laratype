@@ -6,7 +6,7 @@ import usersUser from './users/[user]/_scope'
 import usersPosts from './users/[user]/posts'
 
 export const appApi = defineApi({
-  users: { contract: users, path: '/api/users', scopes: [] },
-  'users.posts': { contract: usersPosts, path: '/api/users/:user/posts', scopes: [usersUser] },
+  users: { contract: users, path: '/api/users', scopes: [], dirs: [] },
+  'users.posts': { contract: usersPosts, path: '/api/users/:user/posts', scopes: [usersUser], dirs: ['users/[user]'] },
 })
 export type AppApi = typeof appApi
