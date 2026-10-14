@@ -68,7 +68,7 @@ Status as recorded in [`docs/v1/overview.md`](docs/v1/overview.md#package-graph)
 | `@laratype/core` | DI container, tokens, dependency registry | Available (D1, D2) |
 | `@laratype/client` | Typed frontend client, `createClient(appApi)` | Scaffold only. API planned → [#109](https://github.com/Laratypes/Laratype/issues/109) |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | ServiceProvider v2 available (D4); other helpers 0.5 |
-| `sauf` | CLI, dev server, constructor DI transform | 0.5. Constructor DI transform available (T1, T3), Vite wiring → [#102](https://github.com/Laratypes/Laratype/issues/102) |
+| `sauf` | CLI, dev server, constructor DI transform | 0.5. Constructor DI transform available (T1, T3), wired into `sauf dev` (T2) |
 | `@laratype/http` | Router v2, request pipeline, controllers | 0.5. v1 planned → [#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#106](https://github.com/Laratypes/Laratype/issues/106) |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5. v1 planned → [#137](https://github.com/Laratypes/Laratype/issues/137) |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5. v1 planned → [#119](https://github.com/Laratypes/Laratype/issues/119), [#120](https://github.com/Laratypes/Laratype/issues/120), [#121](https://github.com/Laratypes/Laratype/issues/121) |

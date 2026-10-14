@@ -21,7 +21,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | Section | Status |
 |---|---|
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); planned → #126, #104, #134, #148, #149, #168, #169, #171, #179, #180 |
-| [sauf dev](#sauf-dev) | planned → #126, #102, #142, #157 |
+| [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
 | [make:* generators](#make-generators) | planned → #134 |
 
@@ -66,7 +66,7 @@ Each command's issue, linked in the table.
 ## sauf dev
 
 ### Status
-planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
+The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the build manifest (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
