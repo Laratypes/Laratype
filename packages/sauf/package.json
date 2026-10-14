@@ -68,7 +68,8 @@
       "@swc/wasm",
       "rollup",
       "tsc-alias",
-      "jiti"
+      "jiti",
+      "typescript"
     ]
   },
   "files": [
@@ -77,13 +78,17 @@
   ],
   "peerDependencies": {
     "@laratype/database": "workspace:*",
-    "laratype": "workspace:*"
+    "laratype": "workspace:*",
+    "typescript": ">=5"
   },
   "peerDependenciesMeta": {
     "@laratype/database": {
       "optional": true
     },
     "laratype": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     }
   }

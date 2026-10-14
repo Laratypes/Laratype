@@ -2,6 +2,7 @@ import { noDeps } from './deps'
 import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
 import { injectableScope, injectTokens } from './decorators'
+import { isAbstract } from './registry'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -40,6 +41,32 @@ interface Binding {
 
 const keyName = (key: unknown): string =>
   typeof key === 'function' ? key.name || '<anonymous class>' : String(key)
+
+/** `<C> constructor param #<i>`, plus the param name in backticks when the metadata has one. */
+const paramLabel = (cls: Function, index: number, name: string | undefined): string =>
+  `${keyName(cls)} constructor param #${index}` + (name ? ` \`${name}\`` : '')
+
+/** `DiError` messages with fix hints (D5a). The first sentence of each is the D1 base message. */
+const errors = {
+  noBinding: (key: unknown, requiredBy?: string): string =>
+    `No binding for ${keyName(key)}.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + ' Fix: bind it in a service provider `register()`, e.g. `container.bind(token, factory)` or `container.instance(token, value)`.',
+  noBindingAbstract: (cls: Function, requiredBy?: string): string =>
+    `No binding for abstract class ${keyName(cls)}.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + ` Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(${keyName(cls)}, Impl)\`.`,
+  unresolvedParam: (param: string, typeText: string): string =>
+    `Cannot resolve ${param}: type \`${typeText}\` has no runtime value.`
+    + ' Fix: add @Inject(token) to the parameter, or import the class as a value (not `import type`).',
+  undefinedThunk: (param: string): string =>
+    `Cannot resolve ${param}: its type resolved to undefined at runtime.`
+    + ' It is probably an interface/type imported without `import type`, or a circular import evaluated too early.'
+    + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
+  conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
+    `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
+    + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
+}
 
 const isFactory = (concrete: Concrete<unknown>): concrete is Factory<unknown> =>
   concrete.prototype === undefined
@@ -118,7 +145,8 @@ export class Container {
     return this
   }
 
-  protected resolve(key: unknown): unknown {
+  /** `requiredBy` names the constructor param that asked for `key`, for the error message. */
+  protected resolve(key: unknown, requiredBy?: string): unknown {
     const found = this.findBinding(key)
     if (found) {
       const { binding, owner } = found
@@ -132,6 +160,8 @@ export class Container {
       return this.withCycleCheck(key, () => binding.create(this))
     }
     if (typeof key === 'function') {
+      // The transform's own-class flag: a concrete subclass of an abstract class still autowires.
+      if (isAbstract(key)) throw new DiError(errors.noBindingAbstract(key, requiredBy))
       if (injectableScope(key) === 'singleton') {
         // Built by the root so a child's overrides never leak into the shared instance.
         let root: Container = this
@@ -144,7 +174,7 @@ export class Container {
       }
       return this.withCycleCheck(key, () => this.build(key as Newable))
     }
-    throw new DiError(`No binding for ${keyName(key)}.`)
+    throw new DiError(errors.noBinding(key, requiredBy))
   }
 
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
@@ -161,26 +191,25 @@ export class Container {
     const injected = injectTokens(cls)
     const args = entry.slots.map((slot, index) => {
       const optional = entry.meta?.optional?.includes(index) ?? false
-      const param = `${keyName(cls)} constructor param #${index}`
-        + (entry.meta?.params[index] ? ` \`${entry.meta.params[index]}\`` : '')
+      const param = paramLabel(cls, index, entry.meta?.params[index])
       const override = injected?.get(index)
       if (typeof slot !== 'function') {
-        if (override !== undefined) return this.resolve(override)
+        if (override !== undefined) return this.resolve(override, param)
         if (optional) return undefined
-        throw new DiError(`Cannot resolve ${param}: type \`${slot.unresolved}\` has no runtime value.`)
+        throw new DiError(errors.unresolvedParam(param, slot.unresolved))
       }
       const dep = slot()
       if (override !== undefined) {
         if (dep !== undefined && dep !== override) {
-          throw new DiError(`Conflicting metadata for ${param}: transform says ${keyName(dep)}, @Inject says ${keyName(override)}.`)
+          throw new DiError(errors.conflict(param, dep, override))
         }
-        return this.resolve(override)
+        return this.resolve(override, param)
       }
       if (dep === undefined) {
         if (optional) return undefined
-        throw new DiError(`Cannot resolve ${param}: its type resolved to undefined at runtime.`)
+        throw new DiError(errors.undefinedThunk(param))
       }
-      return this.resolve(dep)
+      return this.resolve(dep, param)
     })
     return new cls(...args)
   }

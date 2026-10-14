@@ -28,7 +28,7 @@ jobs:
 
       # Only the v1 packages for now; full suite tracked in #184 (H16)
       - name: Smoke test v1 packages
-        run: bunx vitest run packages/contract packages/core packages/client packages/sauf/__tests__/di
+        run: bunx vitest run packages/contract packages/core packages/client packages/sauf/__tests__/di packages/sauf/__tests__/typegen
 
       # C6 (#94): *.test-d.ts type tests; vitest typecheck runs tsc and fails on a broken type
       - name: Type tests

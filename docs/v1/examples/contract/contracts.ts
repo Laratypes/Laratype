@@ -8,7 +8,7 @@ import type { ApiRouteName, ApiTypes, ContractPrefix } from '@laratype/contract'
 const UserDto = z.object({ id: z.number(), name: z.string(), email: z.string().email() })
 const PostDto = z.object({ id: z.number(), title: z.string() })
 
-// app/api/errors.ts: domain errors, FE-importable.
+// app/api/_errors.ts: domain errors, FE-importable. The "_" keeps it out of the contract tree.
 export const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ message: 'The email is taken.', email }))
 
 // app/api/users.ts → /api/users. A root-level folder has no Prefix to import.
