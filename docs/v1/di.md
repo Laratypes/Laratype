@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -23,7 +23,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag merged (#101) |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
-| [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
+| [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | planned → #100 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
@@ -224,7 +224,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
 
   So a class with its own constructor uses only its own params, and a class without one inherits the nearest ancestor's.
 - In the `design:paramtypes` fallback, `undefined`, `Object`, `String`, `Number`, `Boolean`, `Symbol`, `BigInt`, `Function`, `Array` and `Promise` become `{ unresolved }` slots (interfaces erase to `Object`). That entry has `meta.params = []`.
-- `virtual:laratype/di` (the transform's helper import) maps to `@laratype/core` through the Vite plugin, planned → [#102](https://github.com/Laratypes/Laratype/issues/102).
+- `virtual:laratype/di` (the transform's helper import) maps to `@laratype/core` through the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 - `reflect-metadata` is a devDependency of `@laratype/core` (tests only). The package never imports it.
 
 ### Diagnostics
@@ -247,7 +247,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Not wired into `sauf dev/build` yet (planned → [#102](https://github.com/Laratypes/Laratype/issues/102), [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (planned → [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -298,7 +298,7 @@ __laratype_deps(Notifier, [() => MAILER, { unresolved: "string", index: 1 }, () 
 - **Placement, class expressions:** the expression is wrapped in place, `__laratype_deps(class { ... }, [slots], meta)`. Where NamedEvaluation would name the class, the wrap keeps the name: `const Expr = __laratype_deps({ ["Expr"]: class { ... } }["Expr"], [slots], meta)`. The key is computed, so a name of `__proto__` defines a property instead of setting the prototype. A class written as the value of `{ __proto__: class {} }` keeps the empty name, as in plain JS. That covers `const X = class {}`, assignments (`=`, `||=`, `&&=`, `??=`), object properties, static fields, defaults, casts and `export default`. A class expression passed as a call argument keeps its empty name, as before. See the T3 snapshot [`__snapshots__/class-expression/main.ts` @ 3aadec9](https://github.com/Laratypes/Laratype/blob/3aadec97eb5c5d05c8b09aa2b53e0303d8b55b26/packages/sauf/__tests__/di/__snapshots__/class-expression/main.ts).
 - **Helper import:** added once, after directives and any hashbang. If the file already has an identifier named `__laratype_deps`, the helper is aliased `__laratype_deps_1`, `_2`, and so on (only identifiers count, not strings or comments).
 - **Scope model:** resolution honours declaration merging, class type params, function and block scopes, hoisted `var`, namespaces, and nested shadowing. A type name whose runtime value is shadowed at a different depth becomes unresolved.
-- **Source maps:** the transform returns a magic-string map (`hires: 'boundary'`) with correct UTF-16 offsets for non-ASCII source. The transform doesn't chain maps itself. The T3 test pipeline (`__tests__/di/support/pipeline.ts`) chains it into SWC via `inputSourceMap`, and the Vite wiring is T2 [#102](https://github.com/Laratypes/Laratype/issues/102).
+- **Source maps:** the transform returns a magic-string map (`hires: 'boundary'`) with correct UTF-16 offsets for non-ASCII source. The transform doesn't chain maps itself. The T3 test pipeline (`__tests__/di/support/pipeline.ts`) chains it into SWC via `inputSourceMap`. In `sauf dev`, the [Vite plugin](#vite-plugin-laratypedi) returns it and Vite composes it with SWC's.
 - **Cost** (S3): about 0.3 ms warm for 43 files with the pre-check.
 
 ### Diagnostics
@@ -363,7 +363,7 @@ export { bootProviders } from "@laratype/support";
 ### Invariants
 - **Two phases:** `bootProviders` instantiates every provider with the container, awaits `register()` on all of them in order, then awaits `boot()` on all of them in order. It returns the `down()` cleanups in **reverse** order.
 - Providers receive the **container**, not the Hono app. Code that needs the app resolves `HTTP_APP` (`AppServiceProvider.apps` does this in its constructor).
-- `Serve.getContainer()` lazily creates one container per process and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
+- `Serve.getContainer()` lazily creates one container per process, `new Container({ deps: depsRegistry })` ([#102](https://github.com/Laratypes/Laratype/issues/102)), and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
 - `HTTP_APP` is stored on `globalThis.__laratype_http_app_token`. The code marks this as temporary: it was needed while every package dist inlined its own copy of `@laratype/support`, which B13 [#188](https://github.com/Laratypes/Laratype/issues/188) fixed.
 - `RouteAppServiceProvider.boot()` still writes `globalThis.__laratype_routes`, which is replaced in [#114](https://github.com/Laratypes/Laratype/issues/114). `AppServiceProvider.bindings` is an unused 0.5 leftover.
 
@@ -378,7 +378,7 @@ None of its own. Errors thrown in `register()` or `boot()` propagate and abort t
 - No deferred providers.
 
 ### Open questions
-- `Serve.getContainer()` creates `new Container()` without `{ deps: depsRegistry }`, so the kernel can only autowire zero-arg classes. T2 switches it to `new Container({ deps: depsRegistry })` → [#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635).
+- Resolved: `Serve.getContainer()` passes `{ deps: depsRegistry }`, so the kernel autowires classes with constructor deps ([#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635)).
 
 ### Acceptance
 [#99 Done when](https://github.com/Laratypes/Laratype/issues/99)
@@ -437,13 +437,37 @@ Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token)
 ## Vite plugin `laratype:di`
 
 ### Status
-planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2).
+merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) (T2).
 
-### Design (non-binding)
-- The plugin runs `transformDi` with `enforce: 'pre'`, before `RollupPluginSwc` in `warmup.ts`.
-- It resolves `virtual:laratype/di` to `@laratype/core` and chains source maps.
-- It must work with the HMR restart in `dev.ts`.
-- Done when `sauf dev` on `examples/basic` resolves a controller that uses constructor DI.
+### Public API
+[`packages/sauf/src/di/plugin.ts`](../../packages/sauf/src/di/plugin.ts)
+
+```ts
+export const DI_PLUGIN_NAME = 'laratype:di';
+export const DI_RUNTIME_ID = '@laratype/core';                   // what `virtual:laratype/di` resolves to
+export function laratypeDi(options?: DiTransformOptions): Plugin;  // Vite plugin; `options` go to `transformDi`
+```
+
+### Invariants
+- **Order:** `enforce: 'pre'`, listed before `RollupPluginSwc` in `packages/sauf/src/bin/warmup.ts`, so `transformDi` reads the TypeScript param types before SWC erases them.
+- **Which files:** app `.ts`, `.tsx`, `.mts` and `.cts` files under the Vite root, with any query stripped. It skips `node_modules`, `.d.ts` files, virtual ids (`\0…`, `virtual:…`) and files outside the root. In the monorepo, `sauf dev` loads the framework packages from their `src`, outside the app root, so they are not transformed and `@laratype/core` never imports itself.
+- **Virtual module:** `virtual:laratype/di` resolves to `@laratype/core`, first from the importing file, then through `laratype` when the app does not depend on `@laratype/core` itself. The resolution goes through the rest of the plugin chain, so in dev it is the same `src` module as a direct `@laratype/core` import.
+- **Source maps:** the plugin returns the transform's map, and Vite composes it with SWC's, so positions point at the original source.
+- **HMR restart:** the plugin keeps no per-server state except the root, which it reads in `configResolved`. On a `--hmr` restart, `dev.ts` reboots the app on the same server and Vite transforms changed files again. `__laratype_deps` registrations are configurable, so a re-run class registers again.
+- **Kernel container:** `Serve.getContainer()` creates `new Container({ deps: depsRegistry })` ([#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635)), so the kernel autowires classes with constructor deps through the generated metadata.
+- **Controllers:** the router still builds controllers with `new` until H2 [#105](https://github.com/Laratypes/Laratype/issues/105). `examples/basic` resolves its `GreetingController` from the kernel container in `RouteServiceProvider.boot()`.
+
+### Diagnostics
+None of its own. The transform never throws on user code, and resolve-time failures are [Container](#container) `DiError`s.
+
+### Example
+`examples/basic`: `GreetingService` is injected into `GreetingController`'s constructor with no decorator, and `GET /api/greeting` resolves the controller from the kernel container. Test: `packages/sauf/__tests__/di/plugin.test.ts` (DI transform → SWC through Vite SSR).
+
+### Non-goals
+- `sauf build` and the test preset don't use the plugin yet. The shared chain is B2 [#126](https://github.com/Laratypes/Laratype/issues/126).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#102 Done when](https://github.com/Laratypes/Laratype/issues/102)

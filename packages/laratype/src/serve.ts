@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { Container } from "@laratype/core";
+import { Container, depsRegistry } from "@laratype/core";
 import { bootProviders, HTTP_APP } from "@laratype/support";
 import { register } from "./bootstrap";
 
@@ -21,7 +21,7 @@ export default class Serve {
   /** The application container, with the Hono instance bound. */
   public static getContainer() {
     if(!this.container) {
-      this.container = new Container();
+      this.container = new Container({ deps: depsRegistry });
       this.container.instance(HTTP_APP, this.getInstance());
     }
     return this.container

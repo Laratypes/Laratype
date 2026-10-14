@@ -11,7 +11,7 @@ last-verified: 2026-10-12
 v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata and decorators behave the same everywhere. Production builds are bundled, verified and type-generated. This file also records the packaging constraints the framework packages must keep.
 
 **State on master (0.5):**
-- **Dev** (`sauf dev`) uses Vite SSR with `RollupPluginSwc` (`packages/sauf/src/bin/warmup.ts`, `utils/plugin.ts`) and an HMR restart (`commands/dev.ts`).
+- **Dev** (`sauf dev`) uses Vite SSR with `laratype:di` ([di.md › Vite plugin](./di.md#vite-plugin-laratypedi)) then `RollupPluginSwc` (`packages/sauf/src/bin/warmup.ts`, `utils/plugin.ts`), and an HMR restart (`commands/dev.ts`).
 - **Production** builds compile with `tsc -b tsconfig.build.json`, then `sauf build` copies the `cli.js` / node adapter entries and runs `tsc-alias` (`commands/build.ts`).
 - **Discovery:** the runtime finds config, routes, providers and commands by file path (`packages/support/src/path-resolver/pathResolver.ts`).
 - **Framework packages** build with `bun.build.js` (ESM + CJS), then `tsc` + `rollup-plugin-dts`.
@@ -20,7 +20,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 |---|---|
 | [Package build fixes (B11–B13)](#package-build-fixes-b11b13) | merged @ 2ad49ad (B13), acf9f2a (B13 CI), e3112eb (B12), f66eafd (B11) |
 | [Packaging follow-ups (B16)](#packaging-follow-ups-b16) | merged ([#191](https://github.com/Laratypes/Laratype/issues/191)); `bun run check:pkg` lints every public package |
-| [Plugin chain](#plugin-chain) | planned → #102, #125, #126 |
+| [Plugin chain](#plugin-chain) | T2 merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #125, #126 |
 | [sauf build steps](#sauf-build-steps) | planned → #127, #128, #129, #130, #172, #173, #155, #156 |
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
@@ -130,7 +130,7 @@ Package manifests, build configuration and scripts:
 ## Plugin chain
 
 ### Status
-planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2, DI plugin in `sauf dev`), [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest), [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain). The DI transform core itself is merged @ 8dc389b ([di.md › DI transform](./di.md#di-transform)).
+The DI plugin in `sauf dev` (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest), [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain). The DI transform core itself is merged @ 8dc389b ([di.md › DI transform](./di.md#di-transform)).
 
 ### Design (non-binding)
 ```

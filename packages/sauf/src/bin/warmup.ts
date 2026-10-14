@@ -4,6 +4,7 @@ import { resolveModule } from "@laratype/support";
 import { importRootCommands, importRouteConsoleCommands } from "../utils";
 import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
+import { laratypeDi } from "../di/plugin";
 import Command from "../utils/command";
 import "../utils/banner"
 
@@ -55,6 +56,8 @@ export class CommandManager {
       },
       esbuild: false,
       plugins: [
+        // Before SWC: the DI transform reads the TypeScript param types SWC erases.
+        laratypeDi(),
         RollupPluginSwc({
           sourceMaps: true,
           module: {

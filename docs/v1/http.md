@@ -192,7 +192,7 @@ planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2).
 ### Design (non-binding)
 - **Resolution:** controllers are resolved with the container (`app.make(Controller)`) instead of `new`. That gives constructor DI through the [DI transform](./di.md#di-transform) and the container's scopes.
 - **Scope bubbling:** a controller that depends on a request-scoped provider becomes request-scoped ([#112](https://github.com/Laratypes/Laratype/issues/112)).
-- **Kernel container:** the kernel container needs `{ deps: depsRegistry }` ([#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635)).
+- **Kernel container:** the kernel container already passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 - **Done when:** runtime tests with constructor DI.
 
 ### Acceptance

@@ -52,7 +52,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | `@laratype/core` | DI container, tokens, deps registry | D1 merged @ cfa85c3; D2 merged @ 36ba917 | none |
 | `@laratype/client` | `createClient(appApi)` | scaffold merged @ d70daa7 (`PACKAGE_NAME` only); API planned → #109 | `@laratype/contract` only |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 merged @ 468c2ec | `@laratype/core` |
-| `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core merged @ 8dc389b, abstract-class flag merged (#101); Vite wiring planned → #102 | `@laratype/core` (runtime helper) |
+| `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core merged @ 8dc389b, abstract-class flag merged (#101); Vite wiring in `sauf dev` merged (#102) | `@laratype/core` (runtime helper) |
 | `@laratype/http` | Router v2, pipeline, controllers, `Ctx` | 0.5; v1 planned → #104, #105, #106 | contract, core |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5; v1 planned → #119, #120, #121 | core, http |
