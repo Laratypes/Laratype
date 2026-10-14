@@ -12,6 +12,8 @@ permissions:
 jobs:
   publish:
     name: Publish preview packages
+    # No previews from fork PRs: only this repo's branches publish under the Laratypes pkg.pr.new namespace
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
