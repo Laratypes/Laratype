@@ -44,10 +44,9 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
-| CI smoke set | `bunx vitest run packages/contract packages/core packages/client` |
-| Full suite | `bun run test --run`. `packages/http/__tests__/Request.test.ts` already fails on `master` (`ControllerMock.prototype.__invoke is not a function`); leave it alone unless that is your task. |
+| Full suite | `bun run test --run`, after `bun run build`: `sauf/__tests__/devSsr`, `sauf/__tests__/di/plugin` and `http/__tests__/support/Request` load the built `dist`. |
 
-CI (`.github/workflows/ci.yml`) runs the build, the declarations and the smoke set on every PR, whatever its base, and on push to `master`.
+CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
 ## Code rules
 
