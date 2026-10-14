@@ -26,7 +26,7 @@ class ControllerMock extends Controller {
 const routeMock: RouteOptions = {
   path: '/users',
   method: 'post',
-  controller: ControllerMock.prototype.__invoke('test'),
+  controller: [ControllerMock, 'test'],
   middleware: [],
   request: RequestMock,
   name: undefined,
@@ -45,6 +45,11 @@ const createFormData = (data: Record<string, any>) => {
     formData.append(key, data[key]);
   }
   return formData;
+}
+
+// Same steps as RequestKernel.handle before validation: parse the body, then build the route's Request class
+const createRequestInstance = async (request: HonoRequest) => {
+  return RequestKernel.transformRequest(await RequestKernel.processData(request), routeMock);
 }
 
 describe('Processed input before forwarding to validate', () => {
@@ -176,7 +181,7 @@ describe('Request validation', () => {
       body: JSON.stringify(testData)
     })
     const request = new HonoRequest(rawRequest);
-    const requestInstance = await RequestKernel.processValidation(request, routeMock);
+    const requestInstance = await RequestKernel.processValidation(await createRequestInstance(request), routeMock);
 
     expect(requestInstance.validated()).toStrictEqual(testData);
   })
@@ -196,7 +201,7 @@ describe('Request validation', () => {
     })
     const request = new HonoRequest(rawRequest);
 
-    await expect(() => RequestKernel.processValidation(request, routeMock)).rejects.toThrowError(ValidationException);
+    await expect(async () => RequestKernel.processValidation(await createRequestInstance(request), routeMock)).rejects.toThrowError(ValidationException);
   })
   
   it('Validate failed with rules should be return http status 422', async () => {
@@ -214,7 +219,7 @@ describe('Request validation', () => {
     })
     const request = new HonoRequest(rawRequest);
 
-    RequestKernel.processValidation(request, routeMock).catch((err: ValidationException) => {
+    RequestKernel.processValidation(await createRequestInstance(request), routeMock).catch((err: ValidationException) => {
       expect(err.getHttpCode()).toBe(422);
     })
 
@@ -235,7 +240,7 @@ describe('Request validation', () => {
         body: JSON.stringify(testData)
       })
       const request = new HonoRequest(rawRequest);
-      const requestInstance = await RequestKernel.processValidation(request, routeMock);
+      const requestInstance = await RequestKernel.processValidation(await createRequestInstance(request), routeMock);
       const controller = RequestKernel.controllerKernel(routeMock.controller)
       expect(controller(requestInstance)).toBe('Succeeded');
   
