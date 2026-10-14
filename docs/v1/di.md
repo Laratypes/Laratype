@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf dev` or `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -24,7 +24,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | planned → #102 |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | planned → #100 |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)) |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
@@ -122,19 +122,19 @@ export class Container {
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
-- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)); the error is planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+- Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag ([#101](https://github.com/Laratypes/Laratype/issues/101)) and the error ([#100](https://github.com/Laratypes/Laratype/issues/100)) are merged.
 
 ### Diagnostics
 `DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`):
 - `No binding for <key>.`
-- `No binding for abstract class <C>.` (planned → [#100](https://github.com/Laratypes/Laratype/issues/100))
+- `No binding for abstract class <C>.`
 - `Cannot bind <key> to itself: only a class can be self-bound.`
 - `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found.`
 - `Cannot resolve <C> constructor param #<i> \`<name>\`: type \`<TypeText>\` has no runtime value.`
 - `Cannot resolve <C> constructor param #<i> \`<name>\`: its type resolved to undefined at runtime.`
 - `Circular dependency: A -> B -> A`
 
-The `` `<name>` `` part appears only when `meta.params` has a name. Fix hints are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+The `` `<name>` `` part appears only when `meta.params` has a name. Each message above is the first sentence of the thrown text: resolution errors append a fix hint, listed under [Resolution errors with fix hints](#resolution-errors-with-fix-hints).
 
 Type-only (`container.types.test.ts`): binding an unrelated class, a factory with the wrong return type, `instance()` with the wrong value type, self-binding an abstract class or a token.
 
@@ -149,7 +149,7 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ### Open questions
 - Resolved: autowired classes default to transient, `has()` counts explicit bindings only, and abstract classes get a runtime guard through a transform flag ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Interim behaviour:**
-  - The container detects `@Inject`-vs-thunk conflicts (S3 condition 3) through the runtime decorator records ([Decorators](#decorators-inject-and-injectable)). The fix-hint messages are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+  - The container detects `@Inject`-vs-thunk conflicts (S3 condition 3) through the runtime decorator records ([Decorators](#decorators-inject-and-injectable)), with a fix hint ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 
 ### Acceptance
 [#96 Done when](https://github.com/Laratypes/Laratype/issues/96)
@@ -414,7 +414,7 @@ export function Injectable(options?: InjectableOptions): (target: Function) => v
 
 ### Diagnostics
 `DiError` messages (exact text):
-- `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` Fix hints are planned → [#100](https://github.com/Laratypes/Laratype/issues/100).
+- `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` followed by a fix hint ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `@Inject() is only supported on constructor parameters (found on \`<method>\`).` This is thrown when the class is defined. Method injection is planned → [#158](https://github.com/Laratypes/Laratype/issues/158).
 
 Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and `Injectable({ scope: 'request' })`.
@@ -453,14 +453,37 @@ planned → [#102](https://github.com/Laratypes/Laratype/issues/102) (T2).
 ## Resolution errors with fix hints
 
 ### Status
-planned → [#100](https://github.com/Laratypes/Laratype/issues/100) (D5a). D1 already throws the base messages listed under [Container](#container).
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)).
 
-### Design (non-binding)
-Each message names the class, the param index and name, and a hint. The S3 spike wording:
-- `Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
-- `It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
+### Public API
+None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
 
-Snapshot tests cover the messages.
+### Invariants
+- Each message starts with the base sentence listed in the Diagnostics of [Container](#container) or [Decorators](#decorators-inject-and-injectable), unchanged, so a match on the base sentence keeps working. The hint follows it.
+- A param is named as `<C> constructor param #<i>`, plus `` `<name>` `` when `meta.params` has a name.
+- `No binding for …` adds `Required by <param>.` when a constructor param asked for the key (the nearest requester in a nested graph). This covers the key from a transform thunk and the token from an `@Inject` record. A key passed to `make()` directly has no `Required by` part.
+- **Abstract classes:** a class flagged by the [DI transform](#di-transform) (`isAbstract(cls)`) with no binding throws instead of autowiring. The check reads the class's own flag, so a concrete subclass of an abstract class autowires normally, with the deps it inherits. A binding for the abstract class (`container.bind(Port, SmtpPort)`) resolves as usual.
+
+### Diagnostics
+`DiError` messages (exact text; `<P>` is `<C> constructor param #<i>` with its optional `` `<name>` ``, and `[Required by <P>.]` appears only when a param asked for the key):
+- `No binding for <key>. [Required by <P>.] Fix: bind it in a service provider \`register()\`, e.g. \`container.bind(token, factory)\` or \`container.instance(token, value)\`.`
+- `No binding for abstract class <C>. [Required by <P>.] Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(<C>, Impl)\`.`
+- `Cannot resolve <P>: type \`<TypeText>\` has no runtime value. Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
+- `Cannot resolve <P>: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
+- `Conflicting metadata for <P>: transform says <A>, @Inject says <B>. Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).`
+
+`Cannot bind …`, `Cannot autowire …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
+
+Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
+
+### Example
+See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
+
+### Non-goals
+- No eager validation of the whole graph at boot (see [Boot-time graph diagnostics](#boot-time-graph-diagnostics)).
+
+### Open questions
+- Resolved: the abstract-class guard reads the transform's own-class flag, never an inherited one ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Acceptance
 [#100 Done when](https://github.com/Laratypes/Laratype/issues/100)

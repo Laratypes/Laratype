@@ -2,6 +2,7 @@ import { noDeps } from './deps'
 import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
 import { injectableScope, injectTokens } from './decorators'
+import { isAbstract } from './registry'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -51,6 +52,10 @@ const errors = {
     `No binding for ${keyName(key)}.`
     + (requiredBy ? ` Required by ${requiredBy}.` : '')
     + ' Fix: bind it in a service provider `register()`, e.g. `container.bind(token, factory)` or `container.instance(token, value)`.',
+  noBindingAbstract: (cls: Function, requiredBy?: string): string =>
+    `No binding for abstract class ${keyName(cls)}.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + ` Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(${keyName(cls)}, Impl)\`.`,
   unresolvedParam: (param: string, typeText: string): string =>
     `Cannot resolve ${param}: type \`${typeText}\` has no runtime value.`
     + ' Fix: add @Inject(token) to the parameter, or import the class as a value (not `import type`).',
@@ -155,6 +160,8 @@ export class Container {
       return this.withCycleCheck(key, () => binding.create(this))
     }
     if (typeof key === 'function') {
+      // The transform's own-class flag: a concrete subclass of an abstract class still autowires.
+      if (isAbstract(key)) throw new DiError(errors.noBindingAbstract(key, requiredBy))
       if (injectableScope(key) === 'singleton') {
         // Built by the root so a child's overrides never leak into the shared instance.
         let root: Container = this

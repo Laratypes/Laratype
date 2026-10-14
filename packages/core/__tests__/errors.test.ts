@@ -110,3 +110,42 @@ describe('@Inject records (D3)', () => {
     expect(messageOf(() => new Container({ deps: depsRegistry }).make(UsesWrapper))).toMatchInlineSnapshot(`"Conflicting metadata for UsesWrapper constructor param #0 \`mailer\`: transform says ConsoleMailer, @Inject says InjectionToken(mailer). Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform)."`)
   })
 })
+
+describe('abstract class without a binding', () => {
+  abstract class Port {
+    constructor(readonly clock: Clock) {}
+  }
+  __laratype_deps(Port, [() => Clock], { params: ['clock'], abstract: true })
+  // No own constructor: flag-only call, the deps stay inherited from Port.
+  abstract class Mid extends Port {}
+  __laratype_deps(Mid, null, { params: [], abstract: true })
+  class SmtpPort extends Mid {}
+
+  const container = () => new Container({ deps: depsRegistry })
+
+  it('resolved directly', () => {
+    expect(messageOf(() => container().make(Port))).toMatchInlineSnapshot(`"No binding for abstract class Port. Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(Port, Impl)\`."`)
+  })
+
+  it('flagged through a flag-only call (null slots)', () => {
+    expect(messageOf(() => container().make(Mid))).toMatchInlineSnapshot(`"No binding for abstract class Mid. Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(Mid, Impl)\`."`)
+  })
+
+  it('needed by a constructor param', () => {
+    class Service {
+      constructor(readonly port: Mid) {}
+    }
+    __laratype_deps(Service, [() => Mid], { params: ['port'] })
+    expect(messageOf(() => container().make(Service))).toMatchInlineSnapshot(`"No binding for abstract class Mid. Required by Service constructor param #0 \`port\`. Fix: bind it to a concrete class in a service provider \`register()\`, e.g. \`container.bind(Mid, Impl)\`."`)
+  })
+
+  it('does not flag a concrete subclass, which autowires with the inherited deps', () => {
+    const port = container().make(SmtpPort)
+    expect(port).toBeInstanceOf(SmtpPort)
+    expect(port.clock).toBeInstanceOf(Clock)
+  })
+
+  it('resolves through its binding', () => {
+    expect(container().bind(Mid, SmtpPort).make(Mid)).toBeInstanceOf(SmtpPort)
+  })
+})
