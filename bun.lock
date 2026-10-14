@@ -202,10 +202,12 @@
       "peerDependencies": {
         "@laratype/database": "workspace:*",
         "laratype": "workspace:*",
+        "typescript": ">=5",
       },
       "optionalPeers": [
         "@laratype/database",
         "laratype",
+        "typescript",
       ],
     },
     "packages/schedule": {

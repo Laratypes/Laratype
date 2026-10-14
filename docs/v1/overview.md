@@ -25,7 +25,7 @@ This file holds what every area shares: principles, the package graph, the proje
 | Build | [build.md](./build.md) | `sauf` | B1–B16 |
 | CLI | [cli.md](./cli.md) | `sauf` | E2 (#134), command list |
 | Auth | [auth.md](./auth.md) (skeleton) | `@laratype/auth` | A1–A4 (#119–#121, #151) |
-| Typegen | [typegen.md](./typegen.md) (skeleton) | `sauf`, typegen | G1–G4 (#133, #142–#144) |
+| Typegen | [typegen.md](./typegen.md) | `sauf`, typegen | G1–G4 (#133, #142–#144) |
 | Database | [database.md](./database.md) (placeholder until S5 #88) | `@laratype/database` | DB1–DB6 (#145–#150) |
 | Services | [services.md](./services.md) | `@laratype/core` (Manager), `console`, `log`, `cache`, `storage`, `queue`, `mail`, `i18n`, `schedule`, `broadcast` | F1–F2 (#160, #161), EV1 (#165), CA1 (#166), I1 (#167), ST1 (#168), Q1–Q2 (#169, #175), ML1 (#170), SC1 (#171), PR1 (#176), BR1–BR2 (#177, #178) |
 | View | [view.md](./view.md) | `sauf`, `@laratype/contract` | VW1–VW3 (#174, #181, #182) |
@@ -57,7 +57,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5; v1 planned → #119, #120, #121 | core, http |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM); v1 waits for S5 → #88 | core |
-| typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | planned → #133, #143 | contract |
+| typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); OpenAPI planned → #143 | contract |
 | `laratype` | Kernel / `Serve` | 0.5; container boot merged @ 468c2ec | core, support |
 
 The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `storage` are ported or built in M3/M4, together with the new `cache` and `queue` packages. They are specified in [services.md](./services.md). On master, `mail`, `i18n`, `schedule`, `broadcast` and `storage` contain only `package.json`.
@@ -124,7 +124,7 @@ resources/
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
 | Zod 4 coerce in contracts: `z.coerce.number<number>()` | Plain `z.coerce.number()` has input type `unknown`, so client query types become `unknown` | S2 finding for C3 |
-| The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, planned → #133). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` (merged @ e2eac4b) |
+| The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, merged [#133](https://github.com/Laratypes/Laratype/issues/133)). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` (merged @ e2eac4b) |
 
 ## Decision log
 
