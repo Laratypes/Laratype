@@ -67,7 +67,8 @@ try {
   check(e instanceof DiError, `conflict is a DiError: ${String(e)}`);
   check(
     (e as Error).message
-      === 'Conflicting metadata for Conflicting constructor param #0 `mailer`: transform says ConsoleMailer, @Inject says InjectionToken(Mailer).',
+      === 'Conflicting metadata for Conflicting constructor param #0 `mailer`: transform says ConsoleMailer, @Inject says InjectionToken(Mailer).'
+        + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
     `conflict message: ${(e as Error).message}`,
   );
 }
