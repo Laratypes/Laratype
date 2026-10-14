@@ -76,7 +76,7 @@ export type AppApi = typeof appApi
 - The FE imports **only** `$api` (`appApi` / `AppApi`) or contract files, never `typeof routes`. In the S2 fixture, `tsc --listFilesOnly` loads 0 server files this way and 8 through `typeof routes`.
 - `AppRouter` is retired. The FE type is `AppApi`, projected with `ApiTypes<AppApi>`.
 - Contracts and docs write `import * as z from "zod"` (tree-shaking) and `z.coerce.number<number>()` with zod 4.
-- FEs need TypeScript ≥ 5.4.
+- FEs need TypeScript ≥ 5.4 (the contract types use `NoInfer`). `@laratype/client` declares it as an optional peer (`>=5.4`), so a JS-only or bundler-only install gets no missing-peer warning.
 
 ### Diagnostics
 - The negative-control fixture `fe/bad.ts` (C5, merged @ e2eac4b) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.

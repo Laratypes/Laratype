@@ -72,6 +72,9 @@
       "peerDependencies": {
         "typescript": ">=5.4",
       },
+      "optionalPeers": [
+        "typescript",
+      ],
     },
     "packages/console": {
       "name": "@laratype/console",
