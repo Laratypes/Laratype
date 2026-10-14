@@ -8,3 +8,4 @@ export * from "./capabilities";
 export * from "./endpoint";
 export * from "./contract";
 export * from "./api-types";
+export * from "./url";

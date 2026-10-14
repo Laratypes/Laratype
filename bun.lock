@@ -66,6 +66,12 @@
     "packages/client": {
       "name": "@laratype/client",
       "version": "0.5.4",
+      "dependencies": {
+        "@laratype/contract": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": ">=5.4",
+      },
     },
     "packages/console": {
       "name": "@laratype/console",

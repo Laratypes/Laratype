@@ -1,0 +1,12 @@
+// Client fixture (G1 project copy), plus a query on index.
+// app/api/users/[user]/posts.ts → /api/users/:user/posts, api.users.posts
+import * as z from 'zod'
+import { defineContract, endpoint } from '@laratype/contract'
+import type { Prefix } from './$types'
+
+const PostDto = z.object({ id: z.number(), title: z.string() })
+
+export default defineContract<Prefix>()({
+  index: endpoint.get('/').query(z.object({ q: z.string().optional(), tags: z.array(z.string()).optional() })).response(z.array(PostDto)).authorize(false),
+  update: endpoint.patch('/:post').body(PostDto.pick({ title: true })).response(PostDto),
+})

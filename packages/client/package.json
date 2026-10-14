@@ -32,6 +32,12 @@
     "./*": "./*"
   },
   "buildOptions": {},
+  "dependencies": {
+    "@laratype/contract": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.4"
+  },
   "files": [
     "dist"
   ]

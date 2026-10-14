@@ -1,9 +1,9 @@
 ---
 area: contract
 packages: ["@laratype/contract"]
-issues: [89, 90, 91, 92, 93, 94, 133, 162, 228]
+issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228]
 verified-against: Laratype@e2eac4b
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Contract (`@laratype/contract`)
@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` planned → #104 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
-| [URL builder](#url-builder) | planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -791,17 +791,44 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+
+### Public API
+[`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
+
+```ts
+export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional)
+export type UrlInput<P extends string> = { params: UrlParams<P> /* optional when P has no required param */; query?: object };
+export function buildUrl<P extends string>(path: P, input?: UrlInput<P>): string;   // input required when P has a required param
+
+buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } })   // "/api/users/1/posts?page=2"
+```
+
+### Invariants
+- **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
+- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
+- **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object throws. An empty query adds no `?`.
+- Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
+
+### Diagnostics
+Runtime `TypeError`s, prefixed `[@laratype/contract] `:
+- `buildUrl: missing param "<name>" for "<path>"`
+- `buildUrl: query "<key>" must be a primitive, a Date or an array of them`
+
+Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.
+
+### Example
+[`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Design (non-binding)
-Issue #162 sketches a pure `buildUrl(endpoint, { params, query })` in `@laratype/contract`. The client (CL1 #109) and a server `route()` helper would share it. Nothing exists in code yet, so the signature is not final.
+The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162)) will build on `buildUrl`. Nothing of it exists in code yet.
 
 - **Names:** the folder tree plus the endpoint key, for example `route('users.posts.update', { user, post })` ([Contract folder tree](#contract-folder-tree)).
 - **Params:** typed from the path, including the params of parent `[x]` folders. Bound params accept a Model (its route key).
 - **Ad-hoc routes** keep explicit names ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)).
 
 ### Acceptance
-[#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
+[#109 Done when](https://github.com/Laratypes/Laratype/issues/109) · [#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
 
 ---
 
