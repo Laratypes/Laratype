@@ -166,6 +166,23 @@ describe('sauf types:generate', () => {
     expect(existsSync(join(copy, '.laratype', 'types', 'app', 'api', 'v1'))).toBe(false);
   }, 60_000);
 
+  it('keeps non-generated files under --out', async () => {
+    const copy = join(tmp, 'keep');
+    cpSync(project, copy, { recursive: true });
+    const own = join(copy, '.laratype', 'types', 'app', 'api', 'v1', 'notes.md');
+    writeFileSync(own, 'mine');
+    rmSync(join(copy, 'app', 'api', 'v1'), { recursive: true });
+    await generateTypes({ projectDir: copy }, ts);
+    expect(readFileSync(own, 'utf8')).toBe('mine');
+    expect(existsSync(join(copy, '.laratype', 'types', 'app', 'api', 'v1', 'health'))).toBe(false);
+    expect(existsSync(join(copy, '.laratype', 'types', 'app', 'api', 'users', '[user]', '$types.d.ts'))).toBe(true);
+  }, 60_000);
+
+  it.each([['.'], ['..'], ['../elsewhere'], ['app'], ['app/api']])('rejects --out %s', async (outDir) => {
+    await expect(generateTypes({ projectDir: project, outDir }, ts)).rejects.toThrow(ScanError);
+    expect(existsSync(join(project, 'app', 'api', 'users.ts'))).toBe(true);
+  });
+
   it('honours --root, --base, --out and --api-out', async () => {
     const copy = join(tmp, 'options');
     mkdirSync(copy);

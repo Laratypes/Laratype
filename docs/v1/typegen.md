@@ -68,7 +68,7 @@ The app's tsconfig needs:
 ### Invariants
 - **Scan:** the tree is read from file and folder names only, never from file contents ([contract.md › Contract folder tree](./contract.md#contract-folder-tree) has the rules).
 - **Options:** `--root`, `--base` and `--out` are CLI flags today, with defaults `app/api` → `/api` and `.laratype`. The config-file key is not specced yet; it is planned → [#104](https://github.com/Laratypes/Laratype/issues/104).
-- **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. Each run rewrites `<out>/types` entirely, so the `$types.d.ts` of a deleted folder goes away.
+- **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
 - **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. No contract module is executed. A type error in the tree fails the command.
@@ -80,6 +80,8 @@ The app's tsconfig needs:
 ### Diagnostics
 Errors are printed by the command, which exits with code 1. All messages are prefixed `[sauf types:generate] `:
 - `the contract tree root "<root>" does not exist (set it with --root)`
+- `--out "<dir>" must be a folder inside the project, not the project itself or outside it`
+- `--out "<dir>" must not contain the contract tree root "<root>"`
 - `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
 - `<file> and <file> have the same name "<name>" ([x] folders are dropped from names)`
 - `<file>: a contract needs a name; put it in a named folder (the root index.ts has none)`

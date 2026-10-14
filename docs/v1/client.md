@@ -176,9 +176,9 @@ merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). Generation is
 - **S2 option (c):** `sauf types:generate` writes one `api.ts` (default `.laratype/api.ts`, `--api-out` to place it in the FE repo). It holds a flattened `AppApi` type alias and a slim runtime manifest keyed by route name (method, full path, the derived and declared error codes). It has no import, no contract lib and no schema lib.
 - A separate FE compiles against `api.ts` alone, with `types: []` and the DOM lib; the test loads no other file (`packages/sauf/__tests__/typegen/generate.test.ts`).
 - The generated `AppApi` satisfies `ApiShape<A>` and is mutually assignable with `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection)).
-- S2 measured the FE program at 2 generated or own files and 4 client files, about 0.7 KiB gzip in total.
 
 ### Design (non-binding)
+- S2 measured the FE program at 2 generated or own files and 4 client files, about 0.7 KiB gzip in total.
 - The same manifest is an opt-in for monorepo FEs that want schema-free bundles. Typing it for the client (`Manifest<AppApi>`) belongs to CL1 [#109](https://github.com/Laratypes/Laratype/issues/109).
 
 ### Acceptance
