@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createClient } from '@laratype/client'
-import type { FetchLike } from '@laratype/client'
+import type { ClientOptions, FetchLike } from '@laratype/client'
+import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import users from './fixtures/app/api/users'
 import { manifest } from './fixtures/separate-fe/api'
@@ -104,12 +105,40 @@ describe('createClient', () => {
     expect(res404.status).toBe(404)
   })
 
-  it('throws on a missing required param before calling fetch', () => {
+  it('rejects, and does not throw, on a missing required param, before calling fetch', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, { fetch })
+    let pending: Promise<unknown> | undefined
     // @ts-expect-error runtime check
-    expect(() => api.users.show({ params: {} })).toThrow('[@laratype/contract] buildUrl: missing param "user" for "/api/users/:user"')
+    expect(() => (pending = api.users.show({ params: {} }))).not.toThrow()
+    await expect(pending).rejects.toThrow('[@laratype/contract] buildUrl: missing param "user" for "/api/users/:user"')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects on every other request failure too: a body JSON cannot hold, no fetch', async () => {
+    const { fetch } = fakeFetch()
+    // @ts-expect-error runtime check: a bigint body
+    await expect(createClient(appApi, { fetch }).users.posts.update({ params: { user: 1, post: 2 }, body: { title: 1n } })).rejects.toThrow(TypeError)
+    vi.stubGlobal('fetch', undefined)
+    try {
+      await expect(createClient(appApi).users.index()).rejects.toThrow('[@laratype/client] no fetch available: pass options.fetch')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reads baseUrl, headers and fetch from the options at each call (a refreshed token applies)', async () => {
+    const first = fakeFetch()
+    const second = fakeFetch()
+    const options: ClientOptions = { fetch: first.fetch, baseUrl: 'https://a.example', headers: { authorization: 'Bearer old' } }
+    const api = createClient(appApi, options)
+    await api.users.index()
+    options.baseUrl = 'https://b.example'
+    options.headers = { authorization: 'Bearer new' }
+    options.fetch = second.fetch
+    await api.users.index()
+    expect(first.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://a.example/api/users', 'Bearer old']])
+    expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer new']])
   })
 
   it('uses the global fetch, read at call time, when none is injected', async () => {
@@ -124,12 +153,31 @@ describe('createClient', () => {
     expect(calls[0]!.url).toBe('/api/v1/health')
   })
 
-  it('builds a client from an API node or a single contract', async () => {
+  it('builds a client from an API node or a single contract, with the same names as the appApi client', async () => {
+    expect(Object.keys(createClient(appApi.users))).toEqual(['index', 'show', 'store', 'posts'])
+    expect(Object.keys(createClient(appApi.users.posts))).toEqual(['index', 'update'])
+    expect(Object.keys(createClient(appApi.v1))).toEqual(['health'])
+    expect(Object.keys(createClient(users))).toEqual(['index', 'show', 'store'])
     const { fetch, calls } = fakeFetch()
     await createClient(appApi.users.posts, { fetch }).update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
     // a contract alone has no folder prefix: its paths go on baseUrl as they are
     await createClient(users, { fetch, baseUrl: 'https://example.com/api/users' }).show({ params: { user: 5 } })
     expect(calls.map((c) => c.url)).toEqual(['/api/users/1/posts/2', 'https://example.com/api/users/5'])
+  })
+
+  it('accepts endpoints from another package copy (Symbol.for brand, not instanceof)', async () => {
+    const foreign = { def: endpoint.get('/:id').def }
+    Object.defineProperty(foreign, Symbol.for('laratype.endpoint'), { value: true })
+    const api = defineApi({ things: { contract: defineContract()({ show: foreign as never }), path: '/api/things', scopes: [] } })
+    const { fetch, calls } = fakeFetch()
+    await (createClient(api, { fetch }) as { things: { show: (i: object) => Promise<Response> } }).things.show({ params: { id: 3 } })
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', '/api/things/3']])
+  })
+
+  it('rejects a single endpoint with a clear error, not as a bad manifest', () => {
+    expect(() => createClient(users.show)).toThrow(
+      new TypeError('[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi'),
+    )
   })
 
   it('rejects anything else', () => {

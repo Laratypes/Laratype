@@ -1,5 +1,5 @@
-import { API_NODE, Endpoint, buildUrl, isContract, joinPath } from "@laratype/contract";
-import type { ApiNodeInfo, ApiShape, Method } from "@laratype/contract";
+import { API_NODE, apiRoutes, buildUrl, isContract, isEndpoint } from "@laratype/contract";
+import type { Api, ApiNodeInfo, ApiRoute, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -16,6 +16,13 @@ interface RequestInput {
 }
 
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
+
+/** One call of the client: its route name relative to the client root (`"users.posts.update"`), method and full path. */
+interface RouteSpec {
+  readonly name: string;
+  readonly method: string;
+  readonly path: string;
+}
 
 type TreeNode = Readonly<Record<string | symbol, unknown>>;
 
@@ -35,68 +42,63 @@ const isManifest = (value: unknown): value is Manifest =>
 
 /**
  * One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
+ * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
+ * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  * Every call goes through here, so the CL2 result union (#110) only wraps what it resolves to.
  */
-const createSend = (options: ClientOptions): Send => {
-  const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
-  return (method, path, input = {}) => {
-    const url = baseUrl + buildUrl(path, { params: input.params, query: input.query });
-    const headers = new Headers(options.headers);
-    for (const [key, value] of Object.entries(input.headers ?? {})) {
-      if (value !== undefined) headers.set(key, value);
-    }
-    const init: RequestInit = { method: method.toUpperCase(), headers };
-    if (input.body !== undefined) {
-      init.body = JSON.stringify(input.body);
-      if (!headers.has("content-type")) headers.set("content-type", "application/json");
-    }
-    if (input.signal) init.signal = input.signal;
-    const fetchFn = options.fetch ?? globalThis.fetch;
-    if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
-    return fetchFn(url, init);
-  };
-};
-
-/** Mirrors one node of the tree: a call per endpoint (on the node's full URL prefix), a client per child node. */
-function buildNode(node: TreeNode, prefix: string, send: Send): object {
-  const client: Record<string, unknown> = Object.create(null);
-  for (const [key, value] of Object.entries(node)) {
-    if (value instanceof Endpoint) {
-      const { method } = value.def;
-      const path = joinPath(prefix, value.def.path);
-      client[key] = (input?: RequestInput) => send(method, path, input);
-    } else if (isApiNode(value)) {
-      client[key] = buildNode(value, (value[API_NODE] as ApiNodeInfo).entry?.path ?? "", send);
-    } else {
-      fail(`createClient: "${key}" is neither an endpoint nor an API node`);
-    }
+const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
+  const url = (options.baseUrl ?? "").replace(/\/+$/, "") + buildUrl(path, { params: input.params, query: input.query });
+  const headers = new Headers(options.headers);
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value !== undefined) headers.set(key, value);
   }
-  return Object.freeze(client);
-}
+  const init: RequestInit = { method: method.toUpperCase(), headers };
+  if (input.body !== undefined) {
+    init.body = JSON.stringify(input.body);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  }
+  if (input.signal) init.signal = input.signal;
+  const fetchFn = options.fetch ?? globalThis.fetch;
+  if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+  return fetchFn(url, init);
+};
 
 const freezeTree = (node: Record<string, unknown>): object => {
   for (const value of Object.values(node)) if (typeof value === "object") freezeTree(value as Record<string, unknown>);
   return Object.freeze(node);
 };
 
-/** Nests the manifest's flat route names: `"users.posts.update"` → `client.users.posts.update`. */
-function buildManifest(manifest: Manifest, send: Send): object {
+/**
+ * Nests flat route names into the client: `"users.posts.update"` → `client.users.posts.update`.
+ * The one builder for every input: the routes come from `apiRoutes()` or from the generated manifest.
+ */
+function buildTree(routes: readonly RouteSpec[], send: Send, where: string): object {
   const root: Record<string, unknown> = Object.create(null);
-  for (const [name, route] of Object.entries(manifest)) {
+  for (const { name, method, path } of routes) {
     const segments = name.split(".");
-    if (segments.length < 2 || segments.some((s) => s === "")) fail(`createClient: invalid route name "${name}" in the manifest`);
+    // manifest names are full route names (folder + endpoint key); apiRoutes names are valid by construction
+    if (segments.some((s) => s === "") || (where && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
     const key = segments.pop()!;
     let node = root;
     for (const segment of segments) {
-      if (typeof node[segment] === "function") fail(`createClient: "${name}" is under the endpoint "${segment}" in the manifest`);
+      if (typeof node[segment] === "function") fail(`createClient: "${name}" is under the endpoint "${segment}"${where}`);
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
-    if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node in the manifest`);
-    const method = route.method.toLowerCase() as Method;
-    node[key] = (input?: RequestInput) => send(method, route.path, input);
+    if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
+    const m = method.toLowerCase() as Method;
+    node[key] = (input?: RequestInput) => send(m, path, input);
   }
   return freezeTree(root);
 }
+
+/** `apiRoutes()` of the appApi root or an API node, untyped: route names are plain strings here. */
+const routesOf = (api: object): readonly ApiRoute[] => apiRoutes(api as unknown as Api) as readonly ApiRoute[];
+
+/** The routes of an API node, named relative to the node: `appApi.users` → `"index"`, `"posts.update"`. */
+const nodeRoutes = (node: TreeNode): RouteSpec[] => {
+  const prefix = `${(node[API_NODE] as ApiNodeInfo).name}.`;
+  return routesOf(node).map((r) => ({ name: r.name.slice(prefix.length), method: r.method, path: r.path }));
+};
 
 /**
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
@@ -117,9 +119,11 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
 export function createClient<A extends object>(api: A, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
-  if (isContract(api)) return buildNode(api as unknown as TreeNode, "", send);
-  if (isApiNode(api)) return buildNode(api, (api[API_NODE] as ApiNodeInfo).entry?.path ?? "", send);
-  if (isApiRoot(api)) return buildNode(api, "", send);
-  if (isManifest(api)) return buildManifest(api, send);
+  // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
+  if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
+  if (isContract(api)) return buildTree(apiRoutes(api), send, "");
+  if (isApiNode(api)) return buildTree(nodeRoutes(api), send, "");
+  if (isApiRoot(api)) return buildTree(routesOf(api), send, "");
+  if (isManifest(api)) return buildTree(Object.entries(api).map(([name, route]) => ({ name, ...route })), send, " in the manifest");
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }
