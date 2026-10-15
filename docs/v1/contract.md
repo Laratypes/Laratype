@@ -815,12 +815,14 @@ buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } }) 
 ### Invariants
 - **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
 - **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
+- **No dot segments:** a param value of exactly `.` or `..` throws, required or optional. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` in a value is encoded (`..%2Fx`).
 - **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object throws. An empty query adds no `?`.
 - Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `buildUrl: missing param "<name>" for "<path>"`
+- `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)` (or `".."`)
 - `buildUrl: query "<key>" must be a primitive, a Date or an array of them`
 
 Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.

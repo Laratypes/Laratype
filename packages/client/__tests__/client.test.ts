@@ -102,6 +102,16 @@ describe('createClient', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('rejects a dot-segment param value before calling fetch', async () => {
+    const { fetch } = fakeFetch()
+    const api = createClient(appApi, { fetch })
+    await expect(api.users.show({ params: { user: '..' } })).rejects.toThrow(
+      '[@laratype/contract] buildUrl: param "user" for "/api/users/:user" cannot be ".." (a dot segment)',
+    )
+    await expect(api.users.posts.index({ params: { user: '.' } })).rejects.toThrow(/a dot segment/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('rejects on every other request failure too: a body JSON cannot hold, no fetch', async () => {
     const { fetch } = fakeFetch()
     // @ts-expect-error runtime check: a bigint body
