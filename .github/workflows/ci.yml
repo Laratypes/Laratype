@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   build:
+    # Name kept although the job runs the full suite: a required status check would match it by name
     name: Build & smoke test
     runs-on: ubuntu-latest
     steps:
