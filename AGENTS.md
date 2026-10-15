@@ -79,9 +79,9 @@ After the parent merges:
 
 Rebasing a pushed branch means a force-push, which needs the user (see the top).
 
-### Line endings on Windows
+### Line endings
 
-The repo has no `.gitattributes`. With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and snapshot tests fail with whitespace-only diffs. Fix it locally by deleting the files and checking them out again with `git -c core.autocrlf=false checkout HEAD -- <paths>`. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
+`.gitattributes` sets `* text=auto eol=lf` (and `*.png binary`), so git checks text files out as LF on every platform, whatever `core.autocrlf` is. A clone or worktree checked out before that commit keeps CRLF copies of the files git has not rewritten since, and snapshot tests fail on them with whitespace-only diffs. `git ls-files --eol | grep crlf` lists them; delete them and check them out again once with `git checkout HEAD -- <paths>`. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
 
 ### Automated review
 
