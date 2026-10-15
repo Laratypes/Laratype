@@ -234,7 +234,7 @@ Exposes the same core transform as a Bun plugin in `bun.build.js`, so framework 
 Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr-new previews and LF line endings. Workflow hardening is planned → [#189](https://github.com/Laratypes/Laratype/issues/189) (B14), and the npm release → [#190](https://github.com/Laratypes/Laratype/issues/190) (B15).
 
 ### Invariants
-- **`pkg-preview.yml` publishes a pkg.pr.new preview of every package that has a `dist`**, on each PR from a branch of this repo (any base; fork PRs are skipped) and on push to `master`. It runs with `permissions: contents: read` and no secrets; the pkg.pr.new GitHub App posts the install links. It packs with `bun pm pack` (`--bun`), because `npm pack` leaves `catalog:` specifiers unresolved. pkg-pr-new skips `"private": true` packages.
+- **`pkg-preview.yml` publishes a pkg.pr.new preview of every public package** (pkg-pr-new skips `"private": true` ones), on each PR from a branch of this repo (any base; fork PRs are skipped) and on push to `master`. It runs with `permissions: contents: read` and no secrets; the pkg.pr.new GitHub App posts the install links. It packs with `bun pm pack` (`--bun`), because `npm pack` leaves `catalog:` specifiers unresolved. Peers are packed as plain versions, not preview URLs, so a preview of a package with workspace peers is installed together with those peers' previews.
 - **Text files are LF in the repo and in every checkout.** `.gitattributes` sets `* text=auto eol=lf` and marks `*.png` binary, so `core.autocrlf=true` on Windows no longer checks fixtures and snapshots out as CRLF.
 
 ### Design (non-binding)
