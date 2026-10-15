@@ -36,6 +36,12 @@ export interface EndpointCaps {
 
 export type DefaultCaps = { auth: undefined; authorize: undefined; throttle: undefined };
 
+/**
+ * Brand of an endpoint. A `Symbol.for` key, like `API_NODE` and `CONTRACT`, so `isEndpoint` recognizes endpoints
+ * from another bundle or package copy (ESM + CJS), where `instanceof Endpoint` fails. Non-enumerable.
+ */
+export const ENDPOINT: unique symbol = Symbol.for("laratype.endpoint");
+
 // Copy before freezing: the constructor is public, so a caller's def and throws array stay mutable
 const freeze = (def: EndpointDef): EndpointDef =>
   Object.freeze({ ...def, throws: Object.freeze([...def.throws]) });
@@ -70,6 +76,7 @@ export class Endpoint<
 
   constructor(def: EndpointDef) {
     this.def = freeze(def);
+    Object.defineProperty(this, ENDPOINT, { value: true });
   }
 
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C> {
@@ -130,3 +137,7 @@ export const endpoint = {
 };
 
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
+
+/** Recognizes an endpoint by its brand, across bundles and package copies. */
+export const isEndpoint = (value: unknown): value is AnyEndpoint =>
+  typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[ENDPOINT] === true;
