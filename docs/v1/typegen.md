@@ -12,7 +12,7 @@ last-verified: 2026-10-13
 
 | Section | Status |
 |---|---|
-| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) |
+| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
@@ -22,19 +22,23 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is planned → [#142](https://github.com/Laratypes/Laratype/issues/142).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is planned → [#142](https://github.com/Laratypes/Laratype/issues/142).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
 
 ```
-sauf types:generate [--root app/api] [--base /api] [--out .laratype] [--api-out <out>/api.ts] [--tsconfig tsconfig.json]
+sauf types:generate [--root <config api.root, else app/api>] [--base <config api.base, else /api>] [--out .laratype] [--api-out <out>/api.ts] [--tsconfig tsconfig.json]
 ```
 
 ```ts
 // packages/sauf/src/typegen (used by the command; also exported for tests and G2)
 export interface GenerateOptions { projectDir: string; root?: string; base?: string; outDir?: string; apiOut?: string; tsconfig?: string }
 export function generateTypes(options: GenerateOptions, ts?: typeof import("typescript")): Promise<{ tree: ContractTree; files: GeneratedFile[] }>;
+export function syncContractTree(options: GenerateOptions): { tree: ContractTree; files: GeneratedFile[] } | undefined;   // the dev scan: no TS checker, no api.ts (H1 #104)
+export function readApiTreeConfig(projectDir: string): Promise<{ root?: string; base?: string }>;                         // config api.root / api.base
+export function resolveApiTree(flags, config): { root: string; base: string };                                           // flags, then config, then defaults
+export function laratypeApi(options?: { projectDir?: string; outDir?: string; config?: () => unknown }): Plugin;           // resolves $api, scans on first import
 export function scanFiles(files: readonly string[], base: string): ContractTree;   // names only, never contents
 export function scanTree(rootDir: string, base: string): ContractTree;
 export function isTreeFile(file: string): boolean;
@@ -67,7 +71,7 @@ The app's tsconfig needs:
 
 ### Invariants
 - **Scan:** the tree is read from file and folder names only, never from file contents ([contract.md › Contract folder tree](./contract.md#contract-folder-tree) has the rules).
-- **Options:** `--root`, `--base` and `--out` are CLI flags today, with defaults `app/api` → `/api` and `.laratype`. The config-file key is not specced yet; it is planned → [#104](https://github.com/Laratypes/Laratype/issues/104).
+- **Options:** the root and base come from config `api.root` / `api.base` (`app/config/config.ts`), and `--root` / `--base` override them; the defaults are `app/api` → `/api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The command imports `app/config/config.ts` on its own and boots no provider, so it needs no database or auth env. `--out` is a flag only (default `.laratype`).
 - **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
@@ -79,7 +83,7 @@ The app's tsconfig needs:
 
 ### Diagnostics
 Errors are printed by the command, which exits with code 1. All messages are prefixed `[sauf types:generate] `:
-- `the contract tree root "<root>" does not exist (set it with --root)`
+- `the contract tree root "<root>" does not exist (set it with --root or config api.root)`
 - `--out "<dir>" must be a folder inside the project, not the project itself or outside it`
 - `--out "<dir>" must not contain the contract tree root "<root>"`
 - `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
@@ -88,6 +92,7 @@ Errors are printed by the command, which exits with code 1. All messages are pre
 - `<dir>: "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
 - `<dir>: folder name "<name>" may only use letters, digits, "_" and "-"`
 - `<file>: file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
+- `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be a URL path, such as "/api"`, `could not load app/config/config.ts (see the error above)`
 - `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`
@@ -100,7 +105,7 @@ Errors are printed by the command, which exits with code 1. All messages are pre
 
 ### Non-goals
 - No watch (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)), no OpenAPI (G3 [#143](https://github.com/Laratypes/Laratype/issues/143)).
-- No runtime scan: the server reads the tree itself (H1 [#104](https://github.com/Laratypes/Laratype/issues/104)).
+- No server code: the dev scan behind `$api` (`syncContractTree`, the `laratype:api` plugin) reuses this scan and emit without the TS checker ([http.md › Router v2](./http.md#router-v2)).
 
 ### Open questions
 - Resolved: the earlier `laratype-api.d.ts` + `rollup-plugin-dts` task is superseded by S2 ([#133](https://github.com/Laratypes/Laratype/issues/133)).

@@ -22,8 +22,8 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); planned → #142, #104 |
-| [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` planned → #104 |
+| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #142, #125 |
+| [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
 | [URL builder](#url-builder) | planned → #162 |
@@ -448,7 +448,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 
 ### Non-goals
 - No server registration. The router reads `apiRoutes()` (H1/H2).
-- No folder scan in `@laratype/contract`. `sauf types:generate` generates the entries ([typegen.md](./typegen.md#sauf-typesgenerate)); scanning at runtime is H1 [#104](https://github.com/Laratypes/Laratype/issues/104).
+- No folder scan in `@laratype/contract`. `sauf types:generate` and the dev scan of `sauf` generate the entries ([typegen.md](./typegen.md#sauf-typesgenerate), [http.md › Router v2](./http.md#router-v2)).
 
 ### Open questions
 - None recorded.
@@ -513,7 +513,7 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and s
 ## Contract folder tree
 
 ### Status
-The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The watch is planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2), and the runtime scan → [#104](https://github.com/Laratypes/Laratype/issues/104) (H1).
+The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The root config key and the server's dev scan are merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1). The watch is planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2), and the production tree source (the build manifest) → [#125](https://github.com/Laratypes/Laratype/issues/125) (B1).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -544,7 +544,7 @@ export default defineContract<Prefix>()({
 - **Source of truth:** the folder tree is the only source of a contract's URL prefix and name. The contract file holds neither.
 - **The extra `()`:** `defineContract<Prefix>()(...)` and `defineScope<ScopePrefix>()(...)` are curried because TypeScript has no partial type-argument inference: with `Prefix` passed explicitly, the endpoints and options could not be inferred in the same call.
 
-- **Root:** the tree root and its URL base are CLI flags today (`sauf types:generate --root --base --out`, default `app/api` → `/api`, output `.laratype`). The config-file key is planned → [#104](https://github.com/Laratypes/Laratype/issues/104).
+- **Root:** the tree root and its URL base are the config key `api: { root, base }` in `app/config/config.ts` (`api.root`, `api.base`), default `app/api` → `/api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). `sauf types:generate` and the server's dev scan read the same value; `sauf types:generate --root --base` override it. The output folder is the `--out` flag only (default `.laratype`).
 - **What is in the tree:** every `*.ts` file under the root is a contract, except:
   - `_scope.ts`, which is read as the [folder scope](#folder-scopes);
   - every other file or folder whose name starts with `_` or `$` (for example `_errors.ts` or `$types.d.ts`), which is skipped as private;
@@ -572,7 +572,7 @@ export type ScopePrefix = ContractPrefix<'/api/users/:user', [typeof import('../
 ### Design (non-binding)
 The parts that G2 and H1 will build:
 - **Watch:** `sauf dev` rescans the tree on file add, rename and delete, and regenerates the files above ([#142](https://github.com/Laratypes/Laratype/issues/142)).
-- **Runtime:** in dev the server scans the tree at startup and rescans on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production it reads the manifest the build writes ([build.md › Plugin chain](./build.md#plugin-chain)).
+- **Rescan:** in dev the server rescans the tree on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production it reads the manifest the build writes ([build.md › Plugin chain](./build.md#plugin-chain), [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
 ### Open questions
@@ -586,7 +586,7 @@ The parts that G2 and H1 will build:
 ## Folder scopes
 
 ### Status
-`defineScope` is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `r.scope()` is planned → [#104](https://github.com/Laratypes/Laratype/issues/104) (H1). Policies: [#105](https://github.com/Laratypes/Laratype/issues/105) (H2), [#121](https://github.com/Laratypes/Laratype/issues/121) (A3).
+`defineScope` is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts the policy, and a missing one is a compile and runtime error. Running policies is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2), [#121](https://github.com/Laratypes/Laratype/issues/121) (A3).
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts) · [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -619,7 +619,7 @@ export default defineScope<ScopePrefix>()({ auth: true, authorize: true })
 - Runtime, prefixed `[@laratype/contract] `: `defineScope: unknown option "<option>"`, `defineScope: authorize must be a boolean`, and the shared option checks (see [defineContract](#definecontract)).
 
 ### Design (non-binding)
-- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })` ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)). A missing policy is a compile error in `Route.api` and a runtime error.
+- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })`, the folder written as in the entry `dirs` ([http.md › Router v2](./http.md#router-v2)). A missing policy is a compile error in `Route.api` and a runtime error (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The policy is recorded on the routes; running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
 
 ### Acceptance
 [#228 Done when](https://github.com/Laratypes/Laratype/issues/228) · [#104 Done when](https://github.com/Laratypes/Laratype/issues/104)

@@ -213,7 +213,7 @@ describe('sauf types:generate', () => {
 
   it('fails clearly when the root folder does not exist', async () => {
     await expect(generateTypes({ projectDir: tmp, root: 'nope/api' }, ts)).rejects.toThrow(
-      '[sauf types:generate] the contract tree root "nope/api" does not exist (set it with --root)',
+      '[sauf types:generate] the contract tree root "nope/api" does not exist (set it with --root or config api.root)',
     );
   });
 

@@ -6,6 +6,7 @@ import { emitTree } from "./emit";
 import type { GeneratedFile } from "./emit";
 import { ScanError, scanTree } from "./scan";
 import type { ContractTree } from "./scan";
+import { DEFAULT_BASE, DEFAULT_ROOT } from "./config";
 
 export { ScanError, isTreeFile, listTreeFiles, scanFiles, scanTree } from "./scan";
 export type { ContractTree, ScannedContract, ScannedFolder } from "./scan";
@@ -13,6 +14,9 @@ export { emitApiIndex, emitTree, emitTypesFile } from "./emit";
 export type { EmitOptions, GeneratedFile } from "./emit";
 export { ApiGenerationError, generateApiFile } from "./api";
 export type { ApiFileOptions, ManifestEntry } from "./api";
+export { DEFAULT_BASE, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from "./config";
+export type { ApiTreeConfig } from "./config";
+export { API_ALIAS, API_PLUGIN_NAME, laratypeApi } from "./plugin";
 
 export interface GenerateOptions {
   /** Project directory (absolute). */
@@ -96,25 +100,47 @@ const write = (projectDir: string, file: GeneratedFile) => {
   writeFileSync(target, file.content);
 };
 
+const slash = (path: string) => posix.normalize(path.replace(/\\/g, "/")).replace(/\/$/, "");
+
+const paths = (options: GenerateOptions) => {
+  const projectDir = resolve(options.projectDir);
+  const root = slash(options.root ?? DEFAULT_ROOT);
+  const outDir = slash(options.outDir ?? ".laratype");
+  checkOutDir(projectDir, root, outDir);
+  return { projectDir, root, outDir, base: options.base ?? DEFAULT_BASE };
+};
+
+/** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts`. */
+function writeTree(options: GenerateOptions): GenerateResult {
+  const { projectDir, root, outDir, base } = paths(options);
+  const tree = scanTree(join(projectDir, root), base);
+  const files = emitTree(tree, { root, outDir });
+  // $types.d.ts files of removed folders must not linger
+  removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
+  for (const file of files) write(projectDir, file);
+  return { tree, files };
+}
+
+/**
+ * The server's dev startup scan (docs/v1/http.md › Router v2): the same scan and files as `sauf types:generate`,
+ * without the TS checker and `api.ts`. Returns `undefined` when the root folder does not exist, so an app
+ * without a contract tree still boots. Rescanning on change is G2 #142.
+ */
+export function syncContractTree(options: GenerateOptions): GenerateResult | undefined {
+  const { projectDir, root } = paths(options);
+  if (!existsSync(join(projectDir, root))) return undefined;
+  return writeTree(options);
+}
+
 /**
  * `sauf types:generate`: scans the contract tree, writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts`,
  * then type-checks them with the TS checker (no contract module runs) and writes the separate-repo `api.ts`.
  */
 export async function generateTypes(options: GenerateOptions, ts?: typeof TS): Promise<GenerateResult> {
-  const projectDir = resolve(options.projectDir);
-  const root = posix.normalize((options.root ?? "app/api").replace(/\\/g, "/")).replace(/\/$/, "");
-  const outDir = posix.normalize((options.outDir ?? ".laratype").replace(/\\/g, "/")).replace(/\/$/, "");
+  const { projectDir, root, outDir } = paths(options);
   const apiOut = (options.apiOut ?? posix.join(outDir, "api.ts")).replace(/\\/g, "/");
-  const base = options.base ?? "/api";
-
-  checkOutDir(projectDir, root, outDir);
-  if (!existsSync(join(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root)`);
-  const tree = scanTree(join(projectDir, root), base);
-  const files = emitTree(tree, { root, outDir });
-
-  // $types.d.ts files of removed folders must not linger
-  removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
-  for (const file of files) write(projectDir, file);
+  if (!existsSync(join(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root or config api.root)`);
+  const { tree, files } = writeTree(options);
 
   const tsconfig = options.tsconfig ? resolve(projectDir, options.tsconfig) : join(projectDir, "tsconfig.json");
   const api = generateApiFile(ts ?? (await loadTypeScript()), {
