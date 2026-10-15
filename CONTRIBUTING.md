@@ -46,7 +46,7 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
-| Full suite | `bun run test --run`, after `bun run build`: `sauf/__tests__/devSsr`, `sauf/__tests__/di/plugin` and `http/__tests__/support/Request` load the built `dist`. |
+| Full suite | `bun run test --run`, after `bun run build`: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
 
