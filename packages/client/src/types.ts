@@ -8,7 +8,7 @@ type JsonItem<T> = T extends NotJson ? null : Jsonify<T>;
 /**
  * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
  * `undefined` / functions / symbols are removed from unions and their properties dropped, `bigint` → `never`,
- * `Map` / `Set` → `{}`. Internal for now; CL2 (#110) types the result data with it.
+ * `Map` / `Set` → `{}`. Internal: it types the result `data` and `error`.
  */
 export type Jsonify<T> = unknown extends T
   ? T
@@ -42,15 +42,46 @@ export type CallInput<E extends EndpointShape> = Prettify<
 /** The parsed body of a successful response: the wire type of the response schema, `unknown` without one. */
 export type ResponseData<E extends EndpointShape> = [E["response"]] extends [undefined] ? unknown : Jsonify<E["response"]>;
 
-/** The fetch `Response`, with `json()` typed by the endpoint's response schema. Non-2xx responses resolve too. */
-export interface ClientResponse<T> extends Response {
-  json(): Promise<T>;
+/** A 2xx response: `data` is the parsed JSON body (`undefined` when the body is empty). */
+export interface ClientSuccess<E extends EndpointShape> {
+  ok: true;
+  status: E["status"];
+  data: ResponseData<E>;
+  response: Response;
+  code?: undefined;
+  unexpected?: undefined;
 }
+
+type Failure<Er> = Er extends { status: infer St; code: infer Code; body: infer Body }
+  ? { ok: false; status: St; code: Code; error: Jsonify<Body>; response: Response; unexpected?: undefined }
+  : never;
+
+/**
+ * One declared error of the endpoint: its derived errors (422, 404, 401, 403, 429) and its `throws` from every level.
+ * `error` is the error body; narrow by `code`, since two errors can share a status.
+ */
+export type ClientFailure<E extends EndpointShape> = Failure<E["errors"]>;
+
+/**
+ * Anything the contract doesn't declare: a network failure or abort (`status: 0`, no `response`), a status or code
+ * the endpoint doesn't declare, or a body that isn't JSON. `error` is the thrown error or the parsed body.
+ */
+export interface UnexpectedResult {
+  ok: false;
+  unexpected: true;
+  status: number;
+  error: unknown;
+  response: Response | undefined;
+  code?: undefined;
+}
+
+/** What a call resolves to. Narrow by `ok`, then by `code` (or `unexpected`). */
+export type ClientResult<E extends EndpointShape> = ClientSuccess<E> | ClientFailure<E> | UnexpectedResult;
 
 /** One endpoint call. The argument is optional when nothing in it is required. */
 export type EndpointCall<E extends EndpointShape> = {} extends CallInput<E>
-  ? (input?: CallInput<E>) => Promise<ClientResponse<ResponseData<E>>>
-  : (input: CallInput<E>) => Promise<ClientResponse<ResponseData<E>>>;
+  ? (input?: CallInput<E>) => Promise<ClientResult<E>>
+  : (input: CallInput<E>) => Promise<ClientResult<E>>;
 
 /** The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per endpoint. */
 export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };

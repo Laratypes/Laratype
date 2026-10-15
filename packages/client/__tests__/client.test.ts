@@ -91,24 +91,11 @@ describe('createClient', () => {
     expect(calls[0]!.signal).toBe(controller.signal)
   })
 
-  it('resolves to the raw Response, non-2xx included', async () => {
-    const ok = createClient(appApi, { fetch: fakeFetch([{ id: 1, title: 'T' }]).fetch })
-    const res = await ok.users.posts.index({ params: { user: 1 } })
-    expect(res).toBeInstanceOf(Response)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual([{ id: 1, title: 'T' }])
-
-    const notFound = createClient(appApi, { fetch: fakeFetch({ code: 'NOT_FOUND', message: 'Not found.' }, 404).fetch })
-    const res404 = await notFound.users.show({ params: { user: 9 } })
-    expect(res404.ok).toBe(false)
-    expect(res404.status).toBe(404)
-  })
-
-  it('throws on a missing required param before calling fetch', () => {
+  it('rejects on a missing required param, before calling fetch', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, { fetch })
     // @ts-expect-error runtime check
-    expect(() => api.users.show({ params: {} })).toThrow('[@laratype/contract] buildUrl: missing param "user" for "/api/users/:user"')
+    await expect(api.users.show({ params: {} })).rejects.toThrow('[@laratype/contract] buildUrl: missing param "user" for "/api/users/:user"')
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -139,6 +126,106 @@ describe('createClient', () => {
   })
 })
 
+/** A fetch answering with a raw body, for the result union. */
+const respond = (body: BodyInit | null, status = 200) => vi.fn<FetchLike>(async () => new Response(body, { status }))
+const json = (value: unknown, status = 200) => respond(JSON.stringify(value), status)
+
+describe('the result union', () => {
+  it('success: ok, the status and the parsed JSON body, with the unread Response', async () => {
+    const api = createClient(appApi, { fetch: json([{ id: 1, title: 'T' }]) })
+    const result = await api.users.posts.index({ params: { user: 1 } })
+    expect(result).toEqual({ ok: true, status: 200, data: [{ id: 1, title: 'T' }], response: expect.any(Response) })
+    expect(result.response!.bodyUsed).toBe(false)
+    expect(await result.response!.json()).toEqual([{ id: 1, title: 'T' }])
+  })
+
+  it('204 or an empty body: ok, data undefined', async () => {
+    const res204 = await createClient(appApi, { fetch: respond(null, 204) }).users.posts.index({ params: { user: 1 } })
+    expect(res204).toMatchObject({ ok: true, status: 204, data: undefined })
+    const empty = await createClient(appApi, { fetch: respond('', 200) }).v1.health.check()
+    expect(empty).toMatchObject({ ok: true, status: 200, data: undefined })
+  })
+
+  it('a declared error: the wire { code, ...body } splits into code and error', async () => {
+    const api = createClient(appApi, { fetch: json({ code: 'EMAIL_TAKEN', message: 'The email is taken.', email: 'a@b.c' }, 409) })
+    const result = await api.users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      code: 'EMAIL_TAKEN',
+      error: { message: 'The email is taken.', email: 'a@b.c' },
+      response: expect.any(Response),
+    })
+  })
+
+  it('two declared errors with the same status (403), told apart by code', async () => {
+    const update = (body: unknown) =>
+      createClient(appApi, { fetch: json(body, 403) }).users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    const forbidden = await update({ code: 'FORBIDDEN', message: 'No.' })
+    const locked = await update({ code: 'ACCOUNT_LOCKED', message: 'Locked.' })
+    expect(forbidden).toMatchObject({ ok: false, status: 403, code: 'FORBIDDEN', error: { message: 'No.' } })
+    expect(locked).toMatchObject({ ok: false, status: 403, code: 'ACCOUNT_LOCKED', error: { message: 'Locked.' } })
+    expect(forbidden).not.toHaveProperty('unexpected')
+  })
+
+  it('derived errors come from every level: the scope throttle (429) and the folder param (404)', async () => {
+    const index = (body: unknown, status: number) =>
+      createClient(appApi, { fetch: json(body, status) }).users.posts.index({ params: { user: 1 } })
+    expect(await index({ code: 'TOO_MANY_REQUESTS', message: 'Slow down.' }, 429)).toMatchObject({ ok: false, code: 'TOO_MANY_REQUESTS' })
+    expect(await index({ code: 'NOT_FOUND', message: 'Not Found.' }, 404)).toMatchObject({ ok: false, code: 'NOT_FOUND' })
+  })
+
+  it('an undeclared code or status is unexpected, with the parsed body', async () => {
+    // v1.health.check is public, unthrottled and has no params: it declares no error
+    const undeclared = await createClient(appApi, { fetch: json({ code: 'NOT_FOUND', message: 'x' }, 404) }).v1.health.check()
+    expect(undeclared).toEqual({
+      ok: false,
+      unexpected: true,
+      status: 404,
+      error: { code: 'NOT_FOUND', message: 'x' },
+      response: expect.any(Response),
+    })
+    // a declared code with the wrong status
+    const wrongStatus = await createClient(appApi, { fetch: json({ code: 'EMAIL_TAKEN', message: 'x' }, 400) }).users.store({
+      body: { name: 'Ada', email: 'a@b.c' },
+    })
+    expect(wrongStatus).toMatchObject({ ok: false, unexpected: true, status: 400 })
+    // a JSON body without a code
+    const noCode = await createClient(appApi, { fetch: json(['x'], 409) }).users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+    expect(noCode).toMatchObject({ ok: false, unexpected: true, status: 409, error: ['x'] })
+  })
+
+  it('the server 500 { message: "Server Error" } has no code, so it is unexpected', async () => {
+    const result = await createClient(appApi, { fetch: json({ message: 'Server Error' }, 500) }).users.index()
+    expect(result).toEqual({ ok: false, unexpected: true, status: 500, error: { message: 'Server Error' }, response: expect.any(Response) })
+  })
+
+  it('a non-JSON body is unexpected, on a 2xx or an error status', async () => {
+    const ok = await createClient(appApi, { fetch: respond('<html>ok</html>', 200) }).v1.health.check()
+    expect(ok).toMatchObject({ ok: false, unexpected: true, status: 200, error: expect.any(SyntaxError) })
+    expect(await ok.response!.text()).toBe('<html>ok</html>')
+    const badGateway = await createClient(appApi, { fetch: respond('Bad Gateway', 502) }).users.index()
+    expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError) })
+  })
+
+  it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {
+    const offline = new TypeError('Failed to fetch')
+    const api = createClient(appApi, { fetch: vi.fn<FetchLike>(() => Promise.reject(offline)) })
+    expect(await api.users.index()).toEqual({ ok: false, unexpected: true, status: 0, error: offline, response: undefined })
+
+    const controller = new AbortController()
+    controller.abort()
+    const aborting = createClient(appApi, { fetch: (_, init) => Promise.reject(init.signal!.reason) })
+    const aborted = await aborting.users.index({ signal: controller.signal })
+    expect(aborted).toMatchObject({ ok: false, unexpected: true, status: 0, error: controller.signal.reason })
+  })
+
+  it('a contract alone resolves its errors from its own options', async () => {
+    const result = await createClient(users, { fetch: json({ code: 'UNAUTHORIZED', message: 'Unauthenticated.' }, 401) }).index()
+    expect(result).toMatchObject({ ok: false, status: 401, code: 'UNAUTHORIZED' })
+  })
+})
+
 describe('createClient(manifest), the separate-repo FE', () => {
   it('nests the route names and calls each full path with its method', async () => {
     const { fetch, calls } = fakeFetch()
@@ -156,6 +243,19 @@ describe('createClient(manifest), the separate-repo FE', () => {
       ['GET', 'https://api.example.com/api/v1/health', undefined],
     ])
     expect(calls[0]!.headers['content-type']).toBe('application/json')
+  })
+
+  it('classifies errors with the manifest codes (codes only, any status)', async () => {
+    const api = (body: unknown, status: number) => createClient<AppApi>(manifest, { fetch: json(body, status) })
+    const store = { body: { name: 'A', email: 'a' } }
+    expect(await api({ code: 'EMAIL_TAKEN', message: 'x', email: 'a' }, 409).users.store(store)).toMatchObject({
+      ok: false,
+      code: 'EMAIL_TAKEN',
+      error: { message: 'x', email: 'a' },
+    })
+    // ACCOUNT_LOCKED is declared under users/[user], not on users.store
+    expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
+    expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
   })
 
   it('rejects a manifest with bad route names', () => {

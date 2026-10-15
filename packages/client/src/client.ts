@@ -1,5 +1,5 @@
-import { API_NODE, Endpoint, buildUrl, isContract, joinPath } from "@laratype/contract";
-import type { ApiNodeInfo, ApiShape, Method } from "@laratype/contract";
+import { API_NODE, CONTRACT, Endpoint, buildUrl, isContract, joinPath, resolveCapabilities } from "@laratype/contract";
+import type { AnyContract, ApiEntry, ApiNodeInfo, ApiShape, EndpointContext, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -17,6 +17,17 @@ interface RequestInput {
 
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
 
+/** The error codes a route declares, with their status (`undefined` when only the code is known, as in the manifest). */
+type Declared = ReadonlyMap<string, number | undefined>;
+
+/** The runtime view of `ClientResult`. */
+type Result =
+  | { ok: true; status: number; data: unknown; response: Response }
+  | { ok: false; status: number; code: string; error: unknown; response: Response }
+  | { ok: false; unexpected: true; status: number; error: unknown; response: Response | undefined };
+
+type Call = (input?: RequestInput) => Promise<Result>;
+
 type TreeNode = Readonly<Record<string | symbol, unknown>>;
 
 const isApiNode = (value: unknown): value is TreeNode =>
@@ -33,10 +44,7 @@ const isManifestRoute = (value: unknown): value is ManifestRoute =>
 const isManifest = (value: unknown): value is Manifest =>
   typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
 
-/**
- * One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
- * Every call goes through here, so the CL2 result union (#110) only wraps what it resolves to.
- */
+/** One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch. */
 const createSend = (options: ClientOptions): Send => {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
   return (method, path, input = {}) => {
@@ -57,16 +65,72 @@ const createSend = (options: ClientOptions): Send => {
   };
 };
 
-/** Mirrors one node of the tree: a call per endpoint (on the node's full URL prefix), a client per child node. */
-function buildNode(node: TreeNode, prefix: string, send: Send): object {
+const unexpected = (status: number, error: unknown, response: Response | undefined): Result => ({ ok: false, unexpected: true, status, error, response });
+
+/**
+ * Reads the response into the result union. The body is read from a clone, so `response` stays unread.
+ * - A body that isn't JSON is unexpected; an empty body parses to `undefined`.
+ * - 2xx: `ok: true`.
+ * - Otherwise the wire format is `{ code, ...body }`: a declared code (with its status, when known) is a declared
+ *   error whose `error` is the body without `code`; anything else is unexpected.
+ */
+async function toResult(response: Response, declared: Declared): Promise<Result> {
+  let body: unknown;
+  try {
+    const text = await response.clone().text();
+    body = text === "" ? undefined : JSON.parse(text);
+  } catch (error) {
+    return unexpected(response.status, error, response);
+  }
+  if (response.ok) return { ok: true, status: response.status, data: body, response };
+  if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+    const { code, ...error } = body as Record<string, unknown>;
+    if (typeof code === "string" && declared.has(code)) {
+      const status = declared.get(code);
+      if (status === undefined || status === response.status) return { ok: false, status: response.status, code, error, response };
+    }
+  }
+  return unexpected(response.status, body, response);
+}
+
+/**
+ * One endpoint call: `send` wrapped into the result union. A network failure or an abort resolves as unexpected
+ * (`status: 0`); only a programming error, such as a missing required param, rejects.
+ */
+const createCall = (send: Send, method: Method, path: string, declared: Declared): Call => async (input) => {
+  const pending = send(method, path, input);
+  let response: Response;
+  try {
+    response = await pending;
+  } catch (error) {
+    return unexpected(0, error, undefined);
+  }
+  return toResult(response, declared);
+};
+
+const contextOf = (entry: ApiEntry | undefined, contract?: AnyContract): EndpointContext | undefined =>
+  entry
+    ? { path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options }
+    : contract && { path: "", scopes: [], options: contract[CONTRACT].options };
+
+const nodeContext = (node: TreeNode): EndpointContext | undefined => contextOf((node[API_NODE] as ApiNodeInfo).entry);
+
+/**
+ * Mirrors one node of the tree: a call per endpoint (on the node's full URL prefix), a client per child node.
+ * Each call knows its declared errors, resolved from the capabilities of every level.
+ */
+function buildNode(node: TreeNode, ctx: EndpointContext | undefined, send: Send): object {
   const client: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(node)) {
     if (value instanceof Endpoint) {
-      const { method } = value.def;
-      const path = joinPath(prefix, value.def.path);
-      client[key] = (input?: RequestInput) => send(method, path, input);
+      // only a contract, or a node with an entry, holds endpoints
+      if (!ctx) return fail(`createClient: "${key}" is an endpoint outside a contract`);
+      const { def } = value;
+      const { errors } = resolveCapabilities(def, ctx, key);
+      const declared: Declared = new Map(errors.map((e) => [e.code, e.status]));
+      client[key] = createCall(send, def.method, joinPath(ctx.path, def.path), declared);
     } else if (isApiNode(value)) {
-      client[key] = buildNode(value, (value[API_NODE] as ApiNodeInfo).entry?.path ?? "", send);
+      client[key] = buildNode(value, nodeContext(value), send);
     } else {
       fail(`createClient: "${key}" is neither an endpoint nor an API node`);
     }
@@ -92,8 +156,8 @@ function buildManifest(manifest: Manifest, send: Send): object {
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
     if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node in the manifest`);
-    const method = route.method.toLowerCase() as Method;
-    node[key] = (input?: RequestInput) => send(method, route.path, input);
+    const declared: Declared = new Map((route.errors ?? []).map((code) => [code, undefined]));
+    node[key] = createCall(send, route.method.toLowerCase() as Method, route.path, declared);
   }
   return freezeTree(root);
 }
@@ -117,9 +181,9 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
 export function createClient<A extends object>(api: A, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
-  if (isContract(api)) return buildNode(api as unknown as TreeNode, "", send);
-  if (isApiNode(api)) return buildNode(api, (api[API_NODE] as ApiNodeInfo).entry?.path ?? "", send);
-  if (isApiRoot(api)) return buildNode(api, "", send);
+  if (isContract(api)) return buildNode(api as unknown as TreeNode, contextOf(undefined, api), send);
+  if (isApiNode(api)) return buildNode(api, nodeContext(api), send);
+  if (isApiRoot(api)) return buildNode(api, undefined, send);
   if (isManifest(api)) return buildManifest(api, send);
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }

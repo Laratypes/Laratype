@@ -1,7 +1,7 @@
-// Type tests for createClient (CL1 #109): the call signatures inferred from the generated appApi.
+// Type tests for createClient (CL1 #109) and the result union (CL2 #110), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import { createClient } from '@laratype/client'
-import type { Client, ClientOf, ClientResponse, HeaderValues } from '@laratype/client'
+import type { Client, ClientOf, ClientResult, ClientSuccess, HeaderValues, UnexpectedResult } from '@laratype/client'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
@@ -60,11 +60,62 @@ describe('createClient', () => {
     expectTypeOf<Parameters<typeof api.v1.health.check>>().toEqualTypeOf<[input?: { headers?: HeaderValues; signal?: AbortSignal }]>()
   })
 
-  test('response: the Response, with json() typed as the wire type of the response schema (Date → string)', () => {
-    expectTypeOf(api.users.show).returns.toEqualTypeOf<Promise<ClientResponse<User>>>()
-    expectTypeOf(api.users.index).returns.resolves.toMatchTypeOf<Response>()
-    expectTypeOf<Awaited<ReturnType<Awaited<ReturnType<typeof api.users.index>>['json']>>>().toEqualTypeOf<User[]>()
-    expectTypeOf<Awaited<ReturnType<Awaited<ReturnType<typeof api.v1.health.check>>['json']>>>().toEqualTypeOf<{ ok: boolean }>()
+  test('success: data is the wire type of the response schema (Date → string)', () => {
+    type Show = Awaited<ReturnType<typeof api.users.show>>
+    expectTypeOf<Extract<Show, { ok: true }>>().toEqualTypeOf<ClientSuccess<ApiTypes<AppApi>['users']['show']>>()
+    expectTypeOf<Extract<Show, { ok: true }>['data']>().toEqualTypeOf<User>()
+    expectTypeOf<Extract<Show, { ok: true }>['status']>().toEqualTypeOf<200>()
+    expectTypeOf<Extract<Awaited<ReturnType<typeof api.users.store>>, { ok: true }>['status']>().toEqualTypeOf<201>()
+    expectTypeOf<Extract<Awaited<ReturnType<typeof api.users.index>>, { ok: true }>['data']>().toEqualTypeOf<User[]>()
+    expectTypeOf<Extract<Awaited<ReturnType<typeof api.v1.health.check>>, { ok: true }>['data']>().toEqualTypeOf<{ ok: boolean }>()
+    expectTypeOf(api.users.show).returns.toEqualTypeOf<Promise<ClientResult<ApiTypes<AppApi>['users']['show']>>>()
+  })
+
+  test('narrowing by ok, then code, gives the body of that error', async () => {
+    const result = await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't' } })
+    if (result.ok) {
+      expectTypeOf(result.data).toEqualTypeOf<User>()
+      return
+    }
+    // @ts-expect-error data needs ok: true
+    void result.data
+    // @ts-expect-error a field of one error's body needs its code
+    void result.error.email
+    // the declared codes, from capabilities across all levels plus throws, and the unexpected variant
+    expectTypeOf(result.code).toEqualTypeOf<'VALIDATION_ERROR' | 'UNAUTHORIZED' | 'TOO_MANY_REQUESTS' | 'EMAIL_TAKEN' | undefined>()
+    if (result.code === 'EMAIL_TAKEN') {
+      expectTypeOf(result.status).toEqualTypeOf<409>()
+      expectTypeOf(result.error).toEqualTypeOf<{ message: string; email: string }>()
+    } else if (result.code === 'VALIDATION_ERROR') {
+      expectTypeOf(result.status).toEqualTypeOf<422>()
+      expectTypeOf(result.error).toEqualTypeOf<{ errors: Record<string, string[]>; message: string }>()
+    } else if (result.code === undefined) {
+      expectTypeOf(result).toEqualTypeOf<UnexpectedResult>()
+      expectTypeOf(result.error).toEqualTypeOf<unknown>()
+      expectTypeOf(result.response).toEqualTypeOf<Response | undefined>()
+    }
+  })
+
+  test('two errors with the same status (403) are told apart by code, not status', async () => {
+    const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    if (result.ok || result.unexpected) return
+    expectTypeOf(result.code).toEqualTypeOf<
+      'VALIDATION_ERROR' | 'NOT_FOUND' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'TOO_MANY_REQUESTS' | 'ACCOUNT_LOCKED'
+    >()
+    if (result.status === 403) {
+      // status alone leaves both 403s
+      expectTypeOf(result.code).toEqualTypeOf<'FORBIDDEN' | 'ACCOUNT_LOCKED'>()
+    }
+    if (result.code === 'ACCOUNT_LOCKED') {
+      expectTypeOf(result.status).toEqualTypeOf<403>()
+      expectTypeOf(result.error).toEqualTypeOf<{ message: string }>()
+    }
+    expectTypeOf(result.response).toEqualTypeOf<Response>()
+  })
+
+  test('an endpoint without declared errors: success or unexpected only', async () => {
+    const result = await api.v1.health.check()
+    if (!result.ok) expectTypeOf(result).toEqualTypeOf<UnexpectedResult>()
   })
 
   test('errors: missing or wrong inputs', () => {
@@ -106,10 +157,16 @@ describe('createClient(manifest)', () => {
       headers?: HeaderValues
       signal?: AbortSignal
     }>()
-    expectTypeOf(sep.users.show).returns.toEqualTypeOf<Promise<ClientResponse<User>>>()
+    expectTypeOf<Extract<Awaited<ReturnType<typeof sep.users.show>>, { ok: true }>['data']>().toEqualTypeOf<User>()
     // the same calls as the client built from appApi, apart from the fixtures' extra headers/query
     expectTypeOf(sep.users.posts.update).toEqualTypeOf(api.users.posts.update)
     expectTypeOf(sep.v1.health.check).toEqualTypeOf(api.v1.health.check)
+  })
+
+  test('the result union narrows the same way', async () => {
+    const result = await sep.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    if (!result.ok && result.code === 'ACCOUNT_LOCKED') expectTypeOf(result.error).toEqualTypeOf<{ message: string }>()
+    if (!result.ok && result.code === 'VALIDATION_ERROR') expectTypeOf(result.error.errors).toEqualTypeOf<Record<string, string[]>>()
   })
 
   test('errors', () => {
