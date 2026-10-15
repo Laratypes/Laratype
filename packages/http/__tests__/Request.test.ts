@@ -35,7 +35,7 @@ const routeMock: RouteOptions = {
 
 const getUrl = (path: string) => {
   const url = new URL("http://localhost");
-  url.pathname === path;
+  url.pathname = path;
   return url.href
 }
 
@@ -201,7 +201,13 @@ describe('Request validation', () => {
     })
     const request = new HonoRequest(rawRequest);
 
-    await expect(async () => RequestKernel.processValidation(await createRequestInstance(request), routeMock)).rejects.toThrowError(ValidationException);
+    const validation = RequestKernel.processValidation(await createRequestInstance(request), routeMock);
+
+    await expect(validation).rejects.toThrowError(ValidationException);
+    // processValidation wraps any error in a ValidationException, so check that the rules produced it
+    await expect(validation).rejects.toMatchObject({
+      getErrors: [expect.objectContaining({ path: ['email'] })],
+    });
   })
   
   it('Validate failed with rules should be return http status 422', async () => {
@@ -219,10 +225,13 @@ describe('Request validation', () => {
     })
     const request = new HonoRequest(rawRequest);
 
-    RequestKernel.processValidation(await createRequestInstance(request), routeMock).catch((err: ValidationException) => {
-      expect(err.getHttpCode()).toBe(422);
-    })
+    const error: ValidationException = await RequestKernel.processValidation(await createRequestInstance(request), routeMock).then(
+      () => expect.unreachable('processValidation should reject'),
+      (err) => err,
+    );
 
+    expect(error).toBeInstanceOf(ValidationException);
+    expect(error.getHttpCode()).toBe(422);
   })
   
   describe('Controller', () => {
