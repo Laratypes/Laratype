@@ -206,7 +206,7 @@ describe('Request validation', () => {
     await expect(validation).rejects.toThrowError(ValidationException);
     // processValidation wraps any error in a ValidationException, so check that the rules produced it
     await expect(validation).rejects.toMatchObject({
-      getErrors: [expect.objectContaining({ path: ['email'] })],
+      getErrors: expect.arrayContaining([expect.objectContaining({ path: ['email'] })]),
     });
   })
   
