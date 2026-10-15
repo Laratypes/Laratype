@@ -1,5 +1,5 @@
-import { API_NODE, CONTRACT, Endpoint, buildUrl, isContract, joinPath, resolveCapabilities } from "@laratype/contract";
-import type { AnyContract, ApiEntry, ApiNodeInfo, ApiShape, EndpointContext, Method } from "@laratype/contract";
+import { API_NODE, apiRoutes, buildUrl, isContract, isEndpoint } from "@laratype/contract";
+import type { Api, ApiNodeInfo, ApiRoute, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -20,6 +20,14 @@ type Send = (method: Method, path: string, input?: RequestInput) => Promise<Resp
 /** The error codes a route declares, with their status (`undefined` when only the code is known, as in the manifest). */
 type Declared = ReadonlyMap<string, number | undefined>;
 
+/** One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path and declared errors. */
+interface RouteSpec {
+  readonly name: string;
+  readonly method: string;
+  readonly path: string;
+  readonly declared: Declared;
+}
+
 /** The runtime view of `ClientResult`. */
 type Result =
   | { ok: true; status: number; data: unknown; response: Response }
@@ -27,6 +35,11 @@ type Result =
   | { ok: false; unexpected: true; status: number; error: unknown; response: Response | undefined };
 
 type Call = (input?: RequestInput) => Promise<Result>;
+
+/** A rejected `fetch` (network failure, abort), told apart from the programming errors `send` also rejects with. */
+class FetchFailed {
+  constructor(readonly cause: unknown) {}
+}
 
 type TreeNode = Readonly<Record<string | symbol, unknown>>;
 
@@ -44,25 +57,31 @@ const isManifestRoute = (value: unknown): value is ManifestRoute =>
 const isManifest = (value: unknown): value is Manifest =>
   typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
 
-/** One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch. */
-const createSend = (options: ClientOptions): Send => {
-  const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
-  return (method, path, input = {}) => {
-    const url = baseUrl + buildUrl(path, { params: input.params, query: input.query });
-    const headers = new Headers(options.headers);
-    for (const [key, value] of Object.entries(input.headers ?? {})) {
-      if (value !== undefined) headers.set(key, value);
-    }
-    const init: RequestInit = { method: method.toUpperCase(), headers };
-    if (input.body !== undefined) {
-      init.body = JSON.stringify(input.body);
-      if (!headers.has("content-type")) headers.set("content-type", "application/json");
-    }
-    if (input.signal) init.signal = input.signal;
-    const fetchFn = options.fetch ?? globalThis.fetch;
-    if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
-    return fetchFn(url, init);
-  };
+/**
+ * One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
+ * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
+ * A rejected `fetch` rejects with `FetchFailed`, so the result union can turn it into `unexpected`.
+ * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
+ */
+const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
+  const url = (options.baseUrl ?? "").replace(/\/+$/, "") + buildUrl(path, { params: input.params, query: input.query });
+  const headers = new Headers(options.headers);
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value !== undefined) headers.set(key, value);
+  }
+  const init: RequestInit = { method: method.toUpperCase(), headers };
+  if (input.body !== undefined) {
+    init.body = JSON.stringify(input.body);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  }
+  if (input.signal) init.signal = input.signal;
+  const fetchFn = options.fetch ?? globalThis.fetch;
+  if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+  try {
+    return await fetchFn(url, init);
+  } catch (error) {
+    throw new FetchFailed(error);
+  }
 };
 
 const unexpected = (status: number, error: unknown, response: Response | undefined): Result => ({ ok: false, unexpected: true, status, error, response });
@@ -95,72 +114,69 @@ async function toResult(response: Response, declared: Declared): Promise<Result>
 
 /**
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort resolves as unexpected
- * (`status: 0`); only a programming error, such as a missing required param, rejects.
+ * (`status: 0`); a programming error, such as a missing required param, still rejects.
  */
 const createCall = (send: Send, method: Method, path: string, declared: Declared): Call => async (input) => {
-  const pending = send(method, path, input);
   let response: Response;
   try {
-    response = await pending;
+    response = await send(method, path, input);
   } catch (error) {
-    return unexpected(0, error, undefined);
+    if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
+    throw error;
   }
   return toResult(response, declared);
 };
-
-const contextOf = (entry: ApiEntry | undefined, contract?: AnyContract): EndpointContext | undefined =>
-  entry
-    ? { path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options }
-    : contract && { path: "", scopes: [], options: contract[CONTRACT].options };
-
-const nodeContext = (node: TreeNode): EndpointContext | undefined => contextOf((node[API_NODE] as ApiNodeInfo).entry);
-
-/**
- * Mirrors one node of the tree: a call per endpoint (on the node's full URL prefix), a client per child node.
- * Each call knows its declared errors, resolved from the capabilities of every level.
- */
-function buildNode(node: TreeNode, ctx: EndpointContext | undefined, send: Send): object {
-  const client: Record<string, unknown> = Object.create(null);
-  for (const [key, value] of Object.entries(node)) {
-    if (value instanceof Endpoint) {
-      // only a contract, or a node with an entry, holds endpoints
-      if (!ctx) return fail(`createClient: "${key}" is an endpoint outside a contract`);
-      const { def } = value;
-      const { errors } = resolveCapabilities(def, ctx, key);
-      const declared: Declared = new Map(errors.map((e) => [e.code, e.status]));
-      client[key] = createCall(send, def.method, joinPath(ctx.path, def.path), declared);
-    } else if (isApiNode(value)) {
-      client[key] = buildNode(value, nodeContext(value), send);
-    } else {
-      fail(`createClient: "${key}" is neither an endpoint nor an API node`);
-    }
-  }
-  return Object.freeze(client);
-}
 
 const freezeTree = (node: Record<string, unknown>): object => {
   for (const value of Object.values(node)) if (typeof value === "object") freezeTree(value as Record<string, unknown>);
   return Object.freeze(node);
 };
 
-/** Nests the manifest's flat route names: `"users.posts.update"` → `client.users.posts.update`. */
-function buildManifest(manifest: Manifest, send: Send): object {
+/**
+ * Nests flat route names into the client: `"users.posts.update"` → `client.users.posts.update`.
+ * The one builder for every input: the routes come from `apiRoutes()` or from the generated manifest.
+ */
+function buildTree(routes: readonly RouteSpec[], send: Send, where: string): object {
   const root: Record<string, unknown> = Object.create(null);
-  for (const [name, route] of Object.entries(manifest)) {
+  for (const { name, method, path, declared } of routes) {
     const segments = name.split(".");
-    if (segments.length < 2 || segments.some((s) => s === "")) fail(`createClient: invalid route name "${name}" in the manifest`);
+    // manifest names are full route names (folder + endpoint key); apiRoutes names are valid by construction
+    if (segments.some((s) => s === "") || (where && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
     const key = segments.pop()!;
     let node = root;
     for (const segment of segments) {
-      if (typeof node[segment] === "function") fail(`createClient: "${name}" is under the endpoint "${segment}" in the manifest`);
+      if (typeof node[segment] === "function") fail(`createClient: "${name}" is under the endpoint "${segment}"${where}`);
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
-    if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node in the manifest`);
-    const declared: Declared = new Map((route.errors ?? []).map((code) => [code, undefined]));
-    node[key] = createCall(send, route.method.toLowerCase() as Method, route.path, declared);
+    if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
+    node[key] = createCall(send, method.toLowerCase() as Method, path, declared);
   }
   return freezeTree(root);
 }
+
+/** `apiRoutes()` routes as client routes. Each declares its resolved errors: derived from every level, plus `throws`. */
+const fromApiRoutes = (routes: readonly ApiRoute[], prefix = ""): RouteSpec[] =>
+  routes.map((r) => ({
+    name: r.name.slice(prefix.length),
+    method: r.method,
+    path: r.path,
+    declared: new Map(r.errors.map((e) => [e.code, e.status])),
+  }));
+
+/** `apiRoutes()` of the appApi root or an API node, untyped: route names are plain strings here. */
+const routesOf = (api: object): readonly ApiRoute[] => apiRoutes(api as unknown as Api) as readonly ApiRoute[];
+
+/** The routes of an API node, named relative to the node: `appApi.users` → `"index"`, `"posts.update"`. */
+const nodeRoutes = (node: TreeNode): RouteSpec[] => fromApiRoutes(routesOf(node), `${(node[API_NODE] as ApiNodeInfo).name}.`);
+
+/** The manifest's routes; it knows the error codes only, not their status. */
+const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
+  Object.entries(manifest).map(([name, route]) => ({
+    name,
+    method: route.method,
+    path: route.path,
+    declared: new Map((route.errors ?? []).map((code) => [code, undefined])),
+  }));
 
 /**
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
@@ -176,14 +192,16 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
  *
  * @example
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
- * const res = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
+ * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
 export function createClient<A extends object>(api: A, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
-  if (isContract(api)) return buildNode(api as unknown as TreeNode, contextOf(undefined, api), send);
-  if (isApiNode(api)) return buildNode(api, nodeContext(api), send);
-  if (isApiRoot(api)) return buildNode(api, undefined, send);
-  if (isManifest(api)) return buildManifest(api, send);
+  // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
+  if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
+  if (isContract(api)) return buildTree(fromApiRoutes(apiRoutes(api)), send, "");
+  if (isApiNode(api)) return buildTree(nodeRoutes(api), send, "");
+  if (isApiRoot(api)) return buildTree(fromApiRoutes(routesOf(api)), send, "");
+  if (isManifest(api)) return buildTree(manifestRoutes(api), send, " in the manifest");
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }

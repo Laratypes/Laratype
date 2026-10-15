@@ -109,8 +109,9 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
 
 export interface ClientOptions {
   baseUrl?: string;                 // the origin; default "" (same origin)
-  fetch?: FetchLike;                // default: the global fetch, read at call time
+  fetch?: FetchLike;                // default: the global fetch
   headers?: HeadersInit;            // sent with every call
+  // all three are read from this object at each call
 }
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -132,8 +133,9 @@ if (result.ok) result.data.title                     // see Result union
 ```
 
 ### Invariants
-- **Input:** `createClient` takes the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), an API node (`appApi.users`), a single contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. Anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`.
+- **Input:** `createClient` takes the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), an API node (`appApi.users`), a single contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. A single endpoint throws `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`, and anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`. Endpoints are recognized by their `Symbol.for` brand ([contract.md › Endpoint builder](./contract.md#endpoint-builder)), so a contract from another bundle or package copy works.
 - **Names** follow the folder tree (`api.users.posts.update`). Name-style calls are the primary style. Each client node is frozen, has a null prototype and lists its endpoints and child nodes in definition order.
+- **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiRoutes()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), so names and paths match the router's; an API node's names are relative to it. The manifest gives its routes directly.
 - **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin), and trailing slashes are stripped. The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl` as they are, and its params are only its own.
 - **Call input** (`CallInput<E>`):
   - `params`: every param of the full path, `[x]` folder params included. Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param is a type error and throws before `fetch` is called.
@@ -142,14 +144,16 @@ if (result.ok) result.data.title                     // see Result union
   - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`.
   - `signal`: an `AbortSignal`, passed to `fetch`.
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
-- **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It rejects only on a programming error: the URL cannot be built (a missing required param) or there is no `fetch`.
+- **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.
+- **Options are live:** `baseUrl`, `headers` and `fetch` are read from the options object at each call, so changing them later (a refreshed token) applies to the next call.
 - **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema gives `unknown`. The `Jsonify` helper is internal for now.
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
-- The FE program loads 0 server files and 0 hono files: `packages/client/__tests__/fe.test.ts` compiles `fixtures/fe/main.ts` with its own tsconfig (`types: []`, DOM lib, not extending the repo tsconfig) and checks `tsc --listFilesOnly`.
+- The FE program loads 0 server files and 0 hono files: `packages/client/__tests__/fe.test.ts` compiles `fixtures/fe/main.ts` with its own tsconfig (`types: []`, DOM lib, not extending the repo tsconfig) and checks the program of one `tsc --listFiles` run.
 
 ### Diagnostics
 - `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`
-- `[@laratype/client] no fetch available: pass options.fetch` (at call time)
+- `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`
+- `[@laratype/client] no fetch available: pass options.fetch` (the call rejects)
 - `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a primitive, a Date or an array of them` (from [buildUrl](./contract.md#url-builder))
 - Type-level: a missing required param, body or schema header, an unknown param, or a body that doesn't match the schema input (`packages/client/__tests__/client.test-d.ts`).
 
@@ -276,7 +280,7 @@ const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body
 - A separate FE compiles against `api.ts` alone, with `types: []` and the DOM lib; the test loads no other file (`packages/sauf/__tests__/typegen/generate.test.ts`).
 - The generated `AppApi` satisfies `ApiShape<A>` and is mutually assignable with `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection)).
 - **Manifest client:** `createClient<AppApi>(manifest, options)` nests the manifest's route names (`'users.posts.update'` → `api.users.posts.update`) and calls each route's method and full path. The calls are typed `Client<AppApi>`, the same call signatures and [result union](#result-union) as `createClient(appApi)`. The manifest's `errors` (codes only) decide which error codes are declared. Without the `AppApi` type argument the client is `never`. A route name without a `.`, or one that is both an endpoint and a node, throws a `[@laratype/client] createClient: ...` TypeError.
-- **What the FE program loads:** `api.ts` has no contract lib and no schema lib. The FE program with `@laratype/client` also loads `@laratype/contract`, the client's own dependency, for `buildUrl` and its types. It is browser-pure and has no schema lib. `packages/client/__tests__/fe.test.ts` compiles `fixtures/separate-fe` (`types: []`, DOM lib, own tsconfig) and checks with `tsc --listFilesOnly` that it loads 0 server, hono and schema-lib files and no contract file of the app.
+- **What the FE program loads:** `api.ts` has no contract lib and no schema lib. The FE program with `@laratype/client` also loads `@laratype/contract`, the client's own dependency, for `buildUrl` and its types. It is browser-pure and has no schema lib. `packages/client/__tests__/fe.test.ts` compiles `fixtures/separate-fe` (`types: []`, DOM lib, own tsconfig) and checks with `tsc --listFiles` that it loads 0 server, hono and schema-lib files and no contract file of the app.
 
 ### Design (non-binding)
 - Measured by the CL1 fixture (`fixtures/separate-fe`, compiled against `packages/*/src`): 2 generated or own files (`api.ts`, `main.ts`), 3 `@laratype/client` files and 10 `@laratype/contract` files, plus the TypeScript libs. S2's 2 + 4 files predate the shared `buildUrl` in `@laratype/contract`. Bundle size is B8's job ([#132](https://github.com/Laratypes/Laratype/issues/132)).
