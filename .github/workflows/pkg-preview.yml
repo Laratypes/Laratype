@@ -9,10 +9,11 @@ on:
 permissions:
   contents: read
 
-# One preview run per branch or PR: a new push cancels the run still publishing the previous commit
+# One preview run per ref. On a PR a new push cancels the previous commit's run. On master a running
+# preview is never cancelled; GitHub keeps one pending run per group, so the newest queued merge wins
 concurrency:
   group: pkg-preview-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   publish:
