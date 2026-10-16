@@ -18,7 +18,9 @@ concurrency:
 jobs:
   publish:
     name: Publish preview packages
-    # No previews from fork PRs: only this repo's branches publish under the Laratypes pkg.pr.new namespace
+    # Skips fork PRs in the normal case. Not a security boundary: a pull_request run uses the PR's own copy of
+    # this file, so a fork PR can remove the guard. The control is the repo setting Settings › Actions › General ›
+    # "Approval for running fork pull request workflows from contributors" (see docs/v1/build.md › CI and release)
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
