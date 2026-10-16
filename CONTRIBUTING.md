@@ -85,7 +85,7 @@ After the parent PR merges:
 
 `.gitattributes` sets `* text=auto eol=lf` (and `*.png binary`), so git checks text files out as LF on every platform, whatever `core.autocrlf` is.
 
-- A clone or worktree checked out before that commit keeps CRLF copies of the files git has not rewritten since (on Windows with `core.autocrlf=true`, nearly every file), `git status` does not show them, and snapshot tests fail on them with whitespace-only diffs. `git ls-files --eol | grep crlf` lists them. To fix the checkout once, commit or stash your changes to tracked files first, because `reset --hard` discards them (untracked files are kept). Then run `git rm -rq --cached . && git reset --hard HEAD`; afterwards `git ls-files --eol | grep crlf` prints nothing.
+- A clone or worktree checked out before that commit keeps CRLF copies of the files git has not rewritten since (on Windows with `core.autocrlf=true`, nearly every file), `git status` does not show them, and snapshot tests fail on them with whitespace-only diffs. Run these commands from the repo root: `git ls-files --eol | grep crlf` lists them. To fix the checkout once, commit or stash your changes to tracked files first, because `reset --hard` discards them (untracked files are kept). Then run `git rm -rq --cached . && git reset --hard HEAD`; afterwards `git ls-files --eol | grep crlf` prints nothing.
 - Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
 
 ## Security
