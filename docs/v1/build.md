@@ -239,7 +239,7 @@ Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr
 - **Text files are LF in the repo and in every checkout.** `.gitattributes` sets `* text=auto eol=lf` and marks `*.png` binary, so `core.autocrlf=true` on Windows no longer checks fixtures and snapshots out as CRLF.
 
 ### Design (non-binding)
-- **B14:** one CI that runs the tests not wired today. Those are `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`; `check:dist` (acf9f2a) and the T3 DI tests (b560fc9) already run in CI. B14 also covers workflow hardening.
+- **B14:** one CI. Since H16 ([#184](https://github.com/Laratypes/Laratype/issues/184)), `ci.yml` runs the full test suite after the build, `check:dist` and `check:pkg`, including `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`. What is left of B14 is workflow hardening.
 - **B15:** npm releases with Trusted Publishing (OIDC), provenance and changesets.
 - `.github/` changes need user review.
 
