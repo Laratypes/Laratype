@@ -39,6 +39,7 @@ jobs:
       # and non-directories (packages/global.d.ts); check:pkg in ci.yml fails a public package that has no dist.
       # --bun packs with `bun pm pack`, which resolves the `catalog:` specifiers that npm pack leaves as-is
       # Peers are packed as plain versions, never preview URLs: install a package's workspace peers' previews in the same command
-      # Pinned to 0.0.88 (2026-08-14), the newest release older than two weeks when this was written
+      # pkg-pr-new is a root devDependency pinned to 0.0.88 (2026-08-14, the newest release older than two weeks when
+      # this was written), locked with its integrity hash in bun.lock. The local binary runs; nothing is fetched here
       - name: Publish
-        run: bunx pkg-pr-new@0.0.88 publish --bun './packages/*'
+        run: ./node_modules/.bin/pkg-pr-new publish --bun './packages/*'
