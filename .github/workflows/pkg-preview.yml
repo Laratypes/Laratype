@@ -1,9 +1,12 @@
 name: 'Pkg preview'
 on:
   # Any base branch, like ci.yml. No secrets: the pkg.pr.new GitHub App posts the PR comment
+  # Docs-only changes publish nothing
   pull_request:
+    paths-ignore: [ 'docs/**', '**/*.md' ]
   push:
     branches: [ "master" ]
+    paths-ignore: [ 'docs/**', '**/*.md' ]
   workflow_dispatch:
 
 permissions:
