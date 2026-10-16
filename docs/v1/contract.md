@@ -395,6 +395,18 @@ export type EntryContext<En>;                         // { path, scopes, options
 export type NodeContext<N>;
 export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api<A>;
 
+export interface ApiPath<N extends string = string> {
+  readonly name: N;
+  readonly method: Method;
+  readonly path: string;                              // full path
+  readonly prefix: string;                            // the contract's URL prefix ("" for a single contract)
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly scopes: readonly AnyScope[];
+}
+export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;      // also an API node (full names)
+export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<EndpointKeys<C>>>;    // a single contract
+
 export interface ApiRoute<N extends string = string> extends ResolvedCapabilities {
   readonly name: N;
   readonly method: Method;
@@ -425,7 +437,8 @@ export type AppApi = typeof appApi
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
-- **`apiRoutes()`** lists every route depth-first in definition order. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix, and only the contract's options apply). `@laratype/client` builds its calls from it. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
+- **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix). It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it.
+- **`apiRoutes()`** is `apiPaths()` plus `resolveCapabilities` per route, so it takes the same inputs. A single contract is resolved with its own options only, so a contract that relies on a folder scope (an `.authorize()` whose `auth` comes from a `_scope.ts`) throws there; resolve it through the `appApi`. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
 - **The FE imports the `appApi` module only**, never `typeof routes`. The negative-control fixture `fe/bad.ts` shows `typeof routes` pulling server code into the FE program.
 
 ### Diagnostics
