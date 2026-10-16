@@ -52,7 +52,7 @@ These match [AGENTS.md](AGENTS.md#commands).
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
-`.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on the same events, except PRs from forks, and the pkg.pr.new app comments the install links on the PR.
+`.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on PRs from branches of this repo, on push to `master` and on manual `workflow_dispatch` runs; the pkg.pr.new app comments the install links on the PR.
 
 ## Branches and commits
 
