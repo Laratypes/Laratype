@@ -38,7 +38,8 @@ export function generateTypes(options: GenerateOptions, ts?: typeof import("type
 export function syncContractTree(options: GenerateOptions): { tree: ContractTree; files: GeneratedFile[]; changed: string[] } | undefined;   // the dev scan: no TS checker, no api.ts, writes changed files only (H1 #104)
 export function readApiTreeConfig(projectDir: string): Promise<{ root?: string; base?: string }>;                         // config api.root / api.base
 export function resolveApiTree(flags, config): { root: string; base: string };                                           // flags, then config, then defaults
-export function laratypeApi(options?: { projectDir?: string; outDir?: string; config?: () => unknown }): Plugin<{ rescan(): Promise<void> }>;   // resolves $api; sauf dev calls rescan() on every (re)start
+export function laratypeApi(options?: { projectDir?: string; outDir?: string; config?: () => unknown }): Plugin<ApiPluginApi>;   // resolves $api, scans on the first import
+// ApiPluginApi: rescan(), restart() (rescans when $api was imported before), inTree(file), isGenerated(file): used by sauf dev --hmr
 export function scanFiles(files: readonly string[], base: string): ContractTree;   // names only, never contents
 export function scanTree(rootDir: string, base: string): ContractTree;
 export function isTreeFile(file: string): boolean;

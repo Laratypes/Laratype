@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import TypesGenerateCommand, { runTypesGenerate } from '../../src/commands/types/generate';
-import { ScanError, apiTreeConfig, laratypeApi, readApiTreeConfig, resolveApiTree, rescanContractTree, syncContractTree } from '../../src/typegen';
+import { normalizePath } from 'vite';
+import { ScanError, apiTreeConfig, contractTreePlugin, laratypeApi, readApiTreeConfig, resolveApiTree, syncContractTree } from '../../src/typegen';
 import type { ApiPluginApi } from '../../src/typegen';
-import { isGeneratedFile } from '../../src/commands/dev';
 
 /**
  * The contract-root config key (H1 #104): `api.root` / `api.base` in app/config/config.ts, read by
@@ -112,12 +112,51 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(existsSync(join(dir, '.laratype/types/app/contracts/users/[user]/$types.d.ts'))).toBe(true);
   });
 
-  it('skips an app without a contract tree', async () => {
-    const dir = join(tmp, 'empty');
-    mkdirSync(dir, { recursive: true });
+  it('an app that never imports $api is never scanned, even on restart', async () => {
+    const dir = project('unused', undefined);
+    // a 0.5 helper in app/api that is not a valid tree file name
+    writeFileSync(join(dir, 'app/api/user.service.ts'), 'export {}\n');
     const plugin = laratypeApi({ projectDir: dir, config: () => ({}) });
-    expect(await (plugin.resolveId as (source: string) => Promise<string | null>)('$api')).toBeNull();
+    await (plugin.api as ApiPluginApi).restart();
     expect(existsSync(join(dir, '.laratype'))).toBe(false);
+  });
+
+  it('a missing root fails the $api import, naming config api.root, instead of serving a stale index', async () => {
+    const dir = project('stale', undefined);
+    const plugin = laratypeApi({ projectDir: dir, config: () => ({}) });
+    const resolveId = plugin.resolveId as (source: string) => Promise<string | null>;
+    expect(await resolveId('$api')).toBe(join(dir, '.laratype/api/index.gen.ts'));
+    rmSync(join(dir, 'app/api'), { recursive: true });
+    await (plugin.api as ApiPluginApi).restart();
+    await expect(resolveId('$api')).rejects.toThrow(
+      '[laratype:api] the app imports $api, but the contract tree root "app/api" does not exist (set config api.root)',
+    );
+    const empty = join(tmp, 'empty');
+    mkdirSync(empty, { recursive: true });
+    await expect((laratypeApi({ projectDir: empty, config: () => ({}) }).resolveId as typeof resolveId)('$api')).rejects.toThrow('does not exist (set config api.root)');
+    expect(existsSync(join(empty, '.laratype'))).toBe(false);
+  });
+
+  it('invalidates a rewritten index.gen.ts by its normalized module id', async () => {
+    const dir = project('invalidate', undefined);
+    const plugin = laratypeApi({ projectDir: dir, config: () => ({}) });
+    const indexId = normalizePath(join(dir, '.laratype/api/index.gen.ts'));
+    const lookups: string[] = [];
+    const invalidated: unknown[] = [];
+    const mod = { id: indexId };
+    // the module graph is keyed by normalized ids (forward slashes on Windows too)
+    const moduleGraph = {
+      getModulesByFile: (file: string) => (lookups.push(file), file === indexId ? new Set([mod]) : undefined),
+      invalidateModule: (m: unknown) => invalidated.push(m),
+    };
+    (plugin.configureServer as (server: unknown) => void)({ moduleGraph });
+    await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
+    expect(lookups).toEqual([indexId]);
+    expect(lookups[0]).not.toContain('\\');
+    expect(invalidated).toEqual([mod]);
+    // unchanged tree: no write, no invalidation
+    await (plugin.api as ApiPluginApi).restart();
+    expect(invalidated).toHaveLength(1);
   });
 
   it('writes only the files whose content changed', () => {
@@ -147,15 +186,27 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(readFileSync(id!, 'utf8')).not.toContain('things');
     // a contract added between restarts shows up on the next rescan
     writeFileSync(join(dir, 'app/api/things.ts'), "export default {}\n");
-    await rescanContractTree([{ name: 'other' }, plugin]);
+    await contractTreePlugin([{ name: 'other' }, plugin])!.restart();
     expect(readFileSync(id!, 'utf8')).toContain("'things': { contract: c0, path: '/api/things', scopes: [s0], dirs: [''] },");
+    // and goes away when deleted
+    rmSync(join(dir, 'app/api/things.ts'));
+    await api.restart();
+    expect(readFileSync(id!, 'utf8')).not.toContain('things');
   });
 
-  it('the dev restart ignores .laratype writes', () => {
-    expect(isGeneratedFile(String.raw`D:\app\.laratype\api\index.gen.ts`)).toBe(true);
-    expect(isGeneratedFile('/app/.laratype/types/app/api/$types.d.ts')).toBe(true);
-    expect(isGeneratedFile('/app/app/api/users.ts')).toBe(false);
-    expect(isGeneratedFile('/app/app/my.laratype.ts')).toBe(false);
+  it('tells the dev restart which files are in the tree and which are generated (its own outDir)', async () => {
+    const dir = project('files', undefined);
+    const plugin = laratypeApi({ projectDir: dir, outDir: 'gen', config: () => ({}) });
+    const api = plugin.api as ApiPluginApi;
+    // nothing is in the tree before the app imports $api
+    expect(api.inTree(join(dir, 'app/api/new.ts'))).toBe(false);
+    await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
+    expect(api.inTree(join(dir, 'app/api/new.ts'))).toBe(true);
+    expect(api.inTree(join(dir, 'app/api/users/[user]/_scope.ts'))).toBe(true);
+    expect(api.inTree(join(dir, 'app/apis/x.ts'))).toBe(false);
+    expect(api.isGenerated(join(dir, 'gen/api/index.gen.ts'))).toBe(true);
+    expect(api.isGenerated(join(dir, '.laratype/api/index.gen.ts'))).toBe(false);
+    expect(api.isGenerated(join(dir, 'app/api/users.ts'))).toBe(false);
   });
 
   it('reads app/config/config.ts on its own', async () => {

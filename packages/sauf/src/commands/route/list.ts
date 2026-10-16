@@ -31,7 +31,7 @@ export default class RouteListCommand extends Command {
     Console.table(routes)
 
     if(routes.some(route => route.Auth?.endsWith(NOT_ENFORCED))) {
-      Console.warn("auth and authorize are not enforced yet (planned → #105, #121): the routes marked in Auth serve every request.");
+      Console.warn("The routes marked in Auth serve every request: see the [@laratype/http] Route.api warning.");
     }
 
     return 0;
@@ -41,11 +41,9 @@ export default class RouteListCommand extends Command {
 
 const NOT_ENFORCED = '(not enforced yet)';
 
-/** The resolved auth of a v2 entry, marked as not enforced until #105 / #121. */
-const authColumn = (route: Record<string, any>) => {
-  const caps = [route.auth ? 'auth' : '', route.authorize ? 'authorize' : ''].filter(Boolean);
-  return caps.length ? `${caps.join(', ')} ${NOT_ENFORCED}` : '-';
-};
+/** `RouteEntry.unenforced`, which @laratype/http decides (the CLI does not import that optional package). */
+const authColumn = (route: Record<string, any>) =>
+  route.unenforced?.length ? `${route.unenforced.join(', ')} ${NOT_ENFORCED}` : '-';
 
 /**
  * One row of the table. Reads both registry shapes: the v2 entries of `Route.api` (name, method, path, endpoint,

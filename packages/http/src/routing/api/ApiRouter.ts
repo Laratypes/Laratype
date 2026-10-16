@@ -13,7 +13,9 @@ import type {
   MountedScope,
   RouteEntry,
   ScopeRouteOptions,
+  UnenforcedCap,
 } from "./types";
+import { UNENFORCED_NOTICE } from "./types";
 
 const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
@@ -66,23 +68,25 @@ const treeEntries = (api: unknown): TreeEntry[] => {
   return out;
 };
 
-/** `api.example.com`: a hostname, no scheme, port or path. */
+const LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+
+/** `api.example.com`: a hostname of non-empty labels with no leading or trailing hyphen; no scheme, port or path. */
 const checkDomain = (domain: string) => {
-  if (typeof domain !== "string" || !/^[a-z0-9.-]+$/i.test(domain) || domain.startsWith(".") || domain.endsWith(".")) {
+  if (typeof domain !== "string" || domain.length > 253 || !domain.split(".").every((label) => label.length <= 63 && LABEL.test(label))) {
     fail(`.domain("${domain}") must be a hostname, such as "api.example.com"`);
   }
   return domain.toLowerCase();
 };
 
-/** The request hostname, without the port: dev Host headers carry `:3000`. */
-const hostname = (c: Context) => new URL(c.req.url).hostname.toLowerCase();
+/** The request hostname, without the port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). */
+const hostname = (c: Context) => new URL(c.req.url).hostname.toLowerCase().replace(/\.$/, "");
 
 /**
  * Builds the routes of `Route.api(appApi, (r) => [...])` and checks them at runtime as the types do:
  * every contract of the tree is mounted once, every `r.scope()` names a scope folder, and every scope with
  * `authorize` has a policy.
  */
-const plan = (api: unknown, items: readonly ApiRouteItem[], domain: string | undefined): RouteEntry[] => {
+const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   const entries = treeEntries(api);
   if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract() and r.scope()");
 
@@ -129,23 +133,24 @@ const plan = (api: unknown, items: readonly ApiRouteItem[], domain: string | und
       controller: Object.freeze([mounted.controller, key] as const),
       middleware: Object.freeze([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
-      domain,
+      unenforced: unenforcedCaps(route),
+      domain: undefined,
     });
   });
 };
 
-/** Routes whose resolved `auth` / `authorize` the router does not enforce yet, as `name (auth, authorize)`. */
-export const unenforced = (routes: readonly RouteEntry[]): string[] =>
-  routes
-    .map((route) => [route.name, [route.auth ? "auth" : "", route.authorize ? "authorize" : ""].filter(Boolean)] as const)
-    .filter(([, caps]) => caps.length > 0)
-    .map(([name, caps]) => `${name} (${caps.join(", ")})`);
+/**
+ * The resolved capabilities of a route that the router does not enforce yet (#105, #121). The one place that decides
+ * it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
+ */
+const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] =>
+  Object.freeze([...(route.auth ? (["auth"] as const) : []), ...(route.authorize ? (["authorize"] as const) : [])]);
 
 /** One warning per mount: until #105 / #121 a route with auth or authorize serves every request. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
-  const list = unenforced(routes);
+  const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
-  console.warn(`[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: ${list.join(", ")}`);
+  console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes serve every request: ${list.join(", ")}`);
 };
 
 /** The routes of one `Route.api(...)`, checked and ready to mount. */
@@ -153,17 +158,15 @@ export class ApiRoutes {
   /** One entry per route, depth-first in tree order. */
   public readonly routes: readonly RouteEntry[];
 
-  constructor(
-    private readonly api: unknown,
-    private readonly items: readonly ApiRouteItem[],
-    public readonly hostname: string | undefined = undefined,
-  ) {
-    this.routes = Object.freeze(plan(api, items, hostname));
+  /** Built by `Route.api()` only: `@laratype/http` exports the type, not the constructor. */
+  constructor(routes: readonly RouteEntry[], public readonly hostname: string | undefined) {
+    this.routes = Object.freeze([...routes]);
   }
 
   /** Serves these routes on `domain` only (the request port is ignored). Other hosts fall through to the next route. */
   domain(domain: string): ApiRoutes {
-    return new ApiRoutes(this.api, this.items, checkDomain(domain));
+    const host = checkDomain(domain);
+    return new ApiRoutes(this.routes.map((route) => Object.freeze({ ...route, domain: host })), host);
   }
 
   /** Registers every route on Hono and returns the registry entries. */
@@ -198,5 +201,5 @@ export function api<A extends object, const M extends readonly ApiRouteItem[]>(
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {
   if (typeof routes !== "function") fail("expected a routes callback: Route.api(appApi, (r) => [...])");
-  return new ApiRoutes(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>));
+  return new ApiRoutes(plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>)), undefined);
 }

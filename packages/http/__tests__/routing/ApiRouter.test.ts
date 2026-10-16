@@ -4,7 +4,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { ApiRoutes, Controller, Middleware, Route } from '../../src/index'
+import { Controller, Middleware, Route, UNENFORCED_NOTICE } from '../../src/index'
+import type { ApiRoutes } from '../../src/index'
 
 // A small tree, as `sauf types:generate` emits it for:
 //   app/api/_scope.ts                    { auth: true }
@@ -84,6 +85,8 @@ describe('Route.api', () => {
     expect(store.scopes).toEqual([root, usersUser])
     expect(store.authorize).toBe(true)
     expect(store.domain).toBeUndefined()
+    expect(store.unenforced).toEqual(['auth', 'authorize'])
+    expect(entries[0]!.unenforced).toEqual(['auth'])
     expect(entries[0]!.policies).toEqual([])
     expect(entries[0]!.middleware).toEqual([])
     expect(routes.routes).toEqual(entries)
@@ -100,9 +103,34 @@ describe('Route.api', () => {
     expect((await app.request('http://other.test:3000/api/users/1')).status).toBe(404)
   })
 
+  it('.domain() strips one trailing dot from the request hostname', async () => {
+    const app = new Hono()
+    routes.domain('api.example.test').mount(app)
+    expect(await (await app.request('http://api.example.test.:3000/api/users')).json()).toEqual({ users: ['ada'] })
+  })
+
+  it('.domain() re-labels the checked routes without planning them again', () => {
+    class Late extends Controller { index() { return [] } show() { return {} } }
+    const late = Route.api(appApi, (r) => [
+      r.contract(users, Late),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(posts, PostController),
+    ])
+    // A plan() rerun would now fail on the missing handler
+    delete (Late.prototype as Partial<Late>).show
+    const onHost = late.domain('api.example.test')
+    expect(onHost.hostname).toBe('api.example.test')
+    expect(onHost.routes.map((r) => r.domain)).toEqual(['api.example.test', 'api.example.test', 'api.example.test', 'api.example.test'])
+    expect(onHost.routes[1]!.controller).toBe(late.routes[1]!.controller)
+    expect(late.routes.every((r) => r.domain === undefined)).toBe(true)
+  })
+
   it('rejects a domain that is not a hostname', () => {
     expect(() => routes.domain('https://api.example.test')).toThrow(/\.domain\("https:\/\/api.example.test"\) must be a hostname/)
-    expect(() => routes.domain('api.example.test:3000')).toThrow(/must be a hostname/)
+    for (const bad of ['api.example.test:3000', '', 'api..example.test', '.api.example.test', 'api.example.test.', '-api.example.test', 'api-.example.test', 'api.ex_ample.test']) {
+      expect(() => routes.domain(bad)).toThrow(/must be a hostname/)
+    }
+    expect(routes.domain('my-api.example-1.test').hostname).toBe('my-api.example-1.test')
   })
 })
 
@@ -114,6 +142,7 @@ describe('auth and authorize are not enforced yet', () => {
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
+    expect(UNENFORCED_NOTICE).toBe('auth and authorize are not enforced yet (planned → #105, #121)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
       '[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: ' +
