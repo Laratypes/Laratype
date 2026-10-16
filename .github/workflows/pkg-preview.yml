@@ -24,7 +24,10 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
+      # No GITHUB_TOKEN left in .git/config while bunx runs third-party code; nothing below needs git auth
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup bun
         uses: ./.github/setup-bun
