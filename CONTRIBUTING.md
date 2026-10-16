@@ -46,14 +46,11 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
-| CI smoke set | `bunx vitest run packages/contract packages/core packages/client` |
-| Full suite | `bun run test --run`. `packages/http/__tests__/Request.test.ts` already fails on `master` (`ControllerMock.prototype.__invoke is not a function`); leave it alone unless that is your task. |
+| Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
 
-If you change `docs/v1`, also run `bunx vitest run docs/v1/examples`. It type-checks the spec examples.
-
-CI (`.github/workflows/ci.yml`) runs the build, the declarations and the smoke set on every PR, whatever its base, and on push to `master`.
+CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
 `.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on the same events, except PRs from forks, and the pkg.pr.new app comments the install links on the PR.
 
