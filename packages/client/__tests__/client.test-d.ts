@@ -1,11 +1,12 @@
 // Type tests for createClient (CL1 #109): the call signatures inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import { createClient } from '@laratype/client'
-import type { Client, ClientOf, ClientResponse, HeaderValues } from '@laratype/client'
+import type { Client, ClientOf, ClientResponse, HeaderValues, ResponseData } from '@laratype/client'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
 import posts from './fixtures/app/api/users/[user]/posts'
+import usersContract from './fixtures/app/api/users'
 import { manifest } from './fixtures/separate-fe/api'
 import type { AppApi as Generated } from './fixtures/separate-fe/api'
 
@@ -86,6 +87,14 @@ describe('createClient', () => {
     void api.users.index({ body: {} })
   })
 
+  test('a hand-made object may hold contracts; a key with "." is a type error', () => {
+    const mixed = createClient({ users: usersContract, posts: appApi.users.posts })
+    expectTypeOf<Parameters<typeof mixed.users.show>[0]['params']>().toEqualTypeOf<{ user: string | number }>()
+    expectTypeOf(mixed.posts.update).toEqualTypeOf(api.users.posts.update)
+    // @ts-expect-error createClient: key "a.b" must not contain "."
+    createClient({ 'a.b': usersContract })
+  })
+
   test('a hand-made object of API nodes is named after its own keys', () => {
     const picked = createClient({ posts: appApi.users.posts })
     expectTypeOf(picked.posts.update).toEqualTypeOf(api.users.posts.update)
@@ -99,6 +108,16 @@ describe('createClient', () => {
     // a contract alone: its own relative path, so only its own params
     const contract = createClient(posts)
     expectTypeOf<Parameters<typeof contract.update>[0]['params']>().toEqualTypeOf<{ post: string | number }>()
+  })
+})
+
+describe('wire type of the response (Jsonify)', () => {
+  test('a property that may be undefined is optional, since JSON.stringify drops it', () => {
+    type Wire = ResponseData<{
+      method: 'get'; path: '/'; params: {}; query: undefined; body: undefined; headers: undefined; status: 200; errors: never
+      response: { a: string; b: string | undefined; c?: number; d: undefined; e: () => void; f: Date | undefined; g: Record<string, boolean> }
+    }>
+    expectTypeOf<Wire>().toEqualTypeOf<{ a: string; b?: string; c?: number; f?: string; g: Record<string, boolean> }>()
   })
 })
 

@@ -5,10 +5,23 @@ type NotJson = undefined | symbol | ((...args: any[]) => unknown);
 /** An array item that JSON cannot hold becomes `null`, as `JSON.stringify` does. */
 type JsonItem<T> = T extends NotJson ? null : Jsonify<T>;
 
+/** A property JSON keeps: a string key whose value is not only `undefined`, functions or symbols. */
+type JsonKey<T, K extends keyof T> = K extends symbol ? never : [Exclude<T[K], undefined>] extends [NotJson] ? never : K;
+
+/**
+ * An object's wire type. `JSON.stringify` drops a property whose value is `undefined`, so a property that may be
+ * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire.
+ */
+type JsonObject<T> = Prettify<
+  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: Jsonify<T[K]> } & {
+    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: Jsonify<T[K]>;
+  }
+>;
+
 /**
  * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
- * `undefined` / functions / symbols are removed from unions and their properties dropped, `bigint` → `never`,
- * `Map` / `Set` → `{}`. Internal for now; CL2 (#110) types the result data with it.
+ * `undefined` / functions / symbols are removed from unions and their properties dropped, a property that may be
+ * `undefined` is optional, `bigint` → `never`, `Map` / `Set` → `{}`. Internal for now; CL2 (#110) types the result data with it.
  */
 export type Jsonify<T> = unknown extends T
   ? T
@@ -22,7 +35,7 @@ export type Jsonify<T> = unknown extends T
           ? {}
           : T extends readonly unknown[]
             ? { -readonly [K in keyof T]: JsonItem<T[K]> }
-            : { -readonly [K in keyof T as K extends symbol ? never : [Exclude<T[K], undefined>] extends [NotJson] ? never : K]: Jsonify<T[K]> };
+            : JsonObject<T>;
 
 /** Headers a call can send; a `headers` schema types its keys on top. */
 export type HeaderValues = Record<string, string>;
@@ -54,6 +67,11 @@ export type EndpointCall<E extends EndpointShape> = {} extends CallInput<E>
 
 /** The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per endpoint. */
 export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
+
+/** A key of an object passed to `createClient` must not contain "." (names are split on "."): `{ error }` instead. */
+export type CheckGroupKeys<A> = {
+  [K in keyof A]: K extends `${string}.${string}` ? { error: `createClient: key "${K}" must not contain "."` } : A[K];
+};
 
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
 export type ClientOf<A> = Client<ApiTypes<A>>;
