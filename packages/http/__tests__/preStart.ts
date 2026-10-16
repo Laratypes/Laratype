@@ -1,5 +1,5 @@
 import { Config } from "@laratype/support";
-import { Config as ConfigContract } from "laratype";
+import type { Config as ConfigContract } from "laratype";
 
 export const start = async () => {
   const config: ConfigContract.AppConfig = {
