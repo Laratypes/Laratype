@@ -1,6 +1,6 @@
-import { API_NODE, CONTRACT, apiPaths, buildUrl, endpointErrors, isContract, isEndpoint } from "@laratype/contract";
+import { API_NODE, CONTRACT, apiPaths, buildUrl, endpointErrors, isContract, isEndpoint, joinPath } from "@laratype/contract";
 import type { Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
+import type { CheckGroupKeys, Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -46,9 +46,15 @@ type TreeNode = Readonly<Record<string | symbol, unknown>>;
 const isApiNode = (value: unknown): value is TreeNode =>
   typeof value === "object" && value !== null && typeof (value as TreeNode)[API_NODE] === "object";
 
-/** The `defineApi` root holds API nodes only and carries no brand of its own. */
-const isApiRoot = (value: unknown): value is TreeNode =>
-  typeof value === "object" && value !== null && !isContract(value) && Object.values(value).every(isApiNode);
+/**
+ * An object of API nodes and contracts: the `defineApi` root (which carries no brand of its own) or a hand-made
+ * group such as `{ posts: appApi.users.posts, users: usersContract }`.
+ */
+const isApiGroup = (value: unknown): value is TreeNode =>
+  typeof value === "object" &&
+  value !== null &&
+  !isContract(value) &&
+  Object.values(value).every((v) => isApiNode(v) || isContract(v));
 
 const isManifestRoute = (value: unknown): value is ManifestRoute =>
   typeof value === "object" && value !== null && typeof (value as ManifestRoute).method === "string" && typeof (value as ManifestRoute).path === "string";
@@ -57,34 +63,36 @@ const isManifestRoute = (value: unknown): value is ManifestRoute =>
 const isManifest = (value: unknown): value is Manifest =>
   typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
 
+/** `"https://host/api"` → `["https://host", "/api"]`; a relative `baseUrl` (`"/api"`) is all path. */
+const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
+  const base = baseUrl.replace(/\/+$/, "");
+  const origin = /^[a-z][a-z\d+.-]*:\/\/[^/?#]*/i.exec(base)?.[0] ?? "";
+  return [origin, base.slice(origin.length)];
+};
+
 /**
  * One request: the full contract path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
+ * `baseUrl`'s path is joined to the route path with the server's `joinPath` before `buildUrl` fills it, so a single
+ * contract's `"/"` route under `https://host/api/users` is `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A rejected `fetch` rejects with `FetchFailed`, so the result union can turn it into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
-/**
- * `baseUrl` + route path, joined like the server's `joinPath`: a route path of `"/"` is `baseUrl` itself, so a single
- * contract's index under `https://host/api/users` is `/api/users`, not `/api/users/` (a 404 under strict routing).
- */
-const joinUrl = (baseUrl: string, url: string): string => {
-  const base = baseUrl.replace(/\/+$/, "");
-  return base && (url === "/" || url.startsWith("/?")) ? base + url.slice(1) : base + url;
-};
-
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const url = joinUrl(options.baseUrl ?? "", buildUrl(path, { params: input.params, query: input.query }));
-  const own = new Headers();
-  for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) own.set(key, value);
-  }
+  const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
+  const url = origin + buildUrl(joinPath(basePath, path), { params: input.params, query: input.query });
   const headers = new Headers(options.headers);
-  own.forEach((value, key) => headers.set(key, value));
+  let ownContentType = false;
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value === undefined) continue;
+    headers.set(key, value);
+    if (key.toLowerCase() === "content-type") ownContentType = true;
+  }
   const init: RequestInit = { method: method.toUpperCase(), headers };
   if (input.body !== undefined) {
     init.body = JSON.stringify(input.body);
     // only the call's own headers opt out of JSON: a default content-type in options.headers does not
-    if (!own.has("content-type")) headers.set("content-type", "application/json");
+    if (!ownContentType) headers.set("content-type", "application/json");
   }
   if (input.signal) init.signal = input.signal;
   const fetchFn = options.fetch ?? globalThis.fetch;
@@ -148,12 +156,13 @@ const freezeTree = (node: Record<string, unknown>): object => {
  * Nests flat route names into the client: `"users.posts.update"` → `client.users.posts.update`.
  * The one builder for every input: the routes come from `apiPaths()` or from the generated manifest.
  */
-function buildTree(routes: readonly RouteSpec[], send: Send, where: string): object {
+function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean): object {
+  const where = isManifest ? " in the manifest" : "";
   const root: Record<string, unknown> = Object.create(null);
   for (const { name, method, path, declared } of routes) {
     const segments = name.split(".");
     // manifest names are full route names (folder + endpoint key); apiPaths names are valid by construction
-    if (segments.some((s) => s === "") || (where && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
+    if (segments.some((s) => s === "") || (isManifest && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
     const key = segments.pop()!;
     let node = root;
     for (const segment of segments) {
@@ -194,6 +203,12 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
     declared: new Map((route.errors ?? []).map((code) => [code, undefined])),
   }));
 
+/** One key of an API group: a "." would split into nested names at runtime while the type keeps `client["a.b"]`. */
+const groupPaths = (key: string, value: TreeNode): RouteSpec[] => {
+  if (key.includes(".")) fail(`createClient: key "${key}" must not contain "." (names are split on ".")`);
+  return pathsOf(value, `${key}.`);
+};
+
 /**
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
  * `createClient<AppApi>(manifest)`. The `AppApi` type argument types the calls (without it the client is `never`).
@@ -204,21 +219,21 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
  * The typed client for an API: `createClient(appApi)` with the generated `appApi` (`$api`), an API node
  * (`appApi.users`) or a single contract file. Names follow the folder tree (`api.users.posts.update(...)`) and
  * URLs are the contracts' full paths, so `baseUrl` is only the origin. A single contract has no folder prefix:
- * its endpoint paths are appended to `baseUrl` as they are.
+ * `baseUrl`'s path is joined to its endpoint paths like the server's `joinPath`.
  *
  * @example
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends object>(api: A, options?: ClientOptions): ClientOf<A>;
+export function createClient<A extends object>(api: A & CheckGroupKeys<A>, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
   // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
   if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
-  if (isContract(api) || isApiNode(api)) return buildTree(pathsOf(api), send, "");
+  if (isContract(api) || isApiNode(api)) return buildTree(pathsOf(api), send, false);
   // names follow the object's own keys, as `ClientOf<A>` does: the appApi root's keys are its node names, and a
-  // hand-made `{ posts: appApi.users.posts }` gives `api.posts.update`
-  if (isApiRoot(api)) return buildTree(Object.entries(api).flatMap(([key, node]) => pathsOf(node as TreeNode, `${key}.`)), send, "");
-  if (isManifest(api)) return buildTree(manifestRoutes(api), send, " in the manifest");
+  // hand-made `{ posts: appApi.users.posts, users: usersContract }` gives `api.posts.update` and `api.users.index`
+  if (isApiGroup(api)) return buildTree(Object.entries(api).flatMap(([key, value]) => groupPaths(key, value as TreeNode)), send, false);
+  if (isManifest(api)) return buildTree(manifestRoutes(api), send, true);
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }

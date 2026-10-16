@@ -218,7 +218,6 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 - **From the contract:** the auth guard, the rate limit and the policies are applied from the contract's capabilities, so API routes need no auth or throttle middleware ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Parsing and validation (H3):** see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422). The pipeline builds the typed handler context.
 - **Replaces:** `RequestKernel.pipeline` and `processValidation`.
-- **Pre-existing test failure:** an `@laratype/http` Request test fails on master today (`ControllerMock.__invoke`) → [#184](https://github.com/Laratypes/Laratype/issues/184) (H16).
 
 ### Acceptance
 [#106 Done when](https://github.com/Laratypes/Laratype/issues/106) · [#138 Done when](https://github.com/Laratypes/Laratype/issues/138)

@@ -3,6 +3,7 @@ export const PACKAGE_NAME = '@laratype/client' as const
 export { createClient } from './client'
 export type {
   CallInput,
+  CheckGroupKeys,
   Client,
   ClientFailure,
   ClientOf,

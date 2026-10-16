@@ -209,6 +209,9 @@ describe('createClient', () => {
     // with no baseUrl a "/" route stays "/"
     await createClient(users, { fetch }).index()
     expect(calls.at(-1)!.url).toBe('/')
+    // a relative baseUrl is all path
+    await createClient(users, { fetch, baseUrl: '/api/users/' }).index({ query: { page: 3 } })
+    expect(calls.at(-1)!.url).toBe('/api/users?page=3')
   })
 
   it('names a hand-made object of API nodes after its own keys, as ClientOf types it', async () => {
@@ -219,6 +222,24 @@ describe('createClient', () => {
     await api.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
     await api.health.check()
     expect(calls.map((c) => c.url)).toEqual(['/api/users/1/posts/2', '/api/v1/health'])
+  })
+
+  it('accepts contracts in a hand-made object, named under their key', async () => {
+    const { fetch, calls } = fakeFetch()
+    const api = createClient({ users, posts: appApi.users.posts }, { fetch, baseUrl: 'https://example.com' })
+    expect(Object.keys(api)).toEqual(['users', 'posts'])
+    expect(Object.keys(api.users)).toEqual(['index', 'show', 'store'])
+    await api.users.show({ params: { user: 5 } })
+    await api.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    // a contract alone has no folder prefix: its own path on baseUrl
+    expect(calls.map((c) => c.url)).toEqual(['https://example.com/5', 'https://example.com/api/users/1/posts/2'])
+  })
+
+  it('rejects a key with "." in a hand-made object, which would split into nested names', () => {
+    // @ts-expect-error the type rejects it too
+    expect(() => createClient({ 'a.b': users })).toThrow(
+      new TypeError('[@laratype/client] createClient: key "a.b" must not contain "." (names are split on ".")'),
+    )
   })
 
   it('rejects a single endpoint with a clear error, not as a bad manifest', () => {
