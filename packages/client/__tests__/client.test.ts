@@ -4,6 +4,7 @@ import type { ClientOptions, FetchLike } from '@laratype/client'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import users from './fixtures/app/api/users'
+import type { Prefix } from './fixtures/app/api/users/[user]/$types'
 import { manifest } from './fixtures/separate-fe/api'
 import type { AppApi } from './fixtures/separate-fe/api'
 
@@ -74,6 +75,16 @@ describe('createClient', () => {
     // no body: no body and no content-type
     expect(calls[1]!.body).toBeUndefined()
     expect(calls[1]!.headers).toEqual({ authorization: 'Bearer t', 'x-tenant': 'default' })
+  })
+
+  it('defaults a JSON body to application/json even when options.headers has a content-type', async () => {
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(appApi, { fetch, headers: { 'content-type': 'text/plain', 'x-tenant': 'default' } })
+    await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't' } })
+    expect(calls[0]!.headers['content-type']).toBe('application/json')
+    // without a body the default header is sent as it is
+    await api.users.index()
+    expect(calls[1]!.headers['content-type']).toBe('text/plain')
   })
 
   it('keeps a content-type the caller set', async () => {
@@ -172,6 +183,45 @@ describe('createClient', () => {
     const { fetch, calls } = fakeFetch()
     await (createClient(api, { fetch }) as { things: { show: (i: object) => Promise<Response> } }).things.show({ params: { id: 3 } })
     expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', '/api/things/3']])
+  })
+
+  it('builds a contract whose .authorize() gets auth from a folder scope (no capability resolution)', async () => {
+    // valid in its folder: users/[user]/_scope.ts brings auth. Alone, the contract has no scope to resolve against.
+    const scoped = defineContract<Prefix>()({ destroy: endpoint.delete('/:post').authorize() })
+    const { fetch, calls } = fakeFetch()
+    await createClient(scoped, { fetch, baseUrl: 'https://example.com/api/users/1/posts' }).destroy({ params: { post: 2 } })
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['DELETE', 'https://example.com/api/users/1/posts/2']])
+  })
+
+  it('joins baseUrl and a single contract\'s "/" route like the server: no trailing slash', async () => {
+    const { fetch, calls } = fakeFetch()
+    for (const baseUrl of ['https://example.com/api/users', 'https://example.com/api/users/']) {
+      const api = createClient(users, { fetch, baseUrl })
+      await api.index()
+      await api.index({ query: { page: 2 } })
+      await api.show({ params: { user: 5 } })
+    }
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://example.com/api/users',
+      'https://example.com/api/users?page=2',
+      'https://example.com/api/users/5',
+      'https://example.com/api/users',
+      'https://example.com/api/users?page=2',
+      'https://example.com/api/users/5',
+    ])
+    // with no baseUrl a "/" route stays "/"
+    await createClient(users, { fetch }).index()
+    expect(calls.at(-1)!.url).toBe('/')
+  })
+
+  it('names a hand-made object of API nodes after its own keys, as ClientOf types it', async () => {
+    const { fetch, calls } = fakeFetch()
+    const api = createClient({ posts: appApi.users.posts, health: appApi.v1.health }, { fetch })
+    expect(Object.keys(api)).toEqual(['posts', 'health'])
+    expect(Object.keys(api.posts)).toEqual(['index', 'update'])
+    await api.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    await api.health.check()
+    expect(calls.map((c) => c.url)).toEqual(['/api/users/1/posts/2', '/api/v1/health'])
   })
 
   it('rejects a single endpoint with a clear error, not as a bad manifest', () => {

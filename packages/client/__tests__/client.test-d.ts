@@ -86,6 +86,13 @@ describe('createClient', () => {
     void api.users.index({ body: {} })
   })
 
+  test('a hand-made object of API nodes is named after its own keys', () => {
+    const picked = createClient({ posts: appApi.users.posts })
+    expectTypeOf(picked.posts.update).toEqualTypeOf(api.users.posts.update)
+    // @ts-expect-error the runtime names follow the keys too, not the nodes' full names
+    void picked.users
+  })
+
   test('an API node or a single contract', () => {
     const node = createClient(appApi.users.posts)
     expectTypeOf(node.update).toEqualTypeOf(api.users.posts.update)
