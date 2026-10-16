@@ -7,6 +7,10 @@ import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
+import { rescanContractTree } from "../typegen/plugin";
+
+/** Files under `.laratype/`, written by the contract-tree scan. */
+export const isGeneratedFile = (file: string) => /(^|[\\/])\.laratype[\\/]/.test(file);
 
 export default class LaratypeDevCommand extends Command {
 
@@ -52,11 +56,17 @@ export default class LaratypeDevCommand extends Command {
             this.serverInstance = await this.appStart(server);
 
             if(opts.hmr) {
-              server.watcher.on('change', (async () => {
-                Console.info('File change detected. Restarting server...');
-                await this.serverInstance!.down();
-                this.serverInstance = await this.appStart(server);
-              }));
+              // Restarts run one after another, so a burst of changes never tears down a server that is still booting
+              let restarting = Promise.resolve();
+              server.watcher.on('change', (file: string) => {
+                // The contract-tree scan rewrites .laratype/ during a restart: that must not trigger another one
+                if (isGeneratedFile(file)) return;
+                restarting = restarting.then(async () => {
+                  Console.info('File change detected. Restarting server...');
+                  await this.serverInstance!.down();
+                  this.serverInstance = await this.appStart(server);
+                }).catch((error) => Console.error(error));
+              });
             }
 
             server.middlewares.use(await this.createMiddleware(server));
@@ -81,7 +91,10 @@ export default class LaratypeDevCommand extends Command {
   }
 
   protected async appStart(vite: ViteDevServer): Promise<{ app: Hono, down: () => void }> {
-    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);    
+    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
+
+    // Scan the contract tree on every start and restart, before the app imports `$api`
+    await rescanContractTree(vite.config.plugins);
 
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,

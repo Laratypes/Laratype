@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type * as TS from "typescript";
 import { generateApiFile } from "./api";
@@ -16,7 +16,8 @@ export { ApiGenerationError, generateApiFile } from "./api";
 export type { ApiFileOptions, ManifestEntry } from "./api";
 export { DEFAULT_BASE, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from "./config";
 export type { ApiTreeConfig } from "./config";
-export { API_ALIAS, API_PLUGIN_NAME, laratypeApi } from "./plugin";
+export { API_ALIAS, API_PLUGIN_NAME, laratypeApi, rescanContractTree } from "./plugin";
+export type { ApiPluginApi, ApiPluginOptions } from "./plugin";
 
 export interface GenerateOptions {
   /** Project directory (absolute). */
@@ -74,8 +75,9 @@ function checkOutDir(projectDir: string, root: string, outDir: string) {
  * Removes the `$types.d.ts` files under `typesDir` that this run does not rewrite (a deleted folder), then the folders
  * left empty. Nothing else is touched, so other files under `--out` survive.
  */
-function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>) {
-  if (!existsSync(typesDir)) return;
+function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[] {
+  const removed: string[] = [];
+  if (!existsSync(typesDir)) return removed;
   const walk = (dir: string): boolean => {
     let empty = true;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -85,6 +87,7 @@ function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>) {
         else empty = false;
       } else if (entry.isFile() && entry.name === "$types.d.ts" && !keep.has(resolve(path))) {
         rmSync(path);
+        removed.push(path);
       } else {
         empty = false;
       }
@@ -92,12 +95,16 @@ function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>) {
     return empty;
   };
   walk(typesDir);
+  return removed;
 }
 
-const write = (projectDir: string, file: GeneratedFile) => {
+/** Writes a file only when its content differs, so an unchanged tree touches nothing (no watcher event). */
+const write = (projectDir: string, file: GeneratedFile): boolean => {
   const target = join(projectDir, file.path);
+  if (existsSync(target) && readFileSync(target, "utf8") === file.content) return false;
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, file.content);
+  return true;
 };
 
 const slash = (path: string) => posix.normalize(path.replace(/\\/g, "/")).replace(/\/$/, "");
@@ -110,15 +117,20 @@ const paths = (options: GenerateOptions) => {
   return { projectDir, root, outDir, base: options.base ?? DEFAULT_BASE };
 };
 
-/** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts`. */
-function writeTree(options: GenerateOptions): GenerateResult {
+export interface SyncResult extends GenerateResult {
+  /** The files this run wrote or deleted, relative to the project; empty when the tree did not change. */
+  readonly changed: readonly string[];
+}
+
+/** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
+function writeTree(options: GenerateOptions): SyncResult {
   const { projectDir, root, outDir, base } = paths(options);
   const tree = scanTree(join(projectDir, root), base);
   const files = emitTree(tree, { root, outDir });
   // $types.d.ts files of removed folders must not linger
-  removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
-  for (const file of files) write(projectDir, file);
-  return { tree, files };
+  const removed = removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
+  const written = files.filter((file) => write(projectDir, file)).map((file) => file.path);
+  return { tree, files, changed: [...written, ...removed.map((p) => relative(projectDir, p).replace(/\\/g, "/"))] };
 }
 
 /**
@@ -126,7 +138,7 @@ function writeTree(options: GenerateOptions): GenerateResult {
  * without the TS checker and `api.ts`. Returns `undefined` when the root folder does not exist, so an app
  * without a contract tree still boots. Rescanning on change is G2 #142.
  */
-export function syncContractTree(options: GenerateOptions): GenerateResult | undefined {
+export function syncContractTree(options: GenerateOptions): SyncResult | undefined {
   const { projectDir, root } = paths(options);
   if (!existsSync(join(projectDir, root))) return undefined;
   return writeTree(options);

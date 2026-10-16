@@ -1,14 +1,16 @@
 /**
- * `laratype:api`: resolves `$api` to the generated `<out>/api/index.gen.ts`. The first time the app imports `$api`,
- * the contract tree is scanned and its files are written (the dev startup scan of docs/v1/http.md › Router v2),
- * with the root and base from config `api.root` / `api.base`. Production reads the build manifest instead (#125).
+ * `laratype:api`: resolves `$api` to the generated `<out>/api/index.gen.ts`. The contract tree is scanned and its
+ * files are written on each server start and restart (`sauf dev` calls `rescan()`), and on the first `$api` import
+ * when nothing called it, with the root and base from config `api.root` / `api.base` (docs/v1/http.md › Router v2).
+ * Production reads the build manifest instead (#125).
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
 import { Console } from '@laratype/console';
 import { apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
 import { syncContractTree } from './index';
+import { ScanError } from './scan';
 
 export const API_PLUGIN_NAME = 'laratype:api';
 export const API_ALIAS = '$api';
@@ -18,38 +20,62 @@ export interface ApiPluginOptions {
   readonly projectDir?: string;
   /** Output folder, relative to the project. Default `.laratype`. */
   readonly outDir?: string;
-  /** The config object. Default: the loaded app config, else `app/config/config.ts` imported on its own. */
+  /** The config object. Default: `app/config/config.ts`, imported on its own, so a change to it applies on the next restart. */
   readonly config?: () => unknown;
 }
 
-const loadedConfig = () => (globalThis as { __laratype_config?: unknown }).__laratype_config;
+/** `plugin.api` of `laratype:api`. */
+export interface ApiPluginApi {
+  /** Scans the tree again and writes the files that changed. A rejected scan is not cached: the next call retries. */
+  rescan(): Promise<void>;
+}
 
-export function laratypeApi(options: ApiPluginOptions = {}): Plugin {
+export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi> {
   const projectDir = options.projectDir ?? process.cwd();
   const outDir = options.outDir ?? '.laratype';
   const indexFile = join(projectDir, outDir, 'api', 'index.gen.ts');
-  let scanned: Promise<void> | undefined;
-
-  // Route files import `$api` while the providers load, before ConfigLoadServiceProvider runs: read the file then
-  const treeConfig = async () => {
-    if (options.config) return apiTreeConfig(options.config());
-    const loaded = loadedConfig();
-    return loaded ? apiTreeConfig(loaded) : readApiTreeConfig(projectDir);
-  };
+  let current: Promise<void> | undefined;
+  let server: ViteDevServer | undefined;
 
   const scan = async () => {
-    const tree = resolveApiTree({}, await treeConfig());
+    const tree = resolveApiTree({}, options.config ? apiTreeConfig(options.config()) : await readApiTreeConfig(projectDir));
     const result = syncContractTree({ projectDir, outDir, ...tree });
-    if (!result) Console.debug(`[${API_PLUGIN_NAME}] no contract tree at ${tree.root}: skipped the scan`);
+    if (!result) {
+      Console.debug(`[${API_PLUGIN_NAME}] no contract tree at ${tree.root}: skipped the scan`);
+      return;
+    }
+    // A rewritten index must not be served from the module cache; `.laratype` writes do not restart the dev server
+    if (server && result.changed.length) {
+      for (const mod of server.moduleGraph.getModulesByFile(indexFile) ?? []) server.moduleGraph.invalidateModule(mod, new Set(), Date.now(), true);
+    }
+  };
+
+  const rescan = () => {
+    const run = scan().catch((error: unknown) => {
+      if (current === run) current = undefined;
+      throw error instanceof ScanError ? new ScanError(`[${API_PLUGIN_NAME}] ${error.message}`) : error;
+    });
+    current = run;
+    return run;
   };
 
   return {
     name: API_PLUGIN_NAME,
     enforce: 'pre',
+    api: { rescan },
+    configureServer(devServer) {
+      server = devServer;
+    },
     async resolveId(source) {
       if (source !== API_ALIAS) return null;
-      await (scanned ??= scan());
+      await (current ?? rescan());
       return existsSync(indexFile) ? indexFile : null;
     },
   };
 }
+
+/** Rescans through the `laratype:api` plugin of a Vite server, if it has one. */
+export const rescanContractTree = async (plugins: readonly { name: string; api?: unknown }[]) => {
+  const plugin = plugins.find((p) => p.name === API_PLUGIN_NAME);
+  await (plugin?.api as ApiPluginApi | undefined)?.rescan();
+};

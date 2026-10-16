@@ -1,10 +1,12 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import TypesGenerateCommand, { runTypesGenerate } from '../../src/commands/types/generate';
-import { ScanError, apiTreeConfig, laratypeApi, readApiTreeConfig, resolveApiTree } from '../../src/typegen';
+import { ScanError, apiTreeConfig, laratypeApi, readApiTreeConfig, resolveApiTree, rescanContractTree, syncContractTree } from '../../src/typegen';
+import type { ApiPluginApi } from '../../src/typegen';
+import { isGeneratedFile } from '../../src/commands/dev';
 
 /**
  * The contract-root config key (H1 #104): `api.root` / `api.base` in app/config/config.ts, read by
@@ -54,8 +56,11 @@ describe('api config key', () => {
     expect(apiTreeConfig(undefined)).toEqual({});
     expect(apiTreeConfig({ api: { root: 'app/contracts', base: '/v2' } })).toEqual({ root: 'app/contracts', base: '/v2' });
     expect(() => apiTreeConfig({ api: 'app/api' })).toThrow(ScanError);
-    expect(() => apiTreeConfig({ api: { root: '' } })).toThrow('[sauf types:generate] config api.root must be a folder, relative to the project');
-    expect(() => apiTreeConfig({ api: { base: 1 } })).toThrow('config api.base must be a URL path');
+    // context-neutral: the command adds "[sauf types:generate] ", the dev scan "[laratype:api] "
+    expect(() => apiTreeConfig({ api: { root: '' } })).toThrow(/^config api\.root must be a folder, relative to the project$/);
+    const badBase = 'config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"';
+    for (const base of [1, 'api', '/api/']) expect(() => apiTreeConfig({ api: { base } })).toThrow(badBase);
+    expect(apiTreeConfig({ api: { base: '' } })).toEqual({ root: undefined, base: '' });
   });
 
   it('flags override the config, the config overrides the defaults', () => {
@@ -115,7 +120,45 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(existsSync(join(dir, '.laratype'))).toBe(false);
   });
 
-  it('reads app/config/config.ts when the app config is not loaded yet', async () => {
+  it('writes only the files whose content changed', () => {
+    const dir = project('unchanged', undefined);
+    const first = syncContractTree({ projectDir: dir })!;
+    expect(first.changed).toContain('.laratype/api/index.gen.ts');
+    const index = join(dir, '.laratype/api/index.gen.ts');
+    const mtime = statSync(index).mtimeMs;
+    const again = syncContractTree({ projectDir: dir })!;
+    expect(again.changed).toEqual([]);
+    expect(statSync(index).mtimeMs).toBe(mtime);
+    // a deleted folder: its $types.d.ts goes, index.gen.ts is rewritten
+    rmSync(join(dir, 'app/api/v1'), { recursive: true });
+    expect(syncContractTree({ projectDir: dir })!.changed).toEqual(['.laratype/api/index.gen.ts', '.laratype/types/app/api/v1/health/$types.d.ts']);
+  });
+
+  it('rescans on every start and restart, and never caches a failed scan', async () => {
+    const dir = project('rescan', undefined);
+    let config: unknown = { api: { root: 'app/api', base: '/v1-typo/' } };
+    const plugin = laratypeApi({ projectDir: dir, config: () => config });
+    const api = plugin.api as ApiPluginApi;
+    const resolveId = plugin.resolveId as (source: string) => Promise<string | null>;
+    await expect(api.rescan()).rejects.toThrow('[laratype:api] config api.base must be ""');
+    // the rejection is not cached: the fixed config applies on the next import
+    config = { api: { base: '/api' } };
+    const id = await resolveId('$api');
+    expect(readFileSync(id!, 'utf8')).not.toContain('things');
+    // a contract added between restarts shows up on the next rescan
+    writeFileSync(join(dir, 'app/api/things.ts'), "export default {}\n");
+    await rescanContractTree([{ name: 'other' }, plugin]);
+    expect(readFileSync(id!, 'utf8')).toContain("'things': { contract: c0, path: '/api/things', scopes: [s0], dirs: [''] },");
+  });
+
+  it('the dev restart ignores .laratype writes', () => {
+    expect(isGeneratedFile(String.raw`D:\app\.laratype\api\index.gen.ts`)).toBe(true);
+    expect(isGeneratedFile('/app/.laratype/types/app/api/$types.d.ts')).toBe(true);
+    expect(isGeneratedFile('/app/app/api/users.ts')).toBe(false);
+    expect(isGeneratedFile('/app/app/my.laratype.ts')).toBe(false);
+  });
+
+  it('reads app/config/config.ts on its own', async () => {
     const dir = project('plugin-file', "export default { api: { root: 'app/contracts', base: '/v3' } }\n", 'app/contracts');
     const previous = globalThis.__sauf_transpiler_instance;
     globalThis.__sauf_transpiler_instance = load;

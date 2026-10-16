@@ -1,5 +1,5 @@
 import type { Context, Hono, Next } from "hono";
-import { API_NODE, Endpoint, apiRoutes } from "@laratype/contract";
+import { API_NODE, apiRoutes } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
@@ -42,20 +42,27 @@ interface TreeEntry {
   readonly entry: ApiEntry;
 }
 
-/** The mounted contracts of an API tree, depth-first. Throws when `api` is not a `defineApi` tree. */
+const nodeInfo = (value: unknown) =>
+  typeof value === "object" && value !== null ? (value as Record<symbol, ApiNodeInfo | undefined>)[API_NODE] : undefined;
+
+/**
+ * The mounted contracts of an API tree, depth-first. A child with the `API_NODE` brand is a node, anything else is an
+ * endpoint (switch to `isEndpoint` once CL1 #252 lands). The root holds nodes only, so a value that is not a
+ * `defineApi` tree throws.
+ */
 const treeEntries = (api: unknown): TreeEntry[] => {
   if (typeof api !== "object" || api === null) fail("expected the appApi tree built with defineApi");
+  if (Object.values(api as object).some((child) => !nodeInfo(child))) fail("expected the appApi tree built with defineApi");
   const out: TreeEntry[] = [];
-  const walk = (node: Record<string | symbol, unknown>) => {
+  const walk = (node: object) => {
     for (const child of Object.values(node)) {
-      if (child instanceof Endpoint) continue;
-      const info = (child as Record<symbol, ApiNodeInfo> | null)?.[API_NODE];
-      if (!info) fail("expected the appApi tree built with defineApi");
-      if (info!.entry) out.push({ name: info!.name, entry: info!.entry as ApiEntry });
-      walk(child as Record<string | symbol, unknown>);
+      const info = nodeInfo(child);
+      if (!info) continue;
+      if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry });
+      walk(child as object);
     }
   };
-  walk(api as Record<string | symbol, unknown>);
+  walk(api as object);
   return out;
 };
 
@@ -92,6 +99,9 @@ const plan = (api: unknown, items: readonly ApiRouteItem[], domain: string | und
     } else if (item?.kind === "contract") {
       const names = entries.filter((e) => e.entry.contract === item.contract).map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
+      if (typeof item.controller !== "function") {
+        fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
+      }
       if (contracts.has(item.contract)) fail(`contract "${names.join('", "')}" is mounted twice`);
       contracts.set(item.contract, item);
     } else {
@@ -111,7 +121,7 @@ const plan = (api: unknown, items: readonly ApiRouteItem[], domain: string | und
     const entry = byName.get(route.name.slice(0, route.name.lastIndexOf(".")))!;
     const mounted = contracts.get(entry.contract)!;
     if (typeof (mounted.controller.prototype as Record<string, unknown>)[key] !== "function") {
-      fail(`${route.name}: ${mounted.controller.name} has no method "${key}"`);
+      fail(`${route.name}: ${mounted.controller.name} has no method "${key}" (handlers must be class methods, not arrow-function fields)`);
     }
     const scopeItems = entry.dirs.map((dir) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     return Object.freeze({
@@ -122,6 +132,20 @@ const plan = (api: unknown, items: readonly ApiRouteItem[], domain: string | und
       domain,
     });
   });
+};
+
+/** Routes whose resolved `auth` / `authorize` the router does not enforce yet, as `name (auth, authorize)`. */
+export const unenforced = (routes: readonly RouteEntry[]): string[] =>
+  routes
+    .map((route) => [route.name, [route.auth ? "auth" : "", route.authorize ? "authorize" : ""].filter(Boolean)] as const)
+    .filter(([, caps]) => caps.length > 0)
+    .map(([name, caps]) => `${name} (${caps.join(", ")})`);
+
+/** One warning per mount: until #105 / #121 a route with auth or authorize serves every request. */
+const warnUnenforced = (routes: readonly RouteEntry[]) => {
+  const list = unenforced(routes);
+  if (list.length === 0) return;
+  console.warn(`[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: ${list.join(", ")}`);
 };
 
 /** The routes of one `Route.api(...)`, checked and ready to mount. */
@@ -144,6 +168,7 @@ export class ApiRoutes {
 
   /** Registers every route on Hono and returns the registry entries. */
   mount(app: Hono): RouteEntry[] {
+    warnUnenforced(this.routes);
     for (const route of this.routes) {
       const handle = RequestKernel.handle({
         method: route.method,

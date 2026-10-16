@@ -1,6 +1,6 @@
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
@@ -39,6 +39,10 @@ const mount = (routes: ApiRoutes) => {
   const app = new Hono()
   return { app, entries: routes.mount(app) }
 }
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 beforeAll(() => {
   // RequestKernel.boot() sets this in an app; the router runs the 0.5 kernel until H2/H3
@@ -102,6 +106,30 @@ describe('Route.api', () => {
   })
 })
 
+describe('auth and authorize are not enforced yet', () => {
+  it('mount() warns once, listing the routes with auth or authorize', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mount(Route.api(appApi, (r) => [
+      r.contract(users, UserController),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(posts, PostController),
+    ]))
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(
+      '[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: ' +
+        'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
+    )
+  })
+
+  it('no warning without auth or authorize', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const open = defineContract()({ ping: endpoint.get('/') })
+    class Ping extends Controller { ping() { return 'pong' } }
+    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
 describe('Route.api runtime checks', () => {
   const api = (build: (r: any) => unknown[]) => () => Route.api(appApi as any, build as never)
 
@@ -145,11 +173,25 @@ describe('Route.api runtime checks', () => {
   it('a controller without the endpoint method', () => {
     class Partial extends Controller { index() { return [] } }
     expect(api((r) => [r.contract(users, Partial), r.contract(posts, PostController), r.scope('users/[user]', { policy: UserScopePolicy })])).toThrow(
-      'users.show: Partial has no method "show"',
+      'users.show: Partial has no method "show" (handlers must be class methods, not arrow-function fields)',
+    )
+  })
+
+  it('an arrow-function field is not a handler', () => {
+    class Arrows extends Controller { index = () => []; show() { return {} } }
+    expect(api((r) => [r.contract(users, Arrows), r.contract(posts, PostController), r.scope('users/[user]', { policy: UserScopePolicy })])).toThrow(
+      'users.index: Arrows has no method "index" (handlers must be class methods, not arrow-function fields)',
+    )
+  })
+
+  it('an undefined controller (a circular import) names the contract', () => {
+    expect(api((r) => [r.contract(users, UserController), r.contract(posts, undefined), r.scope('users/[user]', { policy: UserScopePolicy })])).toThrow(
+      '[@laratype/http] Route.api: contract "users.posts": r.contract() got undefined as its controller (a circular import?)',
     )
   })
 
   it('a value that is not a defineApi tree', () => {
+    expect(() => Route.api({ users: { index: 1 } } as any, (() => []) as never)).toThrow('expected the appApi tree built with defineApi')
     expect(() => Route.api({ users } as any, (() => []) as never)).toThrow('expected the appApi tree built with defineApi')
   })
 

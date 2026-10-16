@@ -35,10 +35,10 @@ sauf types:generate [--root <config api.root, else app/api>] [--base <config api
 // packages/sauf/src/typegen (used by the command; also exported for tests and G2)
 export interface GenerateOptions { projectDir: string; root?: string; base?: string; outDir?: string; apiOut?: string; tsconfig?: string }
 export function generateTypes(options: GenerateOptions, ts?: typeof import("typescript")): Promise<{ tree: ContractTree; files: GeneratedFile[] }>;
-export function syncContractTree(options: GenerateOptions): { tree: ContractTree; files: GeneratedFile[] } | undefined;   // the dev scan: no TS checker, no api.ts (H1 #104)
+export function syncContractTree(options: GenerateOptions): { tree: ContractTree; files: GeneratedFile[]; changed: string[] } | undefined;   // the dev scan: no TS checker, no api.ts, writes changed files only (H1 #104)
 export function readApiTreeConfig(projectDir: string): Promise<{ root?: string; base?: string }>;                         // config api.root / api.base
 export function resolveApiTree(flags, config): { root: string; base: string };                                           // flags, then config, then defaults
-export function laratypeApi(options?: { projectDir?: string; outDir?: string; config?: () => unknown }): Plugin;           // resolves $api, scans on first import
+export function laratypeApi(options?: { projectDir?: string; outDir?: string; config?: () => unknown }): Plugin<{ rescan(): Promise<void> }>;   // resolves $api; sauf dev calls rescan() on every (re)start
 export function scanFiles(files: readonly string[], base: string): ContractTree;   // names only, never contents
 export function scanTree(rootDir: string, base: string): ContractTree;
 export function isTreeFile(file: string): boolean;
@@ -82,7 +82,7 @@ The app's tsconfig needs:
 - **`typescript` is an optional peer dependency** of `sauf` (`>=5`). It is loaded with a dynamic `import()` in `types:generate` only, so `sauf dev` and the app never load it.
 
 ### Diagnostics
-Errors are printed by the command, which exits with code 1. All messages are prefixed `[sauf types:generate] `:
+Errors are printed by the command, which exits with code 1, prefixed `[sauf types:generate] `. The scan and config errors (`ScanError`) carry no prefix of their own, so the dev scan behind `$api` prints the same messages prefixed `[laratype:api] `:
 - `the contract tree root "<root>" does not exist (set it with --root or config api.root)`
 - `--out "<dir>" must be a folder inside the project, not the project itself or outside it`
 - `--out "<dir>" must not contain the contract tree root "<root>"`
@@ -92,7 +92,7 @@ Errors are printed by the command, which exits with code 1. All messages are pre
 - `<dir>: "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
 - `<dir>: folder name "<name>" may only use letters, digits, "_" and "-"`
 - `<file>: file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
-- `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be a URL path, such as "/api"`, `could not load app/config/config.ts (see the error above)`
+- `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"`, `could not load app/config/config.ts (see the error above)`
 - `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`

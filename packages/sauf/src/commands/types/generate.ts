@@ -1,7 +1,7 @@
 import process, { cwd } from "node:process";
 import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
-import { generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
+import { ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
 
 export default class TypesGenerateCommand extends Command {
 
@@ -31,7 +31,7 @@ export default class TypesGenerateCommand extends Command {
     try {
       result = await runTypesGenerate(cwd(), opts);
     } catch (error) {
-      Console.error(error instanceof Error ? error.message : error);
+      Console.error(error instanceof ScanError ? `[sauf types:generate] ${error.message}` : error instanceof Error ? error.message : error);
       process.exitCode = 1;
       return 1;
     }

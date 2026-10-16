@@ -25,7 +25,9 @@ export function apiTreeConfig(config: unknown): ApiTreeConfig {
   if (typeof api !== "object" || api === null) throw new ScanError("config api must be { root?, base? }");
   const { root, base } = api as Record<string, unknown>;
   if (root !== undefined && (typeof root !== "string" || root === "")) throw new ScanError("config api.root must be a folder, relative to the project");
-  if (base !== undefined && typeof base !== "string") throw new ScanError('config api.base must be a URL path, such as "/api"');
+  if (base !== undefined && (typeof base !== "string" || (base !== "" && (!base.startsWith("/") || base.endsWith("/"))))) {
+    throw new ScanError('config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"');
+  }
   return { root: root as string | undefined, base: base as string | undefined };
 }
 

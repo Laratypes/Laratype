@@ -166,7 +166,7 @@ Route.api(appApi, (r) => [
 ## Router v2
 
 ### Status
-merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source (the build manifest) is planned → [#125](https://github.com/Laratypes/Laratype/issues/125), and the registry move into the container → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are still built with `new` and run through the 0.5 `RequestKernel` pipeline until H2 [#105](https://github.com/Laratypes/Laratype/issues/105) and H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
+merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source (the build manifest) is planned → [#125](https://github.com/Laratypes/Laratype/issues/125); the prod build of `examples/basic` waits on it. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are still built with `new` and run through the 0.5 `RequestKernel` pipeline until H2 [#105](https://github.com/Laratypes/Laratype/issues/105) and H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
 
 ### Public API
 [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
@@ -210,13 +210,20 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items. A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
 - **Identical contract types.** At compile time a mounted contract is matched by its exact type. Two contracts with identical types can't be told apart at compile time; the runtime check, which matches by value, catches it.
 - **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes keep `Route.prefix(...)` and `group(...)` ([Ad-hoc routes](#ad-hoc-routes)), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
-- **Handlers.** Each endpoint runs the controller method named after its key. A controller without that method is a runtime error in `Route.api`. The compile check of the controller is H2 [#105](https://github.com/Laratypes/Laratype/issues/105) ([Route proof at r.contract()](#route-proof-at-rcontract)).
+- **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods: an arrow-function class field is not found when the routes are checked, so it is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is H2 [#105](https://github.com/Laratypes/Laratype/issues/105) ([Route proof at r.contract()](#route-proof-at-rcontract)).
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as in the entry `dirs` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner). Running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
+- **Auth is not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). `mount()` logs one warning that lists those routes, and `sauf route:list` marks them `(not enforced yet)` in its Auth column.
 - **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract. A route's middleware is its scopes' (outer to inner), then its contract's. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
 - **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The match ignores case and the request port (dev Host headers carry `:3000`). A request for another host falls through to the next matching route, or gets a 404.
 - **Registry.** `mount()` returns one `RouteEntry` per route. `RouteAppServiceProvider` stores what `routes()` returns in `globalThis.__laratype_routes`, as in 0.5, and `sauf route:list` reads both v2 and 0.5 entries. The move to a container `RouteRegistry` is planned → [#114](https://github.com/Laratypes/Laratype/issues/114).
-- **Tree source.** In dev, the `laratype:api` plugin runs G1's scan and emit (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, with no TS checker and no `api.ts`) with config `api.root` / `api.base`, then resolves `$api` to `.laratype/api/index.gen.ts`. An app without a contract tree folder is skipped with a debug log. The router itself never scans: it takes the `appApi` value. In production `$api` comes from the build manifest, planned → [#125](https://github.com/Laratypes/Laratype/issues/125). Rescanning on change is G2 [#142](https://github.com/Laratypes/Laratype/issues/142).
+- **Tree source.** In dev, the `laratype:api` plugin runs G1's scan and emit (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, with no TS checker and no `api.ts`) with config `api.root` / `api.base` from `app/config/config.ts`, then resolves `$api` to `.laratype/api/index.gen.ts`.
+  - `sauf dev` rescans on every start and `--hmr` restart, before the app imports `$api`, so an added or deleted contract or a fixed config applies on the next restart. A failed scan is not cached.
+  - Files are written only when their content changes. When `index.gen.ts` changes, its module is invalidated. Writes under `.laratype/` don't trigger an `--hmr` restart, and restarts run one at a time.
+  - An app without a contract tree folder is skipped with a debug log. Scan and config errors are printed with the prefix `[laratype:api] `.
+  - The router itself never scans: it takes the `appApi` value.
+  - In production `$api` comes from the build manifest, planned → [#125](https://github.com/Laratypes/Laratype/issues/125). Until then `examples/basic` runs under `sauf dev` but its prod build (`bun run build`) fails, because tsc can't resolve `$api` and `$types` and the generated tree doesn't fit the dist layout.
+  - Watching for added files without a restart is G2 [#142](https://github.com/Laratypes/Laratype/issues/142).
 - **Replaces** `_createNestedRoute` and the 0.5 `RouteOptions` tree for contract routes. Both stay for the 0.5 routes until those are migrated.
 
 ### Diagnostics
@@ -237,10 +244,13 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `scope "<folder>" is mounted twice`
 - `"<folder>" is not a scope folder of the API tree (folders: "<folder>", ...)`
 - `r.scope('<folder>') needs { policy }`
-- `<route name>: <Controller> has no method "<key>"`
+- `<route name>: <Controller> has no method "<key>" (handlers must be class methods, not arrow-function fields)`
+- `contract "<tree name>": r.contract() got <value> as its controller (a circular import?)`
 - `expected the appApi tree built with defineApi`
 - `the routes callback must return r.contract() and r.scope() items`
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
+
+Warning, logged once per `mount()` when some routes resolve `auth` or `authorize`: `[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: <route name> (auth[, authorize]), ...`
 
 ### Example
 [`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts), and its `RouteServiceProvider` registers it with `apiRoutes.mount(this.apps)`. With scopes:

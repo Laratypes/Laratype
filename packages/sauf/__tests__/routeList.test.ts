@@ -33,20 +33,25 @@ afterEach(() => {
 });
 
 describe('sauf route:list', () => {
-  it('lists the Route.api registry entries', async () => {
+  it('lists the Route.api registry entries and marks auth that is not enforced yet', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     globalThis.__laratype_routes = routes.mount(new Hono());
     const table = vi.spyOn(Console, 'table').mockImplementation(() => {});
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     expect(await new RouteListCommand().handle()).toBe(0);
     expect(table).toHaveBeenCalledWith([
-      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-' },
+      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', Auth: 'auth (not enforced yet)' },
       {
         Method: 'delete', path: '/api/users/:user/posts/:post', Name: 'users.posts.destroy', Controller: 'PostController::destroy',
-        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy',
+        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy', Auth: 'auth, authorize (not enforced yet)',
       },
     ]);
+    expect(warn).toHaveBeenCalledWith('auth and authorize are not enforced yet (planned → #105, #121): the routes marked in Auth serve every request.');
   });
 
   it('shows the Domain column when a domain is set', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Console, 'warn').mockImplementation(() => {});
     globalThis.__laratype_routes = routes.domain('api.example.test').mount(new Hono());
     const table = vi.spyOn(Console, 'table').mockImplementation(() => {});
     await new RouteListCommand().handle();
@@ -58,7 +63,7 @@ describe('sauf route:list', () => {
 
   it('still reads 0.5 entries', () => {
     expect(routeRow({ method: 'get', path: '/me', controller: [UserController, 'me'], middleware: [Audit], can: [] })).toEqual({
-      Method: 'get', path: '/me', Name: '-', Controller: 'UserController::me', Middleware: 'Audit', Policies: '-', Domain: '-',
+      Method: 'get', path: '/me', Name: '-', Controller: 'UserController::me', Middleware: 'Audit', Policies: '-', Auth: '-', Domain: '-',
     });
   });
 

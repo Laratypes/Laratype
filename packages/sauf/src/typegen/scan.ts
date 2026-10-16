@@ -43,7 +43,8 @@ export interface ContractTree {
 
 export class ScanError extends Error {
   constructor(message: string) {
-    super(`[sauf types:generate] ${message}`);
+    // No prefix: `sauf types:generate` prints `[sauf types:generate] `, the dev scan `[laratype:api] `
+    super(message);
     this.name = "ScanError";
   }
 }
