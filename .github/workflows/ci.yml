@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   build:
+    # Name kept although the job runs the full suite: a required status check would match it by name
     name: Build & smoke test
     runs-on: ubuntu-latest
     steps:
@@ -30,10 +31,7 @@ jobs:
       - name: Check packages
         run: bun run check:pkg
 
-      # Only the v1 packages for now; full suite tracked in #184 (H16)
-      - name: Smoke test v1 packages
-        run: bunx vitest run packages/contract packages/core packages/client packages/sauf/__tests__/di packages/sauf/__tests__/typegen
-
-      # C6 (#94): *.test-d.ts type tests; vitest typecheck runs tsc and fails on a broken type
-      - name: Type tests
-        run: bunx vitest run --project types
+      # H16 (#184): every vitest workspace project, unit and types (C6 #94: *.test-d.ts through tsc).
+      # After Build: some tests load the built dist.
+      - name: Test
+        run: bunx vitest run
