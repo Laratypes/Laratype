@@ -1,6 +1,6 @@
 export const PACKAGE_NAME = '@laratype/client' as const
 
-export { createClient } from "./client";
+export { createClient } from './client'
 export type {
   CallInput,
   Client,
@@ -16,4 +16,4 @@ export type {
   ManifestRoute,
   ResponseData,
   UnexpectedResult,
-} from "./types";
+} from './types'

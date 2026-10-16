@@ -249,6 +249,19 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
 
 const contextOf = (entry: ApiEntry) => ({ path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options });
 
+/** One route of an API without its capabilities: tree name, method, full path and where it sits. */
+export interface ApiPath<N extends string = string> {
+  readonly name: N;
+  readonly method: Method;
+  /** Full path: the contract's URL prefix joined with the endpoint path. */
+  readonly path: string;
+  /** The contract's URL prefix (`""` for a single contract). */
+  readonly prefix: string;
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly scopes: readonly AnyScope[];
+}
+
 /** One resolved route of an API: tree name, full path, the endpoint and its inherited capabilities. */
 export interface ApiRoute<N extends string = string> extends ResolvedCapabilities {
   readonly name: N;
@@ -261,31 +274,20 @@ export interface ApiRoute<N extends string = string> extends ResolvedCapabilitie
 }
 
 /**
- * Every route of an API, depth-first in definition order. Used by the router, the client and typegen.
- * It also takes an API node (`appApi.users`), whose routes keep their full names.
+ * Every route of an API with its name, method and full path, depth-first in definition order, without resolving
+ * capabilities: the single source of route names and paths for `apiRoutes()` and the client. It takes the API root,
+ * an API node (`appApi.users`, full names) or a single contract (endpoint keys, its own paths).
  */
-export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<EndpointKeys<C>>>;
-export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
-/** A single contract has no tree name and no folder prefix: route names are its endpoint keys, paths are its own. */
-export function apiRoutes(api: object): ApiRoute[] {
-  const routes: ApiRoute[] = [];
-  const add = (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>) => {
-    routes.push(
-      Object.freeze({
-        name,
-        method: endpoint.def.method,
-        path: joinPath(ctx.path, endpoint.def.path),
-        endpoint,
-        contract,
-        scopes: ctx.scopes,
-        ...resolveCapabilities(endpoint.def, ctx, name),
-      }),
-    );
+export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<EndpointKeys<C>>>;
+export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;
+export function apiPaths(api: object): ApiPath[] {
+  const paths: ApiPath[] = [];
+  const add = (name: string, endpoint: AnyEndpoint, contract: AnyContract, prefix: string, scopes: readonly AnyScope[]) => {
+    paths.push(Object.freeze({ name, method: endpoint.def.method, path: joinPath(prefix, endpoint.def.path), prefix, endpoint, contract, scopes }));
   };
   if (isContract(api)) {
-    const ctx = { path: "", scopes: [] as readonly AnyScope[], options: api[CONTRACT].options };
-    for (const [key, endpoint] of contractEndpoints(api)) add(key, endpoint, api, ctx);
-    return routes;
+    for (const [key, endpoint] of contractEndpoints(api)) add(key, endpoint, api, "", []);
+    return paths;
   }
   const walk = (current: TreeNode) => {
     const info = current[API_NODE] as ApiNodeInfo | undefined;
@@ -295,11 +297,25 @@ export function apiRoutes(api: object): ApiRoute[] {
         continue;
       }
       const entry = info!.entry!;
-      add(`${info!.name}.${key}`, value, entry.contract, contextOf(entry));
+      add(`${info!.name}.${key}`, value, entry.contract, entry.path, entry.scopes);
     }
   };
   walk(api as TreeNode);
-  return routes;
+  return paths;
+}
+
+/**
+ * Every route of an API, depth-first in definition order, with its inherited capabilities (`apiPaths()` plus
+ * `resolveCapabilities`). Used by the router and typegen. Takes the same inputs as `apiPaths()`; a single contract is
+ * resolved with its own options only (no scopes).
+ */
+export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<EndpointKeys<C>>>;
+export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
+export function apiRoutes(api: object): ApiRoute[] {
+  return (apiPaths(api as Api) as ApiPath[]).map(({ prefix, ...route }) => {
+    const ctx = { path: prefix, scopes: route.scopes, options: route.contract[CONTRACT].options };
+    return Object.freeze({ ...route, ...resolveCapabilities(route.endpoint.def, ctx, route.name) });
+  });
 }
 
 /** `apiEndpoint(appApi, "users.posts.update")` → that endpoint (throws on an unknown name). */

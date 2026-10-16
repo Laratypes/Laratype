@@ -1,5 +1,5 @@
-import { API_NODE, apiRoutes, buildUrl, isContract, isEndpoint } from "@laratype/contract";
-import type { Api, ApiNodeInfo, ApiRoute, ApiShape, Method } from "@laratype/contract";
+import { API_NODE, CONTRACT, apiPaths, buildUrl, endpointErrors, isContract, isEndpoint } from "@laratype/contract";
+import type { Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -63,16 +63,28 @@ const isManifest = (value: unknown): value is Manifest =>
  * A rejected `fetch` rejects with `FetchFailed`, so the result union can turn it into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
+/**
+ * `baseUrl` + route path, joined like the server's `joinPath`: a route path of `"/"` is `baseUrl` itself, so a single
+ * contract's index under `https://host/api/users` is `/api/users`, not `/api/users/` (a 404 under strict routing).
+ */
+const joinUrl = (baseUrl: string, url: string): string => {
+  const base = baseUrl.replace(/\/+$/, "");
+  return base && (url === "/" || url.startsWith("/?")) ? base + url.slice(1) : base + url;
+};
+
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const url = (options.baseUrl ?? "").replace(/\/+$/, "") + buildUrl(path, { params: input.params, query: input.query });
-  const headers = new Headers(options.headers);
+  const url = joinUrl(options.baseUrl ?? "", buildUrl(path, { params: input.params, query: input.query }));
+  const own = new Headers();
   for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) headers.set(key, value);
+    if (value !== undefined) own.set(key, value);
   }
+  const headers = new Headers(options.headers);
+  own.forEach((value, key) => headers.set(key, value));
   const init: RequestInit = { method: method.toUpperCase(), headers };
   if (input.body !== undefined) {
     init.body = JSON.stringify(input.body);
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    // only the call's own headers opt out of JSON: a default content-type in options.headers does not
+    if (!own.has("content-type")) headers.set("content-type", "application/json");
   }
   if (input.signal) init.signal = input.signal;
   const fetchFn = options.fetch ?? globalThis.fetch;
@@ -134,13 +146,13 @@ const freezeTree = (node: Record<string, unknown>): object => {
 
 /**
  * Nests flat route names into the client: `"users.posts.update"` → `client.users.posts.update`.
- * The one builder for every input: the routes come from `apiRoutes()` or from the generated manifest.
+ * The one builder for every input: the routes come from `apiPaths()` or from the generated manifest.
  */
 function buildTree(routes: readonly RouteSpec[], send: Send, where: string): object {
   const root: Record<string, unknown> = Object.create(null);
   for (const { name, method, path, declared } of routes) {
     const segments = name.split(".");
-    // manifest names are full route names (folder + endpoint key); apiRoutes names are valid by construction
+    // manifest names are full route names (folder + endpoint key); apiPaths names are valid by construction
     if (segments.some((s) => s === "") || (where && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
     const key = segments.pop()!;
     let node = root;
@@ -154,20 +166,24 @@ function buildTree(routes: readonly RouteSpec[], send: Send, where: string): obj
   return freezeTree(root);
 }
 
-/** `apiRoutes()` routes as client routes. Each declares its resolved errors: derived from every level, plus `throws`. */
-const fromApiRoutes = (routes: readonly ApiRoute[], prefix = ""): RouteSpec[] =>
-  routes.map((r) => ({
-    name: r.name.slice(prefix.length),
-    method: r.method,
-    path: r.path,
-    declared: new Map(r.errors.map((e) => [e.code, e.status])),
-  }));
-
-/** `apiRoutes()` of the appApi root or an API node, untyped: route names are plain strings here. */
-const routesOf = (api: object): readonly ApiRoute[] => apiRoutes(api as unknown as Api) as readonly ApiRoute[];
-
-/** The routes of an API node, named relative to the node: `appApi.users` → `"index"`, `"posts.update"`. */
-const nodeRoutes = (node: TreeNode): RouteSpec[] => fromApiRoutes(routesOf(node), `${(node[API_NODE] as ApiNodeInfo).name}.`);
+/**
+ * The routes of a contract or an API node from `apiPaths()`: names, methods and full paths. Each declares its errors
+ * with `endpointErrors` (derived from every level, plus `throws`), which never throws: a contract alone lacks its
+ * folder scopes, so the consistency check of `resolveCapabilities` doesn't apply.
+ * An API node's names are relative to it, under `as`: `appApi.users` → `"index"`, `"posts.update"`.
+ */
+const pathsOf = (api: object, as = ""): RouteSpec[] => {
+  const prefix = isApiNode(api) ? `${(api[API_NODE] as ApiNodeInfo).name}.` : "";
+  return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => {
+    const errors = endpointErrors(r.endpoint.def, { path: r.prefix, scopes: r.scopes, options: r.contract[CONTRACT].options });
+    return {
+      name: as + r.name.slice(prefix.length),
+      method: r.method,
+      path: r.path,
+      declared: new Map(errors.map((e) => [e.code, e.status])),
+    };
+  });
+};
 
 /** The manifest's routes; it knows the error codes only, not their status. */
 const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
@@ -199,9 +215,10 @@ export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
   // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
   if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
-  if (isContract(api)) return buildTree(fromApiRoutes(apiRoutes(api)), send, "");
-  if (isApiNode(api)) return buildTree(nodeRoutes(api), send, "");
-  if (isApiRoot(api)) return buildTree(fromApiRoutes(routesOf(api)), send, "");
+  if (isContract(api) || isApiNode(api)) return buildTree(pathsOf(api), send, "");
+  // names follow the object's own keys, as `ClientOf<A>` does: the appApi root's keys are its node names, and a
+  // hand-made `{ posts: appApi.users.posts }` gives `api.posts.update`
+  if (isApiRoot(api)) return buildTree(Object.entries(api).flatMap(([key, node]) => pathsOf(node as TreeNode, `${key}.`)), send, "");
   if (isManifest(api)) return buildTree(manifestRoutes(api), send, " in the manifest");
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }
