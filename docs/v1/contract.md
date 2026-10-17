@@ -1,9 +1,9 @@
 ---
 area: contract
 packages: ["@laratype/contract"]
-issues: [89, 90, 91, 92, 93, 94, 133, 162, 228]
+issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228]
 verified-against: Laratype@e2eac4b
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 ---
 
 # Contract (`@laratype/contract`)
@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` planned → #104 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
-| [URL builder](#url-builder) | planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -183,9 +183,12 @@ export const endpoint: {
   delete: <P extends string>(path: P) => Endpoint<"delete", P>;
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
+export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
+export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
 
 ### Invariants
+- **Recognized by brand, not `instanceof`:** each endpoint carries a non-enumerable `ENDPOINT` brand, a `Symbol.for` key like `API_NODE` and `CONTRACT`. `isEndpoint` checks it, so `defineContract`, `defineApi`, `apiRoutes`, `apiEndpoint` and the client accept endpoints from another bundle or package copy (ESM + CJS).
 - **Immutable.** Every builder call returns a new `Endpoint` and leaves `this` untouched. `def`, `def.throws` and the throttle options are frozen. The constructor copies its argument before freezing, so a caller's object stays mutable (b54ca7c).
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
 - **Status.** The default is `200`. `.response(schema, 201)` gives the literal type `201`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
@@ -392,6 +395,17 @@ export type EntryContext<En>;                         // { path, scopes, options
 export type NodeContext<N>;
 export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api<A>;
 
+export interface ApiPath<N extends string = string> {
+  readonly name: N;
+  readonly method: Method;
+  readonly path: string;                              // full path
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly scopes: readonly AnyScope[];
+}
+export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;      // also an API node (full names)
+export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<EndpointKeys<C>>>;    // a single contract
+
 export interface ApiRoute<N extends string = string> extends ResolvedCapabilities {
   readonly name: N;
   readonly method: Method;
@@ -400,7 +414,8 @@ export interface ApiRoute<N extends string = string> extends ResolvedCapabilitie
   readonly contract: AnyContract;
   readonly scopes: readonly AnyScope[];
 }
-export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
+export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;   // also an API node (full names)
+export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<EndpointKeys<C>>>; // a single contract: endpoint keys, its own paths
 export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name>;
 ```
 
@@ -421,7 +436,8 @@ export type AppApi = typeof appApi
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
-- **`apiRoutes()`** lists every route depth-first in definition order. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
+- **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix). It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it.
+- **`apiRoutes()`** is `apiPaths()` plus `resolveCapabilities` per route, so it takes the same inputs. A single contract is resolved with its own options only, so a contract that relies on a folder scope (an `.authorize()` whose `auth` comes from a `_scope.ts`) throws there; resolve it through the `appApi`. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
 - **The FE imports the `appApi` module only**, never `typeof routes`. The negative-control fixture `fe/bad.ts` shows `typeof routes` pulling server code into the FE program.
 
 ### Diagnostics
@@ -791,17 +807,44 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+
+### Public API
+[`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
+
+```ts
+export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional)
+export type UrlInput<P extends string> = { params: UrlParams<P> /* optional when P has no required param */; query?: object };
+export function buildUrl<P extends string>(path: P, input?: UrlInput<P>): string;   // input required when P has a required param
+
+buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } })   // "/api/users/1/posts?page=2"
+```
+
+### Invariants
+- **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
+- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
+- **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object, a function or a symbol throws. An empty query adds no `?`.
+- Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
+
+### Diagnostics
+Runtime `TypeError`s, prefixed `[@laratype/contract] `:
+- `buildUrl: missing param "<name>" for "<path>"`
+- `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`
+
+Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.
+
+### Example
+[`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Design (non-binding)
-Issue #162 sketches a pure `buildUrl(endpoint, { params, query })` in `@laratype/contract`. The client (CL1 #109) and a server `route()` helper would share it. Nothing exists in code yet, so the signature is not final.
+The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162)) will build on `buildUrl`. Nothing of it exists in code yet.
 
 - **Names:** the folder tree plus the endpoint key, for example `route('users.posts.update', { user, post })` ([Contract folder tree](#contract-folder-tree)).
 - **Params:** typed from the path, including the params of parent `[x]` folders. Bound params accept a Model (its route key).
 - **Ad-hoc routes** keep explicit names ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)).
 
 ### Acceptance
-[#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
+[#109 Done when](https://github.com/Laratypes/Laratype/issues/109) · [#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
 
 ---
 

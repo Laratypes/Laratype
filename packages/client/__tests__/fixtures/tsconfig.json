@@ -1,0 +1,22 @@
+{
+  // An FE project: it does not extend the repo or app tsconfig (tsconfig.app.json sets jsxImportSource "hono/jsx",
+  // which loads hono's JSX types into every program). DOM lib, no ambient types. Checked by fe.test.ts.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [],
+    "lib": ["ES2022", "DOM"],
+    "paths": {
+      "$api": ["./.laratype/api/index.gen.ts"],
+      // an installed app resolves these from node_modules
+      "@laratype/client": ["../../src/index.ts"],
+      "@laratype/contract": ["../../../contract/src/index.ts"]
+    }
+  },
+  "files": ["fe/main.ts"]
+}

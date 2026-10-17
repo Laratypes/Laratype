@@ -1,0 +1,21 @@
+{
+  // A separate-repo FE (S2 option c): the generated api.ts and @laratype/client, nothing else.
+  // Own tsconfig, not the repo/app one: DOM lib, no ambient types. Checked by fe.test.ts.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [],
+    "lib": ["ES2022", "DOM"],
+    "paths": {
+      // an installed FE resolves these from node_modules
+      "@laratype/client": ["../../../src/index.ts"],
+      "@laratype/contract": ["../../../../contract/src/index.ts"]
+    }
+  },
+  "files": ["main.ts"]
+}

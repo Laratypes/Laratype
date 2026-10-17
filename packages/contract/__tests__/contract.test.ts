@@ -3,8 +3,10 @@ import * as z from 'zod'
 import {
   API_NODE,
   CONTRACT,
+  ENDPOINT,
   SCOPE,
   apiEndpoint,
+  apiPaths,
   apiRoutes,
   contractEndpoints,
   defineApi,
@@ -14,6 +16,7 @@ import {
   endpoint,
   errors,
   isContract,
+  isEndpoint,
   isScope,
 } from '@laratype/contract'
 import { appApi } from './fixtures/app/api'
@@ -21,6 +24,7 @@ import { AccountLocked, EmailTaken, PostLimit } from './fixtures/app/api/errors'
 import users from './fixtures/app/api/users'
 import usersUser from './fixtures/app/api/users/[user]/_scope'
 import posts from './fixtures/app/api/users/[user]/posts'
+import type { Prefix as UserPrefix } from './fixtures/app/api/users/[user]/$types'
 
 describe('defineContract', () => {
   it('keeps the endpoints and brands the options with a non-enumerable symbol', () => {
@@ -196,6 +200,26 @@ describe('apiRoutes', () => {
     expect(route('users.index').errors[0]).toBe(errors.validation)
   })
 
+  it('is apiPaths() plus the resolved capabilities: same names, methods and paths', () => {
+    expect(routes.map((r) => [r.name, r.method, r.path])).toEqual(apiPaths(appApi).map((p) => [p.name, p.method, p.path]))
+    expect(apiPaths(appApi.users.posts)[0]).toMatchObject({ path: '/api/users/:user/posts', contract: posts, scopes: [usersUser] })
+  })
+
+  it('takes an API node (full names) or a single contract (endpoint keys, its own paths)', () => {
+    expect(apiRoutes(appApi.users.posts).map((r) => r.name)).toEqual(['users.posts.index', 'users.posts.store', 'users.posts.search'])
+    const own = apiRoutes(users)
+    expect(own.map((r) => [r.name, r.method, r.path])).toEqual([
+      ['index', 'get', '/'],
+      ['show', 'get', '/:user'],
+      ['store', 'post', '/'],
+      ['destroy', 'delete', '/:user'],
+      ['stats', 'get', '/stats'],
+    ])
+    // the contract options still apply: auth and throttle
+    expect(own[0]!.errors.map((e) => e.code)).toEqual(['VALIDATION_ERROR', 'UNAUTHORIZED', 'TOO_MANY_REQUESTS'])
+    expect(own[0]).toMatchObject({ contract: users, scopes: [] })
+  })
+
   it('treats "/" as the contract prefix itself and keeps optional params', () => {
     const c = defineContract()({ root: endpoint.get('/'), opt: endpoint.get('/:id?') })
     const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
@@ -203,6 +227,43 @@ describe('apiRoutes', () => {
       ['/api/things', []],
       ['/api/things/:id?', ['NOT_FOUND']],
     ])
+  })
+})
+
+describe('apiPaths', () => {
+  it('lists names, methods and full paths without resolving capabilities', () => {
+    // .authorize() gets auth from the folder scope: fine in its folder, inconsistent alone
+    const scoped = defineContract<UserPrefix>()({ destroy: endpoint.delete('/:post').authorize() })
+    expect(apiPaths(scoped).map((p) => [p.name, p.method, p.path])).toEqual([['destroy', 'delete', '/:post']])
+    expect(() => apiRoutes(scoped)).toThrow(/needs auth/)
+    expect(Object.isFrozen(apiPaths(scoped)[0])).toBe(true)
+  })
+})
+
+describe('ENDPOINT brand', () => {
+  // An endpoint from another bundle or package copy (ESM + CJS): same Symbol.for brand, different class
+  const foreign = () => {
+    const value = { def: endpoint.get('/x').def }
+    Object.defineProperty(value, Symbol.for('laratype.endpoint'), { value: true })
+    return value
+  }
+
+  it('recognizes endpoints by a non-enumerable Symbol.for brand, not instanceof', () => {
+    const e = endpoint.get('/')
+    expect((e as unknown as Record<symbol, unknown>)[ENDPOINT]).toBe(true)
+    expect(ENDPOINT).toBe(Symbol.for('laratype.endpoint'))
+    expect(Object.keys(e)).toEqual(['def'])
+    expect(isEndpoint(e)).toBe(true)
+    expect(isEndpoint(foreign())).toBe(true)
+    expect(isEndpoint({ def: e.def })).toBe(false)
+    expect(isEndpoint(null)).toBe(false)
+  })
+
+  it('accepts an endpoint from another package copy in defineContract, defineApi and apiRoutes', () => {
+    const c = defineContract()({ x: foreign() as never })
+    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
+    expect(apiRoutes(api).map((r) => [r.name, r.path])).toEqual([['things.x', '/api/things/x']])
+    expect(apiEndpoint(api, 'things.x')).toBe(c.x)
   })
 })
 

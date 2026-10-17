@@ -14,7 +14,7 @@ import type {
   Scope,
   ScopeOptions,
 } from "./capabilities";
-import { Endpoint } from "./endpoint";
+import { isEndpoint } from "./endpoint";
 import type { AnyEndpoint, Method } from "./endpoint";
 
 /** Brand of a contract: holds its options. Non-enumerable, so it never shows up in keys, spreads or JSON. */
@@ -70,7 +70,7 @@ function buildContract(endpoints: ContractDef, options: ContractOptions): AnyCon
   const contract = Object.create(null) as Record<string | symbol, unknown>;
   for (const [key, value] of Object.entries(endpoints)) {
     if (key === "" || key.includes(".")) fail(`defineContract: endpoint key "${key}" must be non-empty and must not contain "."`);
-    if (!(value instanceof Endpoint)) fail(`defineContract: "${key}" is not an endpoint`);
+    if (!isEndpoint(value)) fail(`defineContract: "${key}" is not an endpoint`);
     contract[key] = value;
   }
   const meta = Object.freeze({ options: Object.freeze(checkOptions(options, ["auth", "throws", "throttle"], "defineContract")) });
@@ -210,7 +210,7 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
     for (const segment of name.split(".")) {
       path = path ? `${path}.${segment}` : segment;
       const next = node[segment];
-      if (next instanceof Endpoint) fail(`defineApi: "${path}" is both an endpoint and a contract`);
+      if (isEndpoint(next)) fail(`defineApi: "${path}" is both an endpoint and a contract`);
       if (next === undefined) {
         const child: TreeNode = Object.create(null);
         infos.set(child, { name: path, entry: undefined });
@@ -249,6 +249,17 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
 
 const contextOf = (entry: ApiEntry) => ({ path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options });
 
+/** One route of an API without its capabilities: tree name, method, full path and where it sits. */
+export interface ApiPath<N extends string = string> {
+  readonly name: N;
+  readonly method: Method;
+  /** Full path: the contract's URL prefix joined with the endpoint path. */
+  readonly path: string;
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly scopes: readonly AnyScope[];
+}
+
 /** One resolved route of an API: tree name, full path, the endpoint and its inherited capabilities. */
 export interface ApiRoute<N extends string = string> extends ResolvedCapabilities {
   readonly name: N;
@@ -260,42 +271,70 @@ export interface ApiRoute<N extends string = string> extends ResolvedCapabilitie
   readonly scopes: readonly AnyScope[];
 }
 
-/** Every route of an API, depth-first in definition order. Used by the router, the client and typegen. */
-export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>> {
-  const routes: ApiRoute[] = [];
+/** The one walk over an API: each route with the context it is mounted in (the contract's URL prefix, scopes, options). */
+function walkRoutes(api: object, visit: (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>) => void): void {
+  if (isContract(api)) {
+    const ctx = { path: "", scopes: [] as readonly AnyScope[], options: api[CONTRACT].options };
+    for (const [key, endpoint] of contractEndpoints(api)) visit(key, endpoint, api, ctx);
+    return;
+  }
   const walk = (current: TreeNode) => {
     const info = current[API_NODE] as ApiNodeInfo | undefined;
     for (const [key, value] of Object.entries(current)) {
-      if (!(value instanceof Endpoint)) {
+      if (!isEndpoint(value)) {
         walk(value as TreeNode);
         continue;
       }
       const entry = info!.entry!;
-      const name = `${info!.name}.${key}`;
-      const ctx = contextOf(entry);
-      routes.push(
-        Object.freeze({
-          name,
-          method: value.def.method,
-          path: joinPath(ctx.path, value.def.path),
-          endpoint: value,
-          contract: entry.contract,
-          scopes: entry.scopes,
-          ...resolveCapabilities(value.def, ctx, name),
-        }),
-      );
+      visit(`${info!.name}.${key}`, value, entry.contract, contextOf(entry));
     }
   };
-  walk(api as unknown as TreeNode);
-  return routes as Array<ApiRoute<ApiRouteName<Api<A>>>>;
+  walk(api as TreeNode);
+}
+
+const routeOf = (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>): ApiPath => ({
+  name,
+  method: endpoint.def.method,
+  path: joinPath(ctx.path, endpoint.def.path),
+  endpoint,
+  contract,
+  scopes: ctx.scopes,
+});
+
+/**
+ * Every route of an API with its name, method and full path, depth-first in definition order, without resolving
+ * capabilities. It takes the API root, an API node (`appApi.users`, full names) or a single contract (endpoint keys,
+ * its own paths). It walks the API the same way as `apiRoutes()`, so both give the same names and paths.
+ */
+export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<EndpointKeys<C>>>;
+export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;
+export function apiPaths(api: object): ApiPath[] {
+  const paths: ApiPath[] = [];
+  walkRoutes(api, (name, endpoint, contract, ctx) => paths.push(Object.freeze(routeOf(name, endpoint, contract, ctx))));
+  return paths;
+}
+
+/**
+ * Every route of an API, depth-first in definition order, with its inherited capabilities (the `apiPaths()` walk plus
+ * `resolveCapabilities`). Used by the router and typegen. Takes the same inputs as `apiPaths()`; a single contract is
+ * resolved with its own options only (no scopes).
+ */
+export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<EndpointKeys<C>>>;
+export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
+export function apiRoutes(api: object): ApiRoute[] {
+  const routes: ApiRoute[] = [];
+  walkRoutes(api, (name, endpoint, contract, ctx) =>
+    routes.push(Object.freeze({ ...routeOf(name, endpoint, contract, ctx), ...resolveCapabilities(endpoint.def, ctx, name) })),
+  );
+  return routes;
 }
 
 /** `apiEndpoint(appApi, "users.posts.update")` → that endpoint (throws on an unknown name). */
 export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name> {
   let value: unknown = api;
   for (const segment of name.split(".")) {
-    value = typeof value === "object" && value !== null && !(value instanceof Endpoint) ? (value as TreeNode)[segment] : undefined;
+    value = typeof value === "object" && value !== null && !isEndpoint(value) ? (value as TreeNode)[segment] : undefined;
   }
-  if (!(value instanceof Endpoint)) fail(`apiEndpoint: unknown route name "${name}"`);
+  if (!isEndpoint(value)) fail(`apiEndpoint: unknown route name "${name}"`);
   return value as ApiEndpoint<Api<A>, Name>;
 }
