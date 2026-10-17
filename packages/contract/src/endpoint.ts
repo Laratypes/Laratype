@@ -125,8 +125,10 @@ export class Endpoint<
   }
 }
 
+/** A new endpoint answers 204 (no content) until `.response(schema, status?)` gives it a body, 200 by default. */
 const make = <M extends Method>(method: M) =>
-  <P extends string>(path: P): Endpoint<M, P> => new Endpoint<M, P>({ method, path, status: 200, throws: [] });
+  <P extends string>(path: P): Endpoint<M, P, undefined, undefined, undefined, undefined, 204> =>
+    new Endpoint<M, P, undefined, undefined, undefined, undefined, 204>({ method, path, status: 204, throws: [] });
 
 export const endpoint = {
   get: make("get"),

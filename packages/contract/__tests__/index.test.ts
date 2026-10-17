@@ -17,7 +17,7 @@ describe('endpoint builder', () => {
     const e = endpoint[method]('/users/:user')
 
     expect(e).toBeInstanceOf(Endpoint)
-    expect(e.def).toEqual({ method, path: '/users/:user', status: 200, throws: [] })
+    expect(e.def).toEqual({ method, path: '/users/:user', status: 204, throws: [] })
   })
 
   it('stores schemas, status and throws on the def', () => {
@@ -70,7 +70,7 @@ describe('endpoint builder', () => {
     const withThrows = withQuery.throws(notFound)
 
     expect(withQuery).not.toBe(base)
-    expect(base.def).toEqual({ method: 'get', path: '/users', status: 200, throws: [] })
+    expect(base.def).toEqual({ method: 'get', path: '/users', status: 204, throws: [] })
     expect(base.def.query).toBeUndefined()
     expect(withQuery.def.throws).toEqual([])
     expect(withThrows.def.throws).toEqual([notFound])

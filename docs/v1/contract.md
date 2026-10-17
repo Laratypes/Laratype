@@ -176,11 +176,11 @@ export class Endpoint<M extends Method = Method, P extends string = string,
 }
 
 export const endpoint: {
-  get: <P extends string>(path: P) => Endpoint<"get", P>;
-  post: <P extends string>(path: P) => Endpoint<"post", P>;
-  put: <P extends string>(path: P) => Endpoint<"put", P>;
-  patch: <P extends string>(path: P) => Endpoint<"patch", P>;
-  delete: <P extends string>(path: P) => Endpoint<"delete", P>;
+  get: <P extends string>(path: P) => Endpoint<"get", P, undefined, undefined, undefined, undefined, 204>;
+  post: <P extends string>(path: P) => Endpoint<"post", P, undefined, undefined, undefined, undefined, 204>;
+  put: <P extends string>(path: P) => Endpoint<"put", P, undefined, undefined, undefined, undefined, 204>;
+  patch: <P extends string>(path: P) => Endpoint<"patch", P, undefined, undefined, undefined, undefined, 204>;
+  delete: <P extends string>(path: P) => Endpoint<"delete", P, undefined, undefined, undefined, undefined, 204>;
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
@@ -191,7 +191,7 @@ export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 - **Recognized by brand, not `instanceof`:** each endpoint carries a non-enumerable `ENDPOINT` brand, a `Symbol.for` key like `API_NODE` and `CONTRACT`. `isEndpoint` checks it, so `defineContract`, `defineApi`, `apiRoutes`, `apiEndpoint` and the client accept endpoints from another bundle or package copy (ESM + CJS).
 - **Immutable.** Every builder call returns a new `Endpoint` and leaves `this` untouched. `def`, `def.throws` and the throttle options are frozen. The constructor copies its argument before freezing, so a caller's object stays mutable (b54ca7c).
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
-- **Status.** The default is `200`. `.response(schema, 201)` gives the literal type `201`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
+- **Status.** The success status is `204` (no content) when there is no response schema, `200` when `.response(schema)` sets one, and an explicit `.response(schema, status)` always wins. `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
 - **Relative paths.** The path is appended to the contract's URL prefix from the [folder tree](#contract-folder-tree). `'/'` is the prefix itself.
 - **Capabilities.** The builder holds the endpoint level of the [capabilities](#capabilities-and-derived-errors), and an unset capability is inherited. `.auth()` uses the default guard and `.auth('<guard>')` a named one. `.public()`, `.authorize(false)` and `.throttle(false)` are the only opt-outs.
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E, Ctx>`).

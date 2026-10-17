@@ -308,16 +308,17 @@ describe('the result union', () => {
     expect((result as { error: Error }).error.message).toBe('[@laratype/client] empty 200 body: the endpoint declares a response')
   })
 
-  it('a declared 204, or an endpoint with no response schema: ok with data undefined, the body left unread', async () => {
+  it('a declared 204, or an endpoint with no response schema (204 by default): ok with data undefined', async () => {
     const things = defineContract()({
       remove: endpoint.delete('/:id').response(z.null(), 204),
       ping: endpoint.post('/ping'),
     })
     const removed = await createClient(things, { fetch: respond(null, 204) }).remove({ params: { id: 1 } })
     expect(removed).toEqual({ ok: true, status: 204, data: undefined, response: expect.any(Response) })
-    const pinged = await createClient(things, { fetch: respond('pong', 200) }).ping()
-    expect(pinged).toMatchObject({ ok: true, status: 200, data: undefined })
-    expect(await pinged.response!.text()).toBe('pong')
+    const pinged = await createClient(things, { fetch: respond(null, 204) }).ping()
+    expect(pinged).toEqual({ ok: true, status: 204, data: undefined, response: expect.any(Response) })
+    // a schema-less endpoint answering 200 breaks the contract (http.md: 204 without a response schema)
+    expect(await createClient(things, { fetch: respond('pong', 200) }).ping()).toMatchObject({ ok: false, unexpected: true, status: 200 })
   })
 
   it('a declared error: the wire { code, ...body } splits into code and error', async () => {
