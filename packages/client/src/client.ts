@@ -17,15 +17,30 @@ interface RequestInput {
 
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
 
+const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:/i;
+
 /** The error codes a route declares, with their status (`undefined` when only the code is known, as in the manifest). */
 type Declared = ReadonlyMap<string, number | undefined>;
 
-/** One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path and declared errors. */
+/**
+ * What a 2xx must look like: the declared status (unknown for the manifest) and the data, `"json"` for a response
+ * schema, `"none"` without one or for a 204, `"any"` when unknown (the manifest: the body is parsed if there is one).
+ */
+interface Success {
+  readonly status: number | undefined;
+  readonly data: "json" | "none" | "any";
+}
+
+/**
+ * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
+ * the 2xx it expects and its declared errors (computed on the first non-2xx answer).
+ */
 interface RouteSpec {
   readonly name: string;
   readonly method: string;
   readonly path: string;
-  readonly declared: Declared;
+  readonly success: Success;
+  readonly declared: () => Declared;
 }
 
 /** The runtime view of `ClientResult`. */
@@ -83,7 +98,9 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: the call's own, then `options.headers`, then `content-type: application/json` for a body.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
- * A rejected `fetch` rejects with `FetchFailed`, so the result union can turn it into `unexpected`.
+ * The request is checked with `new Request()` before `fetch`, outside `FetchFailed`, so a configuration or programming
+ * error (a GET or HEAD with a body, a bad `RequestInit`, a relative URL for the global `fetch` outside a browser)
+ * rejects the call. Only the rejection of `fetch` itself is a `FetchFailed`, which the result union turns into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
@@ -103,6 +120,11 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   if (input.signal) init.signal = input.signal;
   const fetchFn = options.fetch ?? globalThis.fetch;
   if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+  const base = (globalThis as { location?: { href?: string } }).location?.href;
+  if (!options.fetch && !base && !ABSOLUTE_URL.test(url)) {
+    fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
+  }
+  new Request(new URL(url, base ?? "http://localhost"), init);
   try {
     return await fetchFn(url, init);
   } catch (error) {
@@ -113,44 +135,63 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
 const unexpected = (status: number, error: unknown, response: Response | undefined): Result => ({ ok: false, unexpected: true, status, error, response });
 
 /**
- * Reads the response into the result union. The body is read from a clone, so `response` stays unread.
- * - A body that isn't JSON is unexpected; an empty body parses to `undefined`.
- * - 2xx: `ok: true`.
+ * Reads the response into the result union. The body is read once, from `response` itself, so a result's `response`
+ * has its body consumed (status and headers stay usable), except for a success with no data, which leaves it unread.
+ * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a 204 (the body
+ *   is not read); with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
  * - Otherwise the wire format is `{ code, ...body }`: a declared code (with its status, when known) is a declared
  *   error whose `error` is the body without `code`; anything else is unexpected.
+ * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
+ *   `unexpected` with the HTTP status, the `response` and that error.
  */
-async function toResult(response: Response, declared: Declared): Promise<Result> {
+async function toResult(response: Response, success: Success, declared: () => Declared): Promise<Result> {
+  const { status } = response;
+  const expected = success.status === undefined || status === success.status;
+  if (response.ok && expected && success.data === "none") return { ok: true, status, data: undefined, response };
+  let text: string;
   let body: unknown;
   try {
-    const text = await response.clone().text();
+    text = await response.text();
     body = text === "" ? undefined : JSON.parse(text);
   } catch (error) {
-    return unexpected(response.status, error, response);
+    return unexpected(status, error, response);
   }
-  if (response.ok) return { ok: true, status: response.status, data: body, response };
+  if (response.ok) {
+    if (!expected) return unexpected(status, body, response);
+    if (success.data === "json" && text === "") {
+      return unexpected(status, new TypeError(`[@laratype/client] empty ${status} body: the endpoint declares a response`), response);
+    }
+    return { ok: true, status, data: body, response };
+  }
   if (typeof body === "object" && body !== null && !Array.isArray(body)) {
     const { code, ...error } = body as Record<string, unknown>;
-    if (typeof code === "string" && declared.has(code)) {
-      const status = declared.get(code);
-      if (status === undefined || status === response.status) return { ok: false, status: response.status, code, error, response };
+    const errors = declared();
+    if (typeof code === "string" && errors.has(code)) {
+      const errorStatus = errors.get(code);
+      if (errorStatus === undefined || errorStatus === status) return { ok: false, status, code, error, response };
     }
   }
-  return unexpected(response.status, body, response);
+  return unexpected(status, body, response);
 }
 
 /**
- * One endpoint call: `send` wrapped into the result union. A network failure or an abort resolves as unexpected
- * (`status: 0`); a programming error, such as a missing required param, still rejects.
+ * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
+ * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
+ * The declared errors are computed on the first non-2xx answer, then kept.
  */
-const createCall = (send: Send, method: Method, path: string, declared: Declared): Call => async (input) => {
-  let response: Response;
-  try {
-    response = await send(method, path, input);
-  } catch (error) {
-    if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
-    throw error;
-  }
-  return toResult(response, declared);
+const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
+  let declared: Declared | undefined;
+  const lazy = () => (declared ??= route.declared());
+  return async (input) => {
+    let response: Response;
+    try {
+      response = await send(method, route.path, input);
+    } catch (error) {
+      if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
+      throw error;
+    }
+    return toResult(response, route.success, lazy);
+  };
 };
 
 const freezeTree = (node: Record<string, unknown>): object => {
@@ -165,7 +206,8 @@ const freezeTree = (node: Record<string, unknown>): object => {
 function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean): object {
   const where = isManifest ? " in the manifest" : "";
   const root: Record<string, unknown> = Object.create(null);
-  for (const { name, method, path, declared } of routes) {
+  for (const route of routes) {
+    const { name } = route;
     const segments = name.split(".");
     // manifest names are full route names (folder + endpoint key); apiPaths names are valid by construction
     if (segments.some((s) => s === "") || (isManifest && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
@@ -176,7 +218,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
     if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
-    node[key] = createCall(send, method.toLowerCase() as Method, path, declared);
+    node[key] = createCall(send, route.method.toLowerCase() as Method, route);
   }
   return freezeTree(root);
 }
@@ -189,21 +231,26 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
  */
 const pathsOf = (api: object): RouteSpec[] => {
   const prefix = isApiNode(api) ? `${(api[API_NODE] as ApiNodeInfo).name}.` : "";
-  return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => ({
-    name: r.name.slice(prefix.length),
-    method: r.method,
-    path: r.path,
-    declared: new Map(routeErrors(r).map((e) => [e.code, e.status])),
-  }));
+  return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => {
+    const { response, status } = r.endpoint.def;
+    return {
+      name: r.name.slice(prefix.length),
+      method: r.method,
+      path: r.path,
+      success: { status, data: response && status !== 204 ? "json" : "none" },
+      declared: () => new Map(routeErrors(r).map((e) => [e.code, e.status])),
+    };
+  });
 };
 
-/** The manifest's routes; it knows the error codes only, not their status. */
+/** The manifest's routes; it knows the error codes only (not their status), and neither the success status nor the response schema. */
 const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
   Object.entries(manifest).map(([name, route]) => ({
     name,
     method: route.method,
     path: route.path,
-    declared: new Map((route.errors ?? []).map((code) => [code, undefined])),
+    success: { status: undefined, data: "any" },
+    declared: () => new Map((route.errors ?? []).map((code) => [code, undefined])),
   }));
 
 /**

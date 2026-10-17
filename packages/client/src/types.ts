@@ -52,10 +52,20 @@ export type CallInput<E extends EndpointShape> = Prettify<
   ParamsPart<E["params"]> & Part<"query", E["query"]> & Part<"body", E["body"]> & HeadersPart<E["headers"]> & { signal?: AbortSignal }
 >;
 
-/** The parsed body of a successful response: the wire type of the response schema, `unknown` without one. */
-export type ResponseData<E extends EndpointShape> = [E["response"]] extends [undefined] ? unknown : Jsonify<E["response"]>;
+/**
+ * The data of a successful response: the wire type of the response schema, and `undefined` for an endpoint with no
+ * response schema or a declared 204.
+ */
+export type ResponseData<E extends EndpointShape> = [E["response"]] extends [undefined]
+  ? undefined
+  : [E["status"]] extends [204]
+    ? undefined
+    : Jsonify<E["response"]>;
 
-/** A 2xx response: `data` is the parsed JSON body (`undefined` when the body is empty). */
+/**
+ * The declared 2xx: `status` is the endpoint's declared status, and `data` its parsed JSON body (see `ResponseData`).
+ * `response` has its body consumed, unless `data` is `undefined`.
+ */
 export interface ClientSuccess<E extends EndpointShape> {
   ok: true;
   status: E["status"];
@@ -76,8 +86,12 @@ type Failure<Er> = Er extends { status: infer St; code: infer Code; body: infer 
 export type ClientFailure<E extends EndpointShape> = Failure<E["errors"]>;
 
 /**
- * Anything the contract doesn't declare: a network failure or abort (`status: 0`, no `response`), a status or code
- * the endpoint doesn't declare, or a body that isn't JSON. `error` is the thrown error or the parsed body.
+ * Anything the contract doesn't declare:
+ * - a network failure or abort before the headers arrive: `status: 0`, no `response`, `error` is the thrown error;
+ * - an error while the body is read (an abort or network error after the headers): the HTTP status, `response`, that error;
+ * - a 2xx other than the declared status, or an empty body where a response schema is declared;
+ * - a status or code the endpoint doesn't declare, or a body that isn't JSON.
+ * `error` is the thrown error or the parsed body.
  */
 export interface UnexpectedResult {
   ok: false;

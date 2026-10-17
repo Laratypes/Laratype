@@ -160,6 +160,18 @@ describe('createClient', () => {
   })
 })
 
+describe('data of a success', () => {
+  type Shape<Response, Status extends number> = {
+    method: 'delete'; path: '/'; params: {}; query: undefined; body: undefined; headers: undefined
+    response: Response; status: Status; errors: never
+  }
+  test('undefined without a response schema or for a declared 204', () => {
+    expectTypeOf<ResponseData<Shape<undefined, 200>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ResponseData<Shape<null, 204>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ResponseData<Shape<{ ok: boolean }, 200>>>().toEqualTypeOf<{ ok: boolean }>()
+  })
+})
+
 describe('wire type of the response (Jsonify)', () => {
   test('a property that may be undefined is optional, since JSON.stringify drops it', () => {
     type Wire = ResponseData<{

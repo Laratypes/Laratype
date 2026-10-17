@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createClient } from '@laratype/client'
 import type { ClientOptions, FetchLike } from '@laratype/client'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
+import * as z from 'zod'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import users from './fixtures/app/api/users'
 import type { Prefix } from './fixtures/app/api/users/[user]/$types'
@@ -155,14 +156,32 @@ describe('createClient', () => {
 
   it('uses the global fetch, read at call time, when none is injected', async () => {
     const { fetch, calls } = fakeFetch()
-    const api = createClient(appApi)
+    const api = createClient(appApi, { baseUrl: 'https://example.com' })
     vi.stubGlobal('fetch', fetch)
     try {
       await api.v1.health.check()
     } finally {
       vi.unstubAllGlobals()
     }
-    expect(calls[0]!.url).toBe('/api/v1/health')
+    expect(calls[0]!.url).toBe('https://example.com/api/v1/health')
+  })
+
+  it('rejects, without calling fetch, a request that cannot be built: a configuration or programming error', async () => {
+    const { fetch } = fakeFetch()
+    // a GET with a body: new Request() refuses it
+    // @ts-expect-error runtime check
+    await expect(createClient(appApi, { fetch }).users.index({ body: { x: 1 } })).rejects.toThrow(TypeError)
+    expect(fetch).not.toHaveBeenCalled()
+    // the global fetch with a relative URL and no location (Node SSR)
+    vi.stubGlobal('fetch', fetch)
+    try {
+      await expect(createClient(appApi).users.index()).rejects.toThrow(
+        '[@laratype/client] relative URL "/api/users" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch',
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('builds a client from an API node or a single contract, with the same names as the appApi client', async () => {
@@ -270,19 +289,35 @@ const respond = (body: BodyInit | null, status = 200) => vi.fn<FetchLike>(async 
 const json = (value: unknown, status = 200) => respond(JSON.stringify(value), status)
 
 describe('the result union', () => {
-  it('success: ok, the status and the parsed JSON body, with the unread Response', async () => {
+  it('success: ok, the declared status and the parsed JSON body; the body is read once, so response.bodyUsed', async () => {
     const api = createClient(appApi, { fetch: json([{ id: 1, title: 'T' }]) })
     const result = await api.users.posts.index({ params: { user: 1 } })
     expect(result).toEqual({ ok: true, status: 200, data: [{ id: 1, title: 'T' }], response: expect.any(Response) })
-    expect(result.response!.bodyUsed).toBe(false)
-    expect(await result.response!.json()).toEqual([{ id: 1, title: 'T' }])
+    expect(result.response!.bodyUsed).toBe(true)
+    expect(result.response!.headers).toBeInstanceOf(Headers)
   })
 
-  it('204 or an empty body: ok, data undefined', async () => {
-    const res204 = await createClient(appApi, { fetch: respond(null, 204) }).users.posts.index({ params: { user: 1 } })
-    expect(res204).toMatchObject({ ok: true, status: 204, data: undefined })
-    const empty = await createClient(appApi, { fetch: respond('', 200) }).v1.health.check()
-    expect(empty).toMatchObject({ ok: true, status: 200, data: undefined })
+  it('a 2xx other than the declared status is unexpected, with the response: 200 for a declared 201', async () => {
+    const result = await createClient(appApi, { fetch: json({ id: 1 }, 200) }).users.store({ body: { name: 'A', email: 'a@b.c' } })
+    expect(result).toEqual({ ok: false, unexpected: true, status: 200, error: { id: 1 }, response: expect.any(Response) })
+  })
+
+  it('an empty 200 where a response schema is declared is unexpected, with the response', async () => {
+    const result = await createClient(appApi, { fetch: respond('', 200) }).v1.health.check()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 200, response: expect.any(Response) })
+    expect((result as { error: Error }).error.message).toBe('[@laratype/client] empty 200 body: the endpoint declares a response')
+  })
+
+  it('a declared 204, or an endpoint with no response schema: ok with data undefined, the body left unread', async () => {
+    const things = defineContract()({
+      remove: endpoint.delete('/:id').response(z.null(), 204),
+      ping: endpoint.post('/ping'),
+    })
+    const removed = await createClient(things, { fetch: respond(null, 204) }).remove({ params: { id: 1 } })
+    expect(removed).toEqual({ ok: true, status: 204, data: undefined, response: expect.any(Response) })
+    const pinged = await createClient(things, { fetch: respond('pong', 200) }).ping()
+    expect(pinged).toMatchObject({ ok: true, status: 200, data: undefined })
+    expect(await pinged.response!.text()).toBe('pong')
   })
 
   it('a declared error: the wire { code, ...body } splits into code and error', async () => {
@@ -341,8 +376,7 @@ describe('the result union', () => {
 
   it('a non-JSON body is unexpected, on a 2xx or an error status', async () => {
     const ok = await createClient(appApi, { fetch: respond('<html>ok</html>', 200) }).v1.health.check()
-    expect(ok).toMatchObject({ ok: false, unexpected: true, status: 200, error: expect.any(SyntaxError) })
-    expect(await ok.response!.text()).toBe('<html>ok</html>')
+    expect(ok).toMatchObject({ ok: false, unexpected: true, status: 200, error: expect.any(SyntaxError), response: expect.any(Response) })
     const badGateway = await createClient(appApi, { fetch: respond('Bad Gateway', 502) }).users.index()
     expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError) })
   })
@@ -357,6 +391,13 @@ describe('the result union', () => {
     const aborting = createClient(appApi, { fetch: (_, init) => Promise.reject(init.signal!.reason) })
     const aborted = await aborting.users.index({ signal: controller.signal })
     expect(aborted).toMatchObject({ ok: false, unexpected: true, status: 0, error: controller.signal.reason })
+  })
+
+  it('an error while the body is read, after the headers arrived, is unexpected with the HTTP status and response', async () => {
+    const reading = new TypeError('network error while reading')
+    const fetch = vi.fn<FetchLike>(async () => new Response(new ReadableStream({ start: (c) => c.error(reading) }), { status: 200 }))
+    const result = await createClient(appApi, { fetch }).v1.health.check()
+    expect(result).toEqual({ ok: false, unexpected: true, status: 200, error: reading, response: expect.any(Response) })
   })
 
   it('a contract whose .authorize() gets auth from a folder scope declares its own errors (no 401 alone)', async () => {

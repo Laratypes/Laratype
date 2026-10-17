@@ -123,7 +123,7 @@ export type ClientOf<A> = Client<ApiTypes<A>>;
 export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
 export type EndpointCall<E extends EndpointShape>;   // (input: CallInput<E>) => Promise<ClientResult<E>>, input optional when nothing in it is required
 export type CallInput<E extends EndpointShape>;      // { params?, query?, body?, headers?, signal? }, see Invariants
-export type ResponseData<E extends EndpointShape>;   // the wire type of the response schema; unknown without one
+export type ResponseData<E extends EndpointShape>;   // the wire type of the response schema; undefined without one or for a declared 204
 export type HeaderValues = Record<string, string>;
 export interface ManifestRoute { readonly method: string; readonly path: string; readonly errors?: readonly string[] }
 export type Manifest = Readonly<Record<string, ManifestRoute>>;   // the generated `manifest` of api.ts
@@ -148,7 +148,7 @@ if (result.ok) result.data.title                     // see Result union
   - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`.
   - `signal`: an `AbortSignal`, passed to `fetch`.
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
-- **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.
+- **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, there is no `fetch`, or `new Request(url, init)` refuses the request (a GET or HEAD with a body, a bad `RequestInit`). The request is checked before `fetch` is called, so these never become a status-0 result. A relative URL with the global `fetch` outside a browser (no `location`, as in Node SSR) rejects too: set `baseUrl` to an absolute URL, or pass `fetch`.
 - **Options are live:** `baseUrl`, `headers` and `fetch` are read from the options object at each call, so changing them later (a refreshed token) applies to the next call.
 - **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema gives `unknown`. The `Jsonify` helper is internal for now.
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
@@ -209,11 +209,18 @@ switch (result.code) {
 
 ### Invariants
 - **Wire format of an error:** the JSON body is the error's body plus its code, flat: `{ "code": "EMAIL_TAKEN", "message": "...", "email": "..." }`. It holds for domain errors and the framework catalog errors alike (`{ "code": "VALIDATION_ERROR", "message": "...", "errors": {...} }`). A body is a plain object without its own `code` key ([contract.md › Domain errors](./contract.md#domain-errors)). The server side is H5 [#108](https://github.com/Laratypes/Laratype/issues/108) ([http.md › Exceptions](./http.md#exceptions)). The unknown-error 500 body `{ message: "Server Error" }` has no `code`, so the client sees it as unexpected.
-- **Success:** any 2xx. `data` is the parsed JSON body, typed with the [wire type](#createclient) of the response schema; an empty body (204) gives `undefined`. `status` is typed with the endpoint's declared status; the manifest has no success status, so it isn't checked at runtime.
+- **Success:** the endpoint's declared status, which `status` is typed with. Any other 2xx (200 for a declared 201) is unexpected.
+- **Data:** `undefined`, in the type and at runtime, for an endpoint with no response schema or a declared 204; the body is then not read. With a response schema, `data` is the parsed JSON body, typed with the [wire type](#createclient) of the schema, and an empty 2xx body is unexpected, since the server broke the contract.
+- **Manifest:** the manifest carries neither the success status nor whether there is a response schema, so `createClient<AppApi>(manifest)` accepts any 2xx and parses a body if there is one.
 - **Declared error:** a non-2xx JSON object body whose `code` is one of the endpoint's declared codes, and whose status matches that code's status when it is known. `code` is that code and `error` is the body without `code`. The declared codes are the [derived errors](./contract.md#capabilities-and-derived-errors) of the endpoint's capabilities across all levels, plus the union of its `throws`. They come from `routeErrors` on each `apiPaths()` route ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)) for an `appApi`, an API node or a contract, and from the manifest's `errors` for `createClient<AppApi>(manifest)` (codes only, so any status). A contract alone has no scope chain, so its declared errors are those of its own options and endpoints, as `ClientOf` types them.
 - **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `ACCOUNT_LOCKED` are both 403), so `status` alone doesn't identify the error. `code` is `undefined` on the unexpected variant, so `switch (result.code)` covers it with `case undefined`.
-- **Unexpected** (`unexpected: true`): a network failure or an abort (`status: 0`, `response: undefined`, `error` is the thrown error); a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body); a body that isn't JSON, on any status (`error` is the parse error).
-- **`response`** is the fetch `Response` on every variant except a network failure. Its body is unread (the client reads a clone), so headers such as `Retry-After` and the raw body stay available.
+- **Unexpected** (`unexpected: true`), always with `response` except before the headers arrive:
+  - a network failure or an abort before the headers arrive: `status: 0`, `response: undefined`, `error` is the thrown error;
+  - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
+  - a 2xx other than the declared status, or an empty body where a response schema is declared;
+  - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
+  - a body that isn't JSON, on any status (`error` is the parse error).
+- **`response`** is the fetch `Response` on every variant except a failure before the headers. The client reads its body once, so the body is consumed (`bodyUsed`); status and headers such as `Retry-After` stay usable. A success with `data: undefined` leaves the body unread.
 - A call never rejects for an HTTP or network outcome; see [createClient](#createclient) › Result.
 
 ### Diagnostics
