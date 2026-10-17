@@ -130,3 +130,15 @@ const ctx = contextual({
 })
 expectTypeOf(ctx.index.__types.status).toEqualTypeOf<200>()
 expectTypeOf(ctx.created.__types.status).toEqualTypeOf<201>()
+
+// --- success statuses: 204 without a response schema, .status(n) for a body-less 2xx, 2xx only
+expectTypeOf<Endpoint<'get', '/'>['__types']['status']>().toEqualTypeOf<204>()
+expectTypeOf<Endpoint<'get', '/', undefined, undefined, undefined, typeof response>['__types']['status']>().toEqualTypeOf<200>()
+expectTypeOf(endpoint.post('/jobs').status(202).__types.status).toEqualTypeOf<202>()
+expectTypeOf(endpoint.post('/jobs').status(202).__types.response).toEqualTypeOf<undefined>()
+// @ts-expect-error a success status must be 2xx
+endpoint.post('/jobs').status(301)
+// @ts-expect-error a success status must be 2xx, with a body too
+endpoint.get('/').response(response, 404)
+// @ts-expect-error .status() is for a body-less success: use .response(schema, status)
+endpoint.get('/').response(response).status(202)

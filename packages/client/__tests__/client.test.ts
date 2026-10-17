@@ -367,6 +367,14 @@ describe('the result union', () => {
     expect((result as { error: Error }).error.message).toBe('[@laratype/client] empty 200 body: the endpoint declares a response')
   })
 
+  it('a body-less 202 declared with .status(): ok with data undefined, the body not read', async () => {
+    const jobs = defineContract()({ start: endpoint.post('/jobs').status(202) })
+    const result = await createClient(jobs, { fetch: respond('', 202) }).start()
+    expect(result).toEqual({ ok: true, status: 202, data: undefined, response: expect.any(Response) })
+    expect(result.response!.bodyUsed).toBe(false)
+    expect(await createClient(jobs, { fetch: respond(null, 204) }).start()).toMatchObject({ ok: false, unexpected: true, status: 204 })
+  })
+
   it('a declared 204, or an endpoint with no response schema (204 by default): ok with data undefined', async () => {
     const things = defineContract()({
       remove: endpoint.delete('/:id').response(z.null(), 204),

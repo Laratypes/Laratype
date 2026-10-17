@@ -13,6 +13,21 @@ describe('@laratype/contract', () => {
 })
 
 describe('endpoint builder', () => {
+  it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
+    expect(endpoint.post('/jobs').status(202).def).toMatchObject({ status: 202 })
+    expect(endpoint.post('/jobs').status(202).def.response).toBeUndefined()
+    expect(() => endpoint.post('/jobs').status(301 as never)).toThrow(
+      new TypeError('[@laratype/contract] status(): the status must be a 2xx success status, got 301'),
+    )
+    expect(() => endpoint.get('/').response(z.string(), 404 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): the status must be a 2xx success status, got 404'),
+    )
+    expect(() => endpoint.get('/').response(z.string(), 200.5 as never)).toThrow(/2xx success status/)
+    expect(() => (endpoint.get('/').response(z.string()) as unknown as AnyEndpoint).status(202)).toThrow(
+      new TypeError('[@laratype/contract] status(): the endpoint has a response schema; use .response(schema, status)'),
+    )
+  })
+
   it.each(['get', 'post', 'put', 'patch', 'delete'] as const)('endpoint.%s(path) creates a bare def', (method) => {
     const e = endpoint[method]('/users/:user')
 

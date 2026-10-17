@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
 
@@ -81,6 +82,13 @@ describe('defineError', () => {
     expect(() => Bad()).toThrow(
       new TypeError(`[@laratype/contract] BAD: the body must be a plain object, got ${got} (the error is sent as { code, ...body })`),
     )
+  })
+
+  it('accepts a plain object from another realm (iframe, vm)', () => {
+    const foreign = runInNewContext('({ message: "x" })') as { message: string }
+    expect(Object.getPrototypeOf(foreign)).not.toBe(Object.prototype)
+    expect(defineError(409, 'OK_REALM', () => foreign)().body).toBe(foreign)
+    expect(() => defineError(409, 'BAD', (() => runInNewContext('new Map()')) as never)()).toThrow(/must be a plain object, got Map/)
   })
 
   it('accepts a body with a null prototype', () => {

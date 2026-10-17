@@ -159,7 +159,7 @@ export type DefaultCaps = { auth: undefined; authorize: undefined; throttle: und
 
 export class Endpoint<M extends Method = Method, P extends string = string,
   Q extends Schema = undefined, B extends Schema = undefined, H extends Schema = undefined,
-  R extends Schema = undefined, St extends number = 200, E extends AnyErrorDef = never, C extends EndpointCaps = DefaultCaps> {
+  R extends Schema = undefined, St extends number = R extends undefined ? 204 : 200, E extends AnyErrorDef = never, C extends EndpointCaps = DefaultCaps> {
   declare readonly __types: { method: M; path: P; params: PathParams<P>; query: Q; body: B;
                               headers: H; response: R; status: St; throws: E; caps: C };   // phantom
   readonly def: EndpointDef;
@@ -167,7 +167,8 @@ export class Endpoint<M extends Method = Method, P extends string = string,
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C>;
   body<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;
   headers<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, B, S, R, St, E, C>;
-  response<S extends StandardSchemaV1, Code extends number = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C>;
+  response<S extends StandardSchemaV1, Code extends SuccessStatus = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C>;
+  status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C>;   // body-less 2xx
   throws<const Es extends readonly AnyErrorDef[]>(...errs: Es): Endpoint<M, P, Q, B, H, R, St, E | Es[number], C>;
   auth<const A extends AuthOption = true>(guard?: A): Endpoint<M, P, Q, B, H, R, St, E, { auth: A; authorize: C["authorize"]; throttle: C["throttle"] }>;
   public(): Endpoint<M, P, Q, B, H, R, St, E, { auth: false; authorize: C["authorize"]; throttle: C["throttle"] }>;
@@ -176,13 +177,14 @@ export class Endpoint<M extends Method = Method, P extends string = string,
 }
 
 export const endpoint: {
-  get: <P extends string>(path: P) => Endpoint<"get", P, undefined, undefined, undefined, undefined, 204>;
-  post: <P extends string>(path: P) => Endpoint<"post", P, undefined, undefined, undefined, undefined, 204>;
-  put: <P extends string>(path: P) => Endpoint<"put", P, undefined, undefined, undefined, undefined, 204>;
-  patch: <P extends string>(path: P) => Endpoint<"patch", P, undefined, undefined, undefined, undefined, 204>;
-  delete: <P extends string>(path: P) => Endpoint<"delete", P, undefined, undefined, undefined, undefined, 204>;
+  get: <P extends string>(path: P) => Endpoint<"get", P>;   // status 204 until .response()
+  post: <P extends string>(path: P) => Endpoint<"post", P>;   // status 204 until .response()
+  put: <P extends string>(path: P) => Endpoint<"put", P>;   // status 204 until .response()
+  patch: <P extends string>(path: P) => Endpoint<"patch", P>;   // status 204 until .response()
+  delete: <P extends string>(path: P) => Endpoint<"delete", P>;   // status 204 until .response()
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
+export type SuccessStatus;                            // 200 | 201 | ... | 299
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
@@ -191,19 +193,21 @@ export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 - **Recognized by brand, not `instanceof`:** each endpoint carries a non-enumerable `ENDPOINT` brand, a `Symbol.for` key like `API_NODE` and `CONTRACT`. `isEndpoint` checks it, so `defineContract`, `defineApi`, `apiRoutes`, `apiEndpoint` and the client accept endpoints from another bundle or package copy (ESM + CJS).
 - **Immutable.** Every builder call returns a new `Endpoint` and leaves `this` untouched. `def`, `def.throws` and the throttle options are frozen. The constructor copies its argument before freezing, so a caller's object stays mutable (b54ca7c).
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
-- **Status.** The success status is `204` (no content) when there is no response schema, `200` when `.response(schema)` sets one, and an explicit `.response(schema, status)` always wins. `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
+- **Status.** The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
 - **Relative paths.** The path is appended to the contract's URL prefix from the [folder tree](#contract-folder-tree). `'/'` is the prefix itself.
 - **Capabilities.** The builder holds the endpoint level of the [capabilities](#capabilities-and-derived-errors), and an unset capability is inherited. `.auth()` uses the default guard and `.auth('<guard>')` a named one. `.public()`, `.authorize(false)` and `.throttle(false)` are the only opt-outs.
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E, Ctx>`).
 
 ### Diagnostics
-Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, and an unknown path param.
+Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a success status outside 2xx (`.response(schema, 404)`, `.status(301)`), `.status()` after `.response()`, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, and an unknown path param.
 
 Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `throws(): throws must be a list of errors (use defineError)`
 - `auth(): auth must be true or a guard name`
 - `authorize(): expected a boolean`
 - `throttle(): throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`
+- `response(): the status must be a 2xx success status, got <status>` and the same for `status()`
+- `status(): the endpoint has a response schema; use .response(schema, status)`
 
 Writing to a frozen `def` throws `TypeError` in strict mode.
 
@@ -784,7 +788,7 @@ if (EmailTaken.is(e)) e.body.email
 - **A factory:** `defineError(status, code, body?)` returns a frozen function that also carries `status`, `code` and `is`. Calling it builds a `ContractError` (an `Error`) to throw. Without a body factory the body is `{ message }`, and the message defaults to the code.
 - **`E.is(e)`** compares `code`, not `instanceof`, so it works across bundles and package copies.
 - **Codes** are `UPPER_SNAKE` (`/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/`), like the built-in [catalog](#error-catalog).
-- **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (prototype `Object.prototype` or `null`), so a `Map`, `Set`, `Date` or class instance is rejected too. The default `{ message }` body and the catalog bodies already comply.
+- **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (a `null` prototype, or the `Object.prototype` of any realm, such as an iframe's), so a `Map`, `Set`, `Date` or class instance is rejected too. The default `{ message }` body and the catalog bodies already comply.
 - **Declaring:** `throws` on an endpoint, a contract or a scope. The levels add up ([inheritance](#capabilities-and-derived-errors)). `throws` also accepts the built-in catalog errors. For example, a search endpoint with no path param whose service throws `notFound` declares `.throws(errors.notFound)`, so the undeclared-error check accepts it.
 - **403 from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws`. There is no separate capability for it.
 - **Undeclared errors:** in dev and test, throwing an error the running endpoint doesn't declare is reported, and fails the test ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).

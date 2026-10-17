@@ -27,6 +27,20 @@ export interface EndpointDef {
 
 type Schema = StandardSchemaV1 | undefined;
 
+type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
+
+/** A success status: `200` to `299`. */
+export type SuccessStatus = ToNumber<`2${Digit}${Digit}`>;
+
+/** A success status must be 2xx: checked when the endpoint is defined. */
+const checkSuccess = (status: unknown, label: string): number => {
+  if (!Number.isInteger(status) || (status as number) < 200 || (status as number) > 299) {
+    throw new TypeError(`[@laratype/contract] ${label}: the status must be a 2xx success status, got ${String(status)}`);
+  }
+  return status as number;
+};
+
 /** Type-level capability state of one endpoint. `undefined` means "inherit". */
 export interface EndpointCaps {
   auth: AuthOption | false | undefined;
@@ -54,7 +68,7 @@ export class Endpoint<
   B extends Schema = undefined,
   H extends Schema = undefined,
   R extends Schema = undefined,
-  St extends number = 200,
+  St extends number = R extends undefined ? 204 : 200,
   E extends AnyErrorDef = never,
   C extends EndpointCaps = DefaultCaps,
 > {
@@ -92,8 +106,18 @@ export class Endpoint<
   }
 
   // NoInfer: a contextual return type (e.g. AnyEndpoint) must not infer C, so the 200 default applies
-  response<S extends StandardSchemaV1, Code extends number = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
-    return new Endpoint({ ...this.def, response: schema, status: status ?? 200 });
+  /** A JSON response body: its schema and a 2xx status, `200` by default. */
+  response<S extends StandardSchemaV1, Code extends SuccessStatus = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
+    return new Endpoint({ ...this.def, response: schema, status: status === undefined ? 200 : checkSuccess(status, "response()") });
+  }
+
+  /**
+   * A success with no body: `endpoint.post('/jobs').status(202)`. Without it a schema-less endpoint answers `204`.
+   * For a status with a JSON body, use `.response(schema, status)`; `.status()` after `.response()` is an error.
+   */
+  status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C> {
+    if (this.def.response) throw new TypeError("[@laratype/contract] status(): the endpoint has a response schema; use .response(schema, status)");
+    return new Endpoint({ ...this.def, status: checkSuccess(status, "status()") });
   }
 
   /** Domain errors this endpoint may throw, added to the ones inherited from its contract and scopes. */
@@ -127,8 +151,7 @@ export class Endpoint<
 
 /** A new endpoint answers 204 (no content) until `.response(schema, status?)` gives it a body, 200 by default. */
 const make = <M extends Method>(method: M) =>
-  <P extends string>(path: P): Endpoint<M, P, undefined, undefined, undefined, undefined, 204> =>
-    new Endpoint<M, P, undefined, undefined, undefined, undefined, 204>({ method, path, status: 204, throws: [] });
+  <P extends string>(path: P): Endpoint<M, P> => new Endpoint<M, P>({ method, path, status: 204, throws: [] });
 
 export const endpoint = {
   get: make("get"),
