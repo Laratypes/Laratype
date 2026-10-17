@@ -17,7 +17,14 @@ interface RequestInput {
 
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
 
-const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:/i;
+/** The page URL in a browser; `undefined` elsewhere, including Deno without `--location`, where reading it throws. */
+const locationHref = (): string | undefined => {
+  try {
+    return (globalThis as { location?: { href?: string } }).location?.href;
+  } catch {
+    return undefined;
+  }
+};
 
 /** The error codes a route declares, with their status (`undefined` when only the code is known, as in the manifest). */
 type Declared = ReadonlyMap<string, number | undefined>;
@@ -120,11 +127,16 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   if (input.signal) init.signal = input.signal;
   const fetchFn = options.fetch ?? globalThis.fetch;
   if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
-  const base = (globalThis as { location?: { href?: string } }).location?.href;
-  if (!options.fetch && !base && !ABSOLUTE_URL.test(url)) {
+  // relative: baseUrl has no origin ("" or "/api", and "localhost:3000/api" too, which has no "//")
+  const base = origin ? undefined : locationHref();
+  // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so only the global one is guarded
+  if (!origin && !base && !options.fetch) {
     fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
   }
-  new Request(new URL(url, base ?? "http://localhost"), init);
+  // validation only: no signal (it would add an abort listener), and skipped where Request or URL is missing
+  if (typeof Request === "function" && typeof URL === "function") {
+    new Request(new URL(url, base ?? "http://localhost"), { ...init, signal: undefined });
+  }
   try {
     return await fetchFn(url, init);
   } catch (error) {

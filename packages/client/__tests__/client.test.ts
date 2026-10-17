@@ -166,6 +166,65 @@ describe('createClient', () => {
     expect(calls[0]!.url).toBe('https://example.com/api/v1/health')
   })
 
+  it('guards a relative URL for the global fetch, including a "localhost:3000" baseUrl without "//"', async () => {
+    const { fetch } = fakeFetch()
+    vi.stubGlobal('fetch', fetch)
+    try {
+      await expect(createClient(appApi, { baseUrl: 'localhost:3000/api' }).users.index()).rejects.toThrow(
+        '[@laratype/client] relative URL "localhost:3000/api/api/users" with the global fetch outside a browser',
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('reads location only for a relative URL, and a location that throws (Deno without --location) counts as none', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'location')
+    let reads = 0
+    Object.defineProperty(globalThis, 'location', { configurable: true, get: () => { reads++; throw new ReferenceError('no --location') } })
+    try {
+      const { fetch, calls } = fakeFetch()
+      await createClient(appApi, { fetch, baseUrl: 'https://example.com' }).users.index()
+      expect(reads).toBe(0)
+      // an injected fetch takes the relative URL
+      await createClient(appApi, { fetch }).users.index()
+      expect(reads).toBe(1)
+      expect(calls.map((c) => c.url)).toEqual(['https://example.com/api/users', '/api/users'])
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'location', descriptor)
+      else delete (globalThis as { location?: unknown }).location
+    }
+  })
+
+  it('checks the request without the caller signal, and skips the check where Request or URL is missing', async () => {
+    const signals: unknown[] = []
+    const RealRequest = Request
+    vi.stubGlobal('Request', class extends RealRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        signals.push(init?.signal)
+        super(input, init)
+      }
+    })
+    try {
+      const { fetch, calls } = fakeFetch()
+      const controller = new AbortController()
+      await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
+      expect(signals).toEqual([undefined])
+      expect(calls[0]!.signal).toBe(controller.signal)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    vi.stubGlobal('Request', undefined)
+    try {
+      const { fetch, calls } = fakeFetch()
+      await createClient(appApi, { fetch }).users.index()
+      expect(calls).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('rejects, without calling fetch, a request that cannot be built: a configuration or programming error', async () => {
     const { fetch } = fakeFetch()
     // a GET with a body: new Request() refuses it
