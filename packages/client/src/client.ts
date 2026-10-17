@@ -17,17 +17,32 @@ interface RequestInput {
 
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
 
-/** The page URL in a browser; `undefined` elsewhere, including Deno without `--location`, where reading it throws. */
-const locationHref = (): string | undefined => {
+/**
+ * The URL a relative request URL resolves against, as `fetch` does: the document's base URL (a `<base href>`, a
+ * srcdoc iframe's) when there is a document, else the page location; `undefined` outside a browser, including Deno
+ * without `--location`, where reading `location` throws.
+ */
+const pageBaseUrl = (): string | undefined => {
   try {
-    return (globalThis as { location?: { href?: string } }).location?.href;
+    const page = globalThis as { document?: { baseURI?: string }; location?: { href?: string } };
+    return page.document?.baseURI || page.location?.href;
   } catch {
     return undefined;
   }
 };
 
-/** The error codes a route declares, with their status (`undefined` when only the code is known, as in the manifest). */
-type Declared = ReadonlyMap<string, number | undefined>;
+/**
+ * The error codes a route declares, each with every status it is declared with (two errors may share a code with
+ * different statuses), or `undefined` when only the code is known, as in the manifest.
+ */
+type Declared = ReadonlyMap<string, ReadonlySet<number> | undefined>;
+
+/** Groups declared errors by code, keeping every status. */
+const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly status: number }>): Declared => {
+  const map = new Map<string, Set<number>>();
+  for (const { code, status } of errors) map.set(code, (map.get(code) ?? new Set()).add(status));
+  return map;
+};
 
 /**
  * What a 2xx must look like: the declared status (unknown for the manifest) and the data, `"json"` for a response
@@ -54,7 +69,7 @@ interface RouteSpec {
 type Result =
   | { ok: true; status: number; data: unknown; response: Response }
   | { ok: false; status: number; code: string; error: unknown; response: Response }
-  | { ok: false; unexpected: true; status: number; error: unknown; response: Response | undefined };
+  | { ok: false; unexpected: true; status: number; error: unknown; response: Response | undefined; text?: string };
 
 type Call = (input?: RequestInput) => Promise<Result>;
 
@@ -95,13 +110,14 @@ const isManifest = (value: unknown): value is Manifest =>
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
 const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
-  if (baseUrl !== "" && !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl) && !baseUrl.startsWith("/")) {
+  const origin = /^[a-z][a-z\d+.-]*:\/\/[^/?#]*/i.exec(baseUrl)?.[0] ?? "";
+  const path = baseUrl.slice(origin.length);
+  // without an origin it must be a path: "/api", not "api", "localhost:3000/api" or a protocol-relative "//host/api"
+  if (!origin && path !== "" && (!path.startsWith("/") || path.startsWith("//"))) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
-  if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
-  const base = baseUrl.replace(/\/+$/, "");
-  const origin = /^[a-z][a-z\d+.-]*:\/\/[^/]*/i.exec(base)?.[0] ?? "";
-  return [origin, base.slice(origin.length)];
+  if (/[?#]/.test(path)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
+  return [origin, path.replace(/\/+$/, "")];
 };
 
 /**
@@ -142,7 +158,7 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
     const fetchFn = globalThis.fetch;
     if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
     // a relative URL ("" or "/api" baseUrl) needs a page to resolve against
-    const base = origin ? undefined : locationHref();
+    const base = origin ? undefined : pageBaseUrl();
     if (!origin && !base) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
@@ -162,7 +178,17 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   }
 };
 
-const unexpected = (status: number, error: unknown, response: Response | undefined): Result => ({ ok: false, unexpected: true, status, error, response });
+const unexpected = (status: number, error: unknown, response: Response | undefined, text?: string): Result =>
+  text === undefined ? { ok: false, unexpected: true, status, error, response } : { ok: false, unexpected: true, status, error, response, text };
+
+/** Releases a body the client won't read (it can hold a connection open in undici); errors are ignored. */
+const cancelBody = (response: Response): void => {
+  try {
+    response.body?.cancel().catch(() => {});
+  } catch {
+    // a body that is locked or already gone needs no release
+  }
+};
 
 /**
  * Reads the response into the result union. The body is read once, from `response` itself, so a result's `response`
@@ -177,14 +203,22 @@ const unexpected = (status: number, error: unknown, response: Response | undefin
 async function toResult(response: Response, success: Success, declared: () => Declared): Promise<Result> {
   const { status } = response;
   const expected = success.status === undefined || status === success.status;
-  if (response.ok && expected && success.data === "none") return { ok: true, status, data: undefined, response };
+  if (response.ok && expected && success.data === "none") {
+    if (status !== 204) cancelBody(response);
+    return { ok: true, status, data: undefined, response };
+  }
   let text: string;
-  let body: unknown;
   try {
     text = await response.text();
-    body = text === "" ? undefined : JSON.parse(text);
   } catch (error) {
     return unexpected(status, error, response);
+  }
+  let body: unknown;
+  try {
+    body = text === "" ? undefined : JSON.parse(text);
+  } catch (error) {
+    // the body is consumed: keep its text (an HTML 502 from a proxy, say)
+    return unexpected(status, error, response, text);
   }
   if (response.ok) {
     if (!expected) return unexpected(status, body, response);
@@ -197,8 +231,8 @@ async function toResult(response: Response, success: Success, declared: () => De
     const { code, ...error } = body as Record<string, unknown>;
     const errors = declared();
     if (typeof code === "string" && errors.has(code)) {
-      const errorStatus = errors.get(code);
-      if (errorStatus === undefined || errorStatus === status) return { ok: false, status, code, error, response };
+      const statuses = errors.get(code);
+      if (statuses === undefined || statuses.has(status)) return { ok: false, status, code, error, response };
     }
   }
   return unexpected(status, body, response);
@@ -268,7 +302,7 @@ const pathsOf = (api: object): RouteSpec[] => {
       method: r.method,
       path: r.path,
       success: { status, data: response && status !== 204 ? "json" : "none" },
-      declared: () => new Map(routeErrors(r).map((e) => [e.code, e.status])),
+      declared: () => declaredOf(routeErrors(r)),
     };
   });
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createClient } from '@laratype/client'
 import type { ClientOptions, FetchLike } from '@laratype/client'
-import { defineApi, defineContract, endpoint } from '@laratype/contract'
+import { defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
 import * as z from 'zod'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import users from './fixtures/app/api/users'
@@ -238,8 +238,28 @@ describe('createClient', () => {
     }
   })
 
+  it('resolves a relative URL against document.baseURI first, as fetch does (a <base href>, a srcdoc iframe)', async () => {
+    const { fetch, calls } = fakeFetch()
+    vi.stubGlobal('fetch', fetch)
+    vi.stubGlobal('location', { href: 'https://page.example/app/' })
+    try {
+      vi.stubGlobal('document', { baseURI: 'https://cdn.example/base/' })
+      await createClient(appApi).users.index()
+      expect(calls[0]!.url).toBe('https://cdn.example/api/users')
+      // about:srcdoc cannot resolve a path: new Request() refuses it, and the call rejects
+      vi.stubGlobal('document', { baseURI: 'about:srcdoc' })
+      await expect(createClient(appApi).users.index()).rejects.toThrow(TypeError)
+      // no document: the location
+      vi.stubGlobal('document', undefined)
+      await createClient(appApi).users.index()
+      expect(calls.at(-1)!.url).toBe('https://page.example/api/users')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('rejects a baseUrl that is neither an absolute URL with "://" nor a path starting with "/"', () => {
-    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com']) {
+    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api']) {
       expect(() => createClient(appApi, { baseUrl })).toThrow(
         new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`),
       )
@@ -373,11 +393,13 @@ describe('the result union', () => {
     expect((result as { error: Error }).error.message).toBe('[@laratype/client] empty 200 body: the endpoint declares a response')
   })
 
-  it('a body-less 202 declared with .status(): ok with data undefined, the body not read', async () => {
+  it('a body-less 202 declared with .status(): ok with data undefined, the unread body cancelled to free the connection', async () => {
     const jobs = defineContract()({ start: endpoint.post('/jobs').status(202) })
-    const result = await createClient(jobs, { fetch: respond('', 202) }).start()
+    let cancelled = false
+    const stream = new ReadableStream({ cancel: () => void (cancelled = true) })
+    const result = await createClient(jobs, { fetch: async () => new Response(stream, { status: 202 }) }).start()
     expect(result).toEqual({ ok: true, status: 202, data: undefined, response: expect.any(Response) })
-    expect(result.response!.bodyUsed).toBe(false)
+    expect(cancelled).toBe(true)
     expect(await createClient(jobs, { fetch: respond(null, 204) }).start()).toMatchObject({ ok: false, unexpected: true, status: 204 })
   })
 
@@ -443,16 +465,32 @@ describe('the result union', () => {
     expect(noCode).toMatchObject({ ok: false, unexpected: true, status: 409, error: ['x'] })
   })
 
+  it('a code declared with two statuses classifies both (a .throws(410 NOT_FOUND) next to the derived 404)', async () => {
+    const Gone = defineError(410, 'NOT_FOUND')
+    const files = defineContract()({ show: endpoint.get('/:file').throws(Gone).response(z.object({ name: z.string() })) })
+    const api = (status: number) => createClient(files, { fetch: json({ code: 'NOT_FOUND', message: 'x' }, status) })
+    expect(await api(404).show({ params: { file: 'a' } })).toMatchObject({ ok: false, status: 404, code: 'NOT_FOUND' })
+    expect(await api(410).show({ params: { file: 'a' } })).toMatchObject({ ok: false, status: 410, code: 'NOT_FOUND' })
+    expect(await api(400).show({ params: { file: 'a' } })).toMatchObject({ ok: false, unexpected: true, status: 400 })
+  })
+
   it('the server 500 { message: "Server Error" } has no code, so it is unexpected', async () => {
     const result = await createClient(appApi, { fetch: json({ message: 'Server Error' }, 500) }).users.index()
     expect(result).toEqual({ ok: false, unexpected: true, status: 500, error: { message: 'Server Error' }, response: expect.any(Response) })
   })
 
-  it('a non-JSON body is unexpected, on a 2xx or an error status', async () => {
+  it('a non-JSON body is unexpected, on a 2xx or an error status, and keeps its text since the body is consumed', async () => {
     const ok = await createClient(appApi, { fetch: respond('<html>ok</html>', 200) }).v1.health.check()
-    expect(ok).toMatchObject({ ok: false, unexpected: true, status: 200, error: expect.any(SyntaxError), response: expect.any(Response) })
+    expect(ok).toEqual({
+      ok: false,
+      unexpected: true,
+      status: 200,
+      error: expect.any(SyntaxError),
+      response: expect.any(Response),
+      text: '<html>ok</html>',
+    })
     const badGateway = await createClient(appApi, { fetch: respond('Bad Gateway', 502) }).users.index()
-    expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError) })
+    expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError), text: 'Bad Gateway' })
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {

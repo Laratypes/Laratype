@@ -99,6 +99,8 @@ export interface UnexpectedResult {
   status: number;
   error: unknown;
   response: Response | undefined;
+  /** The raw body when it isn't JSON (`error` is then the `SyntaxError`), since the body is already consumed. */
+  text?: string;
   code?: undefined;
 }
 

@@ -10,9 +10,9 @@ const api = createClient(appApi, { baseUrl: 'https://example.com', headers: { au
 
 export async function rename(user: number, post: number) {
   // PATCH https://example.com/api/users/1/posts/2, JSON body, content-type: application/json
+  // posts.update has no response schema: it answers 204, and data is undefined
   const result = await api.users.posts.update({ params: { user, post }, body: { title: 'Hello' } })
-  if (result.ok) return result.data
-  return undefined
+  return result.ok
 }
 
 export async function register(name: string, email: string) {
