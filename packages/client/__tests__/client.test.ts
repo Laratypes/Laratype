@@ -155,21 +155,34 @@ describe('createClient', () => {
     expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer new']])
   })
 
-  it('uses the global fetch, read at call time, with the validated Request', async () => {
-    const { fetch, calls } = fakeFetch()
+  it('uses the global fetch, read at call time, with (url, init): a polyfill that only takes string URLs works', async () => {
+    const seen: Array<[unknown, RequestInit | undefined]> = []
+    // node-fetch / cross-fetch style: anything but a string URL is "[object Request]"
+    const polyfill = vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (typeof input !== 'string') throw new TypeError(`Invalid URL: ${String(input)}`)
+      seen.push([input, init])
+      return new Response('{}', { status: 201 })
+    })
     const api = createClient(appApi, { baseUrl: 'https://example.com' })
-    vi.stubGlobal('fetch', fetch)
+    vi.stubGlobal('fetch', polyfill)
     try {
       const controller = new AbortController()
-      await api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' }, signal: controller.signal })
-      const [request] = fetch.mock.calls[0]!
-      expect(request).toBeInstanceOf(Request)
-      expect(calls[0]).toMatchObject({ url: 'https://example.com/api/users', method: 'POST', body: '{"name":"A","email":"a"}' })
-      expect(calls[0]!.headers['x-tenant']).toBe('t')
-      expect(calls[0]!.signal.aborted).toBe(false)
+      const result = await api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' }, signal: controller.signal })
+      expect(result.ok).toBe(true)
+      expect(seen[0]![0]).toBe('https://example.com/api/users')
+      expect(seen[0]![1]).toMatchObject({ method: 'POST', body: '{"name":"A","email":"a"}', signal: controller.signal })
+      expect(new Headers(seen[0]![1]!.headers).get('x-tenant')).toBe('t')
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('a synchronous throw from fetch rejects the call; only a rejected promise is the status-0 result', async () => {
+    const thrown = new TypeError('bad fetch config')
+    const throwing = createClient(appApi, { fetch: () => { throw thrown } })
+    await expect(throwing.users.index()).rejects.toBe(thrown)
+    const rejecting = createClient(appApi, { fetch: () => Promise.reject(thrown) })
+    expect(await rejecting.users.index()).toEqual({ ok: false, unexpected: true, status: 0, error: thrown, response: undefined })
   })
 
   it('global fetch: a request that cannot be built rejects without calling fetch (GET with a body, relative URL in Node)', async () => {
@@ -255,6 +268,14 @@ describe('createClient', () => {
       expect(calls.at(-1)!.url).toBe('https://page.example/api/users')
     } finally {
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects a baseUrl with a backslash, which http(s) URL parsing turns into another host', () => {
+    for (const baseUrl of ['/\\evil.com', 'https://example.com/a\\b']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(
+        new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must not contain a backslash`),
+      )
     }
   })
 

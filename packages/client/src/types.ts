@@ -64,7 +64,7 @@ export type ResponseData<E extends EndpointShape> = [E["response"]] extends [und
 
 /**
  * The declared 2xx: `status` is the endpoint's declared status, and `data` its parsed JSON body (see `ResponseData`).
- * `response` has its body consumed, unless `data` is `undefined`.
+ * `response` has its body consumed; when `data` is `undefined` the client doesn't read it, and cancels it unless it is a 204.
  */
 export interface ClientSuccess<E extends EndpointShape> {
   ok: true;

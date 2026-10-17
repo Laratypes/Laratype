@@ -117,6 +117,8 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   if (/[?#]/.test(path)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
+  // URL parsing turns a backslash into "/" for http(s), so "/\evil.com" would be another host
+  if (baseUrl.includes("\\")) fail(`createClient: baseUrl "${baseUrl}" must not contain a backslash`);
   return [origin, path.replace(/\/+$/, "")];
 };
 
@@ -127,10 +129,11 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: the call's own, then `options.headers`, then `content-type: application/json` for a body.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
- * With the global `fetch`, the request is built as a `Request` before `fetch` and outside `FetchFailed`, so a
+ * With the global `fetch`, the request is checked with a `Request` before `fetch` and outside `FetchFailed`, so a
  * configuration or programming error (a GET or HEAD with a body, a bad `RequestInit`, a relative URL outside a browser)
- * rejects the call; that `Request` is what `fetch` gets. An injected `fetch` gets `(url, init)` unchecked. Only the
- * rejection of `fetch` itself is a `FetchFailed`, which the result union turns into `unexpected`.
+ * rejects the call; `fetch` then gets `(resolvedUrl, init)`. An injected `fetch` gets `(url, init)` unchecked. A
+ * synchronous throw from `fetch` rejects the call too; only a rejected promise is a `FetchFailed`, which the result
+ * union turns into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
@@ -162,17 +165,20 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
     if (!origin && !base) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
-    if (typeof Request === "function" && typeof URL === "function") {
-      // built here, outside FetchFailed, so a GET or HEAD with a body or a bad RequestInit rejects the call;
-      // the same Request then goes to fetch
-      const request = new Request(new URL(url, base), init);
-      pending = () => fetchFn(request);
-    } else {
-      pending = () => fetchFn(url, init);
+    let resolved = url;
+    if (typeof URL === "function") {
+      resolved = new URL(url, base).href;
+      // validation only, outside FetchFailed, so a GET or HEAD with a body or a bad RequestInit rejects the call. No
+      // signal (it would add an abort listener). fetch still gets (url, init), not this Request: a polyfilled global
+      // fetch (node-fetch, cross-fetch) does not understand another implementation's Request.
+      if (typeof Request === "function") new Request(resolved, { ...init, signal: undefined });
     }
+    pending = () => fetchFn(resolved, init);
   }
+  // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
+  const response = pending();
   try {
-    return await pending();
+    return await response;
   } catch (error) {
     throw new FetchFailed(error);
   }
@@ -192,9 +198,10 @@ const cancelBody = (response: Response): void => {
 
 /**
  * Reads the response into the result union. The body is read once, from `response` itself, so a result's `response`
- * has its body consumed (status and headers stay usable), except for a success with no data, which leaves it unread.
- * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a 204 (the body
- *   is not read); with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
+ * has its body consumed (status and headers stay usable). A success with no data doesn't read it: a 204 has none, and
+ * any other body-less success has its body cancelled, so it doesn't hold a connection open.
+ * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a body-less
+ *   status; with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
  * - Otherwise the wire format is `{ code, ...body }`: a declared code (with its status, when known) is a declared
  *   error whose `error` is the body without `code`; anything else is unexpected.
  * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
