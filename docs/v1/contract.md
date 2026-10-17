@@ -185,7 +185,7 @@ export const endpoint: {
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
-export type BodyStatus = Exclude<SuccessStatus, 204>;
+export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
@@ -194,7 +194,7 @@ export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 - **Recognized by brand, not `instanceof`:** each endpoint carries a non-enumerable `ENDPOINT` brand, a `Symbol.for` key like `API_NODE` and `CONTRACT`. `isEndpoint` checks it, so `defineContract`, `defineApi`, `apiRoutes`, `apiEndpoint` and the client accept endpoints from another bundle or package copy (ESM + CJS).
 - **Immutable.** Every builder call returns a new `Endpoint` and leaves `this` untouched. `def`, `def.throws` and the throttle options are frozen. The constructor copies its argument before freezing, so a caller's object stays mutable (b54ca7c).
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
-- **Status.** The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204: `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202). `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
+- **Status.** The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202). `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
 - **Relative paths.** The path is appended to the contract's URL prefix from the [folder tree](#contract-folder-tree). `'/'` is the prefix itself.
 - **Capabilities.** The builder holds the endpoint level of the [capabilities](#capabilities-and-derived-errors), and an unset capability is inherited. `.auth()` uses the default guard and `.auth('<guard>')` a named one. `.public()`, `.authorize(false)` and `.throttle(false)` are the only opt-outs.
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E, Ctx>`).
@@ -209,7 +209,7 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `throttle(): throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`
 - `response(): the status must be a 2xx success status, got <status>` and the same for `status()`
 - `status(): the endpoint has a response schema; use .response(schema, status)`
-- `response(): a 204 has no body; use .status(204)`
+- `response(): a 204 has no body; use .status(204)` (and the same for 205)
 
 Writing to a frozen `def` throws `TypeError` in strict mode.
 
@@ -772,7 +772,7 @@ export type ErrorResponse<E> = E extends ErrorDef<infer St, infer Code, infer Bo
 export function defineError<const St extends number, const Code extends string>(status: St, code: Code): ErrorDef<St, Code, MessageBody, [message?: string]>;
 export function defineError<const St extends number, const Code extends string, Args extends unknown[], Body>(
   status: St, code: Code, body: ((...args: Args) => Body) & CheckErrorBody<Body>): ErrorDef<St, Code, Body, Args>;
-export type CheckErrorBody<Body>;                     // unknown for a plain object without "code", else { error: "defineError: ..." }
+export type CheckErrorBody<Body>;                     // unknown for any object without a literal "code" key (runtime: plain objects only), else { error: "defineError: ..." }
 ```
 
 ```ts

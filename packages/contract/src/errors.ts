@@ -61,8 +61,10 @@ const fail = (message: string): never => {
 };
 
 /**
- * An error goes on the wire as `{ code, ...body }` (client.md › Result union), so a body is a plain object without
- * its own `code`. Anything else in the body factory's return type is a type error, and creating the error throws.
+ * An error goes on the wire as `{ code, ...body }` (client.md › Result union), so a body is an object without its own
+ * `code`. The type accepts any object (an index signature too) that has no written-out `code` key, checked per union
+ * member; the runtime check is stricter and requires a plain object (a `null` prototype or any realm's
+ * `Object.prototype`), so a `Map`, `Date` or class instance passes the type but throws when the error is created.
  */
 export type CheckErrorBody<Body> = [BodyProblem<Body>] extends [never] ? unknown : { error: BodyProblem<Body> };
 

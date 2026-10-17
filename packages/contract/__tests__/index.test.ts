@@ -21,6 +21,10 @@ describe('endpoint builder', () => {
     expect(() => endpoint.get('/').response(z.string(), 204 as never)).toThrow(
       new TypeError('[@laratype/contract] response(): a 204 has no body; use .status(204)'),
     )
+    expect(() => endpoint.get('/').response(z.string(), 205 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): a 205 has no body; use .status(205)'),
+    )
+    expect(endpoint.post('/form').status(205).response(z.string()).def.status).toBe(200)
   })
 
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {

@@ -149,3 +149,6 @@ expectTypeOf(endpoint.post('/jobs').status(204).response(response).__types.statu
 expectTypeOf(endpoint.post('/jobs').status(202).response(response, 201).__types.status).toEqualTypeOf<201>()
 // @ts-expect-error a 204 has no body: use .status(204)
 endpoint.get('/').response(response, 204)
+// @ts-expect-error a 205 (Reset Content) has no body either
+endpoint.get('/').response(response, 205)
+expectTypeOf(endpoint.post('/form').status(205).__types.status).toEqualTypeOf<205>()

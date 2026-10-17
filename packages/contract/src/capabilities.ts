@@ -191,7 +191,12 @@ function resolve(def: EndpointDef, ctx: CapabilityContext): ResolvedCapabilities
     authorize,
     throttle: throttle || undefined,
     // unique by code and status: one code may be declared with two statuses (a .throws(410 NOT_FOUND) next to the derived 404)
-    errors: Object.freeze(all.filter((e) => !seen.has(`${e.code} ${e.status}`) && !!seen.add(`${e.code} ${e.status}`))),
+    errors: Object.freeze(
+      all.filter((e) => {
+        const key = `${e.code} ${e.status}`;
+        return !seen.has(key) && !!seen.add(key);
+      }),
+    ),
   });
 }
 
