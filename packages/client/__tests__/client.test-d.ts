@@ -87,19 +87,17 @@ describe('createClient', () => {
     void api.users.index({ body: {} })
   })
 
-  test('a hand-made object may hold contracts; a key with "." is a type error', () => {
-    const mixed = createClient({ users: usersContract, posts: appApi.users.posts })
-    expectTypeOf<Parameters<typeof mixed.users.show>[0]['params']>().toEqualTypeOf<{ user: string | number }>()
-    expectTypeOf(mixed.posts.update).toEqualTypeOf(api.users.posts.update)
-    // @ts-expect-error createClient: key "a.b" must not contain "."
-    createClient({ 'a.b': usersContract })
-  })
-
-  test('a hand-made object of API nodes is named after its own keys', () => {
-    const picked = createClient({ posts: appApi.users.posts })
-    expectTypeOf(picked.posts.update).toEqualTypeOf(api.users.posts.update)
-    // @ts-expect-error the runtime names follow the keys too, not the nodes' full names
-    void picked.users
+  test('only the four inputs type-check: the appApi root, an API node, a contract or the manifest', () => {
+    // @ts-expect-error a hand-made object: the node's own name ("users.posts") is not its key
+    createClient({ posts: appApi.users.posts })
+    // @ts-expect-error a contract inside an object
+    createClient({ users: usersContract })
+    // @ts-expect-error a single endpoint
+    createClient(usersContract.show)
+    // @ts-expect-error anything else
+    createClient({ nope: 1 })
+    // a subset of the root's own nodes keeps the root shape
+    expectTypeOf(createClient({ users: appApi.users }).users.show).toEqualTypeOf(api.users.show)
   })
 
   test('an API node or a single contract', () => {

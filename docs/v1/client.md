@@ -104,9 +104,12 @@ merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). The result un
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
 
 ```ts
-export function createClient<A extends object>(api: A & CheckGroupKeys<A>, options?: ClientOptions): ClientOf<A>;
-export type CheckGroupKeys<A>;                       // a key with "." becomes { error: "createClient: key ... must not contain \".\"" }
 export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;   // separate-repo FE
+export function createClient<C extends AnyContract>(contract: C, options?: ClientOptions): ClientOf<C>;
+export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOptions): ClientOf<N>;
+export function createClient<A extends ApiRootShape<A>>(api: A, options?: ClientOptions): ClientOf<A>;   // the appApi
+export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
+export type ApiRootShape<A>;                         // each key K is an API node named K
 
 export interface ClientOptions {
   baseUrl?: string;                 // the origin; default "" (same origin)
@@ -135,14 +138,14 @@ const post = await res.json()
 ```
 
 ### Invariants
-- **Input:** `createClient` takes the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), an API node (`appApi.users`), a single contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. A single endpoint throws `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`, and anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`. Endpoints are recognized by their `Symbol.for` brand ([contract.md › Endpoint builder](./contract.md#endpoint-builder)), so a contract from another bundle or package copy works.
+- **Input:** `createClient` takes exactly one of four inputs: the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), one API node (`appApi.users`), one contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). A plain object counts as the `appApi` root only if every value is an API node whose own name is its key; a hand-made object such as `{ posts: appApi.users.posts }` or `{ users: usersContract }` is rejected. The overloads type the same four inputs, so anything else, a single endpoint included, fails to compile. It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. A single endpoint throws `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`, and anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`. Endpoints are recognized by their `Symbol.for` brand ([contract.md › Endpoint builder](./contract.md#endpoint-builder)), so a contract from another bundle or package copy works.
 - **Names** follow the folder tree (`api.users.posts.update`). Name-style calls are the primary style. Each client node is frozen, has a null prototype and lists its endpoints and child nodes in definition order.
-- **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiPaths()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), the same walker behind the router's `apiRoutes()`, so names and paths match the router's. It resolves no capabilities, so the FE skips that work, and a contract whose `.authorize()` gets `auth` from a folder scope still builds on its own. An API node's names are relative to it. An object of API nodes and contracts is named after its own keys, as `ClientOf<A>` types it: the `appApi` root's keys are its node names, `{ posts: appApi.users.posts }` gives `api.posts.update`, and `{ users: usersContract }` gives `api.users.index`. A key with `.` is a type error (`CheckGroupKeys`) and throws `[@laratype/client] createClient: key "<key>" must not contain "." (names are split on ".")`, since names are split on `.`. The manifest gives its routes directly.
-- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin), and trailing slashes are stripped. The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `baseUrl`'s path is joined to the route path with the server's `joinPath`, then `buildUrl` fills it: a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
+- **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiPaths()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), the same walker behind the router's `apiRoutes()`, so names and paths match the router's. It resolves no capabilities, so the FE skips that work, and a contract whose `.authorize()` gets `auth` from a folder scope still builds on its own. An API node's names are relative to it. The manifest gives its routes directly.
+- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin), trailing slashes are stripped, and a query or a hash in it throws. The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `buildUrl` fills the route path alone, then the result is joined to `baseUrl`'s path with the server's `joinPath`, so `baseUrl` is never parsed as route syntax (a `:tenant` in it stays as it is). a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
 - **Call input** (`CallInput<E>`):
   - `params`: every param of the full path, `[x]` folder params included. Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param is a type error and throws before `fetch` is called.
   - `query`: the query schema input, serialized by `buildUrl`.
-  - `body`: the body schema input, sent as `JSON.stringify(body)` with `content-type: application/json` unless the call's own `headers` set one. A `content-type` in `options.headers` does not opt out of JSON.
+  - `body`: the body schema input, sent as `JSON.stringify(body)` with `content-type: application/json` unless a `content-type` is set: the call's own `headers` win, then `options.headers`, then the `application/json` default.
   - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`.
   - `signal`: an `AbortSignal`, passed to `fetch`.
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
@@ -155,9 +158,9 @@ const post = await res.json()
 ### Diagnostics
 - `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`
 - `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`
-- `[@laratype/client] createClient: key "<key>" must not contain "." (names are split on ".")`
+- `[@laratype/client] createClient: baseUrl "<baseUrl>" must not have a query or a hash` (at `createClient`; a call rejects with it if `options.baseUrl` is changed later)
 - `[@laratype/client] no fetch available: pass options.fetch` (the call rejects)
-- `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a primitive, a Date or an array of them` (from [buildUrl](./contract.md#url-builder))
+- `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them` (from [buildUrl](./contract.md#url-builder))
 - Type-level: a missing required param, body or schema header, an unknown param, or a body that doesn't match the schema input (`packages/client/__tests__/client.test-d.ts`).
 
 ### Example
