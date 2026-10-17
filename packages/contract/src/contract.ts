@@ -125,12 +125,19 @@ export const contractEndpoints = <C extends AnyContract>(contract: C): Array<[En
 export const API_NODE: unique symbol = Symbol.for("laratype.api");
 
 /** One contract of the folder tree, as the generated `.laratype/api/index.gen.ts` mounts it. */
-export interface ApiEntry<C extends AnyContract = AnyContract, Path extends string = string, S extends readonly AnyScope[] = readonly AnyScope[]> {
+export interface ApiEntry<
+  C extends AnyContract = AnyContract,
+  Path extends string = string,
+  S extends readonly AnyScope[] = readonly AnyScope[],
+  D extends readonly string[] = readonly string[],
+> {
   readonly contract: C;
   /** Full URL prefix, file segment included: `/api/users/:user/posts`. */
   readonly path: Path;
   /** The `_scope.ts` chain, outer to inner. */
   readonly scopes: S;
+  /** The folder of each scope, aligned with `scopes`: root-relative, `""` for the root (`["", "users/[user]"]`). */
+  readonly dirs: D;
 }
 
 /** Flat map keyed by tree name: `{ 'users': {...}, 'users.posts': {...} }`. */
@@ -143,18 +150,22 @@ export interface ApiNodeInfo<N extends string = string, En = ApiEntry | undefine
 
 type BadName<K extends string> = K extends "" | `.${string}` | `${string}.` | `${string}..${string}` ? true : false;
 
-/** Per key: the entry, or `{ error }` (bad name, path outside the folder prefix, endpoint/child name clash). */
+/** Per key: the entry, or `{ error }` (bad name, path outside the folder prefix, endpoint/child name clash, missing or misaligned dirs). */
 export type CheckApi<A> = {
   [K in keyof A]: K extends string
     ? BadName<K> extends true
       ? { error: `defineApi: invalid tree name "${K}"` }
-      : A[K] extends ApiEntry<infer C, infer Path, any>
+      : A[K] extends ApiEntry<infer C, infer Path, infer S, infer D>
         ? Path extends `${PrefixPath<ContractPrefixOf<C>>}${string}`
           ? [Extract<keyof A, `${K}.${EndpointKeys<C>}` | `${K}.${EndpointKeys<C>}.${string}`>] extends [never]
-            ? A[K]
+            ? S["length"] extends D["length"]
+              ? A[K]
+              : { error: `defineApi: "${K}" dirs must hold one folder per scope` }
             : { error: `defineApi: "${K}" has an endpoint and a child contract with the same name` }
           : { error: `defineApi: "${K}" path must start with its folder prefix "${PrefixPath<ContractPrefixOf<C>>}"` }
-        : { error: `defineApi: "${K}" must be { contract, path, scopes }` }
+        : A[K] extends { readonly contract: AnyContract; readonly path: string; readonly scopes: readonly AnyScope[] }
+          ? { error: `defineApi: "${K}" needs dirs: the folder of each scope ("" for the root)` }
+          : { error: `defineApi: "${K}" must be { contract, path, scopes, dirs }` }
     : A[K];
 };
 
@@ -195,9 +206,12 @@ export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, i
 
 type TreeNode = Record<string | symbol, unknown>;
 
+/** A scope folder: `""` (the root) or `users/[user]`, with no leading or trailing `/`. */
+const isDir = (dir: unknown): dir is string => typeof dir === "string" && !dir.startsWith("/") && !dir.endsWith("/");
+
 /**
  * Builds the API tree from the flat entries that `.laratype/api/index.gen.ts` emits:
- * `defineApi({ 'users.posts': { contract, path: '/api/users/:user/posts', scopes: [usersUser] } })`.
+ * `defineApi({ 'users.posts': { contract, path: '/api/users/:user/posts', scopes: [usersUser], dirs: ['users/[user]'] } })`.
  * The FE imports this module only, never `typeof routes`, so its type-check never loads server code.
  */
 export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api<A> {
@@ -223,16 +237,24 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
 
   for (const [name, entry] of Object.entries(entries as ApiDef)) {
     if (name.split(".").some((s) => s === "")) fail(`defineApi: invalid tree name "${name}"`);
-    if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes }`);
+    if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes, dirs }`);
     if (typeof entry.path !== "string" || !entry.path.startsWith("/")) fail(`defineApi: "${name}" path must start with "/"`);
     if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
+    if (entry.dirs === undefined) fail(`defineApi: "${name}" needs dirs: the folder of each scope ("" for the root)`);
+    if (!Array.isArray(entry.dirs) || !entry.dirs.every(isDir)) fail(`defineApi: "${name}" dirs must be root-relative folders ("" for the root)`);
+    if (entry.dirs.length !== entry.scopes.length) fail(`defineApi: "${name}" dirs must hold one folder per scope (${entry.scopes.length} scopes, ${entry.dirs.length} dirs)`);
     entry.scopes.forEach((scope, i) => {
       if (scope.authorize === true && !entry.scopes.slice(0, i + 1).some((s) => s.auth)) {
         fail(`defineApi: "${name}": scope ${i} has authorize but no auth in it or an outer scope`);
       }
     });
     const node = nodeAt(name);
-    infos.get(node)!.entry = Object.freeze({ contract: entry.contract, path: entry.path, scopes: Object.freeze([...entry.scopes]) });
+    infos.get(node)!.entry = Object.freeze({
+      contract: entry.contract,
+      path: entry.path,
+      scopes: Object.freeze([...entry.scopes]),
+      dirs: Object.freeze([...entry.dirs]),
+    });
     for (const [key, endpoint] of contractEndpoints(entry.contract)) {
       if (node[key] !== undefined) fail(`defineApi: "${name}.${key}" is both an endpoint and a contract`);
       node[key] = endpoint;

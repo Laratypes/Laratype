@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@laratype/auth": "workspace:*",
+    "@laratype/contract": "workspace:*",
     "@laratype/database": "workspace:*",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",

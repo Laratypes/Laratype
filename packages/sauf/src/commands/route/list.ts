@@ -14,27 +14,50 @@ export default class RouteListCommand extends Command {
 
   public async handle() {
 
-    const routes = globalThis.__laratype_routes?.map((route) => {
-      return {
-        Method: route.method,
-        path: route.path,
-        Name: route.name ?? '-',
-        Controller: `${route.controller[0].name}::${route.controller[1]}`,
-        Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
-        Policies: route.can?.length ? route.can.map((mw: any) => {
-          return `${mw.ability}{${mw.args.map((arg: any) => arg.name ? arg.name : `/:${arg}`).join(', ')}}`
-        }).join(', ') : '-',
-      }
-    }) ?? [];
+    const routes = globalThis.__laratype_routes?.map(routeRow) ?? [];
 
     if(routes.length === 0) {
       Console.warn("No routes registered.");
       return 0;
     }
-    
+
+    // The "Not enforced" and Domain columns only show when a route has a value
+    for (const column of ['Not enforced', 'Domain'] as const) {
+      if(!routes.some(route => route[column] !== '-')) {
+        routes.forEach(route => delete (route as Partial<typeof route>)[column]);
+      }
+    }
+
     Console.table(routes)
+
+    if(routes.some(route => route['Not enforced'] !== undefined && route['Not enforced'] !== '-')) {
+      Console.warn("The routes with a \"Not enforced\" value serve every request with unchecked input: see the [@laratype/http] Route.api warning.");
+    }
 
     return 0;
 
   }
 }
+
+/** `RouteEntry.unenforced` (auth, authorize, validation), which @laratype/http decides (the CLI does not import that optional package). */
+const notEnforcedColumn = (route: Record<string, any>) =>
+  route.unenforced?.length ? route.unenforced.join(', ') : '-';
+
+/**
+ * One row of the table. Reads both registry shapes: the v2 entries of `Route.api` (name, method, path, endpoint,
+ * controller, middleware, scope policies, domain; docs/v1/http.md › Router v2) and the 0.5 `RouteParams`.
+ */
+export const routeRow = (route: Record<string, any>) => ({
+  Method: route.method,
+  path: route.path,
+  Name: route.name ?? '-',
+  Controller: `${route.controller[0].name}::${route.controller[1]}`,
+  Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
+  Policies: Array.isArray(route.policies)
+    ? route.policies.length ? route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`).join(', ') : '-'
+    : route.can?.length ? route.can.map((mw: any) => {
+      return `${mw.ability}{${mw.args.map((arg: any) => arg.name ? arg.name : `/:${arg}`).join(', ')}}`
+    }).join(', ') : '-',
+  'Not enforced': notEnforcedColumn(route),
+  Domain: route.domain ?? '-',
+});

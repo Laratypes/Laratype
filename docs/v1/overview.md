@@ -53,7 +53,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | `@laratype/client` | `createClient(appApi)` | scaffold merged @ d70daa7 (`PACKAGE_NAME` only); API planned → #109 | `@laratype/contract` only |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | 0.5; ServiceProvider v2 merged @ 468c2ec | `@laratype/core` |
 | `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core merged @ 8dc389b, abstract-class flag merged (#101); Vite wiring in `sauf dev` merged (#102) | `@laratype/core` (runtime helper) |
-| `@laratype/http` | Router v2, pipeline, controllers, `Ctx` | 0.5; v1 planned → #104, #105, #106 | contract, core |
+| `@laratype/http` | Router v2, pipeline, controllers, `Ctx` | 0.5; Router v2 merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); v1 planned → #105, #106 | contract, core |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5; v1 planned → #119, #120, #121 | core, http |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM); v1 waits for S5 → #88 | core |

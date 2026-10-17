@@ -137,7 +137,7 @@ The DI plugin in `sauf dev` (T2) is merged ([#102](https://github.com/Laratypes/
 laratype:manifest  →  laratype:di  →  swc (decorators for the ORM)  →  alias (tsconfig paths)
 ```
 - **`laratype:manifest` (B1):** a virtual module `virtual:laratype/app` with static imports of providers, configs, routes, commands, models, migrations and seeders. It replaces runtime path discovery, which prevents bundling. Done when dev boots from the manifest.
-- **Contract tree:** in dev the server scans the [contract folder tree](./contract.md#contract-folder-tree) at startup and rescans on change. The production build writes the tree into the manifest, so production does no scanning ([#104](https://github.com/Laratypes/Laratype/issues/104)).
+- **Contract tree:** in dev, `laratype:api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104); in the `warmup.ts` plugin list after `laratype:di` and before SWC) resolves `$api` and scans the [contract folder tree](./contract.md#contract-folder-tree) the first time the app imports it. Rescanning on change is planned → [#142](https://github.com/Laratypes/Laratype/issues/142). The production build writes the tree into the manifest, so production does no scanning (planned → [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **`laratype:di` (T2):**
   - runs `transformDi` with `enforce: 'pre'`, before `RollupPluginSwc`;
   - resolves `virtual:laratype/di` to `@laratype/core` and chains source maps;

@@ -15,6 +15,7 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 **State on master (0.5):** checked on `256a743`. The same files are unchanged on `v0.5.4`.
 - The config type is one fixed interface, `LaratypeConfig.AppConfig`, in `@laratype/support` ([`Config.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/contracts/Config.ts#L18-L31)). The example app's files are `app/config/config.ts`, `auth.ts` and `providers.ts`.
 - `Config.get(keys)` takes a path of keys typed against that interface, reads `globalThis.__laratype_config`, and throws `ConfigLoaderNotLoadYet` before the config is loaded ([`config/Config.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/config/Config.ts#L7-L24)).
+- The optional key `api: { root?, base? }` sets the contract tree root and its URL base (default `app/api` → `/api`), read by `sauf types:generate` and the dev scan behind `$api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104); [contract.md › Contract folder tree](./contract.md#contract-folder-tree)).
 - `Env.get(key, defaultVal)` reads `process.env` with no validation ([`environ/Env.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/environ/Env.ts#L3-L8)).
 
 | Section | Status |

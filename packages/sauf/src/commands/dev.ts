@@ -7,6 +7,8 @@ import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
+import { contractTreePlugin } from "../typegen/plugin";
+import { DevRestarter, shouldRestart } from "../utils/restarter";
 
 export default class LaratypeDevCommand extends Command {
 
@@ -27,10 +29,7 @@ export default class LaratypeDevCommand extends Command {
 
   protected runner: Runner | undefined;
 
-  protected serverInstance: {
-    app: Hono,
-    down: () => void,
-  } | undefined;
+  protected server: DevRestarter<{ app: Hono, down: () => void }> | undefined;
 
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
@@ -49,14 +48,20 @@ export default class LaratypeDevCommand extends Command {
         {
           name: 'laratype:dev-server',
           configureServer: async (server) => {
-            this.serverInstance = await this.appStart(server);
+            const restarter = new DevRestarter(() => this.appStart(server), (error) => Console.error(error));
+            this.server = restarter;
+            restarter.instance = await this.appStart(server);
 
             if(opts.hmr) {
-              server.watcher.on('change', (async () => {
-                Console.info('File change detected. Restarting server...');
-                await this.serverInstance!.down();
-                this.serverInstance = await this.appStart(server);
-              }));
+              const tree = contractTreePlugin(server.config.plugins);
+              for (const event of ['change', 'add', 'unlink'] as const) {
+                server.watcher.on(event, (file: string) => {
+                  // The scan rewrites its output folder during a restart: that must not trigger another one
+                  if (!shouldRestart(event, file, tree)) return;
+                  Console.info('File change detected. Restarting server...');
+                  void restarter.restart();
+                });
+              }
             }
 
             server.middlewares.use(await this.createMiddleware(server));
@@ -81,7 +86,10 @@ export default class LaratypeDevCommand extends Command {
   }
 
   protected async appStart(vite: ViteDevServer): Promise<{ app: Hono, down: () => void }> {
-    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);    
+    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
+
+    // Rescan the contract tree before a restart, if the app imported `$api` before (the first import scans it)
+    await contractTreePlugin(vite.config.plugins)?.restart();
 
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,
@@ -128,7 +136,14 @@ export default class LaratypeDevCommand extends Command {
       res: ServerResponse,
       next: (err?: any) => void
     ) => {
-      await this.requestHandler({ app: this.serverInstance!.app, server, req, res, next });
+      const instance = this.server?.instance;
+      if (!instance) {
+        // Restarting, or the last restart failed (its error is printed): the next change retries
+        res.statusCode = 503;
+        res.end('Laratype dev server is restarting or failed to start; see the terminal.');
+        return;
+      }
+      await this.requestHandler({ app: instance.app, server, req, res, next });
     }
   }
 
