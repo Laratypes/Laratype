@@ -12,13 +12,14 @@ import type { AppApi } from './fixtures/separate-fe/api'
 /** A fake fetch that records each request and answers with `body` as JSON. */
 const fakeFetch = (body: unknown = {}, status = 200) => {
   const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: unknown; signal: AbortSignal | undefined }> = []
-  const fetch = vi.fn<FetchLike>(async (url, init) => {
+  const fetch = vi.fn<FetchLike>(async (input: string | Request, init?: RequestInit) => {
+    const request = typeof input === 'string' ? undefined : input
     calls.push({
-      url,
-      method: init.method!,
-      headers: Object.fromEntries(new Headers(init.headers).entries()),
-      body: init.body,
-      signal: init.signal ?? undefined,
+      url: request ? request.url : (input as string),
+      method: request ? request.method : init!.method!,
+      headers: Object.fromEntries(new Headers(request ? request.headers : init!.headers).entries()),
+      body: request ? (request.body ? await request.text() : undefined) : init!.body,
+      signal: request ? request.signal : (init!.signal ?? undefined),
     })
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   })
@@ -154,86 +155,29 @@ describe('createClient', () => {
     expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer new']])
   })
 
-  it('uses the global fetch, read at call time, when none is injected', async () => {
+  it('uses the global fetch, read at call time, with the validated Request', async () => {
     const { fetch, calls } = fakeFetch()
     const api = createClient(appApi, { baseUrl: 'https://example.com' })
     vi.stubGlobal('fetch', fetch)
     try {
-      await api.v1.health.check()
-    } finally {
-      vi.unstubAllGlobals()
-    }
-    expect(calls[0]!.url).toBe('https://example.com/api/v1/health')
-  })
-
-  it('guards a relative URL for the global fetch, including a "localhost:3000" baseUrl without "//"', async () => {
-    const { fetch } = fakeFetch()
-    vi.stubGlobal('fetch', fetch)
-    try {
-      await expect(createClient(appApi, { baseUrl: 'localhost:3000/api' }).users.index()).rejects.toThrow(
-        '[@laratype/client] relative URL "localhost:3000/api/api/users" with the global fetch outside a browser',
-      )
-    } finally {
-      vi.unstubAllGlobals()
-    }
-    expect(fetch).not.toHaveBeenCalled()
-  })
-
-  it('reads location only for a relative URL, and a location that throws (Deno without --location) counts as none', async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'location')
-    let reads = 0
-    Object.defineProperty(globalThis, 'location', { configurable: true, get: () => { reads++; throw new ReferenceError('no --location') } })
-    try {
-      const { fetch, calls } = fakeFetch()
-      await createClient(appApi, { fetch, baseUrl: 'https://example.com' }).users.index()
-      expect(reads).toBe(0)
-      // an injected fetch takes the relative URL
-      await createClient(appApi, { fetch }).users.index()
-      expect(reads).toBe(1)
-      expect(calls.map((c) => c.url)).toEqual(['https://example.com/api/users', '/api/users'])
-    } finally {
-      if (descriptor) Object.defineProperty(globalThis, 'location', descriptor)
-      else delete (globalThis as { location?: unknown }).location
-    }
-  })
-
-  it('checks the request without the caller signal, and skips the check where Request or URL is missing', async () => {
-    const signals: unknown[] = []
-    const RealRequest = Request
-    vi.stubGlobal('Request', class extends RealRequest {
-      constructor(input: RequestInfo | URL, init?: RequestInit) {
-        signals.push(init?.signal)
-        super(input, init)
-      }
-    })
-    try {
-      const { fetch, calls } = fakeFetch()
       const controller = new AbortController()
-      await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
-      expect(signals).toEqual([undefined])
-      expect(calls[0]!.signal).toBe(controller.signal)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-    vi.stubGlobal('Request', undefined)
-    try {
-      const { fetch, calls } = fakeFetch()
-      await createClient(appApi, { fetch }).users.index()
-      expect(calls).toHaveLength(1)
+      await api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' }, signal: controller.signal })
+      const [request] = fetch.mock.calls[0]!
+      expect(request).toBeInstanceOf(Request)
+      expect(calls[0]).toMatchObject({ url: 'https://example.com/api/users', method: 'POST', body: '{"name":"A","email":"a"}' })
+      expect(calls[0]!.headers['x-tenant']).toBe('t')
+      expect(calls[0]!.signal.aborted).toBe(false)
     } finally {
       vi.unstubAllGlobals()
     }
   })
 
-  it('rejects, without calling fetch, a request that cannot be built: a configuration or programming error', async () => {
+  it('global fetch: a request that cannot be built rejects without calling fetch (GET with a body, relative URL in Node)', async () => {
     const { fetch } = fakeFetch()
-    // a GET with a body: new Request() refuses it
-    // @ts-expect-error runtime check
-    await expect(createClient(appApi, { fetch }).users.index({ body: { x: 1 } })).rejects.toThrow(TypeError)
-    expect(fetch).not.toHaveBeenCalled()
-    // the global fetch with a relative URL and no location (Node SSR)
     vi.stubGlobal('fetch', fetch)
     try {
+      // @ts-expect-error runtime check
+      await expect(createClient(appApi, { baseUrl: 'https://example.com' }).users.index({ body: { x: 1 } })).rejects.toThrow(TypeError)
       await expect(createClient(appApi).users.index()).rejects.toThrow(
         '[@laratype/client] relative URL "/api/users" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch',
       )
@@ -241,6 +185,68 @@ describe('createClient', () => {
       vi.unstubAllGlobals()
     }
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('an injected fetch gets (url, init) as built, unchecked: relative URLs and credentials in the URL work', async () => {
+    const { fetch, calls } = fakeFetch()
+    await createClient(appApi, { fetch }).users.index()
+    await createClient(appApi, { fetch, baseUrl: 'https://user:pass@example.com' }).users.index()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/users', 'https://user:pass@example.com/api/users'])
+    expect(calls).toHaveLength(2)
+  })
+
+  it('global fetch without Request or URL in the globals: fetch(url, init), unchecked', async () => {
+    const { fetch, calls } = fakeFetch()
+    vi.stubGlobal('fetch', fetch)
+    vi.stubGlobal('Request', undefined)
+    try {
+      await createClient(appApi, { baseUrl: 'https://example.com' }).users.index()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(typeof fetch.mock.calls[0]![0]).toBe('string')
+    expect(calls[0]!.url).toBe('https://example.com/api/users')
+  })
+
+  it('reads location only for a relative URL with the global fetch; a location that throws (Deno) counts as none', async () => {
+    const { fetch, calls } = fakeFetch()
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'location')
+    let reads = 0
+    let href: string | undefined = 'https://page.example/app'
+    Object.defineProperty(globalThis, 'location', {
+      configurable: true,
+      get: () => {
+        reads++
+        if (href === undefined) throw new ReferenceError('no --location')
+        return { href }
+      },
+    })
+    vi.stubGlobal('fetch', fetch)
+    try {
+      await createClient(appApi, { baseUrl: 'https://example.com' }).users.index()
+      expect(reads).toBe(0)
+      // in a browser a relative URL resolves against the page
+      await createClient(appApi).users.index()
+      expect(reads).toBe(1)
+      expect(calls.map((c) => c.url)).toEqual(['https://example.com/api/users', 'https://page.example/api/users'])
+      href = undefined
+      await expect(createClient(appApi).users.index()).rejects.toThrow(/relative URL "\/api\/users" with the global fetch outside a browser/)
+    } finally {
+      vi.unstubAllGlobals()
+      if (descriptor) Object.defineProperty(globalThis, 'location', descriptor)
+      else delete (globalThis as { location?: unknown }).location
+    }
+  })
+
+  it('rejects a baseUrl that is neither an absolute URL with "://" nor a path starting with "/"', () => {
+    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(
+        new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`),
+      )
+    }
+    expect(() => createClient(appApi, { baseUrl: '' })).not.toThrow()
+    expect(() => createClient(appApi, { baseUrl: '/api' })).not.toThrow()
+    expect(() => createClient(appApi, { baseUrl: 'http://localhost:3000' })).not.toThrow()
   })
 
   it('builds a client from an API node or a single contract, with the same names as the appApi client', async () => {
@@ -513,6 +519,16 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
+  })
+
+  it('checks the manifest errors at createClient: absent or an array of strings', () => {
+    const route = { method: 'get', path: '/x' }
+    expect(() => createClient({ 'a.b': route })).not.toThrow()
+    for (const errors of ['NOT_FOUND', [404], [null], { 0: 'X' }]) {
+      expect(() => createClient({ 'a.b': { ...route, errors } } as never)).toThrow(
+        new TypeError('[@laratype/client] createClient: "a.b" errors in the manifest must be an array of error codes (strings)'),
+      )
+    }
   })
 
   it('rejects a manifest with bad route names', () => {

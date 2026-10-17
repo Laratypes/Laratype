@@ -90,8 +90,14 @@ const isManifestRoute = (value: unknown): value is ManifestRoute =>
 const isManifest = (value: unknown): value is Manifest =>
   typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
 
-/** `"https://host/api"` → `["https://host", "/api"]`; a relative `baseUrl` (`"/api"`) is all path. No query or hash. */
+/**
+ * `"https://host/api"` → `["https://host", "/api"]`; a path (`"/api"`) or `""` has no origin. Anything else, such as
+ * `"localhost:3000/api"`, is refused, and so is a query or a hash.
+ */
 const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
+  if (baseUrl !== "" && !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl) && !baseUrl.startsWith("/")) {
+    fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
+  }
   if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
   const base = baseUrl.replace(/\/+$/, "");
   const origin = /^[a-z][a-z\d+.-]*:\/\/[^/]*/i.exec(base)?.[0] ?? "";
@@ -105,9 +111,10 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: the call's own, then `options.headers`, then `content-type: application/json` for a body.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
- * The request is checked with `new Request()` before `fetch`, outside `FetchFailed`, so a configuration or programming
- * error (a GET or HEAD with a body, a bad `RequestInit`, a relative URL for the global `fetch` outside a browser)
- * rejects the call. Only the rejection of `fetch` itself is a `FetchFailed`, which the result union turns into `unexpected`.
+ * With the global `fetch`, the request is built as a `Request` before `fetch` and outside `FetchFailed`, so a
+ * configuration or programming error (a GET or HEAD with a body, a bad `RequestInit`, a relative URL outside a browser)
+ * rejects the call; that `Request` is what `fetch` gets. An injected `fetch` gets `(url, init)` unchecked. Only the
+ * rejection of `fetch` itself is a `FetchFailed`, which the result union turns into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
@@ -125,20 +132,31 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
   }
   if (input.signal) init.signal = input.signal;
-  const fetchFn = options.fetch ?? globalThis.fetch;
-  if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
-  // relative: baseUrl has no origin ("" or "/api", and "localhost:3000/api" too, which has no "//")
-  const base = origin ? undefined : locationHref();
-  // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so only the global one is guarded
-  if (!origin && !base && !options.fetch) {
-    fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
-  }
-  // validation only: no signal (it would add an abort listener), and skipped where Request or URL is missing
-  if (typeof Request === "function" && typeof URL === "function") {
-    new Request(new URL(url, base ?? "http://localhost"), { ...init, signal: undefined });
+  let pending: () => Promise<Response>;
+  const injected = options.fetch;
+  if (injected) {
+    // an injected fetch gets (url, init) as built: it may resolve relative URLs itself (an SSR wrapper, a test fake)
+    // or accept what a strict Request refuses (credentials in the URL), so the client doesn't validate for it
+    pending = () => injected(url, init);
+  } else {
+    const fetchFn = globalThis.fetch;
+    if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+    // a relative URL ("" or "/api" baseUrl) needs a page to resolve against
+    const base = origin ? undefined : locationHref();
+    if (!origin && !base) {
+      fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
+    }
+    if (typeof Request === "function" && typeof URL === "function") {
+      // built here, outside FetchFailed, so a GET or HEAD with a body or a bad RequestInit rejects the call;
+      // the same Request then goes to fetch
+      const request = new Request(new URL(url, base), init);
+      pending = () => fetchFn(request);
+    } else {
+      pending = () => fetchFn(url, init);
+    }
   }
   try {
-    return await fetchFn(url, init);
+    return await pending();
   } catch (error) {
     throw new FetchFailed(error);
   }
@@ -257,13 +275,20 @@ const pathsOf = (api: object): RouteSpec[] => {
 
 /** The manifest's routes; it knows the error codes only (not their status), and neither the success status nor the response schema. */
 const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
-  Object.entries(manifest).map(([name, route]) => ({
-    name,
-    method: route.method,
-    path: route.path,
-    success: { status: undefined, data: "any" },
-    declared: () => new Map((route.errors ?? []).map((code) => [code, undefined])),
-  }));
+  Object.entries(manifest).map(([name, route]) => {
+    const { errors } = route;
+    // checked here, at createClient: a malformed list would otherwise make a call reject on its first error answer
+    if (errors !== undefined && !(Array.isArray(errors) && errors.every((code) => typeof code === "string"))) {
+      fail(`createClient: "${name}" errors in the manifest must be an array of error codes (strings)`);
+    }
+    return {
+      name,
+      method: route.method,
+      path: route.path,
+      success: { status: undefined, data: "any" },
+      declared: () => new Map((errors ?? []).map((code) => [code, undefined])),
+    };
+  });
 
 /**
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
