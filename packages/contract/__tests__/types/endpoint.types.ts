@@ -69,7 +69,7 @@ expectTypeOf(endpoint.get('/').body(body).body(response).__types.body).toEqualTy
 
 // --- response status: default 200, literal otherwise
 expectTypeOf(endpoint.get('/').response(response).__types.status).toEqualTypeOf<200>()
-expectTypeOf(endpoint.get('/').response(response, 204).__types.status).toEqualTypeOf<204>()
+expectTypeOf(endpoint.get('/').response(response, 201).__types.status).toEqualTypeOf<201>()
 
 // --- several errors in one call keep each literal
 const multi = endpoint.get('/').throws(notFound, forbidden)
@@ -142,3 +142,10 @@ endpoint.post('/jobs').status(301)
 endpoint.get('/').response(response, 404)
 // @ts-expect-error .status() is for a body-less success: use .response(schema, status)
 endpoint.get('/').response(response).status(202)
+
+// .response(schema) keeps a status set by .status(n); a 204 has no body
+expectTypeOf(endpoint.post('/jobs').status(202).response(response).__types.status).toEqualTypeOf<202>()
+expectTypeOf(endpoint.post('/jobs').status(204).response(response).__types.status).toEqualTypeOf<200>()
+expectTypeOf(endpoint.post('/jobs').status(202).response(response, 201).__types.status).toEqualTypeOf<201>()
+// @ts-expect-error a 204 has no body: use .status(204)
+endpoint.get('/').response(response, 204)

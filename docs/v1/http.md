@@ -230,7 +230,7 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 
 ### Design (non-binding)
-- **Status:** taken from the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)). The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined.
+- **Status:** taken from the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)). The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204: `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202).
 - **Body:** JSON serialization, with optional dev-mode output validation.
 - **Replaces:** the method-name guess in `ControllerMethodHttpStatusCode`.
 - **Done when:** runtime tests for 200, 201 and 204.

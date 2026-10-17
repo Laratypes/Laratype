@@ -33,6 +33,12 @@ type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
 /** A success status: `200` to `299`. */
 export type SuccessStatus = ToNumber<`2${Digit}${Digit}`>;
 
+/** A success status that can carry a body: 2xx except 204. */
+export type BodyStatus = Exclude<SuccessStatus, 204>;
+
+/** `.response(schema)` without a status keeps one set by `.status(n)` (not 204), else 200. */
+type KeptStatus<R, St> = R extends undefined ? (St extends BodyStatus ? St : 200) : 200;
+
 /** A success status must be 2xx: checked when the endpoint is defined. */
 const checkSuccess = (status: unknown, label: string): number => {
   if (!Number.isInteger(status) || (status as number) < 200 || (status as number) > 299) {
@@ -106,9 +112,17 @@ export class Endpoint<
   }
 
   // NoInfer: a contextual return type (e.g. AnyEndpoint) must not infer C, so the 200 default applies
-  /** A JSON response body: its schema and a 2xx status, `200` by default. */
-  response<S extends StandardSchemaV1, Code extends SuccessStatus = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
-    return new Endpoint({ ...this.def, response: schema, status: status === undefined ? 200 : checkSuccess(status, "response()") });
+  /**
+   * A JSON response body: its schema and a 2xx status other than 204 (a 204 has no body: use `.status(204)`).
+   * Without a status it keeps one set by `.status(n)` before (`.status(202).response(Dto)` is 202), else `200`.
+   */
+  response<S extends StandardSchemaV1, Code extends BodyStatus = KeptStatus<R, St>>(
+    schema: S,
+    status?: Code,
+  ): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
+    const kept = !this.def.response && this.def.status !== 204 ? this.def.status : 200;
+    if ((status as number | undefined) === 204) throw new TypeError("[@laratype/contract] response(): a 204 has no body; use .status(204)");
+    return new Endpoint({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });
   }
 
   /**

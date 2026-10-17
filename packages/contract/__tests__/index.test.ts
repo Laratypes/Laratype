@@ -13,6 +13,16 @@ describe('@laratype/contract', () => {
 })
 
 describe('endpoint builder', () => {
+  it('.response(schema) keeps a status set by .status(n); .response(schema, 204) throws (a 204 has no body)', () => {
+    expect(endpoint.post('/jobs').status(202).response(z.string()).def.status).toBe(202)
+    expect(endpoint.post('/jobs').status(204).response(z.string()).def.status).toBe(200)
+    expect(endpoint.post('/jobs').status(202).response(z.string(), 201).def.status).toBe(201)
+    expect(endpoint.get('/').response(z.string()).response(z.number()).def.status).toBe(200)
+    expect(() => endpoint.get('/').response(z.string(), 204 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): a 204 has no body; use .status(204)'),
+    )
+  })
+
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
     expect(endpoint.post('/jobs').status(202).def).toMatchObject({ status: 202 })
     expect(endpoint.post('/jobs').status(202).def.response).toBeUndefined()

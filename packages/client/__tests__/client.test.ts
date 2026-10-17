@@ -383,7 +383,7 @@ describe('the result union', () => {
 
   it('a declared 204, or an endpoint with no response schema (204 by default): ok with data undefined', async () => {
     const things = defineContract()({
-      remove: endpoint.delete('/:id').response(z.null(), 204),
+      remove: endpoint.delete('/:id').status(204),
       ping: endpoint.post('/ping'),
     })
     const removed = await createClient(things, { fetch: respond(null, 204) }).remove({ params: { id: 1 } })
