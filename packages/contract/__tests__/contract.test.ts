@@ -9,6 +9,7 @@ import {
   apiPaths,
   apiRoutes,
   endpointErrors,
+  routeErrors,
   contractEndpoints,
   defineApi,
   defineContract,
@@ -204,7 +205,7 @@ describe('apiRoutes', () => {
 
   it('is apiPaths() plus the resolved capabilities: same names, methods and paths', () => {
     expect(routes.map((r) => [r.name, r.method, r.path])).toEqual(apiPaths(appApi).map((p) => [p.name, p.method, p.path]))
-    expect(apiPaths(appApi.users.posts)[0]).toMatchObject({ prefix: '/api/users/:user/posts', contract: posts, scopes: [usersUser] })
+    expect(apiPaths(appApi.users.posts)[0]).toMatchObject({ path: '/api/users/:user/posts', contract: posts, scopes: [usersUser] })
   })
 
   it('takes an API node (full names) or a single contract (endpoint keys, its own paths)', () => {
@@ -236,18 +237,22 @@ describe('apiPaths', () => {
   it('lists names, methods and full paths without resolving capabilities', () => {
     // .authorize() gets auth from the folder scope: fine in its folder, inconsistent alone
     const scoped = defineContract<UserPrefix>()({ destroy: endpoint.delete('/:post').authorize() })
-    expect(apiPaths(scoped).map((p) => [p.name, p.method, p.path, p.prefix])).toEqual([['destroy', 'delete', '/:post', '']])
+    expect(apiPaths(scoped).map((p) => [p.name, p.method, p.path])).toEqual([['destroy', 'delete', '/:post']])
     expect(() => apiRoutes(scoped)).toThrow(/needs auth/)
     expect(Object.isFrozen(apiPaths(scoped)[0])).toBe(true)
   })
 })
 
-describe('endpointErrors', () => {
-  it('returns the errors resolveCapabilities would, and never throws', () => {
+describe('endpointErrors and routeErrors', () => {
+  it('return the errors resolveCapabilities would, and never throw', () => {
+    const paths = apiPaths(appApi)
     for (const route of apiRoutes(appApi)) {
-      const ctx = { path: apiPaths(appApi).find((p) => p.name === route.name)!.prefix, scopes: route.scopes, options: route.contract[CONTRACT].options }
-      expect(endpointErrors(route.endpoint.def, ctx)).toEqual(route.errors)
+      expect(routeErrors(paths.find((p) => p.name === route.name)!)).toEqual(route.errors)
     }
+    // a contract taken out of its folder: routeErrors resolves it with its own options and never throws
+    const scoped = defineContract<UserPrefix>()({ destroy: endpoint.delete('/:post').authorize() })
+    expect(() => apiRoutes(scoped)).toThrow(/needs auth/)
+    expect(routeErrors(apiPaths(scoped)[0]!).map((e) => e.code)).toEqual(['NOT_FOUND', 'FORBIDDEN'])
     // .authorize() without auth (it would come from a scope): resolveCapabilities throws, endpointErrors doesn't
     const def = endpoint.delete('/:post').authorize().def
     const alone = { path: '', scopes: [], options: {} }

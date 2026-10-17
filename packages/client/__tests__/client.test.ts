@@ -77,14 +77,18 @@ describe('createClient', () => {
     expect(calls[1]!.headers).toEqual({ authorization: 'Bearer t', 'x-tenant': 'default' })
   })
 
-  it('defaults a JSON body to application/json even when options.headers has a content-type', async () => {
+  it('content-type precedence: the call headers, then options.headers, then the application/json default', async () => {
     const { fetch, calls } = fakeFetch()
-    const api = createClient(appApi, { fetch, headers: { 'content-type': 'text/plain', 'x-tenant': 'default' } })
-    await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't' } })
-    expect(calls[0]!.headers['content-type']).toBe('application/json')
-    // without a body the default header is sent as it is
-    await api.users.index()
-    expect(calls[1]!.headers['content-type']).toBe('text/plain')
+    const body = { name: 'Ada', email: 'a@b.c' }
+    const vendor = createClient(appApi, { fetch, headers: { 'content-type': 'application/vnd.api+json' } })
+    await vendor.users.store({ body, headers: { 'x-tenant': 't' } })
+    await vendor.users.store({ body, headers: { 'x-tenant': 't', 'content-type': 'application/merge-patch+json' } })
+    await createClient(appApi, { fetch }).users.store({ body, headers: { 'x-tenant': 't' } })
+    expect(calls.map((c) => c.headers['content-type'])).toEqual([
+      'application/vnd.api+json',
+      'application/merge-patch+json',
+      'application/json',
+    ])
   })
 
   it('keeps a content-type the caller set', async () => {
@@ -214,41 +218,47 @@ describe('createClient', () => {
     expect(calls.at(-1)!.url).toBe('/api/users?page=3')
   })
 
-  it('names a hand-made object of API nodes after its own keys, as ClientOf types it', async () => {
+  it('never parses baseUrl as route syntax: buildUrl only sees the route path', async () => {
     const { fetch, calls } = fakeFetch()
-    const api = createClient({ posts: appApi.users.posts, health: appApi.v1.health }, { fetch })
-    expect(Object.keys(api)).toEqual(['posts', 'health'])
-    expect(Object.keys(api.posts)).toEqual(['index', 'update'])
-    await api.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
-    await api.health.check()
-    expect(calls.map((c) => c.url)).toEqual(['/api/users/1/posts/2', '/api/v1/health'])
+    const api = createClient(users, { fetch, baseUrl: 'https://example.com/:tenant/api/users' })
+    await api.index()
+    await api.show({ params: { user: 5 } })
+    expect(calls.map((c) => c.url)).toEqual(['https://example.com/:tenant/api/users', 'https://example.com/:tenant/api/users/5'])
   })
 
-  it('accepts contracts in a hand-made object, named under their key', async () => {
-    const { fetch, calls } = fakeFetch()
-    const api = createClient({ users, posts: appApi.users.posts }, { fetch, baseUrl: 'https://example.com' })
-    expect(Object.keys(api)).toEqual(['users', 'posts'])
-    expect(Object.keys(api.users)).toEqual(['index', 'show', 'store'])
-    await api.users.show({ params: { user: 5 } })
-    await api.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
-    // a contract alone has no folder prefix: its own path on baseUrl
-    expect(calls.map((c) => c.url)).toEqual(['https://example.com/5', 'https://example.com/api/users/1/posts/2'])
+  it('rejects a baseUrl with a query or a hash at createClient, and at the call if it is changed later', async () => {
+    for (const baseUrl of ['https://example.com/api?x=1', 'https://example.com/api#top', '/api?']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(
+        new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must not have a query or a hash`),
+      )
+    }
+    const options: ClientOptions = { fetch: fakeFetch().fetch }
+    const api = createClient(appApi, options)
+    options.baseUrl = 'https://example.com?x=1'
+    await expect(api.users.index()).rejects.toThrow(/must not have a query or a hash/)
   })
 
-  it('rejects a key with "." in a hand-made object, which would split into nested names', () => {
-    // @ts-expect-error the type rejects it too
-    expect(() => createClient({ 'a.b': users })).toThrow(
-      new TypeError('[@laratype/client] createClient: key "a.b" must not contain "." (names are split on ".")'),
-    )
+  it('rejects a hand-made object: only the appApi root, whose keys are the names of its nodes, is accepted', () => {
+    const error = new TypeError('[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest')
+    // @ts-expect-error a node under another key
+    expect(() => createClient({ posts: appApi.users.posts })).toThrow(error)
+    // @ts-expect-error a contract in an object
+    expect(() => createClient({ users })).toThrow(error)
+    // @ts-expect-error a mix
+    expect(() => createClient({ users: appApi.users, other: users })).toThrow(error)
+    // the root's own nodes, in any subset, are still the root shape
+    expect(Object.keys(createClient({ users: appApi.users }, { fetch: fakeFetch().fetch }))).toEqual(['users'])
   })
 
   it('rejects a single endpoint with a clear error, not as a bad manifest', () => {
+    // @ts-expect-error not one of the four inputs
     expect(() => createClient(users.show)).toThrow(
       new TypeError('[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi'),
     )
   })
 
   it('rejects anything else', () => {
+    // @ts-expect-error not one of the four inputs
     expect(() => createClient({ nope: 1 })).toThrow(
       new TypeError('[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest'),
     )

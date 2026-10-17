@@ -99,11 +99,6 @@ export type EndpointCall<E extends EndpointShape> = {} extends CallInput<E>
 /** The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per endpoint. */
 export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
 
-/** A key of an object passed to `createClient` must not contain "." (names are split on "."): `{ error }` instead. */
-export type CheckGroupKeys<A> = {
-  [K in keyof A]: K extends `${string}.${string}` ? { error: `createClient: key "${K}" must not contain "."` } : A[K];
-};
-
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
 export type ClientOf<A> = Client<ApiTypes<A>>;
 

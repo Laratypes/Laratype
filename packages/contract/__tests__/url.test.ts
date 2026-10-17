@@ -57,9 +57,17 @@ describe('buildUrl', () => {
     expect(buildUrl('/api/users/:user', { params: { user: 7 }, query: { full: 1 } })).toBe('/api/users/7?full=1')
   })
 
+  it('rejects a function or a symbol in the query', () => {
+    for (const value of [() => 1, Symbol('x'), [Symbol('y')]]) {
+      expect(() => buildUrl('/api/users', { query: { bad: value } })).toThrow(
+        new TypeError('[@laratype/contract] buildUrl: query "bad" must be a string, number, boolean, bigint or Date, or an array of them'),
+      )
+    }
+  })
+
   it('rejects a nested object in the query', () => {
     expect(() => buildUrl('/api/users', { query: { filter: { a: 1 } } })).toThrow(
-      new TypeError('[@laratype/contract] buildUrl: query "filter" must be a primitive, a Date or an array of them'),
+      new TypeError('[@laratype/contract] buildUrl: query "filter" must be a string, number, boolean, bigint or Date, or an array of them'),
     )
   })
 })

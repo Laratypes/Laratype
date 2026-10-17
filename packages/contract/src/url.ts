@@ -64,7 +64,9 @@ function serializeQuery(query: object): string {
     for (const item of Array.isArray(value) ? value : [value]) {
       if (item === undefined || item === null) continue;
       if (item instanceof Date) search.append(key, item.toISOString());
-      else if (typeof item === "object") fail(`buildUrl: query "${key}" must be a primitive, a Date or an array of them`);
+      else if (typeof item === "object" || typeof item === "function" || typeof item === "symbol") {
+        fail(`buildUrl: query "${key}" must be a string, number, boolean, bigint or Date, or an array of them`);
+      }
       else search.append(key, String(item));
     }
   }
