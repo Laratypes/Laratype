@@ -8,6 +8,8 @@ import {
   apiEndpoint,
   apiPaths,
   apiRoutes,
+  endpointErrors,
+  routeErrors,
   contractEndpoints,
   defineApi,
   defineContract,
@@ -18,6 +20,7 @@ import {
   isContract,
   isEndpoint,
   isScope,
+  resolveCapabilities,
 } from '@laratype/contract'
 import { appApi } from './fixtures/app/api'
 import { AccountLocked, EmailTaken, PostLimit } from './fixtures/app/api/errors'
@@ -237,6 +240,24 @@ describe('apiPaths', () => {
     expect(apiPaths(scoped).map((p) => [p.name, p.method, p.path])).toEqual([['destroy', 'delete', '/:post']])
     expect(() => apiRoutes(scoped)).toThrow(/needs auth/)
     expect(Object.isFrozen(apiPaths(scoped)[0])).toBe(true)
+  })
+})
+
+describe('endpointErrors and routeErrors', () => {
+  it('return the errors resolveCapabilities would, and never throw', () => {
+    const paths = apiPaths(appApi)
+    for (const route of apiRoutes(appApi)) {
+      expect(routeErrors(paths.find((p) => p.name === route.name)!)).toEqual(route.errors)
+    }
+    // a contract taken out of its folder: routeErrors resolves it with its own options and never throws
+    const scoped = defineContract<UserPrefix>()({ destroy: endpoint.delete('/:post').authorize() })
+    expect(() => apiRoutes(scoped)).toThrow(/needs auth/)
+    expect(routeErrors(apiPaths(scoped)[0]!).map((e) => e.code)).toEqual(['NOT_FOUND', 'FORBIDDEN'])
+    // .authorize() without auth (it would come from a scope): resolveCapabilities throws, endpointErrors doesn't
+    const def = endpoint.delete('/:post').authorize().def
+    const alone = { path: '', scopes: [], options: {} }
+    expect(() => resolveCapabilities(def, alone, 'destroy')).toThrow(/needs auth/)
+    expect(endpointErrors(def, alone).map((e) => e.code)).toEqual(['NOT_FOUND', 'FORBIDDEN'])
   })
 })
 

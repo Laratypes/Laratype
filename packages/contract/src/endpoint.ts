@@ -3,6 +3,8 @@ import type { AuthOption, ThrottleOptions } from "./capabilities";
 import type { AnyErrorDef } from "./errors";
 import type { PathParams } from "./path";
 import type { StandardSchemaV1 } from "./standard-schema";
+import { fail } from "./internal";
+import type { Digit, ToNumber } from "./internal";
 
 export type Method = "get" | "post" | "put" | "patch" | "delete";
 
@@ -26,6 +28,28 @@ export interface EndpointDef {
 }
 
 type Schema = StandardSchemaV1 | undefined;
+
+/** A success status: `200` to `299`. */
+export type SuccessStatus = ToNumber<`2${Digit}${Digit}`>;
+
+/** A success status that can carry a body: 2xx except 204 No Content and 205 Reset Content. */
+export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
+
+const BODYLESS: ReadonlySet<number> = new Set([204, 205]);
+
+/**
+ * `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. A wide
+ * `number` status can't say which, so it stays `number`, as the runtime may keep any of them.
+ */
+type KeptStatus<R, St> = R extends undefined ? (number extends St ? number : St extends BodyStatus ? St : 200) : 200;
+
+/** A success status must be 2xx: checked when the endpoint is defined. */
+const checkSuccess = (status: unknown, label: string): number => {
+  if (!Number.isInteger(status) || (status as number) < 200 || (status as number) > 299) {
+    fail(`${label}: the status must be a 2xx success status, got ${String(status)}`);
+  }
+  return status as number;
+};
 
 /** Type-level capability state of one endpoint. `undefined` means "inherit". */
 export interface EndpointCaps {
@@ -54,7 +78,7 @@ export class Endpoint<
   B extends Schema = undefined,
   H extends Schema = undefined,
   R extends Schema = undefined,
-  St extends number = 200,
+  St extends number = R extends undefined ? 204 : 200,
   E extends AnyErrorDef = never,
   C extends EndpointCaps = DefaultCaps,
 > {
@@ -91,9 +115,27 @@ export class Endpoint<
     return new Endpoint({ ...this.def, headers: schema });
   }
 
-  // NoInfer: a contextual return type (e.g. AnyEndpoint) must not infer C, so the 200 default applies
-  response<S extends StandardSchemaV1, Code extends number = 200>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
-    return new Endpoint({ ...this.def, response: schema, status: status ?? 200 });
+  /**
+   * A JSON response body: its schema and a 2xx status other than 204 or 205, which have no body (use `.status(204)`).
+   * Without a status it keeps one set by `.status(n)` before (`.status(202).response(Dto)` is 202), else `200`.
+   * The status is `NoInfer`: a contextual return type (e.g. `AnyEndpoint`) must not infer it, so the default applies.
+   */
+  response<S extends StandardSchemaV1, Code extends BodyStatus | undefined = undefined>(
+    schema: S,
+    status?: Code,
+  ): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C> {
+    const kept = !this.def.response && !BODYLESS.has(this.def.status) ? this.def.status : 200;
+    if (status !== undefined && BODYLESS.has(status)) fail(`response(): a ${status} has no body; use .status(${status})`);
+    return new Endpoint({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });
+  }
+
+  /**
+   * A success with no body: `endpoint.post('/jobs').status(202)`. Without it a schema-less endpoint answers `204`.
+   * For a status with a JSON body, use `.response(schema, status)`; `.status()` after `.response()` is an error.
+   */
+  status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C> {
+    if (this.def.response) fail("status(): the endpoint has a response schema; use .response(schema, status)");
+    return new Endpoint({ ...this.def, status: checkSuccess(status, "status()") });
   }
 
   /** Domain errors this endpoint may throw, added to the ones inherited from its contract and scopes. */
@@ -113,7 +155,7 @@ export class Endpoint<
 
   /** `.authorize()` adds a policy check (403); `.authorize(false)` skips every inherited one. */
   authorize<const F extends boolean = true>(enabled?: F): Endpoint<M, P, Q, B, H, R, St, E, { auth: C["auth"]; authorize: F; throttle: C["throttle"] }> {
-    if (enabled !== undefined && typeof enabled !== "boolean") throw new TypeError("[@laratype/contract] authorize(): expected a boolean");
+    if (enabled !== undefined && typeof enabled !== "boolean") fail("authorize(): expected a boolean");
     return new Endpoint({ ...this.def, authorize: enabled ?? true });
   }
 
@@ -125,8 +167,9 @@ export class Endpoint<
   }
 }
 
+/** A new endpoint answers 204 (no content) until `.response(schema, status?)` gives it a body, 200 by default. */
 const make = <M extends Method>(method: M) =>
-  <P extends string>(path: P): Endpoint<M, P> => new Endpoint<M, P>({ method, path, status: 200, throws: [] });
+  <P extends string>(path: P): Endpoint<M, P> => new Endpoint<M, P>({ method, path, status: 204, throws: [] });
 
 export const endpoint = {
   get: make("get"),

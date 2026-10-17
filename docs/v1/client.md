@@ -3,12 +3,12 @@ area: client
 packages: ["@laratype/client", "@laratype/client-query"]
 issues: [85, 109, 110, 124, 132, 133, 140, 141, 159, 228]
 verified-against: Laratype@d70daa7
-last-verified: 2026-10-14
+last-verified: 2026-10-15
 ---
 
 # Client (`@laratype/client`)
 
-The typed FE client is driven by contracts. `createClient` is merged (CL1); the other sections are decided (S2) or planned. Signatures quoted from the S2 spike are a non-binding reference, not a spec.
+The typed FE client is driven by contracts. `createClient` (CL1) and the result union (CL2) are merged; the other sections are decided (S2) or planned. Signatures quoted from the S2 spike are a non-binding reference, not a spec.
 
 Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DECISIONS-S1-S2.md §S2](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s2-85-decision). Spike prototypes: `spikes/v1/s2-api/client/*` on PR #197 @ 4c558fd. The type side the client consumes (`ApiTypes`, `EndpointShape`, `ApiShape`) is in [contract.md › API type projection](./contract.md#api-type-projection).
 
@@ -16,8 +16,8 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); result union planned → #110 |
-| [Result union](#result-union) | planned → #110 |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
+| [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
@@ -98,7 +98,7 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). The result union is planned → [#110](https://github.com/Laratypes/Laratype/issues/110) (CL2).
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)).
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
@@ -112,7 +112,7 @@ export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
 export type ApiRootShape<A>;                         // each key K is an API node named K
 
 export interface ClientOptions {
-  baseUrl?: string;                 // the origin; default "" (same origin)
+  baseUrl?: string;                 // an absolute URL (https://…) or a path starting with /; default "" (same origin)
   fetch?: FetchLike;                // default: the global fetch
   headers?: HeadersInit;            // sent with every call
   // all three are read from this object at each call
@@ -121,10 +121,9 @@ export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 export type ClientOf<A> = Client<ApiTypes<A>>;
 export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
-export type EndpointCall<E extends EndpointShape>;   // (input: CallInput<E>) => Promise<ClientResponse<ResponseData<E>>>, input optional when nothing in it is required
+export type EndpointCall<E extends EndpointShape>;   // (input: CallInput<E>) => Promise<ClientResult<E>>, input optional when nothing in it is required
 export type CallInput<E extends EndpointShape>;      // { params?, query?, body?, headers?, signal? }, see Invariants
-export type ResponseData<E extends EndpointShape>;   // the wire type of the response schema; unknown without one
-export interface ClientResponse<T> extends Response { json(): Promise<T> }
+export type ResponseData<E extends EndpointShape>;   // the wire type of the response schema; undefined without one or for a declared 204
 export type HeaderValues = Record<string, string>;
 export interface ManifestRoute { readonly method: string; readonly path: string; readonly errors?: readonly string[] }
 export type Manifest = Readonly<Record<string, ManifestRoute>>;   // the generated `manifest` of api.ts
@@ -133,15 +132,15 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;   // the generat
 ```ts
 import { appApi } from '$api'                       // .laratype/api/index.gen.ts
 const api = createClient(appApi)                    // or createClient(appApi.users), createClient(postsContract)
-const res = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
-const post = await res.json()
+const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
+if (result.ok) result.data.title                     // see Result union
 ```
 
 ### Invariants
 - **Input:** `createClient` takes exactly one of four inputs: the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), one API node (`appApi.users`), one contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). A plain object counts as the `appApi` root only if every value is an API node whose own name is its key; a hand-made object such as `{ posts: appApi.users.posts }` or `{ users: usersContract }` is rejected. The overloads type the same four inputs, so anything else, a single endpoint included, fails to compile. It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. A single endpoint throws `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`, and anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`. Endpoints are recognized by their `Symbol.for` brand ([contract.md › Endpoint builder](./contract.md#endpoint-builder)), so a contract from another bundle or package copy works.
 - **Names** follow the folder tree (`api.users.posts.update`). Name-style calls are the primary style. Each client node is frozen, has a null prototype and lists its endpoints and child nodes in definition order.
-- **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiPaths()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), the same walker behind the router's `apiRoutes()`, so names and paths match the router's. It resolves no capabilities, so the FE skips that work, and a contract whose `.authorize()` gets `auth` from a folder scope still builds on its own. An API node's names are relative to it. The manifest gives its routes directly.
-- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin), trailing slashes are stripped, and a query or a hash in it throws. The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `buildUrl` fills the route path alone, then the result is joined to `baseUrl`'s path with the server's `joinPath`, so `baseUrl` is never parsed as route syntax (a `:tenant` in it stays as it is). a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
+- **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiPaths()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), the same walker behind the router's `apiRoutes()`, so names and paths match the router's. It resolves no capabilities: a route's declared errors are resolved lazily, on its first non-2xx answer, and a contract whose `.authorize()` gets `auth` from a folder scope still builds on its own. An API node's names are relative to it. The manifest gives its routes directly.
+- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin) and trailing slashes are stripped. It must be an absolute URL with `://` or a path starting with `/`: anything else (`localhost:3000/api`, `api`, a protocol-relative `//host/api`) throws `[@laratype/client] createClient: baseUrl "<baseUrl>" must be an absolute URL (https://…) or a path starting with /`, and so does a query, a hash, a backslash or any whitespace or control character (http(s) URL parsing turns `/\evil.com` into another host, and strips the tab in `/\t/evil.com`, which becomes `//evil.com`). The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `buildUrl` fills the route path alone, then the result is joined to `baseUrl`'s path with the server's `joinPath`, so `baseUrl` is never parsed as route syntax (a `:tenant` in it stays as it is). a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
 - **Call input** (`CallInput<E>`):
   - `params`: every param of the full path, `[x]` folder params included. Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param is a type error and throws before `fetch` is called.
   - `query`: the query schema input, serialized by `buildUrl`.
@@ -149,9 +148,10 @@ const post = await res.json()
   - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`.
   - `signal`: an `AbortSignal`, passed to `fetch`.
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
-- **Result:** a call resolves to the fetch `Response`, non-2xx included, typed `ClientResponse<T>` whose `json()` gives `T`. It never throws: every failure rejects, whether `fetch` rejects, the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`. The CL2 result union (#110) wraps this `Response`: every call goes through one internal `send(method, path, input)`.
+- **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.
+- **Global `fetch` vs injected `fetch`:** both get `(url, init)`, and `fetch` resolves a relative URL itself (against the document's base URL in a browser). The client checks only what would otherwise look like a network failure: a GET with a body rejects with `[@laratype/client] a GET request cannot have a body: "<path>"`, and with the global `fetch` a relative URL outside a browser (no `document` or `location`, as in Node SSR or Deno without `--location`, or only an `about:` base such as `about:blank`, `about:srcdoc` or the jsdom default, which can't resolve a path) rejects; set `baseUrl` to an absolute URL, or pass `fetch`. An injected `fetch` is not guarded, since it may resolve relative URLs itself. A synchronous throw from `fetch`, global or injected, rejects the call; only a rejected promise is the status-0 result.
 - **Options are live:** `baseUrl`, `headers` and `fetch` are read from the options object at each call, so changing them later (a refreshed token) applies to the next call.
-- **Wire type** (`ResponseData`): the response schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema gives `unknown`. The `Jsonify` helper is internal for now.
+- **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema, or with a declared 204, gives `undefined`. The `Jsonify` helper is internal for now.
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
 - The FE program loads 0 server files and 0 hono files: `packages/client/__tests__/fe.test.ts` compiles `fixtures/fe/main.ts` with its own tsconfig (`types: []`, DOM lib, not extending the repo tsconfig) and checks the program of one `tsc --listFiles` run.
 
@@ -167,7 +167,7 @@ const post = await res.json()
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Non-goals
-- No `Result` union, error narrowing or response parsing by schema here: CL2 [#110](https://github.com/Laratypes/Laratype/issues/110) and CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
 - No dynamic headers, hooks or `credentials`: CL3 [#124](https://github.com/Laratypes/Laratype/issues/124).
 
 ### Open questions
@@ -181,17 +181,62 @@ const post = await res.json()
 ## Result union
 
 ### Status
-planned → [#110](https://github.com/Laratypes/Laratype/issues/110) (CL2).
+merged ([#110](https://github.com/Laratypes/Laratype/issues/110)).
 
-### Design (non-binding)
-- Calls resolve to a union quoted from #110: `{ ok: true, status, data } | { ok: false, status, error }`. Here `data` is the response type and `error` is the body of the matching contract error.
-- **Error union:** derived from the endpoint's capabilities across all levels, plus the union of its `throws` ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
-- **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `EMAIL_NOT_VERIFIED` are both 403), so `status` alone doesn't identify the error.
-- There is also a variant for network errors and undeclared statuses. The S2 spike marks an undeclared status with `unexpected: true`. This is unchanged.
-- Done when type tests show that narrowing by `code` gives the right body type.
+### Public API
+[`packages/client/src/types.ts`](../../packages/client/src/types.ts), [`packages/client/src/client.ts`](../../packages/client/src/client.ts)
+
+```ts
+export type ClientResult<E extends EndpointShape> = ClientSuccess<E> | ClientFailure<E> | UnexpectedResult;
+export interface ClientSuccess<E extends EndpointShape> {
+  ok: true; status: E["status"]; data: ResponseData<E>; response: Response; code?: undefined; unexpected?: undefined;
+}
+export type ClientFailure<E extends EndpointShape>;   // per error of E["errors"]:
+//   { ok: false; status: St; code: Code; error: Jsonify<Body>; response: Response; unexpected?: undefined }
+export interface UnexpectedResult {
+  ok: false; unexpected: true; status: number; error: unknown; response: Response | undefined; text?: string; code?: undefined;
+}
+```
+
+```ts
+const result = await api.users.store({ body })
+if (result.ok) return result.data                     // 201, Jsonify<UserDto>
+switch (result.code) {
+  case 'EMAIL_TAKEN':      result.error.email; break   // 409, the body of EmailTaken
+  case 'VALIDATION_ERROR': result.error.errors; break  // 422, { message, errors }
+  case undefined:          result.unexpected; break    // true: network, undeclared status or code, non-JSON
+}
+```
+
+### Invariants
+- **Wire format of an error:** the JSON body is the error's body plus its code, flat: `{ "code": "EMAIL_TAKEN", "message": "...", "email": "..." }`. It holds for domain errors and the framework catalog errors alike (`{ "code": "VALIDATION_ERROR", "message": "...", "errors": {...} }`). A body is a plain object without its own `code` key ([contract.md › Domain errors](./contract.md#domain-errors)). The server side is H5 [#108](https://github.com/Laratypes/Laratype/issues/108) ([http.md › Exceptions](./http.md#exceptions)). The unknown-error 500 body `{ message: "Server Error" }` has no `code`, so the client sees it as unexpected.
+- **Success:** the endpoint's declared status, which `status` is typed with. Any other 2xx (200 for a declared 201) is unexpected.
+- **Data:** `undefined`, in the type and at runtime, for an endpoint with no response schema or a declared 204; the body is then not read. With a response schema, `data` is the parsed JSON body, typed with the [wire type](#createclient) of the schema, and an empty 2xx body is unexpected, since the server broke the contract.
+- **Manifest (known gap):** the manifest carries neither the success status, nor whether there is a response schema, nor the error statuses, so `createClient<AppApi>(manifest)` accepts any 2xx, parses a body if there is one, and matches errors by code only. Its types still claim the declared statuses and schemas from `AppApi`, which the runtime cannot check. Emitting them in the manifest is planned → [#259](https://github.com/Laratypes/Laratype/issues/259).
+- **Declared error:** a non-2xx JSON object body whose `code` is one of the endpoint's declared codes, and whose status is one of the statuses that code is declared with, when known (a code may be declared twice: a `.throws(defineError(410, 'NOT_FOUND'))` next to the derived 404 classifies both). `code` is that code and `error` is the body without `code`. The declared codes are the [derived errors](./contract.md#capabilities-and-derived-errors) of the endpoint's capabilities across all levels, plus the union of its `throws`. They come from `routeErrors` on each `apiPaths()` route ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)) for an `appApi`, an API node or a contract, and from the manifest's `errors` for `createClient<AppApi>(manifest)` (codes only, so any status). A contract alone has no scope chain, so its declared errors are those of its own options and endpoints, as `ClientOf` types them. It cannot know its folder's errors (a scope's `auth` 401, a folder param's 404); use an `appApi` node (`createClient(appApi.users.posts)`) to get the full error set.
+- **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `ACCOUNT_LOCKED` are both 403), so `status` alone doesn't identify the error. `code` is `undefined` on the unexpected variant, so `switch (result.code)` covers it with `case undefined`.
+- **Unexpected** (`unexpected: true`), always with `response` except before the headers arrive:
+  - a network failure or an abort before the headers arrive: `status: 0`, `response: undefined`, `error` is the thrown error;
+  - an opaque response from an injected `fetch` (`redirect: "manual"`, `mode: "no-cors"`): also `status: 0`, but with `response` set (`response.type` is `opaqueredirect` or `opaque`), so `response` tells it apart from a network failure;
+  - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
+  - a 2xx other than the declared status, or an empty body where a response schema is declared;
+  - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
+  - a body that isn't JSON, on any status: `error` is the `SyntaxError`, and `text` holds the raw body (an HTML 502 from a proxy), since the body is consumed.
+- **`response`** is the fetch `Response` on every variant except a failure before the headers. The client reads its body once, so the body is consumed (`bodyUsed`); status and headers such as `Retry-After` stay usable. A body-less success (`data: undefined`) doesn't read the body; unless it is a 204, the client cancels it, so an unread body doesn't hold a connection open (undici).
+- A call never rejects for an HTTP or network outcome; see [createClient](#createclient) › Result.
+
+### Diagnostics
+Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` then `code` gives each error's status and body, including two errors with the same status. Reading `data` before narrowing by `ok`, or a field of one error's body (`result.error.email`) before narrowing by `code`, is a type error.
+
+### Example
+[`examples/client/create-client.ts`](./examples/client/create-client.ts) (`register`)
+
+### Non-goals
+- No retries, and no throwing variant (`unwrap`).
+- No parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
 
 ### Open questions
-- Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)). Parsing by schema on the client is CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)).
 
 ### Acceptance
 [#110 Done when](https://github.com/Laratypes/Laratype/issues/110)
@@ -241,14 +286,14 @@ import { manifest } from './api'                      // generated by `sauf type
 import type { AppApi } from './api'
 
 const api = createClient<AppApi>(manifest, { baseUrl: 'https://api.example.com' })
-await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
+const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
 ```
 
 ### Invariants
 - **S2 option (c):** `sauf types:generate` writes one `api.ts` (default `.laratype/api.ts`, `--api-out` to place it in the FE repo). It holds a flattened `AppApi` type alias and a slim runtime manifest keyed by route name (method, full path, the derived and declared error codes). It has no import, no contract lib and no schema lib.
 - A separate FE compiles against `api.ts` alone, with `types: []` and the DOM lib; the test loads no other file (`packages/sauf/__tests__/typegen/generate.test.ts`).
 - The generated `AppApi` satisfies `ApiShape<A>` and is mutually assignable with `ApiTypes<AppApi>` ([contract.md › API type projection](./contract.md#api-type-projection)).
-- **Manifest client:** `createClient<AppApi>(manifest, options)` nests the manifest's route names (`'users.posts.update'` → `api.users.posts.update`) and calls each route's method and full path. The calls are typed `Client<AppApi>`, the same call signatures as `createClient(appApi)`. Without the `AppApi` type argument the client is `never`. A route name without a `.`, or one that is both an endpoint and a node, throws a `[@laratype/client] createClient: ...` TypeError.
+- **Manifest client:** `createClient<AppApi>(manifest, options)` nests the manifest's route names (`'users.posts.update'` → `api.users.posts.update`) and calls each route's method and full path. The calls are typed `Client<AppApi>`, the same call signatures and [result union](#result-union) as `createClient(appApi)`. The manifest's `errors` (codes only) decide which error codes are declared. Without the `AppApi` type argument the client is `never`. A route name without a `.`, or one that is both an endpoint and a node, throws a `[@laratype/client] createClient: ...` TypeError.
 - **What the FE program loads:** `api.ts` has no contract lib and no schema lib. The FE program with `@laratype/client` also loads `@laratype/contract`, the client's own dependency, for `buildUrl` and its types. It is browser-pure and has no schema lib. `packages/client/__tests__/fe.test.ts` compiles `fixtures/separate-fe` (`types: []`, DOM lib, own tsconfig) and checks with `tsc --listFiles` that it loads 0 server, hono and schema-lib files and no contract file of the app.
 
 ### Design (non-binding)

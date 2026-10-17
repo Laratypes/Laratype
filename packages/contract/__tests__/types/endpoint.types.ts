@@ -14,14 +14,14 @@ const response = z.object({ id: z.number(), name: z.string() })
 
 // --- endpoint.<method>(path)
 const bare = endpoint.get('/users/:user')
-expectTypeOf(bare).toEqualTypeOf<Endpoint<'get', '/users/:user'>>()
+expectTypeOf(bare).toEqualTypeOf<Endpoint<'get', '/users/:user', undefined, undefined, undefined, undefined, 204>>()
 expectTypeOf(bare.__types.method).toEqualTypeOf<'get'>()
 expectTypeOf(bare.__types.path).toEqualTypeOf<'/users/:user'>()
 expectTypeOf(bare.__types.query).toEqualTypeOf<undefined>()
 expectTypeOf(bare.__types.body).toEqualTypeOf<undefined>()
 expectTypeOf(bare.__types.headers).toEqualTypeOf<undefined>()
 expectTypeOf(bare.__types.response).toEqualTypeOf<undefined>()
-expectTypeOf(bare.__types.status).toEqualTypeOf<200>()
+expectTypeOf(bare.__types.status).toEqualTypeOf<204>() // no response schema: 204 (http.md › Response from the contract)
 expectTypeOf(bare.__types.throws).toEqualTypeOf<never>()
 expectTypeOf(bare.__types.caps).toEqualTypeOf<DefaultCaps>()
 expectTypeOf<DefaultCaps>().toEqualTypeOf<{ auth: undefined; authorize: undefined; throttle: undefined }>()
@@ -69,7 +69,7 @@ expectTypeOf(endpoint.get('/').body(body).body(response).__types.body).toEqualTy
 
 // --- response status: default 200, literal otherwise
 expectTypeOf(endpoint.get('/').response(response).__types.status).toEqualTypeOf<200>()
-expectTypeOf(endpoint.get('/').response(response, 204).__types.status).toEqualTypeOf<204>()
+expectTypeOf(endpoint.get('/').response(response, 201).__types.status).toEqualTypeOf<201>()
 
 // --- several errors in one call keep each literal
 const multi = endpoint.get('/').throws(notFound, forbidden)
@@ -130,3 +130,29 @@ const ctx = contextual({
 })
 expectTypeOf(ctx.index.__types.status).toEqualTypeOf<200>()
 expectTypeOf(ctx.created.__types.status).toEqualTypeOf<201>()
+
+// --- success statuses: 204 without a response schema, .status(n) for a body-less 2xx, 2xx only
+expectTypeOf<Endpoint<'get', '/'>['__types']['status']>().toEqualTypeOf<204>()
+expectTypeOf<Endpoint<'get', '/', undefined, undefined, undefined, typeof response>['__types']['status']>().toEqualTypeOf<200>()
+expectTypeOf(endpoint.post('/jobs').status(202).__types.status).toEqualTypeOf<202>()
+expectTypeOf(endpoint.post('/jobs').status(202).__types.response).toEqualTypeOf<undefined>()
+// @ts-expect-error a success status must be 2xx
+endpoint.post('/jobs').status(301)
+// @ts-expect-error a success status must be 2xx, with a body too
+endpoint.get('/').response(response, 404)
+// @ts-expect-error .status() is for a body-less success: use .response(schema, status)
+endpoint.get('/').response(response).status(202)
+
+// .response(schema) keeps a status set by .status(n); a 204 has no body
+expectTypeOf(endpoint.post('/jobs').status(202).response(response).__types.status).toEqualTypeOf<202>()
+expectTypeOf(endpoint.post('/jobs').status(204).response(response).__types.status).toEqualTypeOf<200>()
+expectTypeOf(endpoint.post('/jobs').status(202).response(response, 201).__types.status).toEqualTypeOf<201>()
+// @ts-expect-error a 204 has no body: use .status(204)
+endpoint.get('/').response(response, 204)
+// @ts-expect-error a 205 (Reset Content) has no body either
+endpoint.get('/').response(response, 205)
+expectTypeOf(endpoint.post('/form').status(205).__types.status).toEqualTypeOf<205>()
+// a wide status can't say which one .response(schema) keeps: number, never a wrong 200
+declare const wide: Endpoint<'post', '/x', undefined, undefined, undefined, undefined, number>
+expectTypeOf(wide.response(response).__types.status).toEqualTypeOf<number>()
+expectTypeOf(wide.response(response, 201).__types.status).toEqualTypeOf<201>()

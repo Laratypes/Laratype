@@ -13,11 +13,40 @@ describe('@laratype/contract', () => {
 })
 
 describe('endpoint builder', () => {
+  it('.response(schema) keeps a status set by .status(n); .response(schema, 204) throws (a 204 has no body)', () => {
+    expect(endpoint.post('/jobs').status(202).response(z.string()).def.status).toBe(202)
+    expect(endpoint.post('/jobs').status(204).response(z.string()).def.status).toBe(200)
+    expect(endpoint.post('/jobs').status(202).response(z.string(), 201).def.status).toBe(201)
+    expect(endpoint.get('/').response(z.string()).response(z.number()).def.status).toBe(200)
+    expect(() => endpoint.get('/').response(z.string(), 204 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): a 204 has no body; use .status(204)'),
+    )
+    expect(() => endpoint.get('/').response(z.string(), 205 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): a 205 has no body; use .status(205)'),
+    )
+    expect(endpoint.post('/form').status(205).response(z.string()).def.status).toBe(200)
+  })
+
+  it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
+    expect(endpoint.post('/jobs').status(202).def).toMatchObject({ status: 202 })
+    expect(endpoint.post('/jobs').status(202).def.response).toBeUndefined()
+    expect(() => endpoint.post('/jobs').status(301 as never)).toThrow(
+      new TypeError('[@laratype/contract] status(): the status must be a 2xx success status, got 301'),
+    )
+    expect(() => endpoint.get('/').response(z.string(), 404 as never)).toThrow(
+      new TypeError('[@laratype/contract] response(): the status must be a 2xx success status, got 404'),
+    )
+    expect(() => endpoint.get('/').response(z.string(), 200.5 as never)).toThrow(/2xx success status/)
+    expect(() => (endpoint.get('/').response(z.string()) as unknown as AnyEndpoint).status(202)).toThrow(
+      new TypeError('[@laratype/contract] status(): the endpoint has a response schema; use .response(schema, status)'),
+    )
+  })
+
   it.each(['get', 'post', 'put', 'patch', 'delete'] as const)('endpoint.%s(path) creates a bare def', (method) => {
     const e = endpoint[method]('/users/:user')
 
     expect(e).toBeInstanceOf(Endpoint)
-    expect(e.def).toEqual({ method, path: '/users/:user', status: 200, throws: [] })
+    expect(e.def).toEqual({ method, path: '/users/:user', status: 204, throws: [] })
   })
 
   it('stores schemas, status and throws on the def', () => {
@@ -70,7 +99,7 @@ describe('endpoint builder', () => {
     const withThrows = withQuery.throws(notFound)
 
     expect(withQuery).not.toBe(base)
-    expect(base.def).toEqual({ method: 'get', path: '/users', status: 200, throws: [] })
+    expect(base.def).toEqual({ method: 'get', path: '/users', status: 204, throws: [] })
     expect(base.def.query).toBeUndefined()
     expect(withQuery.def.throws).toEqual([])
     expect(withThrows.def.throws).toEqual([notFound])
