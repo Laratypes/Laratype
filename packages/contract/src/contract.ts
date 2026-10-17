@@ -242,6 +242,8 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
     if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
     if (entry.dirs === undefined) fail(`defineApi: "${name}" needs dirs: the folder of each scope ("" for the root)`);
     if (!Array.isArray(entry.dirs) || !entry.dirs.every(isDir)) fail(`defineApi: "${name}" dirs must be root-relative folders ("" for the root)`);
+    const dup = entry.dirs.find((dir, i) => entry.dirs.indexOf(dir) !== i);
+    if (dup !== undefined) fail(`defineApi: "${name}" dirs must not repeat a folder ("${dup}")`);
     if (entry.dirs.length !== entry.scopes.length) fail(`defineApi: "${name}" dirs must hold one folder per scope (${entry.scopes.length} scopes, ${entry.dirs.length} dirs)`);
     entry.scopes.forEach((scope, i) => {
       if (scope.authorize === true && !entry.scopes.slice(0, i + 1).some((s) => s.auth)) {

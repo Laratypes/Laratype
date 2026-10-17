@@ -146,6 +146,7 @@ describe('defineApi', () => {
     )
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [], dirs: [''] } } as never)).toThrow(/"a" dirs must hold one folder per scope/)
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: ['/a'] } })).toThrow(/"a" dirs must be root-relative folders/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope, scope], dirs: ['', ''] } })).toThrow('[@laratype/contract] defineApi: "a" dirs must not repeat a folder ("")')
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: [1] } } as never)).toThrow(/"a" dirs must be root-relative folders/)
     expect(defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: [''] } }).a[API_NODE].entry.dirs).toEqual([''])
   })

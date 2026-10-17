@@ -421,7 +421,7 @@ export type AppApi = typeof appApi
 - **Nodes.** Each node is frozen, has a null prototype, and holds its contract's endpoints and its child nodes in definition order. A non-enumerable `[API_NODE]` holds `{ name, entry }`, and `entry` is `undefined` for a pure folder.
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
-- **Scope folders.** `dirs` holds the folder of each scope in `scopes`, in the same order: root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). It is required, and its length must match `scopes`, at the type level and at runtime. The node info keeps it, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
+- **Scope folders.** `dirs` holds the folder of each scope in `scopes`, in the same order: root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). It is required, and its length must match `scopes`, at the type level and at runtime. A folder can appear only once (runtime check). The node info keeps it, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
 - **`apiRoutes()`** lists every route depth-first in definition order. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
 - **The FE imports the `appApi` module only**, never `typeof routes`. The negative-control fixture `fe/bad.ts` shows `typeof routes` pulling server code into the FE program.
@@ -435,6 +435,7 @@ Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineApi: "<name>" needs dirs: the folder of each scope ("" for the root)`
 - `defineApi: "<name>" dirs must be root-relative folders ("" for the root)`
 - `defineApi: "<name>" dirs must hold one folder per scope (<n> scopes, <m> dirs)`
+- `defineApi: "<name>" dirs must not repeat a folder ("<folder>")`
 - `defineApi: "<name>": scope <i> has authorize but no auth in it or an outer scope`
 - `defineApi: "<name>" is both an endpoint and a contract`
 - `<route name>: .public() under a scope with authorize: add .authorize(false) or move the contract out of the scope`
