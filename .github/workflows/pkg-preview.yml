@@ -1,12 +1,13 @@
 name: 'Pkg preview'
 on:
   # Any base branch, like ci.yml. No secrets: the pkg.pr.new GitHub App posts the PR comment
-  # Docs-only changes publish nothing
+  # Docs-only changes publish nothing: docs/** and root-level *.md (`*` does not cross `/`, so package READMEs,
+  # which ship in the tarballs, still trigger a preview)
   pull_request:
-    paths-ignore: [ 'docs/**', '**/*.md' ]
+    paths-ignore: [ 'docs/**', '*.md' ]
   push:
     branches: [ "master" ]
-    paths-ignore: [ 'docs/**', '**/*.md' ]
+    paths-ignore: [ 'docs/**', '*.md' ]
   workflow_dispatch:
 
 permissions:
