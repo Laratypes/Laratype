@@ -145,7 +145,7 @@ export interface ResolvedCapabilities {
   readonly auth: AuthOption | undefined;
   readonly authorize: boolean;
   readonly throttle: ThrottleOptions | undefined;
-  /** Derived errors, then `throws` from scopes (outer to inner), the contract and the endpoint; unique by code. */
+  /** Derived errors, then `throws` from scopes (outer to inner), the contract and the endpoint; unique by code and status. */
   readonly errors: readonly AnyErrorDef[];
 }
 
@@ -190,7 +190,8 @@ function resolve(def: EndpointDef, ctx: CapabilityContext): ResolvedCapabilities
     auth: auth || undefined,
     authorize,
     throttle: throttle || undefined,
-    errors: Object.freeze(all.filter((e) => !seen.has(e.code) && !!seen.add(e.code))),
+    // unique by code and status: one code may be declared with two statuses (a .throws(410 NOT_FOUND) next to the derived 404)
+    errors: Object.freeze(all.filter((e) => !seen.has(`${e.code} ${e.status}`) && !!seen.add(`${e.code} ${e.status}`))),
   });
 }
 
@@ -208,7 +209,7 @@ export function resolveCapabilities(def: EndpointDef, ctx: CapabilityContext, la
 }
 
 /**
- * Runtime twin of `EndpointErrors`: the derived errors, then `throws` from every level, unique by code. Unlike
+ * Runtime twin of `EndpointErrors`: the derived errors, then `throws` from every level, unique by code and status. Unlike
  * `resolveCapabilities` it never throws, so it also works for a contract taken out of its folder (the client's
  * single-contract mode), where the scope chain, and so the consistency check, is missing.
  */
