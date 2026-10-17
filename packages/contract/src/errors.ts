@@ -64,13 +64,23 @@ const fail = (message: string): never => {
  * An error goes on the wire as `{ code, ...body }` (client.md › Result union), so a body is a plain object without
  * its own `code`. Anything else in the body factory's return type is a type error, and creating the error throws.
  */
-export type CheckErrorBody<Body> = [Body] extends [readonly unknown[]]
-  ? { error: "defineError: the body must be an object, not an array (the error is sent as { code, ...body })" }
-  : [Body] extends [object]
-    ? "code" extends keyof Body
-      ? { error: "defineError: the body must not have its own \"code\" key (the error is sent as { code, ...body })" }
-      : unknown
-    : { error: "defineError: the body must be an object (the error is sent as { code, ...body })" };
+export type CheckErrorBody<Body> = [BodyProblem<Body>] extends [never] ? unknown : { error: BodyProblem<Body> };
+
+/** The keys written out in a type, without index signatures: `Record<string, string>` has none. */
+type LiteralKeys<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : symbol extends K ? never : K]: 0 };
+
+/** Why a body type cannot go on the wire, per union member (so one member with `code` is enough); `any` is left to runtime. */
+type BodyProblem<B> = 0 extends 1 & B
+  ? never
+  : B extends (...args: any[]) => unknown
+    ? "defineError: the body must be an object, not a function (the error is sent as { code, ...body })"
+    : B extends readonly unknown[]
+      ? "defineError: the body must be an object, not an array (the error is sent as { code, ...body })"
+      : B extends object
+        ? "code" extends LiteralKeys<B>
+          ? "defineError: the body must not have its own \"code\" key (the error is sent as { code, ...body })"
+          : never
+        : "defineError: the body must be an object (the error is sent as { code, ...body })";
 
 const checkBody = (code: string, body: unknown): void => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

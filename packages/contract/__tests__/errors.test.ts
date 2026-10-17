@@ -63,6 +63,7 @@ describe('defineError', () => {
     ['undefined', undefined, 'undefined'],
     ['null', null, 'null'],
     ['an array', ['a'], 'an array'],
+    ['a function', () => 1, 'function'],
   ])('rejects, when the error is created, a body that is %s', (_, value, got) => {
     const Bad = defineError(409, 'BAD', (() => value) as never)
     expect(() => Bad()).toThrow(

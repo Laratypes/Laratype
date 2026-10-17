@@ -88,6 +88,16 @@ defineError(409, 'X', () => null)
 defineError(409, 'X', () => ['a'])
 // a union of objects is fine, and so is a key that only contains "code"
 expectTypeOf(defineError(409, 'X', (n: number) => (n ? { a: 1 } : { b: 'x', errorCode: 'E' }))).toBeFunction()
+// an index signature has no literal "code" key: accepted
+expectTypeOf(defineError(409, 'X', (): Record<string, string> => ({ field: 'taken' }))).toBeFunction()
+// any is left to the runtime check
+expectTypeOf(defineError(409, 'X', (): any => ({ message: 'x' }))).toBeFunction()
+// @ts-expect-error a function body
+defineError(409, 'X', () => () => 1)
+// @ts-expect-error one union member with its own code is enough
+defineError(409, 'X', (n: number) => (n ? { message: 'x' } : { code: 'Y' }))
+// @ts-expect-error a union with a non-object member
+defineError(409, 'X', (n: number) => (n ? { message: 'x' } : 'x'))
 // @ts-expect-error `conflict` was removed: a conflict is a domain error (defineError(409, ...))
 errors.conflict
 // @ts-expect-error built-ins are readonly
