@@ -252,6 +252,21 @@ describe('createClient', () => {
     }
   })
 
+  it('an about: page base (about:blank, about:srcdoc, the jsdom default) counts as no base: the relative URL rejects', async () => {
+    const { fetch } = fakeFetch()
+    vi.stubGlobal('fetch', fetch)
+    try {
+      for (const baseURI of ['about:blank', 'about:srcdoc']) {
+        vi.stubGlobal('document', { baseURI })
+        vi.stubGlobal('location', { href: baseURI })
+        await expect(createClient(appApi).users.index()).rejects.toThrow(/relative URL "\/api\/users" with the global fetch outside a browser/)
+      }
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('a page with a document counts as a browser: the relative URL goes to the global fetch, which resolves it', async () => {
     const { fetch, calls } = fakeFetch()
     vi.stubGlobal('fetch', fetch)

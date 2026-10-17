@@ -25,7 +25,9 @@ type Send = (method: Method, path: string, input?: RequestInput) => Promise<Resp
 const pageBaseUrl = (): string | undefined => {
   try {
     const page = globalThis as { document?: { baseURI?: string }; location?: { href?: string } };
-    return page.document?.baseURI || page.location?.href;
+    const base = page.document?.baseURI || page.location?.href;
+    // about:blank, about:srcdoc (jsdom's default too) can't resolve a path: no base
+    return base && !base.startsWith("about:") ? base : undefined;
   } catch {
     return undefined;
   }
@@ -131,7 +133,8 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * `buildUrl` only sees the route path; the result is then joined to `baseUrl`'s path with the server's `joinPath`, so
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
- * Headers: the call's own, then `options.headers`, then `content-type: application/json` for a body.
+ * Headers: `options.headers`, overridden by the call's own `headers`; then `content-type: application/json` for a body
+ * when neither sets one.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
