@@ -185,12 +185,12 @@ describe('createClient', () => {
     expect(await rejecting.users.index()).toEqual({ ok: false, unexpected: true, status: 0, error: thrown, response: undefined })
   })
 
-  it('global fetch: a request that cannot be built rejects without calling fetch (GET with a body, relative URL in Node)', async () => {
+  it('global fetch: a GET with a body or a relative URL in Node rejects without calling fetch', async () => {
     const { fetch } = fakeFetch()
     vi.stubGlobal('fetch', fetch)
     try {
       // @ts-expect-error runtime check
-      await expect(createClient(appApi, { baseUrl: 'https://example.com' }).users.index({ body: { x: 1 } })).rejects.toThrow(TypeError)
+      await expect(createClient(appApi, { baseUrl: 'https://example.com' }).users.index({ body: { x: 1 } })).rejects.toThrow(/a GET request cannot have a body/)
       await expect(createClient(appApi).users.index()).rejects.toThrow(
         '[@laratype/client] relative URL "/api/users" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch',
       )
@@ -241,7 +241,8 @@ describe('createClient', () => {
       // in a browser a relative URL resolves against the page
       await createClient(appApi).users.index()
       expect(reads).toBe(1)
-      expect(calls.map((c) => c.url)).toEqual(['https://example.com/api/users', 'https://page.example/api/users'])
+      // in a browser fetch resolves the relative URL itself
+      expect(calls.map((c) => c.url)).toEqual(['https://example.com/api/users', '/api/users'])
       href = undefined
       await expect(createClient(appApi).users.index()).rejects.toThrow(/relative URL "\/api\/users" with the global fetch outside a browser/)
     } finally {
@@ -251,23 +252,32 @@ describe('createClient', () => {
     }
   })
 
-  it('resolves a relative URL against document.baseURI first, as fetch does (a <base href>, a srcdoc iframe)', async () => {
+  it('a page with a document counts as a browser: the relative URL goes to the global fetch, which resolves it', async () => {
     const { fetch, calls } = fakeFetch()
     vi.stubGlobal('fetch', fetch)
-    vi.stubGlobal('location', { href: 'https://page.example/app/' })
     try {
       vi.stubGlobal('document', { baseURI: 'https://cdn.example/base/' })
       await createClient(appApi).users.index()
-      expect(calls[0]!.url).toBe('https://cdn.example/api/users')
-      // about:srcdoc cannot resolve a path: new Request() refuses it, and the call rejects
-      vi.stubGlobal('document', { baseURI: 'about:srcdoc' })
-      await expect(createClient(appApi).users.index()).rejects.toThrow(TypeError)
-      // no document: the location
-      vi.stubGlobal('document', undefined)
-      await createClient(appApi).users.index()
-      expect(calls.at(-1)!.url).toBe('https://page.example/api/users')
+      expect(calls[0]!.url).toBe('/api/users')
     } finally {
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects a GET with a body before calling fetch, global or injected', async () => {
+    const { fetch } = fakeFetch()
+    // @ts-expect-error runtime check
+    await expect(createClient(appApi, { fetch }).users.index({ body: { x: 1 } })).rejects.toThrow(
+      new TypeError('[@laratype/client] a GET request cannot have a body: "/api/users"'),
+    )
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects a baseUrl with whitespace or control characters, which URL parsing strips ("/\\t/evil.com" is another host)', () => {
+    for (const baseUrl of ['/\t/evil.com', '/\n/evil.com', '/\r/evil.com', 'https://example.com/a b', '/a\u0000', '/a\u007f']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(
+        new TypeError(`[@laratype/client] createClient: baseUrl ${JSON.stringify(baseUrl)} must not contain whitespace or control characters`),
+      )
     }
   })
 
@@ -512,6 +522,14 @@ describe('the result union', () => {
     })
     const badGateway = await createClient(appApi, { fetch: respond('Bad Gateway', 502) }).users.index()
     expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError), text: 'Bad Gateway' })
+  })
+
+  it('an opaque response (redirect: "manual", no-cors) also has status 0, but comes with its response', async () => {
+    const opaque = Object.assign(new Response(null, { status: 200 }), {}) as Response
+    Object.defineProperties(opaque, { status: { value: 0 }, ok: { value: false }, type: { value: 'opaqueredirect' } })
+    const result = await createClient(appApi, { fetch: async () => opaque }).users.index()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: opaque })
+    expect(result.response!.type).toBe('opaqueredirect')
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {

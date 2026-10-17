@@ -110,6 +110,10 @@ const isManifest = (value: unknown): value is Manifest =>
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
 const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
+  // URL parsing strips tab, LF and CR, so "/\t/evil.com" would become "//evil.com", another host
+  if (/[\u0000-\u0020\u007f]/.test(baseUrl)) {
+    fail(`createClient: baseUrl ${JSON.stringify(baseUrl)} must not contain whitespace or control characters`);
+  }
   const origin = /^[a-z][a-z\d+.-]*:\/\/[^/?#]*/i.exec(baseUrl)?.[0] ?? "";
   const path = baseUrl.slice(origin.length);
   // without an origin it must be a path: "/api", not "api", "localhost:3000/api" or a protocol-relative "//host/api"
@@ -129,11 +133,9 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: the call's own, then `options.headers`, then `content-type: application/json` for a body.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
- * With the global `fetch`, the request is checked with a `Request` before `fetch` and outside `FetchFailed`, so a
- * configuration or programming error (a GET or HEAD with a body, a bad `RequestInit`, a relative URL outside a browser)
- * rejects the call; `fetch` then gets `(resolvedUrl, init)`. An injected `fetch` gets `(url, init)` unchecked. A
- * synchronous throw from `fetch` rejects the call too; only a rejected promise is a `FetchFailed`, which the result
- * union turns into `unexpected`.
+ * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
+ * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
+ * rejected promise is a `FetchFailed`, which the result union turns into `unexpected`.
  * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
@@ -147,6 +149,8 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   }
   const init: RequestInit = { method: method.toUpperCase(), headers };
   if (input.body !== undefined) {
+    // fetch would refuse it, and that must not look like a network failure
+    if (method === "get") fail(`a GET request cannot have a body: "${path}"`);
     init.body = JSON.stringify(input.body);
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
   }
@@ -154,26 +158,16 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   let pending: () => Promise<Response>;
   const injected = options.fetch;
   if (injected) {
-    // an injected fetch gets (url, init) as built: it may resolve relative URLs itself (an SSR wrapper, a test fake)
-    // or accept what a strict Request refuses (credentials in the URL), so the client doesn't validate for it
+    // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
     pending = () => injected(url, init);
   } else {
     const fetchFn = globalThis.fetch;
     if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
-    // a relative URL ("" or "/api" baseUrl) needs a page to resolve against
-    const base = origin ? undefined : pageBaseUrl();
-    if (!origin && !base) {
+    // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
+    if (!origin && !pageBaseUrl()) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
-    let resolved = url;
-    if (typeof URL === "function") {
-      resolved = new URL(url, base).href;
-      // validation only, outside FetchFailed, so a GET or HEAD with a body or a bad RequestInit rejects the call. No
-      // signal (it would add an abort listener). fetch still gets (url, init), not this Request: a polyfilled global
-      // fetch (node-fetch, cross-fetch) does not understand another implementation's Request.
-      if (typeof Request === "function") new Request(resolved, { ...init, signal: undefined });
-    }
-    pending = () => fetchFn(resolved, init);
+    pending = () => fetchFn(url, init);
   }
   // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
   const response = pending();
