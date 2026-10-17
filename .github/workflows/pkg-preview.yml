@@ -1,0 +1,50 @@
+name: 'Pkg preview'
+on:
+  # Any base branch, like ci.yml. No secrets: the pkg.pr.new GitHub App posts the PR comment
+  # Docs-only changes publish nothing: docs/** and root-level *.md. `*` does not cross `/`, so a .md file inside a
+  # package (none today) would still trigger a preview, since npm packs it into the tarball
+  pull_request:
+    paths-ignore: [ 'docs/**', '*.md' ]
+  push:
+    branches: [ "master" ]
+    paths-ignore: [ 'docs/**', '*.md' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One preview run per ref. On a PR a new push cancels the previous commit's run. On master a running
+# preview is never cancelled; GitHub keeps one pending run per group, so the newest queued merge wins
+concurrency:
+  group: pkg-preview-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  publish:
+    name: Publish preview packages
+    # Skips fork PRs in the normal case. Not a security boundary: a pull_request run uses the PR's own copy of
+    # this file, so a fork PR can remove the guard. The control is the repo setting Settings › Actions › General ›
+    # "Approval for running fork pull request workflows from contributors" (see docs/v1/build.md › CI and release)
+    # github.repository also skips push and workflow_dispatch runs in forks, where the pkg.pr.new app is not installed
+    if: github.repository == 'Laratypes/Laratype' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      # No GITHUB_TOKEN left in .git/config while bunx runs third-party code; nothing below needs git auth
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup bun
+        uses: ./.github/setup-bun
+
+      - name: Build
+        run: bun run build && bun run build:type
+
+      # Every public package. pkg-pr-new skips "private": true ones (broadcast, i18n, mail, schedule, storage, ts-gen)
+      # and non-directories (packages/global.d.ts); check:pkg in ci.yml fails a public package that has no dist.
+      # --bun packs with `bun pm pack`, which resolves the `catalog:` specifiers that npm pack leaves as-is
+      # Peers are packed as plain versions, never preview URLs: install a package's workspace peers' previews in the same command
+      # pkg-pr-new is a root devDependency pinned to 0.0.88 (2026-08-14, the newest release older than two weeks when
+      # this was written), locked with its integrity hash in bun.lock. The local binary runs; nothing is fetched here
+      - name: Publish
+        run: ./node_modules/.bin/pkg-pr-new publish --bun './packages/*'

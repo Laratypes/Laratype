@@ -48,6 +48,8 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
+`.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on PRs from branches of this repo, on push to `master` and on manual `workflow_dispatch` runs; the pkg.pr.new app comments the install links on the PR. Changes that touch only `docs/**` or root-level `*.md` files get no preview.
+
 ## Code rules
 
 - Type-only imports use `import type`.
@@ -78,9 +80,9 @@ After the parent merges:
 
 Rebasing a pushed branch means a force-push, which needs the user (see the top).
 
-### Line endings on Windows
+### Line endings
 
-The repo has no `.gitattributes`. With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and snapshot tests fail with whitespace-only diffs. Fix it locally by deleting the files and checking them out again with `git -c core.autocrlf=false checkout HEAD -- <paths>`. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
+`.gitattributes` sets `* text=auto eol=lf` (and `*.png binary`), so git checks text files out as LF on every platform, whatever `core.autocrlf` is. A clone or worktree checked out before that commit keeps CRLF copies of the files git has not rewritten since (on Windows with `core.autocrlf=true`, nearly every file), `git status` does not show them, and snapshot tests fail on them with whitespace-only diffs. Run these commands from the repo root: `git ls-files --eol | grep crlf` lists them. To fix the checkout once, commit your changes to tracked files first (don't use the stash: see the stash rule above), because `reset --hard` discards them (untracked files are kept). Then run `git rm -rq --cached . && git reset --hard HEAD`; afterwards `git ls-files --eol | grep crlf` prints nothing. Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
 
 ### Automated review
 
