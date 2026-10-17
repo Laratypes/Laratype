@@ -37,7 +37,8 @@ export interface SyncResult extends GenerateResult {
   readonly changed: readonly string[];
 }
 
-const inside = (parent: string, child: string) => {
+/** Whether `child` is strictly inside `parent` (both absolute). */
+export const inside = (parent: string, child: string) => {
   const rel = relative(parent, child);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 };
@@ -88,8 +89,15 @@ export const writeGenerated = (projectDir: string, file: GeneratedFile): boolean
 
 const slash = (path: string) => posix.normalize(path.replace(/\\/g, "/")).replace(/\/$/, "");
 
+export interface TreePaths {
+  readonly projectDir: string;
+  readonly root: string;
+  readonly outDir: string;
+  readonly base: string;
+}
+
 /** The normalized project folder, root, output folder and base; throws on an invalid `--out`. */
-export const resolveTreePaths = (options: GenerateOptions) => {
+export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
   const outDir = slash(options.outDir ?? ".laratype");
@@ -98,8 +106,7 @@ export const resolveTreePaths = (options: GenerateOptions) => {
 };
 
 /** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
-export function writeTree(options: GenerateOptions): SyncResult {
-  const { projectDir, root, outDir, base } = resolveTreePaths(options);
+export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncResult {
   const tree = scanTree(join(projectDir, root), base);
   const files = emitTree(tree, { root, outDir });
   // $types.d.ts files of removed folders must not linger
@@ -113,7 +120,7 @@ export function writeTree(options: GenerateOptions): SyncResult {
  * without the TS checker and `api.ts`. Returns `undefined` when the root folder does not exist.
  */
 export function syncContractTree(options: GenerateOptions): SyncResult | undefined {
-  const { projectDir, root } = resolveTreePaths(options);
-  if (!existsSync(join(projectDir, root))) return undefined;
-  return writeTree(options);
+  const paths = resolveTreePaths(options);
+  if (!existsSync(join(paths.projectDir, paths.root))) return undefined;
+  return writeTree(paths);
 }

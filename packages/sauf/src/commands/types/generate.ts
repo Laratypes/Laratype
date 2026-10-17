@@ -57,6 +57,8 @@ export interface TypesGenerateFlags {
 
 /** `sauf types:generate` without the console: config `api.root` / `api.base`, overridden by `--root` / `--base`. */
 export async function runTypesGenerate(projectDir: string, flags: TypesGenerateFlags, load?: (url: string) => Promise<unknown>) {
-  const tree = resolveApiTree({ root: flags.root, base: flags.base }, await readApiTreeConfig(projectDir, load));
+  // Both flags given: the config is not needed, so it is not imported (it may need env or providers)
+  const config = flags.root !== undefined && flags.base !== undefined ? {} : await readApiTreeConfig(projectDir, load);
+  const tree = resolveApiTree({ root: flags.root, base: flags.base }, config);
   return generateTypes({ projectDir, ...tree, outDir: flags.out, apiOut: flags.apiOut, tsconfig: flags.tsconfig });
 }

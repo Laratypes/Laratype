@@ -72,7 +72,7 @@ The app's tsconfig needs:
 
 ### Invariants
 - **Scan:** the tree is read from file and folder names only, never from file contents ([contract.md › Contract folder tree](./contract.md#contract-folder-tree) has the rules).
-- **Options:** the root and base come from config `api.root` / `api.base` (`app/config/config.ts`), and `--root` / `--base` override them; the defaults are `app/api` → `/api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The command imports `app/config/config.ts` on its own and boots no provider, so it needs no database or auth env. `--out` is a flag only (default `.laratype`).
+- **Options:** the root and base come from config `api.root` / `api.base` (`app/config/config.ts`), and `--root` / `--base` override them; the defaults are `app/api` → `/api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The command imports `app/config/config.ts` on its own and boots no provider, so it needs no database or auth env. With both `--root` and `--base` given it does not import the config at all. `--out` is a flag only (default `.laratype`).
 - **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.

@@ -40,13 +40,13 @@ describe('sauf route:list', () => {
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     expect(await new RouteListCommand().handle()).toBe(0);
     expect(table).toHaveBeenCalledWith([
-      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', Auth: 'auth (not enforced yet)' },
+      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', 'Not enforced': 'auth' },
       {
         Method: 'delete', path: '/api/users/:user/posts/:post', Name: 'users.posts.destroy', Controller: 'PostController::destroy',
-        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy', Auth: 'auth, authorize (not enforced yet)',
+        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy', 'Not enforced': 'auth, authorize',
       },
     ]);
-    expect(warn).toHaveBeenCalledWith('The routes marked in Auth serve every request: see the [@laratype/http] Route.api warning.');
+    expect(warn).toHaveBeenCalledWith('The routes with a "Not enforced" value serve every request with unchecked input: see the [@laratype/http] Route.api warning.');
   });
 
   it('shows the Domain column when a domain is set', async () => {
@@ -63,7 +63,7 @@ describe('sauf route:list', () => {
 
   it('still reads 0.5 entries', () => {
     expect(routeRow({ method: 'get', path: '/me', controller: [UserController, 'me'], middleware: [Audit], can: [] })).toEqual({
-      Method: 'get', path: '/me', Name: '-', Controller: 'UserController::me', Middleware: 'Audit', Policies: '-', Auth: '-', Domain: '-',
+      Method: 'get', path: '/me', Name: '-', Controller: 'UserController::me', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',
     });
   });
 

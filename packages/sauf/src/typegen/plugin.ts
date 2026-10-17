@@ -10,7 +10,7 @@ import { normalizePath } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 import { apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
 import { ScanError } from './scan';
-import { syncContractTree } from './sync';
+import { inside, syncContractTree } from './sync';
 
 export const API_PLUGIN_NAME = 'laratype:api';
 export const API_ALIAS = '$api';
@@ -36,16 +36,13 @@ export interface ApiPluginApi {
   isGenerated(file: string): boolean;
 }
 
-const under = (dir: string, file: string) => {
-  const f = normalizePath(resolve(file));
-  return f.startsWith(`${dir}/`);
-};
 
 export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi> {
   const projectDir = options.projectDir ?? process.cwd();
   const outDir = options.outDir ?? '.laratype';
   const indexFile = join(projectDir, outDir, 'api', 'index.gen.ts');
-  const outPath = normalizePath(resolve(projectDir, outDir));
+  const indexId = normalizePath(indexFile);
+  const outPath = resolve(projectDir, outDir);
   let current: Promise<void> | undefined;
   let used = false;
   let rootPath: string | undefined;
@@ -54,12 +51,13 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
 
   const scan = async () => {
     const tree = resolveApiTree({}, options.config ? apiTreeConfig(options.config()) : await readApiTreeConfig(projectDir));
-    rootPath = normalizePath(resolve(projectDir, tree.root));
+    rootPath = resolve(projectDir, tree.root);
     const result = syncContractTree({ projectDir, outDir, ...tree });
     missingRoot = result ? undefined : tree.root;
-    // A rewritten index must not be served from the module cache: the module graph is keyed by normalized ids
-    if (server && result?.changed.length) {
-      for (const mod of server.moduleGraph.getModulesByFile(normalizePath(indexFile)) ?? []) {
+    // A rewritten index must not be served from the module cache, nor a stale one once the root is gone: invalidate
+    // it and its importers (the module graph is keyed by normalized ids), so the next load reaches load() below
+    if (server && (missingRoot !== undefined || result?.changed.length)) {
+      for (const mod of server.moduleGraph.getModulesByFile(indexId) ?? []) {
         server.moduleGraph.invalidateModule(mod, new Set(), Date.now(), true);
       }
     }
@@ -74,13 +72,20 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     return run;
   };
 
+  // A stale index.gen.ts would import contracts that may be gone
+  const checkRoot = () => {
+    if (missingRoot !== undefined) {
+      throw new ScanError(`[${API_PLUGIN_NAME}] the app imports $api, but the contract tree root "${missingRoot}" does not exist (set config api.root)`);
+    }
+  };
+
   const api: ApiPluginApi = {
     rescan,
     restart: async () => {
       if (used) await rescan();
     },
-    inTree: (file) => rootPath !== undefined && under(rootPath, file),
-    isGenerated: (file) => under(outPath, file),
+    inTree: (file) => rootPath !== undefined && inside(rootPath, resolve(file)),
+    isGenerated: (file) => inside(outPath, resolve(file)),
   };
 
   return {
@@ -94,11 +99,13 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
       if (source !== API_ALIAS) return null;
       used = true;
       await (current ?? rescan());
-      // A stale index.gen.ts would import contracts that may be gone
-      if (missingRoot !== undefined) {
-        throw new ScanError(`[${API_PLUGIN_NAME}] the app imports $api, but the contract tree root "${missingRoot}" does not exist (set config api.root)`);
-      }
+      checkRoot();
       return existsSync(indexFile) ? indexFile : null;
+    },
+    // A cached importer loads the index by its id without resolving `$api` again: check the root there too
+    load(id) {
+      if (normalizePath(id.replace(/[?#].*$/, '')) === indexId) checkRoot();
+      return null;
     },
   };
 }

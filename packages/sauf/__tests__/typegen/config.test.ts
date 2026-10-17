@@ -90,6 +90,15 @@ describe('sauf types:generate reads the config key', () => {
     expect(files.map((f) => f.path)).toContain('.laratype/types/app/contracts/users/[user]/$types.d.ts');
   }, 60_000);
 
+  it('with both --root and --base, app/config/config.ts is not imported at all', async () => {
+    const dir = project('both-flags', "throw new Error('this config needs env and providers')\n");
+    const load = async () => { throw new Error('the config must not be imported'); };
+    const { tree } = await runTypesGenerate(dir, { root: 'app/api', base: '/v9' }, load);
+    expect(tree.contracts[0]!.path).toBe('/v9/users');
+    // one flag alone still reads the config for the other
+    await expect(runTypesGenerate(dir, { root: 'app/api' }, load)).rejects.toThrow('the config must not be imported');
+  }, 60_000);
+
   it('--root / --base override the config', async () => {
     const dir = project('flags', "export default { api: { root: 'app/contracts', base: '/v2' } }\n");
     const { tree } = await runTypesGenerate(dir, { root: 'app/api', base: '/api' }, load);
@@ -135,6 +144,27 @@ describe('laratype:api (the dev scan behind $api)', () => {
     mkdirSync(empty, { recursive: true });
     await expect((laratypeApi({ projectDir: empty, config: () => ({}) }).resolveId as typeof resolveId)('$api')).rejects.toThrow('does not exist (set config api.root)');
     expect(existsSync(join(empty, '.laratype'))).toBe(false);
+  });
+
+  it('after a restart finds the root gone, the cached index is invalidated and its next load fails clearly', async () => {
+    const dir = project('gone', undefined);
+    const plugin = laratypeApi({ projectDir: dir, config: () => ({}) });
+    const indexId = normalizePath(join(dir, '.laratype/api/index.gen.ts'));
+    const invalidated: unknown[] = [];
+    const mod = { id: indexId };
+    (plugin.configureServer as (server: unknown) => void)({
+      moduleGraph: { getModulesByFile: (file: string) => (file === indexId ? new Set([mod]) : undefined), invalidateModule: (m: unknown) => invalidated.push(m) },
+    });
+    const load = plugin.load as (id: string) => unknown;
+    await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
+    expect(load(join(dir, '.laratype/api/index.gen.ts'))).toBeNull();
+    invalidated.length = 0;
+    rmSync(join(dir, 'app/api'), { recursive: true });
+    await (plugin.api as ApiPluginApi).restart();
+    expect(invalidated).toEqual([mod]);
+    // a cached importer loads the index by id, without resolving $api again
+    expect(() => load(`${indexId}?t=1`)).toThrow('[laratype:api] the app imports $api, but the contract tree root "app/api" does not exist (set config api.root)');
+    expect(load(join(dir, 'app/other.ts'))).toBeNull();
   });
 
   it('invalidates a rewritten index.gen.ts by its normalized module id', async () => {

@@ -1,6 +1,7 @@
 import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
 import type {
@@ -124,14 +125,15 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
     const key = route.name.slice(route.name.lastIndexOf(".") + 1);
     const entry = byName.get(route.name.slice(0, route.name.lastIndexOf(".")))!;
     const mounted = contracts.get(entry.contract)!;
-    if (typeof (mounted.controller.prototype as Record<string, unknown>)[key] !== "function") {
+    if (!isHandler(mounted.controller, key)) {
       fail(`${route.name}: ${mounted.controller.name} has no method "${key}" (handlers must be class methods, not arrow-function fields)`);
     }
     const scopeItems = entry.dirs.map((dir) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
-      middleware: Object.freeze([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware]),
+      // One builder can mount a scope and a contract: each middleware runs once, at its first position
+      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       unenforced: unenforcedCaps(route),
       domain: undefined,
@@ -140,17 +142,37 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
 };
 
 /**
- * The resolved capabilities of a route that the router does not enforce yet (#105, #121). The one place that decides
- * it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
+ * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
+ * validation of its body, query and headers schemas (#106). The one place that decides it: the mount warning and
+ * `sauf route:list` both read `RouteEntry.unenforced`.
  */
-const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] =>
-  Object.freeze([...(route.auth ? (["auth"] as const) : []), ...(route.authorize ? (["authorize"] as const) : [])]);
+const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
+  const { query, body, headers } = route.endpoint.def;
+  return Object.freeze([
+    ...(route.auth ? (["auth"] as const) : []),
+    ...(route.authorize ? (["authorize"] as const) : []),
+    ...(query || body || headers ? (["validation"] as const) : []),
+  ]);
+};
 
-/** One warning per mount: until #105 / #121 a route with auth or authorize serves every request. */
+/**
+ * A handler is a method of the controller class or a class between it and the base `Controller` (or `Object`):
+ * never `constructor`, an `Object.prototype` method or a base `Controller` method.
+ */
+const isHandler = (controller: ControllerClass, key: string): boolean => {
+  if (key === "constructor") return false;
+  for (let proto = controller.prototype; proto && proto !== Controller.prototype && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+    const own = Object.getOwnPropertyDescriptor(proto, key);
+    if (own) return typeof own.value === "function";
+  }
+  return false;
+};
+
+/** One warning per mount: until #105 / #121 / #106 such a route serves every request with unchecked input. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
-  console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes serve every request: ${list.join(", ")}`);
+  console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes serve every request and pass unchecked input: ${list.join(", ")}`);
 };
 
 /** The routes of one `Route.api(...)`, checked and ready to mount. */
@@ -159,14 +181,14 @@ export class ApiRoutes {
   public readonly routes: readonly RouteEntry[];
 
   /** Built by `Route.api()` only: `@laratype/http` exports the type, not the constructor. */
-  constructor(routes: readonly RouteEntry[], public readonly hostname: string | undefined) {
+  constructor(routes: readonly RouteEntry[]) {
     this.routes = Object.freeze([...routes]);
   }
 
   /** Serves these routes on `domain` only (the request port is ignored). Other hosts fall through to the next route. */
   domain(domain: string): ApiRoutes {
     const host = checkDomain(domain);
-    return new ApiRoutes(this.routes.map((route) => Object.freeze({ ...route, domain: host })), host);
+    return new ApiRoutes(this.routes.map((route) => Object.freeze({ ...route, domain: host })));
   }
 
   /** Registers every route on Hono and returns the registry entries. */
@@ -201,5 +223,5 @@ export function api<A extends object, const M extends readonly ApiRouteItem[]>(
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {
   if (typeof routes !== "function") fail("expected a routes callback: Route.api(appApi, (r) => [...])");
-  return new ApiRoutes(plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>)), undefined);
+  return new ApiRoutes(plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>)));
 }

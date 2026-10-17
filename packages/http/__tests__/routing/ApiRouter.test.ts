@@ -119,7 +119,7 @@ describe('Route.api', () => {
     // A plan() rerun would now fail on the missing handler
     delete (Late.prototype as Partial<Late>).show
     const onHost = late.domain('api.example.test')
-    expect(onHost.hostname).toBe('api.example.test')
+    expect(onHost.routes[0]!.domain).toBe('api.example.test')
     expect(onHost.routes.map((r) => r.domain)).toEqual(['api.example.test', 'api.example.test', 'api.example.test', 'api.example.test'])
     expect(onHost.routes[1]!.controller).toBe(late.routes[1]!.controller)
     expect(late.routes.every((r) => r.domain === undefined)).toBe(true)
@@ -130,7 +130,7 @@ describe('Route.api', () => {
     for (const bad of ['api.example.test:3000', '', 'api..example.test', '.api.example.test', 'api.example.test.', '-api.example.test', 'api-.example.test', 'api.ex_ample.test']) {
       expect(() => routes.domain(bad)).toThrow(/must be a hostname/)
     }
-    expect(routes.domain('my-api.example-1.test').hostname).toBe('my-api.example-1.test')
+    expect(routes.domain('my-api.example-1.test').routes[0]!.domain).toBe('my-api.example-1.test')
   })
 })
 
@@ -142,12 +142,29 @@ describe('auth and authorize are not enforced yet', () => {
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
-    expect(UNENFORCED_NOTICE).toBe('auth and authorize are not enforced yet (planned → #105, #121)')
+    expect(UNENFORCED_NOTICE).toBe('auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
-      '[@laratype/http] Route.api: auth and authorize are not enforced yet (planned → #105, #121), so these routes serve every request: ' +
+      '[@laratype/http] Route.api: auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106), so these routes serve every request and pass unchecked input: ' +
         'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
     )
+  })
+
+  it('lists routes whose body, query or headers schema is not validated yet (#106)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const schema = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
+    const forms = defineContract()({
+      list: endpoint.get('/').query(schema),
+      send: endpoint.post('/').body(schema),
+      head: endpoint.get('/h').headers(schema),
+      ping: endpoint.get('/ping'),
+    })
+    class Forms extends Controller { list() { return [] } send() { return {} } head() { return {} } ping() { return 'pong' } }
+    const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
+    expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
+      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []],
+    ])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation)'))
   })
 
   it('no warning without auth or authorize', () => {
@@ -197,6 +214,41 @@ describe('Route.api runtime checks', () => {
       '"users" is not a scope folder of the API tree (folders: "", "users/[user]")',
     )
     expect(api((r) => [...base(r), r.scope('users/[user]', {})])).toThrow(`r.scope('users/[user]') needs { policy }`)
+  })
+
+  it('constructor, Object.prototype and base Controller methods are not handlers', () => {
+    const odd = defineContract()({ constructor: endpoint.get('/c'), exposed: endpoint.get('/e'), toString: endpoint.get('/t') })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    class Plain extends Controller {}
+    for (const key of ['constructor', 'exposed', 'toString']) {
+      const only = defineContract()({ [key]: endpoint.get('/x') } as Record<string, ReturnType<typeof endpoint.get>>)
+      const onlyApi = defineApi({ only: { contract: only, path: '/only', scopes: [], dirs: [] } } as never)
+      expect(() => Route.api(onlyApi as any, ((r: any) => [r.contract(only, Plain)]) as never)).toThrow(`only.${key}: Plain has no method "${key}"`)
+    }
+    // methods of the controller and of classes between it and Controller do count; an own exposed() override too
+    class Base extends Controller { toString() { return 'base' } }
+    class Own extends Base { exposed() { return ['x'] } }
+    expect(() => Route.api(oddApi as any, ((r: any) => [r.contract(odd, Own)]) as never)).toThrow('odd.constructor: Own has no method "constructor"')
+    const fine = defineContract()({ exposed: endpoint.get('/e'), toString: endpoint.get('/t') })
+    expect(() => Route.api(defineApi({ fine: { contract: fine, path: '/fine', scopes: [], dirs: [] } }), (r) => [r.contract(fine, Own)])).not.toThrow()
+  })
+
+  it('a middleware mounted twice runs once, at its first position', () => {
+    const tree = defineScope()({ throws: [] })
+    const inner = defineScope<ContractPrefix<'/a/:x', [typeof tree]>>()({ throws: [] })
+    const deep = defineContract()({ index: endpoint.get('/') })
+    const nested = defineApi({ 'a.b': { contract: deep, path: '/a/:x/b', scopes: [tree, inner], dirs: ['', 'a/[x]'] } })
+    class Deep extends Controller { index() { return [] } }
+    class Web extends Middleware {}
+    const { entries } = mount(Route.api(nested, (r) => {
+      const web = r.middleware(Web)
+      return [
+        web.scope('', { policy: UserScopePolicy }),
+        web.middleware(Audit).scope('a/[x]', { policy: UserScopePolicy }),
+        web.middleware(Trace, Audit).contract(deep, Deep),
+      ]
+    }))
+    expect(entries[0]!.middleware).toEqual([Web, Audit, Trace])
   })
 
   it('a controller without the endpoint method', () => {

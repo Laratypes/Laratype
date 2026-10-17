@@ -21,8 +21,8 @@ export default class RouteListCommand extends Command {
       return 0;
     }
 
-    // The Auth and Domain columns only show when a route has a value
-    for (const column of ['Auth', 'Domain'] as const) {
+    // The "Not enforced" and Domain columns only show when a route has a value
+    for (const column of ['Not enforced', 'Domain'] as const) {
       if(!routes.some(route => route[column] !== '-')) {
         routes.forEach(route => delete (route as Partial<typeof route>)[column]);
       }
@@ -30,8 +30,8 @@ export default class RouteListCommand extends Command {
 
     Console.table(routes)
 
-    if(routes.some(route => route.Auth?.endsWith(NOT_ENFORCED))) {
-      Console.warn("The routes marked in Auth serve every request: see the [@laratype/http] Route.api warning.");
+    if(routes.some(route => route['Not enforced'] !== undefined && route['Not enforced'] !== '-')) {
+      Console.warn("The routes with a \"Not enforced\" value serve every request with unchecked input: see the [@laratype/http] Route.api warning.");
     }
 
     return 0;
@@ -39,11 +39,9 @@ export default class RouteListCommand extends Command {
   }
 }
 
-const NOT_ENFORCED = '(not enforced yet)';
-
-/** `RouteEntry.unenforced`, which @laratype/http decides (the CLI does not import that optional package). */
-const authColumn = (route: Record<string, any>) =>
-  route.unenforced?.length ? `${route.unenforced.join(', ')} ${NOT_ENFORCED}` : '-';
+/** `RouteEntry.unenforced` (auth, authorize, validation), which @laratype/http decides (the CLI does not import that optional package). */
+const notEnforcedColumn = (route: Record<string, any>) =>
+  route.unenforced?.length ? route.unenforced.join(', ') : '-';
 
 /**
  * One row of the table. Reads both registry shapes: the v2 entries of `Route.api` (name, method, path, endpoint,
@@ -60,6 +58,6 @@ export const routeRow = (route: Record<string, any>) => ({
     : route.can?.length ? route.can.map((mw: any) => {
       return `${mw.ability}{${mw.args.map((arg: any) => arg.name ? arg.name : `/:${arg}`).join(', ')}}`
     }).join(', ') : '-',
-  Auth: authColumn(route),
+  'Not enforced': notEnforcedColumn(route),
   Domain: route.domain ?? '-',
 });

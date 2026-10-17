@@ -28,6 +28,25 @@ describe('DevRestarter', () => {
     expect(restarter.instance?.name).toBe('2');
   });
 
+  it('coalesces a burst of events into at most one more restart', async () => {
+    let starts = 0;
+    let release!: () => void;
+    const restarter = new DevRestarter(async () => {
+      starts++;
+      if (starts === 1) await new Promise<void>((r) => (release = r));
+      return instance(String(starts), []);
+    }, () => {});
+    const first = restarter.restart();
+    for (let i = 0; i < 10; i++) void restarter.restart();
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await first;
+    expect(starts).toBe(2);
+    // a quiet restarter starts again on the next event
+    await restarter.restart();
+    expect(starts).toBe(3);
+  });
+
   it('a failed start leaves no instance, so the next restart does not call down() twice', async () => {
     const log: string[] = [];
     let fail = true;
