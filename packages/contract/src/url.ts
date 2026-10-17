@@ -1,4 +1,5 @@
 import type { PathParams } from "./path";
+import { fail } from "./internal";
 
 /** Param values for a path: each key of `PathParams<P>` takes a string or a number (optional keys stay optional). */
 export type UrlParams<P extends string> = string extends P
@@ -8,10 +9,6 @@ export type UrlParams<P extends string> = string extends P
 /** `params` is required when the path has a required param. */
 export type UrlInput<P extends string> = ({} extends PathParams<P> ? { params?: UrlParams<P> | undefined } : { params: UrlParams<P> }) & {
   query?: object | undefined;
-};
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
 };
 
 /** Replaces each `:name`, `:name?` and `:name{regex}` segment (Hono syntax, see `PathParams`). */

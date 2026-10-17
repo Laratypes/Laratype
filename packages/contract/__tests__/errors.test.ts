@@ -91,6 +91,14 @@ describe('defineError', () => {
     expect(() => defineError(409, 'BAD', (() => runInNewContext('new Map()')) as never)()).toThrow(/must be a plain object, got Map/)
   })
 
+  it('rejects an object whose prototype is a bare null-prototype object (not the Object.prototype of a realm)', () => {
+    const body = Object.create(Object.create(null) as object) as Record<string, string>
+    body.message = 'x'
+    expect(() => defineError(409, 'BAD', () => body)()).toThrow(/must be a plain object, got an object with a custom prototype/)
+    // a vm realm's plain object still passes
+    expect(defineError(409, 'OK_VM', () => runInNewContext('({ message: "x" })') as { message: string })().body).toEqual({ message: 'x' })
+  })
+
   it('accepts a body with a null prototype', () => {
     const body = Object.assign(Object.create(null) as Record<string, string>, { message: 'x' })
     expect(defineError(409, 'OK_NULL', () => body)().body).toBe(body)

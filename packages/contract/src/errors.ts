@@ -1,4 +1,5 @@
 import type { ErrorBag } from "./validate";
+import { fail } from "./internal";
 
 export interface MessageBody {
   message: string;
@@ -56,10 +57,6 @@ export type ErrorResponse<E> = E extends ErrorDef<infer St, infer Code, infer Bo
 
 const UPPER_SNAKE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/;
 
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
-};
-
 /**
  * An error goes on the wire as `{ code, ...body }` (client.md › Result union), so a body is an object without its own
  * `code`. The type accepts any object (an index signature too) that has no written-out `code` key, checked per union
@@ -90,9 +87,12 @@ const checkBody = (code: string, body: unknown): void => {
   }
   // a plain object only: Map, Set, Date or a class instance would not spread into { code, ...body } as written.
   // Any realm's Object.prototype is itself the root (its prototype is null), so an iframe's or a vm's object passes.
-  const proto = Object.getPrototypeOf(body);
-  if (proto !== null && Object.getPrototypeOf(proto) !== null) {
-    fail(`${code}: the body must be a plain object, got ${(proto as { constructor?: { name?: string } }).constructor?.name || "an object with a custom prototype"} (the error is sent as { code, ...body })`);
+  const proto: object | null = Object.getPrototypeOf(body);
+  // a realm's Object.prototype is the root of its chain and has its own hasOwnProperty; a bare null-prototype
+  // object used as a prototype is not one
+  const plain = proto === null || (Object.getPrototypeOf(proto) === null && Object.prototype.hasOwnProperty.call(proto, "hasOwnProperty"));
+  if (!plain) {
+    fail(`${code}: the body must be a plain object, got ${(proto as { constructor?: { name?: string } } | null)?.constructor?.name || "an object with a custom prototype"} (the error is sent as { code, ...body })`);
   }
   if (Object.prototype.hasOwnProperty.call(body, "code")) fail(`${code}: the body must not have its own "code" key (the error is sent as { code, ...body })`);
 };

@@ -17,6 +17,7 @@ import type {
 import { isEndpoint } from "./endpoint";
 import type { AnyEndpoint, Method } from "./endpoint";
 import type { AnyErrorDef } from "./errors";
+import { fail } from "./internal";
 
 /** Brand of a contract: holds its options. Non-enumerable, so it never shows up in keys, spreads or JSON. */
 export const CONTRACT: unique symbol = Symbol.for("laratype.contract");
@@ -61,10 +62,6 @@ export type CheckScope<P extends AnyPrefix, O> = O extends { readonly authorize:
     ? unknown
     : { error: "defineScope: authorize needs auth in this scope or an outer one" }
   : unknown;
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
-};
 
 function buildContract(endpoints: ContractDef, options: ContractOptions): AnyContract {
   if (typeof endpoints !== "object" || endpoints === null) fail("defineContract: endpoints must be an object");
@@ -325,7 +322,8 @@ export function apiPaths(api: object): ApiPath[] {
 
 /**
  * The errors of one `apiPaths()` route: derived from its capabilities across all levels, plus `throws`, unique by
- * code (`endpointErrors` on its full path). Never throws, so it also works for a contract taken out of its folder.
+ * code and status (`endpointErrors` on its full path). Never throws, so it also works for a contract taken out of
+ * its folder.
  */
 export const routeErrors = (route: ApiPath): readonly AnyErrorDef[] =>
   endpointErrors({ ...route.endpoint.def, path: "" }, { path: route.path, scopes: route.scopes, options: route.contract[CONTRACT].options });

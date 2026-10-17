@@ -2,6 +2,7 @@ import { errors } from "./errors";
 import type { AnyErrorDef } from "./errors";
 import type { AnyEndpoint, EndpointDef } from "./endpoint";
 import type { PathParamKeys } from "./path";
+import { fail } from "./internal";
 
 // ---- options ----------------------------------------------------------------
 
@@ -148,10 +149,6 @@ export interface ResolvedCapabilities {
   /** Derived errors, then `throws` from scopes (outer to inner), the contract and the endpoint; unique by code and status. */
   readonly errors: readonly AnyErrorDef[];
 }
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
-};
 
 const nearest = <T>(values: ReadonlyArray<T | undefined>): T | undefined => {
   for (let i = values.length - 1; i >= 0; i--) if (values[i] !== undefined) return values[i];

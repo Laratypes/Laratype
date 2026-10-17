@@ -39,8 +39,11 @@ export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 
 const BODYLESS: ReadonlySet<number> = new Set([204, 205]);
 
-/** `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. */
-type KeptStatus<R, St> = R extends undefined ? (St extends BodyStatus ? St : 200) : 200;
+/**
+ * `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. A wide
+ * `number` status can't say which, so it stays `number`, as the runtime may keep any of them.
+ */
+type KeptStatus<R, St> = R extends undefined ? (number extends St ? number : St extends BodyStatus ? St : 200) : 200;
 
 /** A success status must be 2xx: checked when the endpoint is defined. */
 const checkSuccess = (status: unknown, label: string): number => {
@@ -119,10 +122,10 @@ export class Endpoint<
    * Without a status it keeps one set by `.status(n)` before (`.status(202).response(Dto)` is 202), else `200`.
    * The status is `NoInfer`: a contextual return type (e.g. `AnyEndpoint`) must not infer it, so the default applies.
    */
-  response<S extends StandardSchemaV1, Code extends BodyStatus = KeptStatus<R, St>>(
+  response<S extends StandardSchemaV1, Code extends BodyStatus | undefined = undefined>(
     schema: S,
     status?: Code,
-  ): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C> {
+  ): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C> {
     const kept = !this.def.response && !BODYLESS.has(this.def.status) ? this.def.status : 200;
     if (status !== undefined && BODYLESS.has(status)) fail(`response(): a ${status} has no body; use .status(${status})`);
     return new Endpoint({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });

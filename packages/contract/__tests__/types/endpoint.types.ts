@@ -152,3 +152,7 @@ endpoint.get('/').response(response, 204)
 // @ts-expect-error a 205 (Reset Content) has no body either
 endpoint.get('/').response(response, 205)
 expectTypeOf(endpoint.post('/form').status(205).__types.status).toEqualTypeOf<205>()
+// a wide status can't say which one .response(schema) keeps: number, never a wrong 200
+declare const wide: Endpoint<'post', '/x', undefined, undefined, undefined, undefined, number>
+expectTypeOf(wide.response(response).__types.status).toEqualTypeOf<number>()
+expectTypeOf(wide.response(response, 201).__types.status).toEqualTypeOf<201>()
