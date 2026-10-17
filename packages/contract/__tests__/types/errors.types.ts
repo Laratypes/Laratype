@@ -108,3 +108,9 @@ errors.notFound.status = 500
 errors.validation([] as never).body.issues
 // @ts-expect-error 418 is not in the declared error union
 expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<403 | 409 | 418>()
+// an error status is 400-599: a 2xx or 3xx error could never be classified as a failure
+// @ts-expect-error a 2xx error status
+defineError(200, 'X')
+// @ts-expect-error a 3xx error status
+defineError(302, 'X')
+expectTypeOf(defineError(599, 'X').status).toEqualTypeOf<599>()

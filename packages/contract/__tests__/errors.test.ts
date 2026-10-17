@@ -109,6 +109,16 @@ describe('defineError', () => {
     expect(errors.validation({ name: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { name: ['Required'] } })
   })
 
+  it('rejects a status outside 400-599: a declared error must classify as a failure', () => {
+    for (const status of [200, 204, 302, 399, 600]) {
+      expect(() => defineError(status as never, 'X')).toThrow(
+        new TypeError(`[@laratype/contract] defineError: status ${status} must be an error status (400-599)`),
+      )
+    }
+    expect(defineError(400, 'X').status).toBe(400)
+    expect(defineError(599, 'X').status).toBe(599)
+  })
+
   it('rejects a non-integer status and a non-function body', () => {
     expect(() => defineError(4.5, 'X')).toThrow(/invalid status/)
     expect(() => defineError('404' as never, 'X')).toThrow(/invalid status/)

@@ -4,6 +4,7 @@ import type { AnyErrorDef } from "./errors";
 import type { PathParams } from "./path";
 import type { StandardSchemaV1 } from "./standard-schema";
 import { fail } from "./internal";
+import type { Digit, ToNumber } from "./internal";
 
 export type Method = "get" | "post" | "put" | "patch" | "delete";
 
@@ -27,9 +28,6 @@ export interface EndpointDef {
 }
 
 type Schema = StandardSchemaV1 | undefined;
-
-type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
-type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
 
 /** A success status: `200` to `299`. */
 export type SuccessStatus = ToNumber<`2${Digit}${Digit}`>;

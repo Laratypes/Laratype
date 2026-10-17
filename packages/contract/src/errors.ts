@@ -1,5 +1,9 @@
 import type { ErrorBag } from "./validate";
 import { fail } from "./internal";
+import type { Digit, ToNumber } from "./internal";
+
+/** An error status: `400` to `599`, so a declared error is always classified as a failure. */
+export type FailureStatus = ToNumber<`${4 | 5}${Digit}${Digit}`>;
 
 export interface MessageBody {
   message: string;
@@ -105,6 +109,7 @@ function make<St extends number, Code extends string, Body, Args extends unknown
   body: (...args: Args) => Body,
 ): ErrorDef<St, Code, Body, Args> {
   if (!Number.isInteger(status)) fail(`defineError: invalid status ${JSON.stringify(status)}`);
+  if (status < 400 || status > 599) fail(`defineError: status ${status} must be an error status (400-599)`);
   if (typeof code !== "string" || !UPPER_SNAKE.test(code)) fail(`defineError: code ${JSON.stringify(code)} must be UPPER_SNAKE`);
   const factory = (...args: Args) => {
     const value = body(...args);
@@ -130,11 +135,11 @@ function make<St extends number, Code extends string, Body, Args extends unknown
  * export const EmailTaken = defineError(409, "EMAIL_TAKEN", (email: string) => ({ email }))
  * throw EmailTaken(input.email)
  */
-export function defineError<const St extends number, const Code extends string>(
+export function defineError<const St extends FailureStatus, const Code extends string>(
   status: St,
   code: Code,
 ): ErrorDef<St, Code, MessageBody, [message?: string]>;
-export function defineError<const St extends number, const Code extends string, Args extends unknown[], Body>(
+export function defineError<const St extends FailureStatus, const Code extends string, Args extends unknown[], Body>(
   status: St,
   code: Code,
   body: ((...args: Args) => Body) & CheckErrorBody<Body>,

@@ -167,7 +167,7 @@ export class Endpoint<M extends Method = Method, P extends string = string,
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C>;
   body<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;
   headers<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, B, S, R, St, E, C>;
-  response<S extends StandardSchemaV1, Code extends BodyStatus = KeptStatus<R, St>>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code>, E, C>;   // 2xx but 204; keeps a .status(n) set before
+  response<S extends StandardSchemaV1, Code extends BodyStatus | undefined = undefined>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C>;   // 2xx but 204/205; keeps a .status(n) set before
   status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C>;   // body-less 2xx
   throws<const Es extends readonly AnyErrorDef[]>(...errs: Es): Endpoint<M, P, Q, B, H, R, St, E | Es[number], C>;
   auth<const A extends AuthOption = true>(guard?: A): Endpoint<M, P, Q, B, H, R, St, E, { auth: A; authorize: C["authorize"]; throttle: C["throttle"] }>;
@@ -768,9 +768,10 @@ export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
 export type ErrorCode<E>;
 export type ErrorBody<E>;
+export type FailureStatus;                           // 400 | 401 | ... | 599
 export type ErrorResponse<E> = E extends ErrorDef<infer St, infer Code, infer Body, any> ? { status: St; code: Code; body: Body } : never;
-export function defineError<const St extends number, const Code extends string>(status: St, code: Code): ErrorDef<St, Code, MessageBody, [message?: string]>;
-export function defineError<const St extends number, const Code extends string, Args extends unknown[], Body>(
+export function defineError<const St extends FailureStatus, const Code extends string>(status: St, code: Code): ErrorDef<St, Code, MessageBody, [message?: string]>;
+export function defineError<const St extends FailureStatus, const Code extends string, Args extends unknown[], Body>(
   status: St, code: Code, body: ((...args: Args) => Body) & CheckErrorBody<Body>): ErrorDef<St, Code, Body, Args>;
 export type CheckErrorBody<Body>;                     // unknown for any object without a literal "code" key (runtime: plain objects only), else { error: "defineError: ..." }
 ```
@@ -790,6 +791,7 @@ if (EmailTaken.is(e)) e.body.email
 - **A factory:** `defineError(status, code, body?)` returns a frozen function that also carries `status`, `code` and `is`. Calling it builds a `ContractError` (an `Error`) to throw. Without a body factory the body is `{ message }`, and the message defaults to the code.
 - **`E.is(e)`** compares `code`, not `instanceof`, so it works across bundles and package copies.
 - **Codes** are `UPPER_SNAKE` (`/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/`), like the built-in [catalog](#error-catalog).
+- **Statuses** are error statuses, `400` to `599` (`FailureStatus`), in the types and when the error is defined, so a declared error is always classified as a failure by the client. The built-in catalog (401, 403, 404, 422, 429) complies.
 - **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (a `null` prototype, or the `Object.prototype` of any realm, such as an iframe's: a prototype whose own prototype is `null` and that has its own `hasOwnProperty`), so a `Map`, `Set`, `Date` or class instance is rejected too. The default `{ message }` body and the catalog bodies already comply.
 - **Declaring:** `throws` on an endpoint, a contract or a scope. The levels add up ([inheritance](#capabilities-and-derived-errors)). `throws` also accepts the built-in catalog errors. For example, a search endpoint with no path param whose service throws `notFound` declares `.throws(errors.notFound)`, so the undeclared-error check accepts it.
 - **403 from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws`. There is no separate capability for it.
@@ -799,6 +801,7 @@ if (EmailTaken.is(e)) e.body.email
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineError: invalid status <status>` (not an integer)
+- `defineError: status <status> must be an error status (400-599)`
 - `defineError: code "<code>" must be UPPER_SNAKE`
 - `defineError("<code>"): body must be a function`
 - `<code>: the body must be an object, got <kind> (the error is sent as { code, ...body })`, thrown when the error is created
