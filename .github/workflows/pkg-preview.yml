@@ -1,8 +1,8 @@
 name: 'Pkg preview'
 on:
   # Any base branch, like ci.yml. No secrets: the pkg.pr.new GitHub App posts the PR comment
-  # Docs-only changes publish nothing: docs/** and root-level *.md (`*` does not cross `/`, so package READMEs,
-  # which ship in the tarballs, still trigger a preview)
+  # Docs-only changes publish nothing: docs/** and root-level *.md. `*` does not cross `/`, so a .md file inside a
+  # package (none today) would still trigger a preview, since npm packs it into the tarball
   pull_request:
     paths-ignore: [ 'docs/**', '*.md' ]
   push:
@@ -25,7 +25,8 @@ jobs:
     # Skips fork PRs in the normal case. Not a security boundary: a pull_request run uses the PR's own copy of
     # this file, so a fork PR can remove the guard. The control is the repo setting Settings › Actions › General ›
     # "Approval for running fork pull request workflows from contributors" (see docs/v1/build.md › CI and release)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # github.repository also skips push and workflow_dispatch runs in forks, where the pkg.pr.new app is not installed
+    if: github.repository == 'Laratypes/Laratype' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       # No GITHUB_TOKEN left in .git/config while bunx runs third-party code; nothing below needs git auth

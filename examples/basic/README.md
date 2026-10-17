@@ -4,6 +4,8 @@ bun install
 bun run build && bun run build:type
 ```
 
+The example connects to MySQL on start (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`; defaults `localhost:3306`, `root`, no password, database `test`, in `app/config/config.ts`), and its Google auth provider reads `AUTH_GOOGLE_CLIENT_ID` and `AUTH_GOOGLE_CLIENT_SECRET`. Set them in your environment or an `.env` file in `examples/basic`.
+
 Then start the example:
 ```
 cd examples/basic
