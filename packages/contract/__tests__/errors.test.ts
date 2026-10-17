@@ -71,6 +71,23 @@ describe('defineError', () => {
     )
   })
 
+  it.each([
+    ['a Map', () => new Map(), 'Map'],
+    ['a Set', () => new Set(), 'Set'],
+    ['a Date', () => new Date(0), 'Date'],
+    ['a class instance', () => new (class Payload { message = 'x' })(), 'Payload'],
+  ])('rejects, when the error is created, a body that is %s: only plain objects', (_, make, got) => {
+    const Bad = defineError(409, 'BAD', make as never)
+    expect(() => Bad()).toThrow(
+      new TypeError(`[@laratype/contract] BAD: the body must be a plain object, got ${got} (the error is sent as { code, ...body })`),
+    )
+  })
+
+  it('accepts a body with a null prototype', () => {
+    const body = Object.assign(Object.create(null) as Record<string, string>, { message: 'x' })
+    expect(defineError(409, 'OK_NULL', () => body)().body).toBe(body)
+  })
+
   it('accepts the default { message } body and the catalog bodies', () => {
     expect(defineError(409, 'OK')().body).toEqual({ message: 'OK' })
     expect(errors.validation({ name: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { name: ['Required'] } })

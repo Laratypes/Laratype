@@ -151,6 +151,14 @@ describe('createClient', () => {
     expectTypeOf(createClient({ users: appApi.users }).users.show).toEqualTypeOf(api.users.show)
   })
 
+  test('a single contract declares the errors of its own options, as the runtime does', async () => {
+    // users: { auth: true } on the contract, store throws EmailTaken; no folder scopes alone
+    const result = await createClient(usersContract).store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })
+    if (!result.ok && !result.unexpected) {
+      expectTypeOf(result.code).toEqualTypeOf<'VALIDATION_ERROR' | 'UNAUTHORIZED' | 'EMAIL_TAKEN'>()
+    }
+  })
+
   test('an API node or a single contract', () => {
     const node = createClient(appApi.users.posts)
     expectTypeOf(node.update).toEqualTypeOf(api.users.posts.update)

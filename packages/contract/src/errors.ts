@@ -86,6 +86,11 @@ const checkBody = (code: string, body: unknown): void => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     fail(`${code}: the body must be an object, got ${Array.isArray(body) ? "an array" : body === null ? "null" : typeof body} (the error is sent as { code, ...body })`);
   }
+  // a plain object only: Map, Set, Date or a class instance would not spread into { code, ...body } as written
+  const proto = Object.getPrototypeOf(body);
+  if (proto !== Object.prototype && proto !== null) {
+    fail(`${code}: the body must be a plain object, got ${(proto as { constructor?: { name?: string } }).constructor?.name || "an object with a custom prototype"} (the error is sent as { code, ...body })`);
+  }
   if (Object.prototype.hasOwnProperty.call(body, "code")) fail(`${code}: the body must not have its own "code" key (the error is sent as { code, ...body })`);
 };
 

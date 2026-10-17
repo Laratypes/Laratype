@@ -192,7 +192,15 @@ export type EntryContext<En> = En extends ApiEntry<infer C, infer Path, any>
   ? { path: Path; scopes: PrefixScopes<ContractPrefixOf<C>>; options: ContractOptionsOf<C> }
   : RootContext;
 
-export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, infer En> } ? EntryContext<En> : RootContext;
+/**
+ * The context of a node's endpoints: its entry's, or for a contract taken alone, no prefix and no scopes but the
+ * contract's own options (so a single-contract client declares the errors of its own auth, throttle and throws).
+ */
+export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, infer En> }
+  ? EntryContext<En>
+  : N extends { readonly [CONTRACT]: ContractMeta<any, infer O> }
+    ? { path: ""; scopes: []; options: O }
+    : RootContext;
 
 type TreeNode = Record<string | symbol, unknown>;
 
