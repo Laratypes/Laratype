@@ -99,6 +99,7 @@ describe('shouldRestart', () => {
   const tree = {
     inTree: (file: string) => file.startsWith('/p/app/api/'),
     isGenerated: (file: string) => file.startsWith('/p/.laratype/'),
+    affectsTree: (event: string, file: string) => file === '/p/app/config/config.ts' || (event !== 'change' && file.startsWith('/p/app/api/')),
   } as ApiPluginApi;
 
   it('restarts on a change, but not on the scan output', () => {
@@ -111,6 +112,11 @@ describe('shouldRestart', () => {
     expect(shouldRestart('unlink', '/p/app/api/users/[user]/_scope.ts', tree)).toBe(true);
     expect(shouldRestart('add', '/p/app/src/new.ts', tree)).toBe(false);
     expect(shouldRestart('add', '/p/.laratype/types/x/$types.d.ts', tree)).toBe(false);
+  });
+
+  it('restarts when the config file is created or deleted', () => {
+    expect(shouldRestart('add', '/p/app/config/config.ts', tree)).toBe(true);
+    expect(shouldRestart('unlink', '/p/app/config/config.ts', tree)).toBe(true);
   });
 
   it('without the plugin, only changes restart', () => {

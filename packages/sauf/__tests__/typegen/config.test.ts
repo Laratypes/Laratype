@@ -7,6 +7,8 @@ import TypesGenerateCommand, { runTypesGenerate } from '../../src/commands/types
 import { normalizePath } from 'vite';
 import { ScanError, apiTreeConfig, contractTreePlugin, laratypeApi, readApiTreeConfig, resolveApiTree, syncContractTree } from '../../src/typegen';
 import type { ApiPluginApi } from '../../src/typegen';
+import { scanFiles } from '../../src/typegen';
+import { shouldRestart } from '../../src/utils/restarter';
 
 /**
  * The contract-root config key (H1 #104): `api.root` / `api.base` in app/config/config.ts, read by
@@ -51,6 +53,21 @@ afterAll(() => {
 });
 
 describe('api config key', () => {
+  it('rejects an api.root outside the project, absolute paths included', () => {
+    for (const root of ['/srv/api', 'C:/api', String.raw`C:\api`, '../api', 'app/../../api', '.', '..']) {
+      expect(() => apiTreeConfig({ api: { root } })).toThrow(`config api.root "${root}" must be a folder inside the project, relative to it`);
+    }
+    expect(apiTreeConfig({ api: { root: 'app/../src/api' } })).toEqual({ root: 'app/../src/api', base: undefined });
+    // flags too
+    expect(() => syncContractTree({ projectDir: tmp, root: '../elsewhere' })).toThrow('the contract tree root "../elsewhere" must be a folder inside the project');
+  });
+
+  it('shares one api.base rule with the scan', () => {
+    const rule = 'must be "" or a path that starts with "/" and does not end with "/", such as "/api"';
+    expect(() => apiTreeConfig({ api: { base: 'api' } })).toThrow(`config api.base ${rule}`);
+    expect(() => scanFiles([], 'api')).toThrow(`base "api" ${rule}`);
+  });
+
   it('validates api.root / api.base', () => {
     expect(apiTreeConfig({})).toEqual({});
     expect(apiTreeConfig(undefined)).toEqual({});
@@ -224,10 +241,22 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(readFileSync(id!, 'utf8')).not.toContain('things');
   });
 
+  it('falls back to the default root when the first scan fails, so contract adds still restart', async () => {
+    const dir = project('first-fails', undefined);
+    const plugin = laratypeApi({ projectDir: dir, config: () => ({ api: { base: 'bad' } }) });
+    const api = plugin.api as ApiPluginApi;
+    await expect((plugin.resolveId as (source: string) => Promise<string | null>)('$api')).rejects.toThrow('[laratype:api] config api.base');
+    expect(api.inTree(join(dir, 'app/api/new.ts'))).toBe(true);
+    expect(shouldRestart('add', join(dir, 'app/api/new.ts'), api)).toBe(true);
+  });
+
   it('tells the dev restart which files are in the tree and which are generated (its own outDir)', async () => {
     const dir = project('files', undefined);
     const plugin = laratypeApi({ projectDir: dir, outDir: 'gen', config: () => ({}) });
     const api = plugin.api as ApiPluginApi;
+    // add/unlink of the config file can change the tree too
+    expect(api.affectsTree('add', join(dir, 'app/config/config.ts'))).toBe(true);
+    expect(api.affectsTree('unlink', join(dir, 'app/config/config.ts'))).toBe(true);
     // nothing is in the tree before the app imports $api
     expect(api.inTree(join(dir, 'app/api/new.ts'))).toBe(false);
     await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');

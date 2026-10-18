@@ -19,6 +19,11 @@ export default class Response extends AppServiceProvider {
   protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: RouteParams): ContentfulStatusCode & 204 {
     let contentFullStatusCode = response.getHttpStatus();
 
+    // A contract route's status comes from its endpoint (`.response(schema, status)`), never from the method name
+    if(!contentFullStatusCode && routeOption?.status) {
+      contentFullStatusCode = routeOption.status as ContentfulStatusCode;
+    }
+
     if(!contentFullStatusCode && routeOption?.controller) {
       const [controllerClass, controllerMethodName] = routeOption.controller;
       

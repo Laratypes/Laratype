@@ -67,9 +67,9 @@ export class DevRestarter<T extends { down(): unknown }> {
 
 /**
  * Which watcher events restart the dev server: any change except the scan's own output, and adding or deleting a
- * file under the contract tree root (a new, deleted or renamed contract or `_scope.ts`).
+ * file that can change the contract tree (a contract or `_scope.ts` under the root, or the config file).
  */
 export const shouldRestart = (event: "change" | "add" | "unlink", file: string, tree: ApiPluginApi | undefined): boolean => {
   if (tree?.isGenerated(file)) return false;
-  return event === "change" || (tree?.inTree(file) ?? false);
+  return event === "change" || (tree?.affectsTree(event, file) ?? false);
 };

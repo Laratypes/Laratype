@@ -102,13 +102,14 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
   const outDir = slash(options.outDir ?? ".laratype");
+  if (!inside(projectDir, resolve(projectDir, root))) throw new ScanError(`the contract tree root "${root}" must be a folder inside the project`);
   checkOutDir(projectDir, root, outDir);
   return { projectDir, root, outDir, base: options.base ?? DEFAULT_BASE };
 };
 
 /** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
 export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncResult {
-  const tree = scanTree(join(projectDir, root), base);
+  const tree = scanTree(resolve(projectDir, root), base);
   const files = emitTree(tree, { root, outDir });
   // $types.d.ts files of removed folders must not linger
   const removed = removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
@@ -122,6 +123,6 @@ export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncRe
  */
 export function syncContractTree(options: GenerateOptions): SyncResult | undefined {
   const paths = resolveTreePaths(options);
-  if (!existsSync(join(paths.projectDir, paths.root))) return undefined;
+  if (!existsSync(resolve(paths.projectDir, paths.root))) return undefined;
   return writeTree(paths);
 }

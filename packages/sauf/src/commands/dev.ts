@@ -105,16 +105,8 @@ export default class LaratypeDevCommand extends Command {
 
     const cleanupFns = await Serve.bootProvider();
 
-    const cleanup = async () => {
-      for (const cleanupFn of cleanupFns) {
-        await cleanupFn();
-      }
-    }
-
-    const down = async () => {
-      await cleanup()
-      Serve.down();
-    }
+    // Every cleanup runs and the Hono app and container are reset even when one throws (Serve.stop)
+    const down = () => Serve.stop(cleanupFns);
 
     return {
       app: Serve.getInstance(),

@@ -87,7 +87,10 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
     }
   } catch (error) {
     for (const down of downs) {
-      await down().catch(() => {});
+      // A down() may throw synchronously or return no promise
+      try {
+        await down();
+      } catch {}
     }
     throw error;
   }

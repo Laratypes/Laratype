@@ -36,6 +36,8 @@ export type RouteOptions = ({
 export type RouteParams = {
   method: METHOD,
   path: string,
+  /** The response status of a `Route.api` route, from its endpoint definition. */
+  status?: number,
   request?: typeof Request,
   can?: PolicyFactory[],
   controller: [typeof Controller, string]

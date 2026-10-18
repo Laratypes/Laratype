@@ -15,7 +15,8 @@ import type { ApiRoutes } from '../../src/index'
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
 const users = defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') })
-const posts = defineContract()({ index: endpoint.get('/'), store: endpoint.post('/') })
+const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
+const posts = defineContract()({ index: endpoint.get('/'), store: endpoint.post('/').response(anything, 201) })
 const appApi = defineApi({
   users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
   'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
@@ -66,6 +67,16 @@ describe('Route.api', () => {
     expect(created.status).toBe(201)
     expect(await created.json()).toEqual({ created: true })
     expect((await app.request('/api/posts')).status).toBe(404)
+  })
+
+  it('answers with the endpoint status, not one guessed from the method name', async () => {
+    const gone = defineContract()({ destroy: endpoint.delete('/:id'), store: endpoint.post('/') })
+    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } }
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone)]))
+    // the 0.5 kernel would guess 204 for destroy and 201 for store
+    expect((await app.request('/gone/1', { method: 'DELETE' })).status).toBe(200)
+    expect((await app.request('/gone', { method: 'POST' })).status).toBe(200)
   })
 
   it('returns one registry entry per route: name, method, path, endpoint, controller, middleware, policies', () => {

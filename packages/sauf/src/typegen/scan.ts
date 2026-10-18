@@ -53,6 +53,13 @@ const SCOPE_FILE = "_scope.ts";
 const PARAM = /^\[([A-Za-z_][A-Za-z0-9_]*)\]$/;
 const SEGMENT = /^[A-Za-z0-9_-]+$/;
 
+/** The URL base of the root: `""` or a path that starts with `/` and does not end with `/`. Shared by the scan and config `api.base`. */
+export function checkBase(base: unknown, label: string): asserts base is string {
+  if (typeof base !== "string" || (base !== "" && (!base.startsWith("/") || base.endsWith("/")))) {
+    throw new ScanError(`${label} must be "" or a path that starts with "/" and does not end with "/", such as "/api"`);
+  }
+}
+
 const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$");
 
 /** Whether a root-relative file takes part in the tree: a contract or a scope. */
@@ -84,7 +91,7 @@ const join2 = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 /** Builds the tree from root-relative file paths (any order). Throws a ScanError on an invalid tree. */
 export function scanFiles(files: readonly string[], base: string): ContractTree {
-  if (base !== "" && (!base.startsWith("/") || base.endsWith("/"))) throw new ScanError(`base "${base}" must be "" or start with "/" and not end with "/"`);
+  checkBase(base, `base "${base}"`);
   const treeFiles = files.map((f) => f.replace(/\\/g, "/")).filter(isTreeFile).sort();
   const scopeDirs = new Set(treeFiles.filter((f) => f === SCOPE_FILE || f.endsWith(`/${SCOPE_FILE}`)).map((f) => f.slice(0, -SCOPE_FILE.length - 1)));
 

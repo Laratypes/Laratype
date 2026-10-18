@@ -41,6 +41,27 @@ export default class Serve {
     }
   }
 
+  /**
+   * Runs every cleanup (the `down()` list from `bootProvider()`), then always resets the app with `down()`, so the next
+   * boot never reuses a stale Hono app or container. Errors are collected and thrown after the reset.
+   */
+  public static async stop(cleanups: ReadonlyArray<() => unknown>) {
+    const errors: unknown[] = [];
+    try {
+      for (const cleanup of cleanups) {
+        try {
+          await cleanup();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    } finally {
+      this.down();
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Serve.stop: several cleanups failed");
+  }
+
   public static down() {
     this.instance = null;
     this.container = null;

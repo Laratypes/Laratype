@@ -55,3 +55,24 @@ describe("Serve.bootProvider", () => {
     expect(log.filter((l) => l === "mw down")).toHaveLength(2);
   });
 });
+
+describe("Serve.stop", () => {
+  afterEach(() => Serve.down());
+
+  it("runs every cleanup and resets the app even when a cleanup throws", async () => {
+    const log: string[] = [];
+    const before = Serve.getInstance();
+    const stopping = Serve.stop([
+      () => { log.push("a"); throw new Error("a failed"); },
+      async () => { log.push("b"); },
+    ]);
+    await expect(stopping).rejects.toThrow("a failed");
+    expect(log).toEqual(["a", "b"]);
+    // the next boot gets a fresh Hono app
+    expect(Serve.getInstance()).not.toBe(before);
+  });
+
+  it("reports several failures together", async () => {
+    await expect(Serve.stop([() => { throw new Error("x"); }, () => { throw new Error("y"); }])).rejects.toBeInstanceOf(AggregateError);
+  });
+});

@@ -112,3 +112,22 @@ describe('bootProviders failure', () => {
     expect(calls).toEqual(['a.boot', 'b.boot', 'c.boot', 'd.down', 'c.down', 'b.down', 'a.down'])
   })
 })
+
+describe('bootProviders rollback', () => {
+  it('survives a down() that throws synchronously or returns no promise', async () => {
+    const calls: string[] = []
+    class SyncThrow extends ServiceProvider {
+      // @ts-expect-error a provider that breaks the contract: down() is not async
+      down() { calls.push('sync.down'); throw new Error('sync') }
+    }
+    class Plain extends ServiceProvider {
+      // @ts-expect-error a provider that returns no promise
+      down() { calls.push('plain.down') }
+    }
+    class Fails extends ServiceProvider {
+      boot() { throw new Error('boot failed') }
+    }
+    await expect(bootProviders(makeApp(), [Plain, SyncThrow, Fails])).rejects.toThrow('boot failed')
+    expect(calls).toEqual(['sync.down', 'plain.down'])
+  })
+})

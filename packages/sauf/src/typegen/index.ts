@@ -45,7 +45,7 @@ export async function generateTypes(options: GenerateOptions, ts?: typeof TS): P
   const paths = resolveTreePaths(options);
   const { projectDir, root, outDir } = paths;
   const apiOut = (options.apiOut ?? posix.join(outDir, "api.ts")).replace(/\\/g, "/");
-  if (!existsSync(join(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root or config api.root)`);
+  if (!existsSync(resolve(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root or config api.root)`);
   const { tree, files } = writeTree(paths);
 
   const tsconfig = options.tsconfig ? resolve(projectDir, options.tsconfig) : join(projectDir, "tsconfig.json");
