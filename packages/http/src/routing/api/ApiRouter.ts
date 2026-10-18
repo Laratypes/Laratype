@@ -142,7 +142,8 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
 };
 
 /**
- * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
+ * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121), its `throttle`
+ * (#229) and the
  * validation of its body, query and headers schemas (#106). The one place that decides it: the mount warning and
  * `sauf route:list` both read `RouteEntry.unenforced`.
  */
@@ -151,6 +152,7 @@ const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
   return Object.freeze([
     ...(route.auth ? (["auth"] as const) : []),
     ...(route.authorize ? (["authorize"] as const) : []),
+    ...(route.throttle ? (["throttle"] as const) : []),
     ...(query || body || headers ? (["validation"] as const) : []),
   ]);
 };
@@ -168,11 +170,11 @@ const isHandler = (controller: ControllerClass, key: string): boolean => {
   return false;
 };
 
-/** One warning per mount: until #105 / #121 / #106 such a route serves every request with unchecked input. */
+/** One warning per mount: until #105 / #121 / #229 / #106 such a route skips those checks. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
-  console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes serve every request and pass unchecked input: ${list.join(", ")}`);
+  console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 
 /** The routes of one `Route.api(...)`, checked and ready to mount. */

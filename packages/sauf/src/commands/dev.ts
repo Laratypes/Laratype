@@ -31,6 +31,9 @@ export default class LaratypeDevCommand extends Command {
 
   protected server: DevRestarter<{ app: Hono, down: () => void }> | undefined;
 
+  /** Set by a watcher event that can change the contract tree; the next (re)start rescans it. */
+  protected rescanPending = false;
+
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
 
@@ -50,7 +53,7 @@ export default class LaratypeDevCommand extends Command {
           configureServer: async (server) => {
             const restarter = new DevRestarter(() => this.appStart(server), (error) => Console.error(error));
             this.server = restarter;
-            restarter.instance = await this.appStart(server);
+            await restarter.start();
 
             if(opts.hmr) {
               const tree = contractTreePlugin(server.config.plugins);
@@ -58,6 +61,8 @@ export default class LaratypeDevCommand extends Command {
                 server.watcher.on(event, (file: string) => {
                   // The scan rewrites its output folder during a restart: that must not trigger another one
                   if (!shouldRestart(event, file, tree)) return;
+                  // Only a file added or deleted under the root, or the config, can change the tree
+                  if (tree?.affectsTree(event, file)) this.rescanPending = true;
                   Console.info('File change detected. Restarting server...');
                   void restarter.restart();
                 });
@@ -88,8 +93,11 @@ export default class LaratypeDevCommand extends Command {
   protected async appStart(vite: ViteDevServer): Promise<{ app: Hono, down: () => void }> {
     globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
 
-    // Rescan the contract tree before a restart, if the app imported `$api` before (the first import scans it)
-    await contractTreePlugin(vite.config.plugins)?.restart();
+    // Rescan the contract tree before a restart when it can have changed (the first `$api` import scans it)
+    if (this.rescanPending) {
+      this.rescanPending = false;
+      await contractTreePlugin(vite.config.plugins)?.restart();
+    }
 
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,
@@ -136,7 +144,7 @@ export default class LaratypeDevCommand extends Command {
       res: ServerResponse,
       next: (err?: any) => void
     ) => {
-      const instance = this.server?.instance;
+      const instance = this.server?.current;
       if (!instance) {
         // Restarting, or the last restart failed (its error is printed): the next change retries
         res.statusCode = 503;

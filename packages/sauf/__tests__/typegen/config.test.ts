@@ -237,6 +237,12 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(api.isGenerated(join(dir, 'gen/api/index.gen.ts'))).toBe(true);
     expect(api.isGenerated(join(dir, '.laratype/api/index.gen.ts'))).toBe(false);
     expect(api.isGenerated(join(dir, 'app/api/users.ts'))).toBe(false);
+    // only adding or deleting under the root, or touching the config, can change the tree
+    expect(api.affectsTree('add', join(dir, 'app/api/new.ts'))).toBe(true);
+    expect(api.affectsTree('unlink', join(dir, 'app/api/users.ts'))).toBe(true);
+    expect(api.affectsTree('change', join(dir, 'app/api/users.ts'))).toBe(false);
+    expect(api.affectsTree('change', join(dir, 'app/config/config.ts'))).toBe(true);
+    expect(api.affectsTree('add', join(dir, 'app/src/new.ts'))).toBe(false);
   });
 
   it('reads app/config/config.ts on its own', async () => {

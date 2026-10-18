@@ -11,21 +11,36 @@ const instance = (name: string, log: string[], failDown = false) => ({
   },
 });
 
+/** Each boot runs the next step: returns an instance, or throws. */
+const booting = (steps: Array<() => Promise<ReturnType<typeof instance>>>) => {
+  let i = 0;
+  return () => steps[Math.min(i++, steps.length - 1)]!();
+};
+
 describe('DevRestarter', () => {
+  it('start() boots once and rethrows', async () => {
+    const failing = new DevRestarter(async () => { throw new Error('broken app'); }, () => {});
+    await expect(failing.start()).rejects.toThrow('broken app');
+    expect(failing.current).toBeUndefined();
+    const ok = new DevRestarter(async () => instance('0', []), () => {});
+    await ok.start();
+    expect(ok.current?.name).toBe('0');
+  });
+
   it('runs restarts one after another', async () => {
     const log: string[] = [];
     let n = 0;
     const restarter = new DevRestarter(async () => {
-      const i = ++n;
+      const i = n++;
       log.push(`start ${i}`);
       await new Promise((r) => setTimeout(r, 5));
       return instance(String(i), log);
     }, (e) => log.push(`error ${String(e)}`));
-    restarter.instance = instance('0', log);
+    await restarter.start();
     void restarter.restart();
     await restarter.restart();
-    expect(log).toEqual(['down 0', 'start 1', 'down 1', 'start 2']);
-    expect(restarter.instance?.name).toBe('2');
+    expect(log).toEqual(['start 0', 'down 0', 'start 1', 'down 1', 'start 2']);
+    expect(restarter.current?.name).toBe('2');
   });
 
   it('coalesces a burst of events into at most one more restart', async () => {
@@ -47,32 +62,34 @@ describe('DevRestarter', () => {
     expect(starts).toBe(3);
   });
 
-  it('a failed start leaves no instance, so the next restart does not call down() twice', async () => {
+  it('a failed restart leaves no instance, so the next restart does not call down() twice', async () => {
     const log: string[] = [];
-    let fail = true;
     const errors: unknown[] = [];
-    const restarter = new DevRestarter(async () => {
-      if (fail) throw new Error('boot failed');
-      return instance('ok', log);
-    }, (e) => errors.push(e));
-    restarter.instance = instance('first', log);
+    const restarter = new DevRestarter(booting([
+      async () => instance('first', log),
+      async () => { throw new Error('boot failed'); },
+      async () => instance('ok', log),
+    ]), (e) => errors.push(e));
+    await restarter.start();
     await restarter.restart();
-    expect(restarter.instance).toBeUndefined();
+    expect(restarter.current).toBeUndefined();
     expect(errors.map(String)).toEqual(['Error: boot failed']);
-    fail = false;
     await restarter.restart();
     expect(log).toEqual(['down first']);
-    expect(restarter.instance?.name).toBe('ok');
+    expect(restarter.current?.name).toBe('ok');
   });
 
   it('a throwing down() is reported and the restart still starts a new instance', async () => {
     const log: string[] = [];
     const errors: unknown[] = [];
-    const restarter = new DevRestarter(async () => instance('new', log), (e) => errors.push(e));
-    restarter.instance = instance('old', log, true);
+    const restarter = new DevRestarter(booting([
+      async () => instance('old', log, true),
+      async () => instance('new', log),
+    ]), (e) => errors.push(e));
+    await restarter.start();
     await restarter.restart();
     expect(errors.map(String)).toEqual(['Error: down old failed']);
-    expect(restarter.instance?.name).toBe('new');
+    expect(restarter.current?.name).toBe('new');
     await restarter.restart();
     expect(log).toEqual(['down old', 'down new']);
   });

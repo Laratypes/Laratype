@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { Container, depsRegistry } from "@laratype/core";
 import { bootProviders, HTTP_APP } from "@laratype/support";
+import type { ServiceProvider } from "@laratype/support";
 import { register } from "./bootstrap";
 
 export default class Serve {
@@ -27,9 +28,17 @@ export default class Serve {
     return this.container
   }
 
-  public static async bootProvider() {
-    const serviceProviderBootstrapped = await register()
-    return bootProviders(this.getContainer(), serviceProviderBootstrapped);
+  /**
+   * Boots the providers (the app's, from `register()`, by default). On failure the providers' `down()` has run and the
+   * Hono instance and container are reset, so a dev restart never reuses a half-booted app.
+   */
+  public static async bootProvider(providers?: Array<typeof ServiceProvider>) {
+    try {
+      return await bootProviders(this.getContainer(), providers ?? await register());
+    } catch (error) {
+      this.down();
+      throw error;
+    }
   }
 
   public static down() {

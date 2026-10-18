@@ -31,7 +31,7 @@ export default class RouteListCommand extends Command {
     Console.table(routes)
 
     if(routes.some(route => route['Not enforced'] !== undefined && route['Not enforced'] !== '-')) {
-      Console.warn("The routes with a \"Not enforced\" value serve every request with unchecked input: see the [@laratype/http] Route.api warning.");
+      Console.warn("The routes with a \"Not enforced\" value skip those checks: see the [@laratype/http] Route.api warning.");
     }
 
     return 0;
@@ -39,7 +39,7 @@ export default class RouteListCommand extends Command {
   }
 }
 
-/** `RouteEntry.unenforced` (auth, authorize, validation), which @laratype/http decides (the CLI does not import that optional package). */
+/** `RouteEntry.unenforced` (auth, authorize, throttle, validation), which @laratype/http decides (the CLI does not import that optional package). */
 const notEnforcedColumn = (route: Record<string, any>) =>
   route.unenforced?.length ? route.unenforced.join(', ') : '-';
 

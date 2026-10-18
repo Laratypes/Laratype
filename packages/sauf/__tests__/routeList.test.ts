@@ -46,7 +46,7 @@ describe('sauf route:list', () => {
         Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy', 'Not enforced': 'auth, authorize',
       },
     ]);
-    expect(warn).toHaveBeenCalledWith('The routes with a "Not enforced" value serve every request with unchecked input: see the [@laratype/http] Route.api warning.');
+    expect(warn).toHaveBeenCalledWith('The routes with a "Not enforced" value skip those checks: see the [@laratype/http] Route.api warning.');
   });
 
   it('shows the Domain column when a domain is set', async () => {

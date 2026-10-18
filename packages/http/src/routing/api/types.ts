@@ -71,13 +71,19 @@ type NamesOf<A, C> = ApiTreeEntry<A> extends infer E ? (E extends { name: infer 
 
 type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
 
-type ContractCount<M, C> = M extends readonly [infer H, ...infer R]
-  ? H extends MountedContract<infer HC> ? (Equal<HC, C> extends true ? [1, ...ContractCount<R, C>] : ContractCount<R, C>) : ContractCount<R, C>
-  : [];
+// Tail-recursive with an accumulator, stopping at 2 (all the checks need), so long route lists stay within
+// TypeScript's tail-call limit instead of its much lower nesting limit
+type ContractCount<M, C, N extends 0[] = []> = N["length"] extends 2
+  ? N
+  : M extends readonly [infer H, ...infer R]
+    ? ContractCount<R, C, H extends MountedContract<infer HC> ? (Equal<HC, C> extends true ? [...N, 0] : N) : N>
+    : N;
 
-type DirCount<M, D> = M extends readonly [infer H, ...infer R]
-  ? H extends MountedScope<infer HD> ? (Equal<HD, D> extends true ? [1, ...DirCount<R, D>] : DirCount<R, D>) : DirCount<R, D>
-  : [];
+type DirCount<M, D, N extends 0[] = []> = N["length"] extends 2
+  ? N
+  : M extends readonly [infer H, ...infer R]
+    ? DirCount<R, D, H extends MountedScope<infer HD> ? (Equal<HD, D> extends true ? [...N, 0] : N) : N>
+    : N;
 
 type Item<M extends readonly unknown[]> = M[number];
 
@@ -136,13 +142,13 @@ export interface RouteEntry extends ApiRoute {
   readonly middleware: readonly MiddlewareClass[];
   /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: H2 #105 / A3 #121 run them. */
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
-  /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), input schema validation (#106). */
+  /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), `throttle` (#229), input schema validation (#106). */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
   readonly domain: string | undefined;
 }
 
-export type UnenforcedCap = "auth" | "authorize" | "validation";
+export type UnenforcedCap = "auth" | "authorize" | "throttle" | "validation";
 
 /** What `RouteEntry.unenforced` means; printed by the mount warning. */
-export const UNENFORCED_NOTICE = "auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)";
+export const UNENFORCED_NOTICE = "auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106)";

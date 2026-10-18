@@ -47,8 +47,8 @@ export const inside = (parent: string, child: string) => {
 function checkOutDir(projectDir: string, root: string, outDir: string) {
   const out = resolve(projectDir, outDir);
   const rootDir = resolve(projectDir, root);
-  if (!inside(projectDir, out)) throw new ScanError(`--out "${outDir}" must be a folder inside the project, not the project itself or outside it`);
-  if (out === rootDir || inside(out, rootDir)) throw new ScanError(`--out "${outDir}" must not contain the contract tree root "${root}"`);
+  if (!inside(projectDir, out)) throw new ScanError(`the output folder "${outDir}" (--out, or the dev plugin's outDir) must be a folder inside the project, not the project itself or outside it`);
+  if (out === rootDir || inside(out, rootDir)) throw new ScanError(`the output folder "${outDir}" must not contain the contract tree root "${root}" (--root or config api.root)`);
 }
 
 /**
@@ -87,7 +87,8 @@ export const writeGenerated = (projectDir: string, file: GeneratedFile): boolean
   return true;
 };
 
-const slash = (path: string) => posix.normalize(path.replace(/\\/g, "/")).replace(/\/$/, "");
+/** A posix path: backslashes become `/`, no trailing `/` (what Vite's `normalizePath` gives for module ids). */
+export const slash = (path: string) => posix.normalize(path.replace(/\\/g, "/")).replace(/\/$/, "");
 
 export interface TreePaths {
   readonly projectDir: string;

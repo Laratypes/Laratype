@@ -142,10 +142,10 @@ describe('auth and authorize are not enforced yet', () => {
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
-    expect(UNENFORCED_NOTICE).toBe('auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)')
+    expect(UNENFORCED_NOTICE).toBe('auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
-      '[@laratype/http] Route.api: auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106), so these routes serve every request and pass unchecked input: ' +
+      '[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: ' +
         'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
     )
   })
@@ -158,13 +158,14 @@ describe('auth and authorize are not enforced yet', () => {
       send: endpoint.post('/').body(schema),
       head: endpoint.get('/h').headers(schema),
       ping: endpoint.get('/ping'),
+      slow: endpoint.get('/slow').throttle({ limit: 1, per: 60 }),
     })
-    class Forms extends Controller { list() { return [] } send() { return {} } head() { return {} } ping() { return 'pong' } }
+    class Forms extends Controller { list() { return [] } send() { return {} } head() { return {} } ping() { return 'pong' } slow() { return 'ok' } }
     const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
-      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []],
+      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
     ])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation)'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation), forms.slow (throttle)'))
   })
 
   it('no warning without auth or authorize', () => {

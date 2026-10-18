@@ -85,8 +85,8 @@ The app's tsconfig needs:
 ### Diagnostics
 Errors are printed by the command, which exits with code 1, prefixed `[sauf types:generate] `. The scan and config errors (`ScanError`) carry no prefix of their own, so the dev scan behind `$api` prints the same messages prefixed `[laratype:api] `:
 - `the contract tree root "<root>" does not exist (set it with --root or config api.root)`
-- `--out "<dir>" must be a folder inside the project, not the project itself or outside it`
-- `--out "<dir>" must not contain the contract tree root "<root>"`
+- `the output folder "<dir>" (--out, or the dev plugin's outDir) must be a folder inside the project, not the project itself or outside it`
+- `the output folder "<dir>" must not contain the contract tree root "<root>" (--root or config api.root)`
 - `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
 - `<file> and <file> have the same name "<name>" ([x] folders are dropped from names)`
 - `<file>: a contract needs a name; put it in a named folder (the root index.ts has none)`

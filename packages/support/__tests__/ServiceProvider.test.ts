@@ -94,3 +94,21 @@ describe('HTTP_APP', () => {
     expect((globalThis as { __laratype_http_app_token?: unknown }).__laratype_http_app_token).toBe(HTTP_APP)
   })
 })
+
+describe('bootProviders failure', () => {
+  it('runs every down() in reverse order and rethrows when a boot throws', async () => {
+    const calls: string[] = []
+    const make = (name: string, fail = false) => class extends ServiceProvider {
+      boot() {
+        calls.push(`${name}.boot`)
+        if (fail) throw new Error(`${name} failed`)
+      }
+      async down() {
+        calls.push(`${name}.down`)
+        if (name === 'b') throw new Error('down errors are ignored')
+      }
+    }
+    await expect(bootProviders(makeApp(), [make('a'), make('b'), make('c', true), make('d')])).rejects.toThrow('c failed')
+    expect(calls).toEqual(['a.boot', 'b.boot', 'c.boot', 'd.down', 'c.down', 'b.down', 'a.down'])
+  })
+})

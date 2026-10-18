@@ -1,23 +1,35 @@
 import type { ApiPluginApi } from "../typegen/plugin";
 
 /**
- * `sauf dev --hmr` restarts, coalesced: while a restart runs, any number of new events queue exactly one more, so a
- * burst of changes (an editor's add + change) never tears down a server that is still booting.
- * The torn-down instance is dropped before `down()` runs, so a failed restart never calls `down()` twice, and the
- * next change starts a fresh instance.
+ * The `sauf dev` server instance and its `--hmr` restarts.
+ * - `start()` does the first boot and rethrows, so a broken app fails `sauf dev` as before.
+ * - `restart()` is coalesced: while a restart runs, any number of new events queue exactly one more, so a burst of
+ *   changes (an editor's add + change) never tears down a server that is still booting.
+ * - The running instance is dropped before its `down()` runs, so `down()` is never called twice. A failed boot leaves
+ *   no instance; `boot` itself must release what it booted (`Serve.bootProvider()` runs the providers' `down()` and
+ *   resets the Hono app and container), and the next event boots a fresh instance.
  */
 export class DevRestarter<T extends { down(): unknown }> {
-  /** The running instance; `undefined` while restarting or after a failed start. */
-  public instance: T | undefined;
+  private instance: T | undefined;
 
   private running: Promise<void> | undefined;
 
   private dirty = false;
 
   constructor(
-    private readonly start: () => Promise<T>,
+    private readonly boot: () => Promise<T>,
     private readonly onError: (error: unknown) => void,
   ) {}
+
+  /** The running instance; `undefined` while restarting or after a failed restart. */
+  get current(): T | undefined {
+    return this.instance;
+  }
+
+  /** The first boot. Rethrows. */
+  async start(): Promise<void> {
+    this.instance = await this.boot();
+  }
 
   /** Resolves when no restart is pending any more. */
   restart(): Promise<void> {
@@ -46,7 +58,7 @@ export class DevRestarter<T extends { down(): unknown }> {
       }
     }
     try {
-      this.instance = await this.start();
+      this.instance = await this.boot();
     } catch (error) {
       this.onError(error);
     }
