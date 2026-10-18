@@ -1,4 +1,5 @@
 import type { PathParams } from "./path";
+import { fail } from "./internal";
 
 /** Param values for a path: each key of `PathParams<P>` takes a string or a number (optional keys stay optional). */
 export type UrlParams<P extends string> = string extends P
@@ -8,10 +9,6 @@ export type UrlParams<P extends string> = string extends P
 /** `params` is required when the path has a required param. */
 export type UrlInput<P extends string> = ({} extends PathParams<P> ? { params?: UrlParams<P> | undefined } : { params: UrlParams<P> }) & {
   query?: object | undefined;
-};
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
 };
 
 /** Replaces each `:name`, `:name?` and `:name{regex}` segment (Hono syntax, see `PathParams`). */
@@ -48,7 +45,10 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
       // an absent optional param drops its whole segment
       if (out.endsWith("/")) out = out.slice(0, -1);
     } else {
-      out += encodeURIComponent(String(value));
+      const text = String(value);
+      // encodeURIComponent keeps dots, and URL parsing (fetch) resolves a dot segment: "/api/users/.." → "/api"
+      if (text === "." || text === "..") fail(`buildUrl: param "${name}" for "${path}" cannot be "${text}" (a dot segment)`);
+      out += encodeURIComponent(text);
     }
     i = j;
   }
@@ -74,6 +74,7 @@ function serializeQuery(query: object): string {
  * Builds a URL from a full route path: `buildUrl("/api/users/:user/posts", { params: { user: 1 }, query: { page: 2 } })`
  * → `"/api/users/1/posts?page=2"`. Pure and browser-safe; shared by `@laratype/client` and the server `route()` helper (H13).
  * - Param values are encoded with `encodeURIComponent`. A missing required param throws; an absent optional one drops its segment.
+ * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - Query: `undefined` and `null` are skipped, an array repeats its key, a `Date` is sent as ISO 8601.
  */
 export function buildUrl<P extends string>(
