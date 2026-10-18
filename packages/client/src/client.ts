@@ -18,18 +18,18 @@ interface RequestInput {
 type Send = (method: Method, path: string, input?: RequestInput) => Promise<Response>;
 
 /**
- * The URL a relative request URL resolves against, as `fetch` does: the document's base URL (a `<base href>`, a
- * srcdoc iframe's) when there is a document, else the page location; `undefined` outside a browser, including Deno
- * without `--location`, where reading `location` throws.
+ * Whether a relative request URL resolves to an http(s) URL in this page, as `fetch` would resolve it: against the
+ * document's base URL (a `<base href>`) when there is a document, else the page location. `false` outside a browser
+ * (Deno without `--location` throws on `location`), and for a base that can't resolve a path to http(s): `about:`,
+ * `blob:`, `data:`.
  */
-const pageBaseUrl = (): string | undefined => {
+const resolvesInPage = (url: string): boolean => {
   try {
     const page = globalThis as { document?: { baseURI?: string }; location?: { href?: string } };
     const base = page.document?.baseURI || page.location?.href;
-    // about:blank, about:srcdoc (jsdom's default too) can't resolve a path: no base
-    return base && !base.startsWith("about:") ? base : undefined;
+    return !!base && /^https?:$/.test(new URL(url, base).protocol);
   } catch {
-    return undefined;
+    return false;
   }
 };
 
@@ -125,6 +125,16 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   if (/[?#]/.test(path)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
   // URL parsing turns a backslash into "/" for http(s), so "/\evil.com" would be another host
   if (baseUrl.includes("\\")) fail(`createClient: baseUrl "${baseUrl}" must not contain a backslash`);
+  if (origin && typeof URL === "function") {
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl);
+    } catch {
+      return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") fail(`createClient: baseUrl "${baseUrl}" must use http or https`);
+    if (parsed.username || parsed.password) fail(`createClient: baseUrl "${baseUrl}" must not contain credentials`);
+  }
   return [origin, path.replace(/\/+$/, "")];
 };
 
@@ -167,7 +177,7 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
     const fetchFn = globalThis.fetch;
     if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
     // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
-    if (!origin && !pageBaseUrl()) {
+    if (!origin && !resolvesInPage(url)) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
     pending = () => fetchFn(url, init);

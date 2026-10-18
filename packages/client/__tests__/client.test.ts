@@ -200,12 +200,29 @@ describe('createClient', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('an injected fetch gets (url, init) as built, unchecked: relative URLs and credentials in the URL work', async () => {
+  it('an injected fetch gets (url, init) as built, unguarded: a relative URL works', async () => {
     const { fetch, calls } = fakeFetch()
     await createClient(appApi, { fetch }).users.index()
-    await createClient(appApi, { fetch, baseUrl: 'https://user:pass@example.com' }).users.index()
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/users', 'https://user:pass@example.com/api/users'])
-    expect(calls).toHaveLength(2)
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/users'])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('parses an absolute baseUrl: an invalid URL, credentials or a scheme other than http(s) is refused', async () => {
+    const cases: Array<[string, string]> = [
+      ['https://example.com:99999/api', 'is not a valid URL'],
+      ['https://user:pass@example.com', 'must not contain credentials'],
+      ['https://user@example.com/api', 'must not contain credentials'],
+      ['ftp://example.com/api', 'must use http or https'],
+      ['file:///api', 'must use http or https'],
+    ]
+    for (const [baseUrl, reason] of cases) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" ${reason}`))
+    }
+    // a live change is checked at the next call
+    const options: ClientOptions = { fetch: fakeFetch().fetch, baseUrl: 'https://example.com' }
+    const api = createClient(appApi, options)
+    options.baseUrl = 'https://user:pass@example.com'
+    await expect(api.users.index()).rejects.toThrow(/must not contain credentials/)
   })
 
   it('global fetch without Request or URL in the globals: fetch(url, init), unchecked', async () => {
@@ -252,11 +269,11 @@ describe('createClient', () => {
     }
   })
 
-  it('an about: page base (about:blank, about:srcdoc, the jsdom default) counts as no base: the relative URL rejects', async () => {
+  it('a page base that cannot resolve a path to http(s) (about:, blob:, data:) counts as none: the relative URL rejects', async () => {
     const { fetch } = fakeFetch()
     vi.stubGlobal('fetch', fetch)
     try {
-      for (const baseURI of ['about:blank', 'about:srcdoc']) {
+      for (const baseURI of ['about:blank', 'about:srcdoc', 'blob:https://example.com/0f8c', 'data:text/html,<p>x</p>']) {
         vi.stubGlobal('document', { baseURI })
         vi.stubGlobal('location', { href: baseURI })
         await expect(createClient(appApi).users.index()).rejects.toThrow(/relative URL "\/api\/users" with the global fetch outside a browser/)
