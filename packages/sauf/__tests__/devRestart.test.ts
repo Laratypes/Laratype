@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DevRestarter, shouldRestart } from '../src/utils/restarter';
+import { DevRestarter, RescanFlag, shouldRestart } from '../src/utils/restarter';
 import type { ApiPluginApi } from '../src/typegen';
 
 // `sauf dev --hmr` restarts (H1 #104 review)
@@ -92,6 +92,25 @@ describe('DevRestarter', () => {
     expect(restarter.current?.name).toBe('new');
     await restarter.restart();
     expect(log).toEqual(['down old', 'down new']);
+  });
+});
+
+describe('RescanFlag', () => {
+  it('clears only after a rescan succeeds, so a failed rescan is retried on the next restart', async () => {
+    const flag = new RescanFlag();
+    let calls = 0;
+    await flag.run(async () => { calls++; });
+    expect(calls).toBe(0);
+    flag.mark();
+    await expect(flag.run(async () => { calls++; throw new Error('scan failed'); })).rejects.toThrow('scan failed');
+    expect(flag.isPending).toBe(true);
+    await flag.run(async () => { calls++; });
+    expect(flag.isPending).toBe(false);
+    expect(calls).toBe(2);
+    // without the plugin, nothing to rescan: the flag clears
+    flag.mark();
+    await flag.run(undefined);
+    expect(flag.isPending).toBe(false);
   });
 });
 

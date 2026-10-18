@@ -87,8 +87,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 - `the contract tree root "<root>" does not exist (set it with --root or config api.root)`
 - `the output folder "<dir>" (--out, or the dev plugin's outDir) must be a folder inside the project, not the project itself or outside it`
 - `the output folder "<dir>" must not contain the contract tree root "<root>" (--root or config api.root)`
-- `the contract tree root "<root>" must be a folder inside the project`
-- `config api.root "<root>" must be a folder inside the project, relative to it` (absolute paths and `..` are rejected)
+- `the contract tree root "<root>" (--root | config api.root) must be a folder inside the project` (one rule for the flag and the config; absolute paths and `..` outside the project are rejected)
 - `base "<base>"` / `config api.base` ` must be "" or a path that starts with "/" and does not end with "/", such as "/api"` (one rule for the scan and the config)
 - `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
 - `<file> and <file> have the same name "<name>" ([x] folders are dropped from names)`

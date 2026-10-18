@@ -66,6 +66,29 @@ export class DevRestarter<T extends { down(): unknown }> {
 }
 
 /**
+ * "The contract tree may have changed": set by a watcher event, cleared only once a rescan succeeded, so a failed
+ * rescan is retried on the next restart.
+ */
+export class RescanFlag {
+  private pending = false;
+
+  get isPending(): boolean {
+    return this.pending;
+  }
+
+  mark(): void {
+    this.pending = true;
+  }
+
+  /** Runs `rescan` when pending; clears the flag only if it resolves. */
+  async run(rescan: (() => Promise<void>) | undefined): Promise<void> {
+    if (!this.pending) return;
+    await rescan?.();
+    this.pending = false;
+  }
+}
+
+/**
  * Which watcher events restart the dev server: any change except the scan's own output, and adding or deleting a
  * file that can change the contract tree (a contract or `_scope.ts` under the root, or the config file).
  */

@@ -24,6 +24,8 @@ export interface GenerateOptions {
   readonly apiOut?: string;
   /** tsconfig used to type-check the tree for `api.ts`. Default `tsconfig.json` in the project, when it exists. */
   readonly tsconfig?: string;
+  /** Where `root` came from (`--root`, `config api.root`), named by the "outside the project" error. */
+  readonly rootSource?: string;
 }
 
 export interface GenerateResult {
@@ -102,7 +104,9 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
   const outDir = slash(options.outDir ?? ".laratype");
-  if (!inside(projectDir, resolve(projectDir, root))) throw new ScanError(`the contract tree root "${root}" must be a folder inside the project`);
+  if (!inside(projectDir, resolve(projectDir, root))) {
+    throw new ScanError(`the contract tree root "${root}"${options.rootSource ? ` (${options.rootSource})` : ""} must be a folder inside the project`);
+  }
   checkOutDir(projectDir, root, outDir);
   return { projectDir, root, outDir, base: options.base ?? DEFAULT_BASE };
 };

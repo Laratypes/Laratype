@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, token } from '@laratype/core'
 import { AppServiceProvider, bootProviders, HTTP_APP, RouteAppServiceProvider, ServiceProvider } from '../src/ServiceProvider'
@@ -129,5 +129,45 @@ describe('bootProviders rollback', () => {
     }
     await expect(bootProviders(makeApp(), [Plain, SyncThrow, Fails])).rejects.toThrow('boot failed')
     expect(calls).toEqual(['sync.down', 'plain.down'])
+  })
+})
+
+describe('bootProviders rollback scope', () => {
+  const log: string[] = []
+  const make = (name: string, opts: { failRegister?: boolean, failConstruct?: boolean, failDown?: boolean } = {}) => class extends ServiceProvider {
+    constructor(app: Container) {
+      if (opts.failConstruct) throw new Error(`${name} constructor failed`)
+      super(app)
+    }
+    register() {
+      log.push(`${name}.register`)
+      if (opts.failRegister) throw new Error(`${name} register failed`)
+    }
+    async down() {
+      log.push(`${name}.down`)
+      if (opts.failDown) throw new Error(`${name} down failed`)
+    }
+  }
+
+  it('rolls back only the providers whose register() ran', async () => {
+    log.length = 0
+    await expect(bootProviders(makeApp(), [make('a'), make('b', { failRegister: true }), make('c')])).rejects.toThrow('b register failed')
+    expect(log).toEqual(['a.register', 'b.register', 'b.down', 'a.down'])
+  })
+
+  it('a throwing constructor rolls back the earlier providers', async () => {
+    log.length = 0
+    await expect(bootProviders(makeApp(), [make('a'), make('b', { failConstruct: true }), make('c')])).rejects.toThrow('b constructor failed')
+    expect(log).toEqual(['a.register', 'a.down'])
+  })
+
+  it('logs a failing down() during rollback and still rethrows the original error', async () => {
+    log.length = 0
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(bootProviders(makeApp(), [make('a', { failDown: true }), make('b', { failRegister: true })])).rejects.toThrow('b register failed')
+    expect(log).toEqual(['a.register', 'b.register', 'b.down', 'a.down'])
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(String(error.mock.calls[0]![0])).toContain('down() failed while rolling back a failed boot')
+    error.mockRestore()
   })
 })

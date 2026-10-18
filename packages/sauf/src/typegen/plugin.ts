@@ -6,10 +6,10 @@
  * the build manifest instead (#125). No runtime import of vite: this module is loaded on every `sauf` start.
  */
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import { DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
-import { ScanError } from './scan';
+import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
 
 export const API_PLUGIN_NAME = 'laratype:api';
@@ -88,7 +88,8 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     restart: async () => {
       if (used) await rescan();
     },
-    inTree: (file) => used && inside(rootPath, resolve(file)),
+    // A contract or a _scope.ts the scan would read: not a private _x/$x folder, a non-.ts file or an editor temp file
+    inTree: (file) => used && inside(rootPath, resolve(file)) && isTreeFile(slash(relative(rootPath, resolve(file)))),
     isGenerated: (file) => inside(outPath, resolve(file)),
     affectsTree: (event, file) => resolve(file) === configFile || (event !== 'change' && api.inTree(file)),
   };

@@ -53,13 +53,23 @@ afterAll(() => {
 });
 
 describe('api config key', () => {
-  it('rejects an api.root outside the project, absolute paths included', () => {
-    for (const root of ['/srv/api', 'C:/api', String.raw`C:\api`, '../api', 'app/../../api', '.', '..']) {
-      expect(() => apiTreeConfig({ api: { root } })).toThrow(`config api.root "${root}" must be a folder inside the project, relative to it`);
+  it('rejects a root outside the project, absolute paths included, naming where it came from (one rule)', async () => {
+    // the message shows the normalized root
+    expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({}, { root: 'app/../../api' }) })).toThrow('the contract tree root "../api" (config api.root)');
+    for (const root of ['/srv/api', '../api', '.', '..']) {
+      const tree = resolveApiTree({}, apiTreeConfig({ api: { root } }));
+      expect(() => syncContractTree({ projectDir: tmp, ...tree })).toThrow(`the contract tree root "${root}" (config api.root) must be a folder inside the project`);
     }
-    expect(apiTreeConfig({ api: { root: 'app/../src/api' } })).toEqual({ root: 'app/../src/api', base: undefined });
-    // flags too
-    expect(() => syncContractTree({ projectDir: tmp, root: '../elsewhere' })).toThrow('the contract tree root "../elsewhere" must be a folder inside the project');
+    expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({ root: '../elsewhere' }, {}) })).toThrow(
+      'the contract tree root "../elsewhere" (--root) must be a folder inside the project',
+    );
+    // the dev plugin, from the config
+    const plugin = laratypeApi({ projectDir: tmp, config: () => ({ api: { root: '../x' } }) });
+    await expect((plugin.resolveId as (source: string) => Promise<string | null>)('$api')).rejects.toThrow(
+      '[laratype:api] the contract tree root "../x" (config api.root) must be a folder inside the project',
+    );
+    // a root that only passes through ".." but stays inside is fine
+    expect(syncContractTree({ projectDir: tmp, root: 'app/../none' })).toBeUndefined();
   });
 
   it('shares one api.base rule with the scan', () => {
@@ -81,9 +91,9 @@ describe('api config key', () => {
   });
 
   it('flags override the config, the config overrides the defaults', () => {
-    expect(resolveApiTree({}, {})).toEqual({ root: 'app/api', base: '/api' });
-    expect(resolveApiTree({}, { root: 'app/contracts', base: '/v2' })).toEqual({ root: 'app/contracts', base: '/v2' });
-    expect(resolveApiTree({ root: 'src/api', base: '' }, { root: 'app/contracts', base: '/v2' })).toEqual({ root: 'src/api', base: '' });
+    expect(resolveApiTree({}, {})).toEqual({ root: 'app/api', base: '/api', rootSource: 'the default root' });
+    expect(resolveApiTree({}, { root: 'app/contracts', base: '/v2' })).toEqual({ root: 'app/contracts', base: '/v2', rootSource: 'config api.root' });
+    expect(resolveApiTree({ root: 'src/api', base: '' }, { root: 'app/contracts', base: '/v2' })).toEqual({ root: 'src/api', base: '', rootSource: '--root' });
   });
 
   it('a project without app/config/config.ts uses the defaults', async () => {
@@ -272,6 +282,11 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(api.affectsTree('change', join(dir, 'app/api/users.ts'))).toBe(false);
     expect(api.affectsTree('change', join(dir, 'app/config/config.ts'))).toBe(true);
     expect(api.affectsTree('add', join(dir, 'app/src/new.ts'))).toBe(false);
+    // only files the scan would read: no private folders, non-.ts files or editor temp files
+    for (const file of ['app/api/_private/x.ts', 'app/api/$gen/x.ts', 'app/api/notes.md', 'app/api/users.ts~', 'app/api/users.ts.swp', 'app/api/users.d.ts', 'app/api/users.test.ts', 'app/api/_errors.ts']) {
+      expect(api.inTree(join(dir, file))).toBe(false);
+    }
+    expect(api.inTree(join(dir, 'app/api/users/[user]/_scope.ts'))).toBe(true);
   });
 
   it('reads app/config/config.ts on its own', async () => {

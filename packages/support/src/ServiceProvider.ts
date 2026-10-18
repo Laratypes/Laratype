@@ -70,29 +70,32 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
 }
 
 /**
- * Two-phase provider lifecycle: instantiate every provider with the container,
- * call `register()` on all of them, then `boot()` on all of them, in order.
- * Returns the `down()` cleanups in reverse boot order. When a `register()` or `boot()` throws, every provider's
- * `down()` runs (reverse order, errors ignored) before the error is rethrown, so what did boot is released.
+ * Two-phase provider lifecycle: instantiate each provider with the container and call its `register()`, in order,
+ * then `boot()` on all of them, in order. Returns the `down()` cleanups in reverse order.
+ * When a constructor, `register()` or `boot()` throws, the `down()` of every provider whose `register()` ran is called
+ * (reverse order; a failing `down()` is logged), then the original error is rethrown.
  */
 export async function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>> {
-  const providers = Providers.map(Provider => new Provider(app));
-  const downs = providers.map(provider => provider.down.bind(provider)).reverse();
+  const registered: ServiceProvider[] = [];
   try {
-    for (const provider of providers) {
+    for (const Provider of Providers) {
+      const provider = new Provider(app);
+      registered.push(provider);
       await provider.register();
     }
-    for (const provider of providers) {
+    for (const provider of registered) {
       await provider.boot();
     }
   } catch (error) {
-    for (const down of downs) {
+    for (const provider of [...registered].reverse()) {
       // A down() may throw synchronously or return no promise
       try {
-        await down();
-      } catch {}
+        await provider.down();
+      } catch (rollbackError) {
+        console.error(`[@laratype/support] bootProviders: ${provider.constructor.name}.down() failed while rolling back a failed boot`, rollbackError);
+      }
     }
     throw error;
   }
-  return downs;
+  return registered.map(provider => provider.down.bind(provider)).reverse();
 }

@@ -1,6 +1,6 @@
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
@@ -114,6 +114,19 @@ describe('Route.api', () => {
     expect((await app.request('http://other.test:3000/api/users/1')).status).toBe(404)
   })
 
+  it('.domain() reads the Host header (port and one trailing dot stripped), never X-Forwarded-Host', async () => {
+    const app = new Hono()
+    routes.domain('api.example.test').mount(app)
+    app.get('/api/users', (c) => c.text('fallback'))
+    const get = (host: string, extra: Record<string, string> = {}) => app.request('http://internal.test/api/users', { headers: { host, ...extra } })
+    expect(await (await get('API.example.test:3000')).json()).toEqual({ users: ['ada'] })
+    expect(await (await get('api.example.test.')).json()).toEqual({ users: ['ada'] })
+    expect(await (await get('other.test', { 'x-forwarded-host': 'api.example.test' })).text()).toBe('fallback')
+    const v6 = new Hono()
+    routes.domain('localhost').mount(v6)
+    expect((await v6.request('http://x/api/users', { headers: { host: '[::1]:3000' } })).status).toBe(404)
+  })
+
   it('.domain() strips one trailing dot from the request hostname', async () => {
     const app = new Hono()
     routes.domain('api.example.test').mount(app)
@@ -146,6 +159,27 @@ describe('Route.api', () => {
 })
 
 describe('auth and authorize are not enforced yet', () => {
+  // the warning is remembered per process
+  beforeEach(() => { delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.unenforcedWarned')] })
+
+  it('warns once per process for the same routes (dev restarts re-mount them), again when they change', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const build = () => Route.api(appApi, (r) => [
+      r.contract(users, UserController),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(posts, PostController),
+    ])
+    mount(build())
+    mount(build())
+    expect(warn).toHaveBeenCalledTimes(1)
+    mount(build().domain('api.example.test'))
+    expect(warn).toHaveBeenCalledTimes(1)
+    const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
+    class Ping extends Controller { ping() { return 'pong' } }
+    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
   it('mount() warns once, listing the routes with auth or authorize', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mount(Route.api(appApi, (r) => [
@@ -261,6 +295,19 @@ describe('Route.api runtime checks', () => {
       ]
     }))
     expect(entries[0]!.middleware).toEqual([Web, Audit, Trace])
+  })
+
+  it('a 0.5 status decorator that disagrees with the endpoint status fails, naming both', () => {
+    const shop = defineContract()({ store: endpoint.post('/').response(anything, 201), show: endpoint.get('/') })
+    const shopApi = defineApi({ shop: { contract: shop, path: '/shop', scopes: [], dirs: [] } })
+    class Shop extends Controller { store() { return {} } show() { return {} } }
+    Reflect.defineMetadata('laratype:controller_status_code', 202, Shop.prototype, 'store')
+    expect(() => Route.api(shopApi, (r) => [r.contract(shop, Shop)])).toThrow(
+      '[@laratype/http] Route.api: shop.store: Shop.store has status 202 from its status decorator, but the endpoint declares 201: declare .response(schema, 202) on the endpoint, or drop the decorator',
+    )
+    // equal values are fine
+    Reflect.defineMetadata('laratype:controller_status_code', 201, Shop.prototype, 'store')
+    expect(() => Route.api(shopApi, (r) => [r.contract(shop, Shop)])).not.toThrow()
   })
 
   it('a controller without the endpoint method', () => {

@@ -1,6 +1,7 @@
 import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes, isEndpoint } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
@@ -80,8 +81,16 @@ const checkDomain = (domain: string) => {
   return domain.toLowerCase();
 };
 
-/** The request hostname, without the port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). */
-const hostname = (c: Context) => new URL(c.req.url).hostname.toLowerCase().replace(/\.$/, "");
+/**
+ * The request hostname from the `Host` header (never `X-Forwarded-Host`), without the port (dev Host headers carry
+ * `:3000`; `[::1]:3000` keeps its brackets) and one trailing dot (`api.example.com.`). Without a Host header (an
+ * in-process `app.request()`), the request URL's host.
+ */
+const hostname = (c: Context) => {
+  const host = (c.req.header("host") ?? new URL(c.req.url).host).toLowerCase();
+  const name = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.split(":")[0]!;
+  return name.replace(/\.$/, "");
+};
 
 /**
  * Builds the routes of `Route.api(appApi, (r) => [...])` and checks them at runtime as the types do:
@@ -129,6 +138,14 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
     if (!isHandler(mounted.controller, key)) {
       fail(`${route.name}: ${mounted.controller.name} has no method "${key}" (handlers must be class methods, not arrow-function fields)`);
     }
+    // The endpoint's status is the source of truth: a 0.5 status decorator that disagrees would be overridden silently
+    const decorated = statusMetadata(mounted.controller, key);
+    if (decorated !== undefined && decorated !== route.endpoint.def.status) {
+      fail(
+        `${route.name}: ${mounted.controller.name}.${key} has status ${decorated} from its status decorator, but the endpoint declares ${route.endpoint.def.status}: ` +
+          `declare .response(schema, ${decorated}) on the endpoint, or drop the decorator`,
+      );
+    }
     const scopeItems = entry.dirs.map((dir) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     return Object.freeze({
       ...route,
@@ -171,10 +188,25 @@ const isHandler = (controller: ControllerClass, key: string): boolean => {
   return false;
 };
 
-/** One warning per mount: until #105 / #121 / #229 / #106 such a route skips those checks. */
+/** The 0.5 `@UseStatusCode` metadata of a handler, if `reflect-metadata` is loaded. */
+const statusMetadata = (controller: ControllerClass, key: string): number | undefined => {
+  const getMetadata = (Reflect as { getMetadata?: (key: unknown, target: object, property: string) => unknown }).getMetadata;
+  const value = getMetadata?.(MetaDataKey.CONTROLLER_STATUS_CODE, controller.prototype, key);
+  return typeof value === "number" ? value : undefined;
+};
+
+/** The routes the warning listed last, per process: dev restarts re-mount the same routes and must not repeat it. */
+const WARNED = Symbol.for("laratype.http.unenforcedWarned");
+
+/** One warning per process and route set: until #105 / #121 / #229 / #106 such a route skips those checks. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
+  const store = globalThis as { [WARNED]?: Set<string> };
+  const warned = (store[WARNED] ??= new Set());
+  const key = list.join(", ");
+  if (warned.has(key)) return;
+  warned.add(key);
   console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 

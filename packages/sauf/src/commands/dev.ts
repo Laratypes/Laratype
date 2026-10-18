@@ -8,7 +8,7 @@ import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
 import { contractTreePlugin } from "../typegen/plugin";
-import { DevRestarter, shouldRestart } from "../utils/restarter";
+import { DevRestarter, RescanFlag, shouldRestart } from "../utils/restarter";
 
 export default class LaratypeDevCommand extends Command {
 
@@ -32,7 +32,7 @@ export default class LaratypeDevCommand extends Command {
   protected server: DevRestarter<{ app: Hono, down: () => void }> | undefined;
 
   /** Set by a watcher event that can change the contract tree; the next (re)start rescans it. */
-  protected rescanPending = false;
+  protected rescan = new RescanFlag();
 
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
@@ -62,7 +62,7 @@ export default class LaratypeDevCommand extends Command {
                   // The scan rewrites its output folder during a restart: that must not trigger another one
                   if (!shouldRestart(event, file, tree)) return;
                   // Only a file added or deleted under the root, or the config, can change the tree
-                  if (tree?.affectsTree(event, file)) this.rescanPending = true;
+                  if (tree?.affectsTree(event, file)) this.rescan.mark();
                   Console.info('File change detected. Restarting server...');
                   void restarter.restart();
                 });
@@ -94,10 +94,8 @@ export default class LaratypeDevCommand extends Command {
     globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
 
     // Rescan the contract tree before a restart when it can have changed (the first `$api` import scans it)
-    if (this.rescanPending) {
-      this.rescanPending = false;
-      await contractTreePlugin(vite.config.plugins)?.restart();
-    }
+    const tree = contractTreePlugin(vite.config.plugins);
+    await this.rescan.run(tree && (() => tree.restart()));
 
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,
