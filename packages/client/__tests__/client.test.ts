@@ -321,6 +321,12 @@ describe('createClient', () => {
     }
   })
 
+  it('an absolute baseUrl on the sentinel host is still absolute, not mistaken for a path', async () => {
+    const { fetch, calls } = fakeFetch()
+    await createClient(appApi, { fetch, baseUrl: 'http://__laratype_base__/edge' }).users.index()
+    expect(calls[0]!.url).toBe('http://__laratype_base__/edge/api/users')
+  })
+
   it('parses a baseUrl once: the path is normalized and the origin is the parsed one', async () => {
     const { fetch, calls } = fakeFetch()
     await createClient(appApi, { fetch, baseUrl: 'HTTPS://Example.COM:443/edge/./v1/../api-gw/' }).users.index()

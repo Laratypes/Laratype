@@ -120,12 +120,13 @@ const isManifestRoute = (value: unknown): value is ManifestRoute =>
 const isManifest = (value: unknown): value is Manifest =>
   typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
 
+/** The origin a path-only `baseUrl` is parsed against; a path must keep it (`//host` would not). */
+const SENTINEL = "http://__laratype_base__";
+
 /**
  * `"https://host/api"` → `["https://host", "/api"]`; a path (`"/api"`) or `""` has no origin. Anything else, such as
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
-const SENTINEL = "http://__laratype_base__";
-
 const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   if (baseUrl === "") return ["", ""];
   // URL parsing silently drops tab, LF and CR ("/\t/evil.com" → "//evil.com") and turns a backslash into "/" ("/\evil.com"):
@@ -134,16 +135,20 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
     fail(`createClient: baseUrl ${JSON.stringify(baseUrl)} must not contain whitespace or control characters`);
   }
   if (baseUrl.includes("\\")) fail(`createClient: baseUrl "${baseUrl}" must not contain a backslash`);
-  // one parse: a path keeps the sentinel origin, anything else is absolute
+  // decided on the raw string: a path starts with "/", an absolute URL is written with "://". So "localhost:3000/api"
+  // is neither, and "http://__laratype_base__/api" is absolute, not mistaken for a path by its origin
+  const absolute = !baseUrl.startsWith("/");
+  if (absolute && !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl)) {
+    fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
+  }
   let url: URL;
   try {
-    url = new URL(baseUrl, SENTINEL);
+    url = absolute ? new URL(baseUrl) : new URL(baseUrl, SENTINEL);
   } catch {
     return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
   }
-  const absolute = url.origin !== SENTINEL;
-  // a path starts with "/"; an absolute URL is written with "://" ("localhost:3000/api" and "//host/api" are neither)
-  if (absolute ? !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl) : !baseUrl.startsWith("/")) {
+  // a path must keep the sentinel origin: "//host/api" is protocol-relative, another host
+  if (!absolute && url.origin !== SENTINEL) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
