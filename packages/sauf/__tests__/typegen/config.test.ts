@@ -68,6 +68,14 @@ describe('api config key', () => {
     await expect((plugin.resolveId as (source: string) => Promise<string | null>)('$api')).rejects.toThrow(
       '[laratype:api] the contract tree root "../x" (config api.root) must be a folder inside the project',
     );
+    // an absolute root is rejected even when it points inside the project (emit uses the root as a path segment)
+    // an absolute root is rejected even when it points inside the project (emit uses the root as a path segment)
+    const inner = join(tmp, 'app', 'api').replace(/\\/g, '/');
+    expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({}, { root: inner }) })).toThrow(
+      `the contract tree root "${inner}" (config api.root) must be a folder inside the project`,
+    );
+    expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({ root: inner }, {}) })).toThrow('(--root) must be a folder inside the project');
+    expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({ root: 'C:/proj/app/api' }, {}) })).toThrow('the contract tree root "C:/proj/app/api" (--root) must be a folder inside the project');
     // a root that only passes through ".." but stays inside is fine
     expect(syncContractTree({ projectDir: tmp, root: 'app/../none' })).toBeUndefined();
   });
@@ -249,6 +257,21 @@ describe('laratype:api (the dev scan behind $api)', () => {
     rmSync(join(dir, 'app/api/things.ts'));
     await api.restart();
     expect(readFileSync(id!, 'utf8')).not.toContain('things');
+  });
+
+  it('a config that imports $api fails clearly instead of waiting on its own scan', async () => {
+    const dir = project('reentrant', undefined);
+    let nested: Promise<string | null> | undefined;
+    const plugin = laratypeApi({ projectDir: dir, config: () => { nested = resolveId('$api'); return {}; } });
+    const resolveId = plugin.resolveId as (source: string) => Promise<string | null>;
+    // the outer import completes; the nested one (from the config load) is rejected
+    expect(await resolveId('$api')).toBe(join(dir, '.laratype/api/index.gen.ts'));
+    await expect(nested).rejects.toThrow('[laratype:api] app/config/config.ts must not import $api (directly or indirectly)');
+    // two imports racing the first scan, outside the config load, are both fine
+    const fresh = laratypeApi({ projectDir: dir, config: () => ({}) }).resolveId as typeof resolveId;
+    const [x, y] = await Promise.all([fresh('$api'), fresh('$api')]);
+    expect(x).toBe(join(dir, '.laratype/api/index.gen.ts'));
+    expect(y).toBe(x);
   });
 
   it('falls back to the default root when the first scan fails, so contract adds still restart', async () => {

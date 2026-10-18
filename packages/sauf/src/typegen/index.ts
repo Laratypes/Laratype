@@ -3,7 +3,7 @@ import { join, posix, resolve } from "node:path";
 import type * as TS from "typescript";
 import { generateApiFile } from "./api";
 import { ScanError } from "./scan";
-import { resolveTreePaths, writeGenerated, writeTree } from "./sync";
+import { resolveTreePaths, slash, writeGenerated, writeTree } from "./sync";
 import type { GenerateOptions, GenerateResult } from "./sync";
 
 export { ScanError, isTreeFile, listTreeFiles, scanFiles, scanTree } from "./scan";
@@ -44,7 +44,7 @@ export async function loadTypeScript(load: () => Promise<unknown> = () => import
 export async function generateTypes(options: GenerateOptions, ts?: typeof TS): Promise<GenerateResult> {
   const paths = resolveTreePaths(options);
   const { projectDir, root, outDir } = paths;
-  const apiOut = (options.apiOut ?? posix.join(outDir, "api.ts")).replace(/\\/g, "/");
+  const apiOut = slash(options.apiOut ?? posix.join(outDir, "api.ts"));
   if (!existsSync(resolve(projectDir, root))) throw new ScanError(`the contract tree root "${root}" does not exist (set it with --root or config api.root)`);
   const { tree, files } = writeTree(paths);
 

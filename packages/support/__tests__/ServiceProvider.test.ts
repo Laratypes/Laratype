@@ -95,78 +95,60 @@ describe('HTTP_APP', () => {
   })
 })
 
-describe('bootProviders failure', () => {
-  it('runs every down() in reverse order and rethrows when a boot throws', async () => {
-    const calls: string[] = []
-    const make = (name: string, fail = false) => class extends ServiceProvider {
-      boot() {
-        calls.push(`${name}.boot`)
-        if (fail) throw new Error(`${name} failed`)
-      }
-      async down() {
-        calls.push(`${name}.down`)
-        if (name === 'b') throw new Error('down errors are ignored')
-      }
-    }
-    await expect(bootProviders(makeApp(), [make('a'), make('b'), make('c', true), make('d')])).rejects.toThrow('c failed')
-    expect(calls).toEqual(['a.boot', 'b.boot', 'c.boot', 'd.down', 'c.down', 'b.down', 'a.down'])
-  })
-})
-
 describe('bootProviders rollback', () => {
-  it('survives a down() that throws synchronously or returns no promise', async () => {
-    const calls: string[] = []
-    class SyncThrow extends ServiceProvider {
-      // @ts-expect-error a provider that breaks the contract: down() is not async
-      down() { calls.push('sync.down'); throw new Error('sync') }
-    }
-    class Plain extends ServiceProvider {
-      // @ts-expect-error a provider that returns no promise
-      down() { calls.push('plain.down') }
-    }
-    class Fails extends ServiceProvider {
-      boot() { throw new Error('boot failed') }
-    }
-    await expect(bootProviders(makeApp(), [Plain, SyncThrow, Fails])).rejects.toThrow('boot failed')
-    expect(calls).toEqual(['sync.down', 'plain.down'])
-  })
-})
-
-describe('bootProviders rollback scope', () => {
   const log: string[] = []
-  const make = (name: string, opts: { failRegister?: boolean, failConstruct?: boolean, failDown?: boolean } = {}) => class extends ServiceProvider {
-    constructor(app: Container) {
-      if (opts.failConstruct) throw new Error(`${name} constructor failed`)
-      super(app)
+  const make = (name: string, opts: { failConstruct?: boolean, failRegister?: boolean, failBoot?: boolean, failDown?: boolean, syncDown?: boolean } = {}) =>
+    class extends ServiceProvider {
+      constructor(app: Container) {
+        if (opts.failConstruct) throw new Error(`${name} constructor failed`)
+        super(app)
+      }
+      register() {
+        log.push(`${name}.register`)
+        if (opts.failRegister) throw new Error(`${name} register failed`)
+      }
+      boot() {
+        log.push(`${name}.boot`)
+        if (opts.failBoot) throw new Error(`${name} boot failed`)
+      }
+      // @ts-expect-error some providers break the contract: a synchronous down() that throws
+      down() {
+        log.push(`${name}.down`)
+        if (opts.syncDown) throw new Error(`${name} sync down failed`)
+        if (opts.failDown) return Promise.reject(new Error(`${name} down failed`))
+        return undefined
+      }
     }
-    register() {
-      log.push(`${name}.register`)
-      if (opts.failRegister) throw new Error(`${name} register failed`)
-    }
-    async down() {
-      log.push(`${name}.down`)
-      if (opts.failDown) throw new Error(`${name} down failed`)
-    }
+  const run = (Providers: Array<typeof ServiceProvider>) => {
+    log.length = 0
+    return bootProviders(makeApp(), Providers)
   }
 
-  it('rolls back only the providers whose register() ran', async () => {
-    log.length = 0
-    await expect(bootProviders(makeApp(), [make('a'), make('b', { failRegister: true }), make('c')])).rejects.toThrow('b register failed')
-    expect(log).toEqual(['a.register', 'b.register', 'b.down', 'a.down'])
+  it('a boot failure in B downs A only (not B, C or D), in reverse order, and rethrows', async () => {
+    await expect(run([make('a'), make('b', { failBoot: true }), make('c'), make('d')])).rejects.toThrow('b boot failed')
+    expect(log).toEqual(['a.register', 'b.register', 'c.register', 'd.register', 'a.boot', 'b.boot', 'a.down'])
   })
 
-  it('a throwing constructor rolls back the earlier providers', async () => {
-    log.length = 0
-    await expect(bootProviders(makeApp(), [make('a'), make('b', { failConstruct: true }), make('c')])).rejects.toThrow('b constructor failed')
-    expect(log).toEqual(['a.register', 'a.down'])
+  it('downs the booted providers in reverse order', async () => {
+    await expect(run([make('a'), make('b'), make('c', { failBoot: true })])).rejects.toThrow('c boot failed')
+    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['b.down', 'a.down'])
   })
 
-  it('logs a failing down() during rollback and still rethrows the original error', async () => {
-    log.length = 0
+  it('a register failure downs none', async () => {
+    await expect(run([make('a'), make('b', { failRegister: true }), make('c')])).rejects.toThrow('b register failed')
+    expect(log).toEqual(['a.register', 'b.register'])
+  })
+
+  it('a constructor failure downs none', async () => {
+    await expect(run([make('a'), make('b', { failConstruct: true }), make('c')])).rejects.toThrow('b constructor failed')
+    expect(log).toEqual([])
+  })
+
+  it('logs a failing down() (async or sync) and still rethrows the original error', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(bootProviders(makeApp(), [make('a', { failDown: true }), make('b', { failRegister: true })])).rejects.toThrow('b register failed')
-    expect(log).toEqual(['a.register', 'b.register', 'b.down', 'a.down'])
-    expect(error).toHaveBeenCalledTimes(1)
+    await expect(run([make('a', { failDown: true }), make('b', { syncDown: true }), make('c', { failBoot: true })])).rejects.toThrow('c boot failed')
+    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['b.down', 'a.down'])
+    expect(error).toHaveBeenCalledTimes(2)
     expect(String(error.mock.calls[0]![0])).toContain('down() failed while rolling back a failed boot')
     error.mockRestore()
   })

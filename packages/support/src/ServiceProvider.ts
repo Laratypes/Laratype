@@ -70,24 +70,26 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
 }
 
 /**
- * Two-phase provider lifecycle: instantiate each provider with the container and call its `register()`, in order,
- * then `boot()` on all of them, in order. Returns the `down()` cleanups in reverse order.
- * When a constructor, `register()` or `boot()` throws, the `down()` of every provider whose `register()` ran is called
- * (reverse order; a failing `down()` is logged), then the original error is rethrown.
+ * Two-phase provider lifecycle: instantiate every provider with the container, call `register()` on all of them,
+ * then `boot()` on all of them, in order. Returns the `down()` cleanups in reverse boot order.
+ * When a constructor, `register()` or `boot()` throws, `down()` runs on every provider whose `boot()` completed
+ * (reverse order; a failing `down()` is logged), then the original error is rethrown. A failure before any boot
+ * (a constructor or a `register()`) therefore runs no `down()`.
  */
 export async function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>> {
-  const registered: ServiceProvider[] = [];
+  const booted: ServiceProvider[] = [];
+  let providers: ServiceProvider[] = [];
   try {
-    for (const Provider of Providers) {
-      const provider = new Provider(app);
-      registered.push(provider);
+    providers = Providers.map(Provider => new Provider(app));
+    for (const provider of providers) {
       await provider.register();
     }
-    for (const provider of registered) {
+    for (const provider of providers) {
       await provider.boot();
+      booted.push(provider);
     }
   } catch (error) {
-    for (const provider of [...registered].reverse()) {
+    for (const provider of [...booted].reverse()) {
       // A down() may throw synchronously or return no promise
       try {
         await provider.down();
@@ -97,5 +99,5 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
     }
     throw error;
   }
-  return registered.map(provider => provider.down.bind(provider)).reverse();
+  return providers.map(provider => provider.down.bind(provider)).reverse();
 }

@@ -104,7 +104,9 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
   const outDir = slash(options.outDir ?? ".laratype");
-  if (!inside(projectDir, resolve(projectDir, root))) {
+  // A relative folder inside the project: emit uses the root as a path segment, so an absolute root (a drive letter
+  // included) is rejected even when it points inside
+  if (isAbsolute(root) || /^[a-zA-Z]:/.test(root) || !inside(projectDir, resolve(projectDir, root))) {
     throw new ScanError(`the contract tree root "${root}"${options.rootSource ? ` (${options.rootSource})` : ""} must be a folder inside the project`);
   }
   checkOutDir(projectDir, root, outDir);
@@ -118,7 +120,7 @@ export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncRe
   // $types.d.ts files of removed folders must not linger
   const removed = removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
   const written = files.filter((file) => writeGenerated(projectDir, file)).map((file) => file.path);
-  return { tree, files, changed: [...written, ...removed.map((p) => relative(projectDir, p).replace(/\\/g, "/"))] };
+  return { tree, files, changed: [...written, ...removed.map((p) => slash(relative(projectDir, p)))] };
 }
 
 /**
