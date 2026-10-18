@@ -1,5 +1,5 @@
 import type { Context, Hono, Next } from "hono";
-import { API_NODE, apiRoutes } from "@laratype/contract";
+import { API_NODE, apiRoutes, isEndpoint } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
@@ -49,9 +49,9 @@ const nodeInfo = (value: unknown) =>
   typeof value === "object" && value !== null ? (value as Record<symbol, ApiNodeInfo | undefined>)[API_NODE] : undefined;
 
 /**
- * The mounted contracts of an API tree, depth-first. A child with the `API_NODE` brand is a node, anything else is an
- * endpoint (switch to `isEndpoint` once CL1 #252 lands). The root holds nodes only, so a value that is not a
- * `defineApi` tree throws.
+ * The mounted contracts of an API tree with their `dirs`, depth-first: `apiRoutes()` gives the routes but not the
+ * entries. Endpoints are told by the `isEndpoint` brand; every other child must be a node, and the root holds nodes
+ * only, so a value that is not a `defineApi` tree throws.
  */
 const treeEntries = (api: unknown): TreeEntry[] => {
   if (typeof api !== "object" || api === null) fail("expected the appApi tree built with defineApi");
@@ -59,8 +59,9 @@ const treeEntries = (api: unknown): TreeEntry[] => {
   const out: TreeEntry[] = [];
   const walk = (node: object) => {
     for (const child of Object.values(node)) {
+      if (isEndpoint(child)) continue;
       const info = nodeInfo(child);
-      if (!info) continue;
+      if (!info) return fail("expected the appApi tree built with defineApi");
       if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry });
       walk(child as object);
     }

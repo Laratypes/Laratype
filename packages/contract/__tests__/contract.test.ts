@@ -278,7 +278,7 @@ describe('ENDPOINT brand', () => {
 
   it('accepts an endpoint from another package copy in defineContract, defineApi and apiRoutes', () => {
     const c = defineContract()({ x: foreign() as never })
-    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
+    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [], dirs: [] } })
     expect(apiRoutes(api).map((r) => [r.name, r.path])).toEqual([['things.x', '/api/things/x']])
     expect(apiEndpoint(api, 'things.x')).toBe(c.x)
   })
