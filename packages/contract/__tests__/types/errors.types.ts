@@ -73,6 +73,31 @@ defineError(404)
 defineError(404, 'X', { message: 'x' })
 // @ts-expect-error the factory arguments are typed
 EmailTaken(42)
+// The wire format is { code, ...body }: a body is a plain object without its own code (CL2 #110)
+// @ts-expect-error the body must not have its own code key
+defineError(409, 'X', () => ({ code: 'Y', message: 'x' }))
+// @ts-expect-error not even an optional one
+defineError(409, 'X', (): { message: string; code?: string } => ({ message: 'x' }))
+// @ts-expect-error the body must be an object: a string
+defineError(409, 'X', () => 'taken')
+// @ts-expect-error a number
+defineError(409, 'X', () => 42)
+// @ts-expect-error null
+defineError(409, 'X', () => null)
+// @ts-expect-error an array
+defineError(409, 'X', () => ['a'])
+// a union of objects is fine, and so is a key that only contains "code"
+expectTypeOf(defineError(409, 'X', (n: number) => (n ? { a: 1 } : { b: 'x', errorCode: 'E' }))).toBeFunction()
+// an index signature has no literal "code" key: accepted
+expectTypeOf(defineError(409, 'X', (): Record<string, string> => ({ field: 'taken' }))).toBeFunction()
+// any is left to the runtime check
+expectTypeOf(defineError(409, 'X', (): any => ({ message: 'x' }))).toBeFunction()
+// @ts-expect-error a function body
+defineError(409, 'X', () => () => 1)
+// @ts-expect-error one union member with its own code is enough
+defineError(409, 'X', (n: number) => (n ? { message: 'x' } : { code: 'Y' }))
+// @ts-expect-error a union with a non-object member
+defineError(409, 'X', (n: number) => (n ? { message: 'x' } : 'x'))
 // @ts-expect-error `conflict` was removed: a conflict is a domain error (defineError(409, ...))
 errors.conflict
 // @ts-expect-error built-ins are readonly
@@ -83,3 +108,9 @@ errors.notFound.status = 500
 errors.validation([] as never).body.issues
 // @ts-expect-error 418 is not in the declared error union
 expectTypeOf<ErrorStatus<E>>().toEqualTypeOf<403 | 409 | 418>()
+// an error status is 400-599: a 2xx or 3xx error could never be classified as a failure
+// @ts-expect-error a 2xx error status
+defineError(200, 'X')
+// @ts-expect-error a 3xx error status
+defineError(302, 'X')
+expectTypeOf(defineError(599, 'X').status).toEqualTypeOf<599>()

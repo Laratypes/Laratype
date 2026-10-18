@@ -2,6 +2,7 @@ import { errors } from "./errors";
 import type { AnyErrorDef } from "./errors";
 import type { AnyEndpoint, EndpointDef } from "./endpoint";
 import type { PathParamKeys } from "./path";
+import { fail, isFailureStatus } from "./internal";
 
 // ---- options ----------------------------------------------------------------
 
@@ -145,13 +146,9 @@ export interface ResolvedCapabilities {
   readonly auth: AuthOption | undefined;
   readonly authorize: boolean;
   readonly throttle: ThrottleOptions | undefined;
-  /** Derived errors, then `throws` from scopes (outer to inner), the contract and the endpoint; unique by code. */
+  /** Derived errors, then `throws` from scopes (outer to inner), the contract and the endpoint; unique by code and status. */
   readonly errors: readonly AnyErrorDef[];
 }
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
-};
 
 const nearest = <T>(values: ReadonlyArray<T | undefined>): T | undefined => {
   for (let i = values.length - 1; i >= 0; i--) if (values[i] !== undefined) return values[i];
@@ -164,23 +161,19 @@ export const hasPathParams = (path: string): boolean => /(?:^|\/):[^/{?]/.test(p
 export const joinPath = (prefix: string, path: string): string =>
   path === "" || path === "/" ? prefix || "/" : `${prefix}${path}`;
 
-/** Runtime twin of `EndpointErrors` / `CapabilityProblem`; throws a TypeError for an inconsistent endpoint. */
-export function resolveCapabilities(
-  def: EndpointDef,
-  ctx: { readonly path: string; readonly scopes: readonly ScopeOptions[]; readonly options: ContractOptions },
-  label: string,
-): ResolvedCapabilities {
+/** Where an endpoint is resolved at runtime: its contract's URL prefix, the scope chain and the contract options. */
+export interface CapabilityContext {
+  readonly path: string;
+  readonly scopes: readonly ScopeOptions[];
+  readonly options: ContractOptions;
+}
+
+/** The inheritance rules alone, with no consistency check. */
+function resolve(def: EndpointDef, ctx: CapabilityContext): ResolvedCapabilities {
   const levels: ReadonlyArray<ScopeOptions> = [...ctx.scopes, ctx.options];
   const auth = nearest([...levels.map((l) => l.auth), def.auth]);
   const throttle = nearest([...levels.map((l) => l.throttle), def.throttle]);
   const authorize = def.authorize ?? ctx.scopes.some((s) => s.authorize === true);
-  if (authorize && !auth) {
-    fail(
-      def.auth === false && def.authorize === undefined
-        ? `${label}: .public() under a scope with authorize: add .authorize(false) or move the contract out of the scope`
-        : `${label}: .authorize() needs auth on the endpoint, its contract or a scope`,
-    );
-  }
   const all: AnyErrorDef[] = [];
   if (def.query || def.body || def.headers) all.push(errors.validation);
   if (hasPathParams(joinPath(ctx.path, def.path))) all.push(errors.notFound);
@@ -194,16 +187,42 @@ export function resolveCapabilities(
     auth: auth || undefined,
     authorize,
     throttle: throttle || undefined,
-    errors: Object.freeze(all.filter((e) => !seen.has(e.code) && !!seen.add(e.code))),
+    // unique by code and status: one code may be declared with two statuses (a .throws(410 NOT_FOUND) next to the derived 404)
+    errors: Object.freeze(
+      all.filter((e) => {
+        const key = `${e.code} ${e.status}`;
+        return !seen.has(key) && !!seen.add(key);
+      }),
+    ),
   });
 }
+
+/** Runtime twin of `EndpointErrors` / `CapabilityProblem`; throws a TypeError for an inconsistent endpoint. */
+export function resolveCapabilities(def: EndpointDef, ctx: CapabilityContext, label: string): ResolvedCapabilities {
+  const resolved = resolve(def, ctx);
+  if (resolved.authorize && !resolved.auth) {
+    fail(
+      def.auth === false && def.authorize === undefined
+        ? `${label}: .public() under a scope with authorize: add .authorize(false) or move the contract out of the scope`
+        : `${label}: .authorize() needs auth on the endpoint, its contract or a scope`,
+    );
+  }
+  return resolved;
+}
+
+/**
+ * Runtime twin of `EndpointErrors`: the derived errors, then `throws` from every level, unique by code and status. Unlike
+ * `resolveCapabilities` it never throws, so it also works for a contract taken out of its folder (the client's
+ * single-contract mode), where the scope chain, and so the consistency check, is missing.
+ */
+export const endpointErrors = (def: EndpointDef, ctx: CapabilityContext): readonly AnyErrorDef[] => resolve(def, ctx).errors;
 
 // ---- validation of options --------------------------------------------------
 
 export const isErrorDef = (value: unknown): value is AnyErrorDef =>
   typeof value === "function" &&
   typeof (value as AnyErrorDef).code === "string" &&
-  typeof (value as AnyErrorDef).status === "number" &&
+  isFailureStatus((value as AnyErrorDef).status) &&
   typeof (value as AnyErrorDef).is === "function";
 
 const DURATION = /^\d+(?:\.\d+)?[smhd]$/;

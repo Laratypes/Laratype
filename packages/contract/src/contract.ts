@@ -1,4 +1,4 @@
-import { SCOPE, checkOptions, joinPath, resolveCapabilities } from "./capabilities";
+import { SCOPE, checkOptions, endpointErrors, joinPath, resolveCapabilities } from "./capabilities";
 import type {
   AnyPrefix,
   AnyScope,
@@ -16,6 +16,8 @@ import type {
 } from "./capabilities";
 import { isEndpoint } from "./endpoint";
 import type { AnyEndpoint, Method } from "./endpoint";
+import type { AnyErrorDef } from "./errors";
+import { fail } from "./internal";
 
 /** Brand of a contract: holds its options. Non-enumerable, so it never shows up in keys, spreads or JSON. */
 export const CONTRACT: unique symbol = Symbol.for("laratype.contract");
@@ -60,10 +62,6 @@ export type CheckScope<P extends AnyPrefix, O> = O extends { readonly authorize:
     ? unknown
     : { error: "defineScope: authorize needs auth in this scope or an outer one" }
   : unknown;
-
-const fail = (message: string): never => {
-  throw new TypeError(`[@laratype/contract] ${message}`);
-};
 
 function buildContract(endpoints: ContractDef, options: ContractOptions): AnyContract {
   if (typeof endpoints !== "object" || endpoints === null) fail("defineContract: endpoints must be an object");
@@ -191,7 +189,15 @@ export type EntryContext<En> = En extends ApiEntry<infer C, infer Path, any>
   ? { path: Path; scopes: PrefixScopes<ContractPrefixOf<C>>; options: ContractOptionsOf<C> }
   : RootContext;
 
-export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, infer En> } ? EntryContext<En> : RootContext;
+/**
+ * The context of a node's endpoints: its entry's, or for a contract taken alone, no prefix and no scopes but the
+ * contract's own options (so a single-contract client declares the errors of its own auth, throttle and throws).
+ */
+export type NodeContext<N> = N extends { readonly [API_NODE]: ApiNodeInfo<any, infer En> }
+  ? EntryContext<En>
+  : N extends { readonly [CONTRACT]: ContractMeta<any, infer O> }
+    ? { path: ""; scopes: []; options: O }
+    : RootContext;
 
 type TreeNode = Record<string | symbol, unknown>;
 
@@ -313,6 +319,14 @@ export function apiPaths(api: object): ApiPath[] {
   walkRoutes(api, (name, endpoint, contract, ctx) => paths.push(Object.freeze(routeOf(name, endpoint, contract, ctx))));
   return paths;
 }
+
+/**
+ * The errors of one `apiPaths()` route: derived from its capabilities across all levels, plus `throws`, unique by
+ * code and status (`endpointErrors` on its full path). Never throws, so it also works for a contract taken out of
+ * its folder.
+ */
+export const routeErrors = (route: ApiPath): readonly AnyErrorDef[] =>
+  endpointErrors({ ...route.endpoint.def, path: "" }, { path: route.path, scopes: route.scopes, options: route.contract[CONTRACT].options });
 
 /**
  * Every route of an API, depth-first in definition order, with its inherited capabilities (the `apiPaths()` walk plus

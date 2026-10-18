@@ -32,6 +32,18 @@ describe('buildUrl', () => {
     expect(() => buildUrl('/api/users/:user', { params: { user: '' } })).toThrow(/missing param "user"/)
   })
 
+  it('rejects a dot-segment param value, which fetch would resolve ("/api/users/.." → "/api")', () => {
+    expect(() => buildUrl('/api/users/:user', { params: { user: '..' } })).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: param "user" for "/api/users/:user" cannot be ".." (a dot segment)'),
+    )
+    expect(() => buildUrl('/api/users/:user/posts', { params: { user: '.' } })).toThrow(/param "user" .* cannot be "\." \(a dot segment\)/)
+    expect(() => buildUrl('/files/:name?', { params: { name: '..' } })).toThrow(/a dot segment/)
+    // only the whole value: dots inside a value are fine
+    expect(buildUrl('/files/:name', { params: { name: '...' } })).toBe('/files/...')
+    expect(buildUrl('/files/:name', { params: { name: 'a..b' } })).toBe('/files/a..b')
+    expect(buildUrl('/files/:name', { params: { name: '../x' } })).toBe('/files/..%2Fx')
+  })
+
   it('keeps a ":" that does not start a segment', () => {
     expect(buildUrl('/time/12:30')).toBe('/time/12:30')
   })

@@ -230,7 +230,7 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 
 ### Design (non-binding)
-- **Status:** taken from `.response(schema, status)`. The default is `200`, and it is `204` when there is no response schema.
+- **Status:** taken from the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)). The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202).
 - **Body:** JSON serialization, with optional dev-mode output validation.
 - **Replaces:** the method-name guess in `ControllerMethodHttpStatusCode`.
 - **Done when:** runtime tests for 200, 201 and 204.
@@ -251,8 +251,9 @@ planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
 ### Design (non-binding)
 - **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).
 - **Framework errors:** 401, 403, 404, 422 and 429 use the built-in catalog.
+- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** an error response's JSON body is the error's body plus its code, flat: `{ code, ...body }`. Domain errors and the framework catalog errors (401, 403, 404, 422, 429) use the same shape with their catalog code, for example `{ code: "VALIDATION_ERROR", message, errors }`. The client narrows by this `code` ([client.md › Result union](./client.md#result-union)).
 - **Removed:** `fail()`, `ErrorReply` and the error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)).
-- **Unknown errors:** a 500 with the body `{ message: "Server Error" }` (`MessageBody`), with no details ([#108](https://github.com/Laratypes/Laratype/issues/108)). A dev-mode detail view is out of scope for M1.
+- **Unknown errors:** a 500 with the body `{ message: "Server Error" }` (`MessageBody`), with no details and no `code`, so the client classifies it as unexpected ([#108](https://github.com/Laratypes/Laratype/issues/108)). A dev-mode detail view is out of scope for M1.
 - **Replaces:** `Response.resolveException`.
 - **Undeclared errors:** checked in dev and test → [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
 - **Done when:** runtime tests for the 404, 403, 422 and 500 bodies.

@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
 
@@ -33,12 +34,17 @@ describe('defineError', () => {
     expect(defineError(409, 'X_Y', () => ({ email: 'a' }))().message).toBe('X_Y')
   })
 
-  it('.is() compares the code, not instanceof, so it works across bundles', () => {
+  it('.is() compares the code and the status, not instanceof, so it works across bundles', () => {
     const EmailTaken = defineError(409, 'EMAIL_TAKEN')
     const otherCopy = defineError(409, 'EMAIL_TAKEN')
 
     expect(EmailTaken.is(otherCopy())).toBe(true)
-    expect(EmailTaken.is({ code: 'EMAIL_TAKEN' })).toBe(true)
+    // a ContractError only: a plain object with the same fields (a client ClientFailure result) is not one
+    expect(EmailTaken.is({ code: 'EMAIL_TAKEN', status: 409 })).toBe(false)
+    expect(EmailTaken.is({ ok: false, code: 'EMAIL_TAKEN', status: 409, error: { message: 'x', email: 'a' } })).toBe(false)
+    // another copy of the class: the Symbol.for brand, not instanceof
+    const foreign = Object.defineProperty(new Error('x'), Symbol.for('laratype.contract-error'), { value: true })
+    expect(EmailTaken.is(Object.assign(foreign, { code: 'EMAIL_TAKEN', status: 409, body: {} }))).toBe(true)
     expect(EmailTaken.is(defineError(409, 'EMAIL_USED')())).toBe(false)
     expect(EmailTaken.is(new Error('EMAIL_TAKEN'))).toBe(false)
     expect(EmailTaken.is(null)).toBe(false)
@@ -47,6 +53,84 @@ describe('defineError', () => {
 
   it.each([['email_taken'], ['EmailTaken'], ['EMAIL-TAKEN'], ['_EMAIL'], ['EMAIL_'], ['A__B'], ['']])('rejects the non-UPPER_SNAKE code %j', (code) => {
     expect(() => defineError(409, code)).toThrow(/must be UPPER_SNAKE/)
+  })
+
+  it('rejects, when the error is created, a body with its own code (the wire format is { code, ...body })', () => {
+    const Bad = defineError(409, 'BAD', (() => ({ code: 'OTHER', message: 'x' })) as never)
+    expect(() => Bad()).toThrow(
+      new TypeError('[@laratype/contract] BAD: the body must not have its own "code" key (the error is sent as { code, ...body })'),
+    )
+  })
+
+  it.each([
+    ['a string', 'taken', 'string'],
+    ['a number', 42, 'number'],
+    ['a boolean', true, 'boolean'],
+    ['undefined', undefined, 'undefined'],
+    ['null', null, 'null'],
+    ['an array', ['a'], 'an array'],
+    ['a function', () => 1, 'function'],
+  ])('rejects, when the error is created, a body that is %s', (_, value, got) => {
+    const Bad = defineError(409, 'BAD', (() => value) as never)
+    expect(() => Bad()).toThrow(
+      new TypeError(`[@laratype/contract] BAD: the body must be an object, got ${got} (the error is sent as { code, ...body })`),
+    )
+  })
+
+  it.each([
+    ['a Map', () => new Map(), 'Map'],
+    ['a Set', () => new Set(), 'Set'],
+    ['a Date', () => new Date(0), 'Date'],
+    ['a class instance', () => new (class Payload { message = 'x' })(), 'Payload'],
+  ])('rejects, when the error is created, a body that is %s: only plain objects', (_, make, got) => {
+    const Bad = defineError(409, 'BAD', make as never)
+    expect(() => Bad()).toThrow(
+      new TypeError(`[@laratype/contract] BAD: the body must be a plain object, got ${got} (the error is sent as { code, ...body })`),
+    )
+  })
+
+  it('accepts a plain object from another realm (iframe, vm)', () => {
+    const foreign = runInNewContext('({ message: "x" })') as { message: string }
+    expect(Object.getPrototypeOf(foreign)).not.toBe(Object.prototype)
+    expect(defineError(409, 'OK_REALM', () => foreign)().body).toBe(foreign)
+    expect(() => defineError(409, 'BAD', (() => runInNewContext('new Map()')) as never)()).toThrow(/must be a plain object, got Map/)
+  })
+
+  it('rejects an object whose prototype is a bare null-prototype object (not the Object.prototype of a realm)', () => {
+    const body = Object.create(Object.create(null) as object) as Record<string, string>
+    body.message = 'x'
+    expect(() => defineError(409, 'BAD', () => body)()).toThrow(/must be a plain object, got an object with a custom prototype/)
+    // a vm realm's plain object still passes
+    expect(defineError(409, 'OK_VM', () => runInNewContext('({ message: "x" })') as { message: string })().body).toEqual({ message: 'x' })
+  })
+
+  it('accepts a body with a null prototype', () => {
+    const body = Object.assign(Object.create(null) as Record<string, string>, { message: 'x' })
+    expect(defineError(409, 'OK_NULL', () => body)().body).toBe(body)
+  })
+
+  it('accepts the default { message } body and the catalog bodies', () => {
+    expect(defineError(409, 'OK')().body).toEqual({ message: 'OK' })
+    expect(errors.validation({ name: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { name: ['Required'] } })
+  })
+
+  it('rejects a status outside 400-599: a declared error must classify as a failure', () => {
+    for (const status of [200, 204, 302, 399, 600]) {
+      expect(() => defineError(status as never, 'X')).toThrow(
+        new TypeError(`[@laratype/contract] defineError: status ${status} must be an error status (400-599)`),
+      )
+    }
+    expect(defineError(400, 'X').status).toBe(400)
+    expect(defineError(599, 'X').status).toBe(599)
+  })
+
+  it('new ContractError() checks the status and the body too, so it cannot bypass defineError', () => {
+    expect(() => new ContractError(200 as never, 'X', { message: 'x' })).toThrow(
+      new TypeError('[@laratype/contract] ContractError: status 200 must be an error status (400-599)'),
+    )
+    expect(() => new ContractError(409, 'X', { code: 'Y' })).toThrow(/X: the body must not have its own "code" key/)
+    expect(() => new ContractError(409, 'X', 'text')).toThrow(/X: the body must be an object, got string/)
+    expect(new ContractError(409, 'X', { message: 'ok' }).message).toBe('ok')
   })
 
   it('rejects a non-integer status and a non-function body', () => {
@@ -79,6 +163,11 @@ describe('built-in errors', () => {
     expect(errors.validation({ email: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { email: ['Required'] } })
     expect(errors.notFound.is(errors.notFound())).toBe(true)
     expect(errors.notFound.is(errors.forbidden())).toBe(false)
+    // the same code with another status is another error, both ways
+    const Gone = defineError(410, 'NOT_FOUND')
+    expect(errors.notFound.is(Gone())).toBe(false)
+    expect(Gone.is(errors.notFound())).toBe(false)
+    expect(Gone.is(Gone())).toBe(true)
   })
 
   it('plugs into .throws() as-is', () => {

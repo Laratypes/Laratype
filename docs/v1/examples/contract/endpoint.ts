@@ -40,7 +40,8 @@ expectTypeOf<StoreError['code']>().toEqualTypeOf<'VALIDATION_ERROR' | 'TOO_MANY_
 // Narrow by code: two errors can share a status.
 export const describeError = (e: StoreError): string => (e.code === 'EMAIL_TAKEN' ? `taken: ${e.body.email}` : e.body.message)
 
-// `E.is(e)` compares the code, so it works across bundles.
+// `E.is(e)` checks a thrown ContractError (by brand) with this code and status, so it works across bundles; a client
+// result is not a ContractError: narrow it by `code` instead.
 export const isTaken = (e: unknown): boolean => EmailTaken.is(e) && e.body.email !== ''
 
 // `.public()`, `.authorize(false)` and `.throttle(false)` opt an endpoint out of an inherited capability.
