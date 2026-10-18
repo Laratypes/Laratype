@@ -124,6 +124,15 @@ describe('defineError', () => {
     expect(defineError(599, 'X').status).toBe(599)
   })
 
+  it('new ContractError() checks the status and the body too, so it cannot bypass defineError', () => {
+    expect(() => new ContractError(200 as never, 'X', { message: 'x' })).toThrow(
+      new TypeError('[@laratype/contract] ContractError: status 200 must be an error status (400-599)'),
+    )
+    expect(() => new ContractError(409, 'X', { code: 'Y' })).toThrow(/X: the body must not have its own "code" key/)
+    expect(() => new ContractError(409, 'X', 'text')).toThrow(/X: the body must be an object, got string/)
+    expect(new ContractError(409, 'X', { message: 'ok' }).message).toBe('ok')
+  })
+
   it('rejects a non-integer status and a non-function body', () => {
     expect(() => defineError(4.5, 'X')).toThrow(/invalid status/)
     expect(() => defineError('404' as never, 'X')).toThrow(/invalid status/)

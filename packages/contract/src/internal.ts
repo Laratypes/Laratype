@@ -5,6 +5,10 @@ export type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 /** `"201"` → `201`: builds status unions from template strings. */
 export type ToNumber<S> = S extends `${infer N extends number}` ? N : never;
 
+/** An error status, 400 to 599: what `defineError`, `ContractError` and `throws` accept. */
+export const isFailureStatus = (status: unknown): status is number =>
+  Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
+
 /** Throws the package's TypeError: `[@laratype/contract] <message>`. */
 export const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);

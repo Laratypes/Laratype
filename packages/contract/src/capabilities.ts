@@ -2,7 +2,7 @@ import { errors } from "./errors";
 import type { AnyErrorDef } from "./errors";
 import type { AnyEndpoint, EndpointDef } from "./endpoint";
 import type { PathParamKeys } from "./path";
-import { fail } from "./internal";
+import { fail, isFailureStatus } from "./internal";
 
 // ---- options ----------------------------------------------------------------
 
@@ -222,7 +222,7 @@ export const endpointErrors = (def: EndpointDef, ctx: CapabilityContext): readon
 export const isErrorDef = (value: unknown): value is AnyErrorDef =>
   typeof value === "function" &&
   typeof (value as AnyErrorDef).code === "string" &&
-  typeof (value as AnyErrorDef).status === "number" &&
+  isFailureStatus((value as AnyErrorDef).status) &&
   typeof (value as AnyErrorDef).is === "function";
 
 const DURATION = /^\d+(?:\.\d+)?[smhd]$/;

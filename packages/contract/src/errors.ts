@@ -1,5 +1,5 @@
 import type { ErrorBag } from "./validate";
-import { fail } from "./internal";
+import { fail, isFailureStatus } from "./internal";
 import type { Digit, ToNumber } from "./internal";
 
 /** An error status: `400` to `599`, so a declared error is always classified as a failure. */
@@ -14,12 +14,14 @@ export interface ValidationErrorBody extends MessageBody {
   errors: Record<string, string[]>;
 }
 
-/**
- * What a contract error factory throws. Match it with `E.is(e)`, which compares `code` and `status`
- * (not `instanceof`), so it also works across bundles and package copies.
- */
 /** Brand of a `ContractError`, a `Symbol.for` key so `E.is()` recognizes errors from another bundle or realm. */
 const CONTRACT_ERROR: unique symbol = Symbol.for("laratype.contract-error");
+
+/**
+ * What a contract error factory throws. Match it with `E.is(e)`, which checks the brand, `code` and `status`
+ * (not `instanceof`), so it also works across bundles and package copies. The constructor checks what goes on the
+ * wire, so `new ContractError(...)` can't bypass `defineError`: a 400-599 status and a plain-object body without `code`.
+ */
 
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
   readonly status: St;
@@ -27,6 +29,8 @@ export class ContractError<St extends number = number, Code extends string = str
   readonly body: Body;
 
   constructor(status: St, code: Code, body: Body) {
+    if (!isFailureStatus(status)) fail(`ContractError: status ${String(status)} must be an error status (400-599)`);
+    checkBody(code, body);
     const message = (body as Partial<MessageBody> | null)?.message;
     super(typeof message === "string" ? message : code);
     this.name = "ContractError";
@@ -113,13 +117,10 @@ function make<St extends number, Code extends string, Body, Args extends unknown
   body: (...args: Args) => Body,
 ): ErrorDef<St, Code, Body, Args> {
   if (!Number.isInteger(status)) fail(`defineError: invalid status ${JSON.stringify(status)}`);
-  if (status < 400 || status > 599) fail(`defineError: status ${status} must be an error status (400-599)`);
+  if (!isFailureStatus(status)) fail(`defineError: status ${status} must be an error status (400-599)`);
   if (typeof code !== "string" || !UPPER_SNAKE.test(code)) fail(`defineError: code ${JSON.stringify(code)} must be UPPER_SNAKE`);
-  const factory = (...args: Args) => {
-    const value = body(...args);
-    checkBody(code, value);
-    return new ContractError(status, code, value);
-  };
+  // the ContractError constructor checks the body
+  const factory = (...args: Args) => new ContractError(status, code, body(...args));
   // a ContractError (by brand, not instanceof), with this code and status: errors are unique by both (a 410 NOT_FOUND
   // is not the catalog 404), and a plain object with the same fields (a client result) is not an error
   const is = (error: unknown): error is ContractError<St, Code, Body> =>

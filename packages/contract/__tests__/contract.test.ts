@@ -261,6 +261,15 @@ describe('endpointErrors and routeErrors', () => {
   })
 })
 
+describe('throws', () => {
+  it('rejects an error def whose status is outside 400-599 (an older copy or a hand-built def)', () => {
+    const handBuilt = Object.assign(() => undefined, { code: 'OLD', status: 302, is: () => false })
+    expect(() => endpoint.get('/').throws(handBuilt as never)).toThrow(/throws must be a list of errors \(use defineError\)/)
+    expect(() => defineContract()({}, { throws: [handBuilt as never] })).toThrow(/throws must be a list of errors/)
+    expect(endpoint.get('/').throws(errors.notFound).def.throws).toEqual([errors.notFound])
+  })
+})
+
 describe('ENDPOINT brand', () => {
   // An endpoint from another bundle or package copy (ESM + CJS): same Symbol.for brand, different class
   const foreign = () => {
