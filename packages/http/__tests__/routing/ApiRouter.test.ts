@@ -14,9 +14,10 @@ import type { ApiRoutes } from '../../src/index'
 //   app/api/users/[user]/posts.ts        /api/users/:user/posts
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
-const users = defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') })
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
-const posts = defineContract()({ index: endpoint.get('/'), store: endpoint.post('/').response(anything, 201) })
+// Endpoints that answer with a JSON body declare a response schema: without one the status is 204 (CL2)
+const users = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
+const posts = defineContract()({ index: endpoint.get('/').response(anything), store: endpoint.post('/').response(anything, 201) })
 const appApi = defineApi({
   users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
   'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
@@ -70,13 +71,40 @@ describe('Route.api', () => {
   })
 
   it('answers with the endpoint status, not one guessed from the method name', async () => {
-    const gone = defineContract()({ destroy: endpoint.delete('/:id'), store: endpoint.post('/') })
-    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } }
+    const gone = defineContract()({
+      destroy: endpoint.delete('/:id').response(anything),
+      store: endpoint.post('/').response(anything),
+      ping: endpoint.get('/ping'),
+      queue: endpoint.post('/queue').status(202).response(anything),
+    })
+    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() { return { ignored: true } } queue() { return { queued: true } } }
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone)]))
     // the 0.5 kernel would guess 204 for destroy and 201 for store
     expect((await app.request('/gone/1', { method: 'DELETE' })).status).toBe(200)
     expect((await app.request('/gone', { method: 'POST' })).status).toBe(200)
+    // no response schema: 204 with no body (CL2's default)
+    const ping = await app.request('/gone/ping')
+    expect(ping.status).toBe(204)
+    expect(await ping.text()).toBe('')
+    // .status(n) before .response()
+    const queued = await app.request('/gone/queue', { method: 'POST' })
+    expect(queued.status).toBe(202)
+    expect(await queued.json()).toEqual({ queued: true })
+  })
+
+  it('checks a status decorator against the 204 default and .status(n)', () => {
+    const quiet = defineContract()({ remove: endpoint.delete('/:id'), accept: endpoint.post('/').status(202) })
+    const quietApi = defineApi({ quiet: { contract: quiet, path: '/quiet', scopes: [], dirs: [] } })
+    class Quiet extends Controller { remove() {} accept() {} }
+    // a decorator saying 204 matches the schema-less default
+    Reflect.defineMetadata('laratype:controller_status_code', 204, Quiet.prototype, 'remove')
+    Reflect.defineMetadata('laratype:controller_status_code', 202, Quiet.prototype, 'accept')
+    expect(() => Route.api(quietApi, (r) => [r.contract(quiet, Quiet)])).not.toThrow()
+    Reflect.defineMetadata('laratype:controller_status_code', 200, Quiet.prototype, 'remove')
+    expect(() => Route.api(quietApi, (r) => [r.contract(quiet, Quiet)])).toThrow(
+      'quiet.remove: Quiet.remove has status 200 from its status decorator, but the endpoint declares 204',
+    )
   })
 
   it('returns one registry entry per route: name, method, path, endpoint, controller, middleware, policies', () => {
