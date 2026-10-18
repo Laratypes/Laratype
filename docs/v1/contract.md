@@ -762,7 +762,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   (...args: Args): ContractError<St, Code, Body>;   // throwable factory
   readonly status: St;
   readonly code: Code;
-  is(error: unknown): error is ContractError<St, Code, Body>;   // compares code, not instanceof
+  is(error: unknown): error is ContractError<St, Code, Body>;   // compares code and status, not instanceof
 }
 export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
@@ -789,7 +789,7 @@ if (EmailTaken.is(e)) e.body.email
 
 ### Invariants
 - **A factory:** `defineError(status, code, body?)` returns a frozen function that also carries `status`, `code` and `is`. Calling it builds a `ContractError` (an `Error`) to throw. Without a body factory the body is `{ message }`, and the message defaults to the code.
-- **`E.is(e)`** compares `code`, not `instanceof`, so it works across bundles and package copies.
+- **`E.is(e)`** compares `code` and `status`, not `instanceof`, so it works across bundles and package copies, and a `defineError(410, 'NOT_FOUND')` is not the catalog 404.
 - **Codes** are `UPPER_SNAKE` (`/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/`), like the built-in [catalog](#error-catalog).
 - **Statuses** are error statuses, `400` to `599` (`FailureStatus`), in the types and when the error is defined, so a declared error is always classified as a failure by the client. The built-in catalog (401, 403, 404, 422, 429) complies.
 - **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (a `null` prototype, or the `Object.prototype` of any realm, such as an iframe's: a prototype whose own prototype is `null` and that has its own `hasOwnProperty`), so a `Map`, `Set`, `Date` or class instance is rejected too. The default `{ message }` body and the catalog bodies already comply.

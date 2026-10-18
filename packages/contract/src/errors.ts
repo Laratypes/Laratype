@@ -15,7 +15,7 @@ export interface ValidationErrorBody extends MessageBody {
 }
 
 /**
- * What a contract error factory throws. Match it with `E.is(e)`, which compares `code`
+ * What a contract error factory throws. Match it with `E.is(e)`, which compares `code` and `status`
  * (not `instanceof`), so it also works across bundles and package copies.
  */
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
@@ -41,7 +41,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   (...args: Args): ContractError<St, Code, Body>;
   readonly status: St;
   readonly code: Code;
-  /** Compares `code`, not `instanceof`, so it works across bundles. */
+  /** Compares `code` and `status`, not `instanceof`, so it works across bundles. */
   is(error: unknown): error is ContractError<St, Code, Body>;
 }
 
@@ -116,8 +116,12 @@ function make<St extends number, Code extends string, Body, Args extends unknown
     checkBody(code, value);
     return new ContractError(status, code, value);
   };
+  // code and status: errors are unique by both (a 410 NOT_FOUND is not the catalog 404)
   const is = (error: unknown): error is ContractError<St, Code, Body> =>
-    typeof error === "object" && error !== null && (error as { code?: unknown }).code === code;
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === code &&
+    (error as { status?: unknown }).status === status;
   Object.defineProperties(factory, {
     status: { value: status, enumerable: true },
     code: { value: code, enumerable: true },

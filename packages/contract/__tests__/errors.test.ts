@@ -34,12 +34,13 @@ describe('defineError', () => {
     expect(defineError(409, 'X_Y', () => ({ email: 'a' }))().message).toBe('X_Y')
   })
 
-  it('.is() compares the code, not instanceof, so it works across bundles', () => {
+  it('.is() compares the code and the status, not instanceof, so it works across bundles', () => {
     const EmailTaken = defineError(409, 'EMAIL_TAKEN')
     const otherCopy = defineError(409, 'EMAIL_TAKEN')
 
     expect(EmailTaken.is(otherCopy())).toBe(true)
-    expect(EmailTaken.is({ code: 'EMAIL_TAKEN' })).toBe(true)
+    expect(EmailTaken.is({ code: 'EMAIL_TAKEN', status: 409 })).toBe(true)
+    expect(EmailTaken.is({ code: 'EMAIL_TAKEN' })).toBe(false)
     expect(EmailTaken.is(defineError(409, 'EMAIL_USED')())).toBe(false)
     expect(EmailTaken.is(new Error('EMAIL_TAKEN'))).toBe(false)
     expect(EmailTaken.is(null)).toBe(false)
@@ -149,6 +150,11 @@ describe('built-in errors', () => {
     expect(errors.validation({ email: ['Required'] }).body).toEqual({ message: 'The given data was invalid.', errors: { email: ['Required'] } })
     expect(errors.notFound.is(errors.notFound())).toBe(true)
     expect(errors.notFound.is(errors.forbidden())).toBe(false)
+    // the same code with another status is another error, both ways
+    const Gone = defineError(410, 'NOT_FOUND')
+    expect(errors.notFound.is(Gone())).toBe(false)
+    expect(Gone.is(errors.notFound())).toBe(false)
+    expect(Gone.is(Gone())).toBe(true)
   })
 
   it('plugs into .throws() as-is', () => {
