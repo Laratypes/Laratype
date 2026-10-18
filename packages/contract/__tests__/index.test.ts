@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { Endpoint, PACKAGE_NAME, defineError, endpoint } from '@laratype/contract'
+import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus } from '@laratype/contract'
 import type { AnyEndpoint, AnyErrorDef } from '@laratype/contract'
 
 const notFound = defineError(404, 'POST_NOT_FOUND')
@@ -13,6 +13,10 @@ describe('@laratype/contract', () => {
 })
 
 describe('endpoint builder', () => {
+  it('isBodylessStatus: 204 and 205 only', () => {
+    expect([200, 201, 202, 204, 205, 206].map(isBodylessStatus)).toEqual([false, false, false, true, true, false])
+  })
+
   it('.response(schema) keeps a status set by .status(n); .response(schema, 204) throws (a 204 has no body)', () => {
     expect(endpoint.post('/jobs').status(202).response(z.string()).def.status).toBe(202)
     expect(endpoint.post('/jobs').status(204).response(z.string()).def.status).toBe(200)

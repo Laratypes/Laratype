@@ -39,8 +39,12 @@ describe('defineError', () => {
     const otherCopy = defineError(409, 'EMAIL_TAKEN')
 
     expect(EmailTaken.is(otherCopy())).toBe(true)
-    expect(EmailTaken.is({ code: 'EMAIL_TAKEN', status: 409 })).toBe(true)
-    expect(EmailTaken.is({ code: 'EMAIL_TAKEN' })).toBe(false)
+    // a ContractError only: a plain object with the same fields (a client ClientFailure result) is not one
+    expect(EmailTaken.is({ code: 'EMAIL_TAKEN', status: 409 })).toBe(false)
+    expect(EmailTaken.is({ ok: false, code: 'EMAIL_TAKEN', status: 409, error: { message: 'x', email: 'a' } })).toBe(false)
+    // another copy of the class: the Symbol.for brand, not instanceof
+    const foreign = Object.defineProperty(new Error('x'), Symbol.for('laratype.contract-error'), { value: true })
+    expect(EmailTaken.is(Object.assign(foreign, { code: 'EMAIL_TAKEN', status: 409, body: {} }))).toBe(true)
     expect(EmailTaken.is(defineError(409, 'EMAIL_USED')())).toBe(false)
     expect(EmailTaken.is(new Error('EMAIL_TAKEN'))).toBe(false)
     expect(EmailTaken.is(null)).toBe(false)

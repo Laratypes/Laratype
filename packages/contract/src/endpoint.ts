@@ -35,7 +35,8 @@ export type SuccessStatus = ToNumber<`2${Digit}${Digit}`>;
 /** A success status that can carry a body: 2xx except 204 No Content and 205 Reset Content. */
 export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 
-const BODYLESS: ReadonlySet<number> = new Set([204, 205]);
+/** A success status that never has a body: 204 No Content and 205 Reset Content. Shared with `@laratype/client`. */
+export const isBodylessStatus = (status: number): boolean => status === 204 || status === 205;
 
 /**
  * `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. A wide
@@ -124,8 +125,8 @@ export class Endpoint<
     schema: S,
     status?: Code,
   ): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C> {
-    const kept = !this.def.response && !BODYLESS.has(this.def.status) ? this.def.status : 200;
-    if (status !== undefined && BODYLESS.has(status)) fail(`response(): a ${status} has no body; use .status(${status})`);
+    const kept = !this.def.response && !isBodylessStatus(this.def.status) ? this.def.status : 200;
+    if (status !== undefined && isBodylessStatus(status)) fail(`response(): a ${status} has no body; use .status(${status})`);
     return new Endpoint({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });
   }
 

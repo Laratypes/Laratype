@@ -18,6 +18,9 @@ export interface ValidationErrorBody extends MessageBody {
  * What a contract error factory throws. Match it with `E.is(e)`, which compares `code` and `status`
  * (not `instanceof`), so it also works across bundles and package copies.
  */
+/** Brand of a `ContractError`, a `Symbol.for` key so `E.is()` recognizes errors from another bundle or realm. */
+const CONTRACT_ERROR: unique symbol = Symbol.for("laratype.contract-error");
+
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
   readonly status: St;
   readonly code: Code;
@@ -30,6 +33,7 @@ export class ContractError<St extends number = number, Code extends string = str
     this.status = status;
     this.code = code;
     this.body = body;
+    Object.defineProperty(this, CONTRACT_ERROR, { value: true });
   }
 }
 
@@ -116,10 +120,12 @@ function make<St extends number, Code extends string, Body, Args extends unknown
     checkBody(code, value);
     return new ContractError(status, code, value);
   };
-  // code and status: errors are unique by both (a 410 NOT_FOUND is not the catalog 404)
+  // a ContractError (by brand, not instanceof), with this code and status: errors are unique by both (a 410 NOT_FOUND
+  // is not the catalog 404), and a plain object with the same fields (a client result) is not an error
   const is = (error: unknown): error is ContractError<St, Code, Body> =>
     typeof error === "object" &&
     error !== null &&
+    (error as Record<symbol, unknown>)[CONTRACT_ERROR] === true &&
     (error as { code?: unknown }).code === code &&
     (error as { status?: unknown }).status === status;
   Object.defineProperties(factory, {
