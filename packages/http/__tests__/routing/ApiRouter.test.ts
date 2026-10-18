@@ -127,6 +127,12 @@ describe('Route.api', () => {
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ user: '7', posts: [] })
       expect(lookups).toEqual([])
+      // the handler's second argument is the raw params object
+      const member = defineContract()({ show: endpoint.get('/').response(anything) })
+      class Member extends Controller { show(_req: unknown, params: { user: string }) { return { user: params.user } } }
+      const memberApp = mount(Route.api(defineApi({ member: { contract: member, path: '/members/:user', scopes: [], dirs: [] } }), (r) => [r.contract(member, Member)])).app
+      expect(await (await memberApp.request('/members/7')).json()).toEqual({ user: '7' })
+      expect(lookups).toEqual([])
     } finally {
       g.__laratype_route_model_bindings = saved.bindings
       g.__laratype_param_model_map = saved.map
@@ -232,9 +238,39 @@ describe('auth and authorize are not enforced yet', () => {
     class Ping extends Controller { ping() { return 'pong' } }
     mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).toHaveBeenCalledTimes(2)
-    // only the last list is remembered: going back to the first one warns again
+    // the first list is still remembered
     mount(build())
-    expect(warn).toHaveBeenCalledTimes(3)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('two Route.api groups warn once each, across restarts', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
+    class Ping extends Controller { ping() { return 'pong' } }
+    const groups = () => [
+      Route.api(appApi, (r) => [r.contract(users, UserController), r.scope('users/[user]', { policy: UserScopePolicy }), r.contract(posts, PostController)]),
+      Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]).domain('api.example.test'),
+    ]
+    for (const restart of [1, 2, 3]) for (const group of groups()) mount(group)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('the remembered lists are capped, dropping the oldest', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    class Ping extends Controller { ping() { return 'pong' } }
+    const group = (i: number) => {
+      const c = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
+      return Route.api(defineApi({ [`p${i}`]: { contract: c, path: `/p${i}`, scopes: [], dirs: [] } }), (r) => [r.contract(c, Ping)])
+    }
+    for (let i = 0; i < 40; i++) mount(group(i))
+    expect(warn).toHaveBeenCalledTimes(40)
+    const remembered = (globalThis as Record<symbol, Set<string>>)[Symbol.for('laratype.http.unenforcedWarned')]!
+    expect(remembered.size).toBe(32)
+    // the oldest were dropped: p0 warns again, p39 does not
+    mount(group(39))
+    expect(warn).toHaveBeenCalledTimes(40)
+    mount(group(0))
+    expect(warn).toHaveBeenCalledTimes(41)
   })
 
   it('mount() warns once, listing the routes with auth or authorize', () => {

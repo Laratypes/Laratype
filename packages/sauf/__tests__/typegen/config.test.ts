@@ -272,19 +272,29 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(readFileSync(id!, 'utf8')).not.toContain('things');
   });
 
-  it('a config that imports $api fails clearly instead of waiting on its own scan', async () => {
-    const dir = project('reentrant', undefined);
-    let nested: Promise<string | null> | undefined;
-    const plugin = laratypeApi({ projectDir: dir, config: () => { nested = resolveId('$api'); return {}; } });
-    const resolveId = plugin.resolveId as (source: string) => Promise<string | null>;
-    // the outer import completes; the nested one (from the config load) is rejected
-    expect(await resolveId('$api')).toBe(join(dir, '.laratype/api/index.gen.ts'));
-    await expect(nested).rejects.toThrow('[laratype:api] app/config/config.ts must not import $api (directly or indirectly)');
-    // two imports racing the first scan, outside the config load, are both fine
+  it('a config that imports $api fails clearly (the isolated import cannot resolve it)', async () => {
+    const dir = project('imports-api', "import { appApi } from '$api'\nexport default { api: {}, appApi }\n");
+    const resolveId = laratypeApi({ projectDir: dir }).resolveId as (source: string) => Promise<string | null>;
+    await expect(resolveId('$api')).rejects.toThrow('[laratype:api] app/config/config.ts must not import $api (directly or indirectly)');
+    // indirectly, through another module
+    const indirect = project('imports-api-indirect', "import { x } from './helper'\nexport default { api: {}, x }\n");
+    writeFileSync(join(indirect, 'app/config/helper.ts'), "export { appApi as x } from '$api'\n");
+    await expect((laratypeApi({ projectDir: indirect }).resolveId as typeof resolveId)('$api')).rejects.toThrow('must not import $api (directly or indirectly)');
+    // two imports racing the first scan are both fine
     const fresh = laratypeApi({ projectDir: dir, config: () => ({}) }).resolveId as typeof resolveId;
     const [x, y] = await Promise.all([fresh('$api'), fresh('$api')]);
     expect(x).toBe(join(dir, '.laratype/api/index.gen.ts'));
     expect(y).toBe(x);
+  });
+
+  it('re-reads the config on each scan (no module cache) while keeping the transpile cache', async () => {
+    const dir = project('fresh-eval', "export default { api: { base: '/one' } }\n");
+    const plugin = laratypeApi({ projectDir: dir });
+    const id = await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
+    expect(readFileSync(id!, 'utf8')).toContain("path: '/one/users'");
+    writeFileSync(join(dir, 'app/config/config.ts'), "export default { api: { base: '/two' } }\n");
+    await (plugin.api as ApiPluginApi).rescan();
+    expect(readFileSync(id!, 'utf8')).toContain("path: '/two/users'");
   });
 
   it('falls back to the default root when the first scan fails, so contract adds still restart', async () => {

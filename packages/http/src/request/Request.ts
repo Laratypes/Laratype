@@ -229,8 +229,9 @@ export default class Request extends AppServiceProvider {
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
-      const modelBindings = routeOption.modelBinding === false ? {} : this.explicitModelBinding(transformedRequest);
-      const res = await this.queryFromModelBinding(modelBindings);
+      const res = routeOption.modelBinding === false
+        ? { ...transformedRequest.param() }
+        : await this.queryFromModelBinding(this.explicitModelBinding(transformedRequest));
 
       return ContextApi.run({
         request: transformedRequest,

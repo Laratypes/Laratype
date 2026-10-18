@@ -39,7 +39,8 @@ export function apiTreeConfig(config: unknown): ApiTreeConfig {
  */
 export const isolatedImport = (url: string): Promise<unknown> => {
   const file = fileURLToPath(url);
-  return createJiti(file, { moduleCache: false, fsCache: false }).import(file);
+  // No module cache (a fresh evaluation each time); the transpile cache stays, so rescans don't re-transpile the graph
+  return createJiti(file, { moduleCache: false }).import(file);
 };
 
 /**
@@ -51,7 +52,16 @@ export async function readApiTreeConfig(projectDir: string, load: (url: string) 
   const file = join(projectDir, "app", "config", "config.ts");
   if (!existsSync(file)) return {};
   loadEnv(projectDir);
-  const mod = (await load(pathToFileURL(file).href)) as { default?: unknown } | undefined;
+  let mod: { default?: unknown } | undefined;
+  try {
+    mod = (await load(pathToFileURL(file).href)) as { default?: unknown } | undefined;
+  } catch (error) {
+    // `$api` is generated from the tree this config locates, so the config cannot import it
+    if (/Cannot find (module|package) ['"]\$api['"]/.test(String((error as Error)?.message ?? error))) {
+      throw new ScanError("app/config/config.ts must not import $api (directly or indirectly)");
+    }
+    throw error;
+  }
   if (!mod) throw new ScanError("could not load app/config/config.ts (see the error above)");
   return apiTreeConfig(mod.default);
 }

@@ -5,7 +5,6 @@
  * have changed (`affectsTree()`, then `restart()`), so an app that never imports it is never scanned. Production reads
  * the build manifest instead (#125). No runtime import of vite: this module is loaded on every `sauf` start.
  */
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -54,11 +53,8 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   let missingRoot: string | undefined;
   let server: ViteDevServer | undefined;
 
-  // The config load runs in this async context: a `$api` import it triggers (directly or through other modules) would
-  // wait on its own scan forever, while imports elsewhere that run at the same time are fine
-  const loadingConfig = new AsyncLocalStorage<true>();
-  const loadConfig = () =>
-    loadingConfig.run(true, async () => (options.config ? apiTreeConfig(options.config()) : await readApiTreeConfig(projectDir)));
+  // readApiTreeConfig imports the config outside Vite (jiti), so a config importing `$api` fails there, never re-enters here
+  const loadConfig = async () => (options.config ? apiTreeConfig(options.config()) : readApiTreeConfig(projectDir));
 
   const scan = async () => {
     const tree = resolveApiTree({}, await loadConfig());
@@ -110,7 +106,6 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     },
     async resolveId(source) {
       if (source !== API_ALIAS) return null;
-      if (loadingConfig.getStore()) throw new ScanError(`[${API_PLUGIN_NAME}] app/config/config.ts must not import $api (directly or indirectly)`);
       used = true;
       await (current ?? rescan());
       checkRoot();
