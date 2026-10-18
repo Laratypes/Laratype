@@ -1,4 +1,4 @@
-import { API_NODE, apiPaths, buildUrl, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
+import { API_NODE, apiPaths, buildUrl, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
@@ -39,6 +39,19 @@ const resolvesInPage = (url: string): boolean => {
  */
 type Declared = ReadonlyMap<string, ReadonlySet<number> | undefined>;
 
+/** Computes a value on first use and keeps it: a route's declared errors are built on its first non-2xx answer. */
+const once = <T>(make: () => T): (() => T) => {
+  let made = false;
+  let value: T;
+  return () => {
+    if (!made) {
+      value = make();
+      made = true;
+    }
+    return value;
+  };
+};
+
 /** Groups declared errors by code, keeping every status. */
 const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly status: number }>): Declared => {
   const map = new Map<string, Set<number>>();
@@ -48,7 +61,7 @@ const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly stat
 
 /**
  * What a 2xx must look like: the declared status (unknown for the manifest) and the data, `"json"` for a response
- * schema, `"none"` without one or for a 204, `"any"` when unknown (the manifest: the body is parsed if there is one).
+ * schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the manifest: the body is parsed if there is one).
  */
 interface Success {
   readonly status: number | undefined;
@@ -111,31 +124,34 @@ const isManifest = (value: unknown): value is Manifest =>
  * `"https://host/api"` → `["https://host", "/api"]`; a path (`"/api"`) or `""` has no origin. Anything else, such as
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
+const SENTINEL = "http://__laratype_base__";
+
 const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
-  // URL parsing strips tab, LF and CR, so "/\t/evil.com" would become "//evil.com", another host
+  if (baseUrl === "") return ["", ""];
+  // URL parsing silently drops tab, LF and CR ("/\t/evil.com" → "//evil.com") and turns a backslash into "/" ("/\evil.com"):
+  // those are checked on the raw string, since the parsed URL no longer shows them
   if (/[\u0000-\u0020\u007f]/.test(baseUrl)) {
     fail(`createClient: baseUrl ${JSON.stringify(baseUrl)} must not contain whitespace or control characters`);
   }
-  const origin = /^[a-z][a-z\d+.-]*:\/\/[^/?#]*/i.exec(baseUrl)?.[0] ?? "";
-  const path = baseUrl.slice(origin.length);
-  // without an origin it must be a path: "/api", not "api", "localhost:3000/api" or a protocol-relative "//host/api"
-  if (!origin && path !== "" && (!path.startsWith("/") || path.startsWith("//"))) {
+  if (baseUrl.includes("\\")) fail(`createClient: baseUrl "${baseUrl}" must not contain a backslash`);
+  // one parse: a path keeps the sentinel origin, anything else is absolute
+  let url: URL;
+  try {
+    url = new URL(baseUrl, SENTINEL);
+  } catch {
+    return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
+  }
+  const absolute = url.origin !== SENTINEL;
+  // a path starts with "/"; an absolute URL is written with "://" ("localhost:3000/api" and "//host/api" are neither)
+  if (absolute ? !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl) : !baseUrl.startsWith("/")) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
-  if (/[?#]/.test(path)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
-  // URL parsing turns a backslash into "/" for http(s), so "/\evil.com" would be another host
-  if (baseUrl.includes("\\")) fail(`createClient: baseUrl "${baseUrl}" must not contain a backslash`);
-  if (origin && typeof URL === "function") {
-    let parsed: URL;
-    try {
-      parsed = new URL(baseUrl);
-    } catch {
-      return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") fail(`createClient: baseUrl "${baseUrl}" must use http or https`);
-    if (parsed.username || parsed.password) fail(`createClient: baseUrl "${baseUrl}" must not contain credentials`);
+  if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
+  if (absolute) {
+    if (url.protocol !== "http:" && url.protocol !== "https:") fail(`createClient: baseUrl "${baseUrl}" must use http or https`);
+    if (url.username || url.password) fail(`createClient: baseUrl "${baseUrl}" must not contain credentials`);
   }
-  return [origin, path.replace(/\/+$/, "")];
+  return [absolute ? url.origin : "", url.pathname.replace(/\/+$/, "")];
 };
 
 /**
@@ -205,7 +221,7 @@ const cancelBody = (response: Response): void => {
 
 /**
  * Reads the response into the result union. The body is read once, from `response` itself, so a result's `response`
- * has its body consumed (status and headers stay usable). A success with no data doesn't read it: a 204 has none, and
+ * has its body consumed (status and headers stay usable). A success with no data doesn't read it: a 204 or 205 has none, and
  * any other body-less success has its body cancelled, so it doesn't hold a connection open.
  * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a body-less
  *   status; with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
@@ -218,7 +234,7 @@ async function toResult(response: Response, success: Success, declared: () => De
   const { status } = response;
   const expected = success.status === undefined || status === success.status;
   if (response.ok && expected && success.data === "none") {
-    if (status !== 204) cancelBody(response);
+    if (!isBodylessStatus(status)) cancelBody(response);
     return { ok: true, status, data: undefined, response };
   }
   let text: string;
@@ -258,8 +274,6 @@ async function toResult(response: Response, success: Success, declared: () => De
  * The declared errors are computed on the first non-2xx answer, then kept.
  */
 const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
-  let declared: Declared | undefined;
-  const lazy = () => (declared ??= route.declared());
   return async (input) => {
     let response: Response;
     try {
@@ -268,7 +282,7 @@ const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
       if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
       throw error;
     }
-    return toResult(response, route.success, lazy);
+    return toResult(response, route.success, route.declared);
   };
 };
 
@@ -315,8 +329,8 @@ const pathsOf = (api: object): RouteSpec[] => {
       name: r.name.slice(prefix.length),
       method: r.method,
       path: r.path,
-      success: { status, data: response && status !== 204 ? "json" : "none" },
-      declared: () => declaredOf(routeErrors(r)),
+      success: { status, data: response && !isBodylessStatus(status) ? "json" : "none" },
+      declared: once(() => declaredOf(routeErrors(r))),
     };
   });
 };
@@ -334,7 +348,7 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
       method: route.method,
       path: route.path,
       success: { status: undefined, data: "any" },
-      declared: () => new Map((errors ?? []).map((code) => [code, undefined])),
+      declared: once(() => new Map((errors ?? []).map((code) => [code, undefined]))),
     };
   });
 

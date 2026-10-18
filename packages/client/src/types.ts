@@ -54,17 +54,17 @@ export type CallInput<E extends EndpointShape> = Prettify<
 
 /**
  * The data of a successful response: the wire type of the response schema, and `undefined` for an endpoint with no
- * response schema or a declared 204.
+ * response schema or a declared body-less status (204, 205).
  */
 export type ResponseData<E extends EndpointShape> = [E["response"]] extends [undefined]
   ? undefined
-  : [E["status"]] extends [204]
+  : [E["status"]] extends [204 | 205]
     ? undefined
     : Jsonify<E["response"]>;
 
 /**
  * The declared 2xx: `status` is the endpoint's declared status, and `data` its parsed JSON body (see `ResponseData`).
- * `response` has its body consumed; when `data` is `undefined` the client doesn't read it, and cancels it unless it is a 204.
+ * `response` has its body consumed; when `data` is `undefined` the client doesn't read it, and cancels it unless it is a 204 or 205.
  */
 export interface ClientSuccess<E extends EndpointShape> {
   ok: true;

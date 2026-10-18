@@ -321,6 +321,17 @@ describe('createClient', () => {
     }
   })
 
+  it('parses a baseUrl once: the path is normalized and the origin is the parsed one', async () => {
+    const { fetch, calls } = fakeFetch()
+    await createClient(appApi, { fetch, baseUrl: 'HTTPS://Example.COM:443/edge/./v1/../api-gw/' }).users.index()
+    await createClient(users, { fetch, baseUrl: '/edge/./api/users/' }).index()
+    expect(calls.map((c) => c.url)).toEqual(['https://example.com/edge/api-gw/api/users', '/edge/api/users'])
+    // an empty query or hash is still a query or hash
+    for (const baseUrl of ['https://example.com/api?', 'https://example.com/api#', '/api?']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(/must not have a query or a hash/)
+    }
+  })
+
   it('rejects a baseUrl that is neither an absolute URL with "://" nor a path starting with "/"', () => {
     for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api']) {
       expect(() => createClient(appApi, { baseUrl })).toThrow(
@@ -464,6 +475,14 @@ describe('the result union', () => {
     expect(result).toEqual({ ok: true, status: 202, data: undefined, response: expect.any(Response) })
     expect(cancelled).toBe(true)
     expect(await createClient(jobs, { fetch: respond(null, 204) }).start()).toMatchObject({ ok: false, unexpected: true, status: 204 })
+  })
+
+  it('a declared 205 (Reset Content) is body-less too: ok with data undefined, its null body not cancelled', async () => {
+    const forms = defineContract()({ reset: endpoint.post('/form').status(205) })
+    const response = new Response(null, { status: 205 })
+    const result = await createClient(forms, { fetch: async () => response }).reset()
+    expect(result).toEqual({ ok: true, status: 205, data: undefined, response })
+    expect(response.bodyUsed).toBe(false)
   })
 
   it('a declared 204, or an endpoint with no response schema (204 by default): ok with data undefined', async () => {
