@@ -3,6 +3,7 @@ import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
+import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 
 export default class Response extends AppServiceProvider {
@@ -74,8 +75,9 @@ export default class Response extends AppServiceProvider {
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
 
-    if(contentFullStatusCode === 204) {
-      return ctx.body(null, 204);
+    // 204 and 205 never carry a body (a contract endpoint may declare either with .status(n))
+    if(isBodylessStatus(contentFullStatusCode)) {
+      return ctx.body(null, contentFullStatusCode as 204);
     }
 
     if(isJson) {

@@ -227,7 +227,9 @@ export default class Request extends AppServiceProvider {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
-      const modelBindings = this.explicitModelBinding(transformedRequest);
+      // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
+      // could run a query or answer an undeclared 404
+      const modelBindings = routeOption.modelBinding === false ? {} : this.explicitModelBinding(transformedRequest);
       const res = await this.queryFromModelBinding(modelBindings);
 
       return ContextApi.run({

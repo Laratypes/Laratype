@@ -72,12 +72,13 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
 /**
  * Two-phase provider lifecycle: instantiate every provider with the container, call `register()` on all of them,
  * then `boot()` on all of them, in order. Returns the `down()` cleanups in reverse boot order.
- * When a constructor, `register()` or `boot()` throws, `down()` runs on every provider whose `boot()` completed
- * (reverse order; a failing `down()` is logged), then the original error is rethrown. A failure before any boot
- * (a constructor or a `register()`) therefore runs no `down()`.
+ * When a constructor, `register()` or `boot()` throws, `down()` runs on every provider whose `boot()` started: the
+ * ones that completed and the one that threw, which may have opened something before it failed (reverse order; a
+ * failing `down()` is logged). Then the original error is rethrown. A failure before any boot (a constructor or a
+ * `register()`) runs no `down()`.
  */
 export async function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>> {
-  const booted: ServiceProvider[] = [];
+  const started: ServiceProvider[] = [];
   let providers: ServiceProvider[] = [];
   try {
     providers = Providers.map(Provider => new Provider(app));
@@ -85,11 +86,11 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
       await provider.register();
     }
     for (const provider of providers) {
+      started.push(provider);
       await provider.boot();
-      booted.push(provider);
     }
   } catch (error) {
-    for (const provider of [...booted].reverse()) {
+    for (const provider of [...started].reverse()) {
       // A down() may throw synchronously or return no promise
       try {
         await provider.down();

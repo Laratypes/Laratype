@@ -9,7 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
-import { DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
+import { DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
 import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
 
@@ -42,7 +42,7 @@ export interface ApiPluginApi {
 
 export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi> {
   const projectDir = options.projectDir ?? process.cwd();
-  const outDir = options.outDir ?? '.laratype';
+  const outDir = options.outDir ?? DEFAULT_OUT;
   const indexFile = join(projectDir, outDir, 'api', 'index.gen.ts');
   const indexId = slash(indexFile);
   const configFile = resolve(projectDir, 'app', 'config', 'config.ts');

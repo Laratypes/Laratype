@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
-import { DEFAULT_BASE, DEFAULT_ROOT } from "./config";
+import { DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT } from "./config";
 import { emitTree } from "./emit";
 import type { GeneratedFile } from "./emit";
 import { ScanError, scanTree } from "./scan";
@@ -103,7 +103,7 @@ export interface TreePaths {
 export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
-  const outDir = slash(options.outDir ?? ".laratype");
+  const outDir = slash(options.outDir ?? DEFAULT_OUT);
   // A relative folder inside the project: emit uses the root as a path segment, so an absolute root (a drive letter
   // included) is rejected even when it points inside
   if (isAbsolute(root) || /^[a-zA-Z]:/.test(root) || !inside(projectDir, resolve(projectDir, root))) {

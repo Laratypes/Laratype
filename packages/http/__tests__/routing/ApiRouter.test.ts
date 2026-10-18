@@ -87,6 +87,13 @@ describe('Route.api', () => {
     const ping = await app.request('/gone/ping')
     expect(ping.status).toBe(204)
     expect(await ping.text()).toBe('')
+    // 205 Reset Content has no body either
+    const reset = defineContract()({ clear: endpoint.post('/').status(205) })
+    class Reset extends Controller { clear() { return { ignored: true } } }
+    const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [], dirs: [] } }), (r) => [r.contract(reset, Reset)]))
+    const cleared = await resetApp.request('/reset', { method: 'POST' })
+    expect(cleared.status).toBe(205)
+    expect(await cleared.text()).toBe('')
     // .status(n) before .response()
     const queued = await app.request('/gone/queue', { method: 'POST' })
     expect(queued.status).toBe(202)
@@ -105,6 +112,25 @@ describe('Route.api', () => {
     expect(() => Route.api(quietApi, (r) => [r.contract(quiet, Quiet)])).toThrow(
       'quiet.remove: Quiet.remove has status 200 from its status decorator, but the endpoint declares 204',
     )
+  })
+
+  it('contract routes get the raw path params: no 0.5 implicit or Route.model binding', async () => {
+    const lookups: string[] = []
+    const g = globalThis as Record<string, unknown>
+    const saved = { bindings: g.__laratype_route_model_bindings, map: g.__laratype_param_model_map }
+    // a resolver bound to the param name, and an entity mapped to it, as the 0.5 router would use
+    g.__laratype_route_model_bindings = { user: async (value: string) => (lookups.push(value), null) }
+    g.__laratype_param_model_map = { user: 'User' }
+    try {
+      const { app } = mount(routes)
+      const res = await app.request('/api/users/7/posts')
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ user: '7', posts: [] })
+      expect(lookups).toEqual([])
+    } finally {
+      g.__laratype_route_model_bindings = saved.bindings
+      g.__laratype_param_model_map = saved.map
+    }
   })
 
   it('returns one registry entry per route: name, method, path, endpoint, controller, middleware, policies', () => {
@@ -206,6 +232,9 @@ describe('auth and authorize are not enforced yet', () => {
     class Ping extends Controller { ping() { return 'pong' } }
     mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).toHaveBeenCalledTimes(2)
+    // only the last list is remembered: going back to the first one warns again
+    mount(build())
+    expect(warn).toHaveBeenCalledTimes(3)
   })
 
   it('mount() warns once, listing the routes with auth or authorize', () => {

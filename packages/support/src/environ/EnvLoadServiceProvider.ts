@@ -3,34 +3,45 @@ import { getProjectPath } from "../path-resolver/pathResolver";
 import { globSync } from "glob";
 import dotenv from "dotenv";
 import { existsSync } from "fs";
+import { resolve } from "path";
+
+/**
+ * Loads the project's env file into `process.env`: `.env`, else `.env.local`, else the first `.env.*`. Values already
+ * set are kept. Shared by `EnvLoadServiceProvider` and the `sauf` contract-tree scan, which reads the config before the
+ * providers boot. Returns the file it loaded.
+ */
+export function loadEnv(projectDir?: string): string | undefined {
+  const at = (file: string) => (projectDir ? resolve(projectDir, file) : getProjectPath(file, false));
+  const priorities = [
+    '.env',
+    '.env.local',
+  ].map((file) => at(file)).filter((file) => existsSync(file));
+
+  const envFiles = globSync(at('.env.*'), {
+    windowsPathsNoEscape: true,
+  });
+
+  envFiles.forEach((file) => {
+    if(!priorities.includes(file)) {
+      priorities.push(file);
+    };
+  });
+
+  const path = priorities[0];
+
+  dotenv.config({
+    path,
+  });
+
+  globalThis.__laratype_env_file = path;
+
+  return path;
+}
 
 export default class EnvLoadServiceProvider extends ServiceProvider {
 
   public async boot() {
-
-    const priorities = [
-      '.env',
-      '.env.local',
-    ].map((file) => getProjectPath(file, false)).filter((file) => existsSync(file));
-
-    const envFiles = globSync(getProjectPath('.env.*', false), {
-      windowsPathsNoEscape: true,
-    });
-
-    envFiles.forEach((file) => {
-      if(!priorities.includes(file)) {
-        priorities.push(file);
-      };
-    });
-
-    const path = priorities[0];
-
-    dotenv.config({
-      path,
-    });
-
-    globalThis.__laratype_env_file = path;
-
+    loadEnv();
   }
 
 }

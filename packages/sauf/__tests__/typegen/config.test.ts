@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import TypesGenerateCommand, { runTypesGenerate } from '../../src/commands/types/generate';
+import { pathToFileURL } from 'node:url';
 import { normalizePath } from 'vite';
-import { ScanError, apiTreeConfig, contractTreePlugin, laratypeApi, readApiTreeConfig, resolveApiTree, syncContractTree } from '../../src/typegen';
+import { bootsApp } from '../../src/utils/command';
+import { ScanError, apiTreeConfig, contractTreePlugin, isolatedImport, laratypeApi, readApiTreeConfig, resolveApiTree, syncContractTree } from '../../src/typegen';
 import type { ApiPluginApi } from '../../src/typegen';
 import { scanFiles } from '../../src/typegen';
 import { shouldRestart } from '../../src/utils/restarter';
@@ -123,6 +125,17 @@ describe('sauf types:generate reads the config key', () => {
       ['v1.health', '/v2/v1/health'],
     ]);
     expect(files.map((f) => f.path)).toContain('.laratype/types/app/contracts/users/[user]/$types.d.ts');
+  }, 60_000);
+
+  it('types:generate does not load the app: no register(), so no $api import or dev scan before its own flags', async () => {
+    expect(bootsApp(TypesGenerateCommand)).toBe(false);
+    expect(bootsApp(class extends TypesGenerateCommand { static bootsApp = true; })).toBe(true);
+    // a config whose tree is broken: --root other wins, the error is the command's, nothing is written
+    const dir = project('broken-tree', "export default { api: { root: 'app/api' } }\n");
+    writeFileSync(join(dir, 'app/api/bad.name.ts'), 'export {}\n');
+    await expect(runTypesGenerate(dir, { root: 'other' }, load)).rejects.toThrow('the contract tree root "other" does not exist (set it with --root or config api.root)');
+    expect(existsSync(join(dir, '.laratype'))).toBe(false);
+    await expect(runTypesGenerate(dir, {}, load)).rejects.toThrow('file name "bad.name"');
   }, 60_000);
 
   it('with both --root and --base, app/config/config.ts is not imported at all', async () => {
@@ -312,15 +325,30 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(api.inTree(join(dir, 'app/api/users/[user]/_scope.ts'))).toBe(true);
   });
 
-  it('reads app/config/config.ts on its own', async () => {
-    const dir = project('plugin-file', "export default { api: { root: 'app/contracts', base: '/v3' } }\n", 'app/contracts');
+  it('reads app/config/config.ts outside the app module graph, with the .env loaded first', async () => {
+    const dir = project('plugin-file', [
+      "import { base } from './base'",
+      "export default { api: { root: 'app/contracts', base }, key: process.env.H1_APP_KEY }",
+      '',
+    ].join('\n'), 'app/contracts');
+    // the config imports another module: with the app's loader that module could still be pending up the chain
+    writeFileSync(join(dir, 'app/config/base.ts'), "export const base = process.env.H1_API_BASE ?? '/missing'\n");
+    writeFileSync(join(dir, '.env'), 'H1_API_BASE=/v3\nH1_APP_KEY=from-dotenv\n');
+    const vite: string[] = [];
     const previous = globalThis.__sauf_transpiler_instance;
-    globalThis.__sauf_transpiler_instance = load;
+    globalThis.__sauf_transpiler_instance = async (id: string) => { vite.push(id); throw new Error('the app loader must not be used'); };
     try {
       const id = await (laratypeApi({ projectDir: dir }).resolveId as (source: string) => Promise<string | null>)('$api');
+      // the .env value reached the config the scan read
       expect(readFileSync(id!, 'utf8')).toContain("path: '/v3/users'");
+      // the app's module cache was not used, so its later import of config.ts evaluates fresh, with env loaded
+      expect(vite).toEqual([]);
+      const fresh = (await isolatedImport(pathToFileURL(join(dir, 'app/config/config.ts')).href)) as { default: { key: string } };
+      expect(fresh.default.key).toBe('from-dotenv');
     } finally {
       globalThis.__sauf_transpiler_instance = previous;
+      delete process.env.H1_API_BASE;
+      delete process.env.H1_APP_KEY;
     }
   });
 });

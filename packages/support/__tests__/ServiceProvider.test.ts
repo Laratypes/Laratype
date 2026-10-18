@@ -124,14 +124,14 @@ describe('bootProviders rollback', () => {
     return bootProviders(makeApp(), Providers)
   }
 
-  it('a boot failure in B downs A only (not B, C or D), in reverse order, and rethrows', async () => {
+  it('a boot failure in B downs B then A (not C or D), and rethrows', async () => {
     await expect(run([make('a'), make('b', { failBoot: true }), make('c'), make('d')])).rejects.toThrow('b boot failed')
-    expect(log).toEqual(['a.register', 'b.register', 'c.register', 'd.register', 'a.boot', 'b.boot', 'a.down'])
+    expect(log).toEqual(['a.register', 'b.register', 'c.register', 'd.register', 'a.boot', 'b.boot', 'b.down', 'a.down'])
   })
 
-  it('downs the booted providers in reverse order', async () => {
+  it('downs every provider whose boot() started, in reverse order', async () => {
     await expect(run([make('a'), make('b'), make('c', { failBoot: true })])).rejects.toThrow('c boot failed')
-    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['b.down', 'a.down'])
+    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['c.down', 'b.down', 'a.down'])
   })
 
   it('a register failure downs none', async () => {
@@ -147,7 +147,7 @@ describe('bootProviders rollback', () => {
   it('logs a failing down() (async or sync) and still rethrows the original error', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     await expect(run([make('a', { failDown: true }), make('b', { syncDown: true }), make('c', { failBoot: true })])).rejects.toThrow('c boot failed')
-    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['b.down', 'a.down'])
+    expect(log.filter((l) => l.endsWith('.down'))).toEqual(['c.down', 'b.down', 'a.down'])
     expect(error).toHaveBeenCalledTimes(2)
     expect(String(error.mock.calls[0]![0])).toContain('down() failed while rolling back a failed boot')
     error.mockRestore()

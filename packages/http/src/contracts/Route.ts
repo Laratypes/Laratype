@@ -38,6 +38,8 @@ export type RouteParams = {
   path: string,
   /** The response status of a `Route.api` route, from its endpoint definition. */
   status?: number,
+  /** `false` for `Route.api` routes: no 0.5 implicit or `Route.model` binding (contract binding is `r.bind`, H7 #118). */
+  modelBinding?: false,
   request?: typeof Request,
   can?: PolicyFactory[],
   controller: [typeof Controller, string]

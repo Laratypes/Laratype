@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { importModule } from "@laratype/support";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createJiti } from "jiti";
+import { loadEnv } from "@laratype/support";
 import { ScanError, checkBase } from "./scan";
 
 /**
@@ -17,6 +18,8 @@ export interface ApiTreeConfig {
 
 export const DEFAULT_ROOT = "app/api";
 export const DEFAULT_BASE = "/api";
+/** The generated folder: `$types.d.ts` files and `api/index.gen.ts`. */
+export const DEFAULT_OUT = ".laratype";
 
 /** Checks the `api` key of a config object; a missing key is `{}`. */
 export function apiTreeConfig(config: unknown): ApiTreeConfig {
@@ -30,12 +33,24 @@ export function apiTreeConfig(config: unknown): ApiTreeConfig {
 }
 
 /**
- * Reads `api` from `app/config/config.ts` by importing that file only: no provider boots, so no database, auth
- * or env is needed. A project without the file uses the defaults.
+ * Imports a config file outside the app's module graph: a jiti instance with no module cache. The Vite SSR cache is
+ * not touched, so the app's own later import of the file evaluates it fresh (after `EnvLoadServiceProvider`), and a
+ * config that imports a module still loading up the app's import chain can't deadlock the scan.
  */
-export async function readApiTreeConfig(projectDir: string, load: (url: string) => Promise<unknown> = (url) => importModule(url)): Promise<ApiTreeConfig> {
+export const isolatedImport = (url: string): Promise<unknown> => {
+  const file = fileURLToPath(url);
+  return createJiti(file, { moduleCache: false, fsCache: false }).import(file);
+};
+
+/**
+ * Reads `api` from `app/config/config.ts` by importing that file only, in isolation (`isolatedImport`): no provider
+ * boots, so no database or auth is needed. The project's env file is loaded first (`loadEnv`, as
+ * `EnvLoadServiceProvider` does), so `Env.get()` in the config sees it. A project without the file uses the defaults.
+ */
+export async function readApiTreeConfig(projectDir: string, load: (url: string) => Promise<unknown> = isolatedImport): Promise<ApiTreeConfig> {
   const file = join(projectDir, "app", "config", "config.ts");
   if (!existsSync(file)) return {};
+  loadEnv(projectDir);
   const mod = (await load(pathToFileURL(file).href)) as { default?: unknown } | undefined;
   if (!mod) throw new ScanError("could not load app/config/config.ts (see the error above)");
   return apiTreeConfig(mod.default);

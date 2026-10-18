@@ -195,18 +195,17 @@ const statusMetadata = (controller: ControllerClass, key: string): number | unde
   return typeof value === "number" ? value : undefined;
 };
 
-/** The routes the warning listed last, per process: dev restarts re-mount the same routes and must not repeat it. */
+/** The route list the warning printed last, per process: dev restarts re-mount the same routes and must not repeat it. */
 const WARNED = Symbol.for("laratype.http.unenforcedWarned");
 
 /** One warning per process and route set: until #105 / #121 / #229 / #106 such a route skips those checks. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
-  const store = globalThis as { [WARNED]?: Set<string> };
-  const warned = (store[WARNED] ??= new Set());
+  const store = globalThis as { [WARNED]?: string };
   const key = list.join(", ");
-  if (warned.has(key)) return;
-  warned.add(key);
+  if (store[WARNED] === key) return;
+  store[WARNED] = key;
   console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 
@@ -235,6 +234,7 @@ export class ApiRoutes {
         path: route.path,
         name: route.name,
         status: route.endpoint.def.status,
+        modelBinding: false,
         controller: route.controller as unknown as RouteParams["controller"],
         middleware: [...route.middleware],
       });

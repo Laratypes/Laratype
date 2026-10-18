@@ -1,7 +1,7 @@
 import process, { cwd } from "node:process";
 import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
-import { ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
+import { DEFAULT_OUT, ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
 
 export default class TypesGenerateCommand extends Command {
 
@@ -12,12 +12,15 @@ export default class TypesGenerateCommand extends Command {
   static options = [
     ['--root <dir>', 'Contract tree root, relative to the project (default: config api.root, else app/api)'],
     ['--base <path>', 'URL base of the root (default: config api.base, else /api)'],
-    ['--out <dir>', 'Output folder', '.laratype'],
+    ['--out <dir>', 'Output folder', DEFAULT_OUT],
     ['--api-out <file>', 'Separate-repo api.ts (default: <out>/api.ts)'],
     ['--tsconfig <file>', 'tsconfig used to type-check the tree (default: tsconfig.json)'],
   ]
 
-  // The generator reads files only: no provider boots. The tree root comes from app/config/config.ts, imported on its own.
+  // The generator reads files only: the app is not loaded (no register(), so no $api import and no dev scan) and no
+  // provider boots. The tree root comes from app/config/config.ts, imported on its own.
+  static bootsApp = false;
+
   public async providers() {
     return [];
   }
