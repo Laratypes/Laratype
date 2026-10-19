@@ -1,7 +1,8 @@
 import process, { cwd } from "node:process";
 import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
-import { DEFAULT_OUT, ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
+import { ConfigImportError, DEFAULT_OUT, ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
+import type { ApiTreeConfig } from "../../typegen";
 
 export default class TypesGenerateCommand extends Command {
 
@@ -58,10 +59,25 @@ export interface TypesGenerateFlags {
   readonly tsconfig?: string;
 }
 
+/**
+ * The config's `api` key, or `{}` (the flags and the defaults) with a warning when the file can't be imported on its
+ * own: before the config key, types:generate never imported it, so such a project must keep generating. An `api` key
+ * that loads but is invalid still fails.
+ */
+async function readConfigOrDefaults(projectDir: string, load?: (url: string) => Promise<unknown>): Promise<ApiTreeConfig> {
+  try {
+    return await readApiTreeConfig(projectDir, load);
+  } catch (error) {
+    if (!(error instanceof ConfigImportError)) throw error;
+    Console.warn(`[sauf types:generate] ${error.message}; using --root / --base and the defaults (app/api, /api) instead of config api`);
+    return {};
+  }
+}
+
 /** `sauf types:generate` without the console: config `api.root` / `api.base`, overridden by `--root` / `--base`. */
 export async function runTypesGenerate(projectDir: string, flags: TypesGenerateFlags, load?: (url: string) => Promise<unknown>) {
   // Both flags given: the config is not needed, so it is not imported (it may need env or providers)
-  const config = flags.root !== undefined && flags.base !== undefined ? {} : await readApiTreeConfig(projectDir, load);
+  const config = flags.root !== undefined && flags.base !== undefined ? {} : await readConfigOrDefaults(projectDir, load);
   const tree = resolveApiTree({ root: flags.root, base: flags.base }, config);
   return generateTypes({ projectDir, ...tree, outDir: flags.out, apiOut: flags.apiOut, tsconfig: flags.tsconfig });
 }

@@ -12,7 +12,7 @@ export { emitApiIndex, emitTree, emitTypesFile } from "./emit";
 export type { EmitOptions, GeneratedFile } from "./emit";
 export { ApiGenerationError, generateApiFile } from "./api";
 export type { ApiFileOptions, ManifestEntry } from "./api";
-export { DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, isolatedImport, readApiTreeConfig, resolveApiTree } from "./config";
+export { ConfigImportError, DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, isolatedImport, readApiTreeConfig, resolveApiTree } from "./config";
 export type { ApiTreeConfig } from "./config";
 export { syncContractTree } from "./sync";
 export type { GenerateOptions, GenerateResult, SyncResult } from "./sync";

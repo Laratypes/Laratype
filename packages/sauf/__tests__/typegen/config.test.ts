@@ -2,7 +2,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Console } from '@laratype/console';
 import TypesGenerateCommand, { runTypesGenerate } from '../../src/commands/types/generate';
 import { pathToFileURL } from 'node:url';
 import { normalizePath } from 'vite';
@@ -160,8 +161,30 @@ describe('sauf types:generate reads the config key', () => {
     const load = async () => { throw new Error('the config must not be imported'); };
     const { tree } = await runTypesGenerate(dir, { root: 'app/api', base: '/v9' }, load);
     expect(tree.contracts[0]!.path).toBe('/v9/users');
-    // one flag alone still reads the config for the other
-    await expect(runTypesGenerate(dir, { root: 'app/api' }, load)).rejects.toThrow('the config must not be imported');
+    // one flag alone still reads the config for the other: it can't be imported, so the defaults apply, with a warning
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    const fallback = await runTypesGenerate(dir, { root: 'app/api' }, load);
+    expect(fallback.tree.contracts[0]!.path).toBe('/api/users');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the config must not be imported'));
+    warn.mockRestore();
+  }, 60_000);
+
+  it('a config that cannot be imported on its own (an alias) falls back to the defaults with a warning, as before the config key', async () => {
+    const dir = project('alias-generate', "import { base } from '@app/base'\nexport default { api: { base } }\n");
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const { tree } = await runTypesGenerate(dir, {});
+      expect(tree.contracts.map((c) => c.path)).toEqual(['/api/users', '/api/users/:user/posts', '/api/v1/health']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(
+        /^\[sauf types:generate\] app\/config\/config\.ts could not be imported on its own .*@app\/base.*; using --root \/ --base and the defaults \(app\/api, \/api\) instead of config api$/s,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+    // an api key that loads but is invalid still fails
+    const bad = project('bad-root-generate', "export default { api: { root: '../outside' } }\n");
+    await expect(runTypesGenerate(bad, {})).rejects.toThrow('the contract tree root "../outside" (config api.root) must be a folder inside the project');
   }, 60_000);
 
   it('--root / --base override the config', async () => {
@@ -295,6 +318,10 @@ describe('laratype:api (the dev scan behind $api)', () => {
     await expect(resolveId('$api')).rejects.toThrow(
       /^\[laratype:api\] app\/config\/config\.ts could not be imported on its own \(no Vite or tsconfig path aliases there\): .*@app\/base/,
     );
+    // the jiti import error (with its stack) stays the cause, through the plugin's prefixed rethrow
+    const error = await resolveId('$api').catch((e: unknown) => e) as Error;
+    expect(error).toBeInstanceOf(ScanError);
+    expect(String((error.cause as Error)?.message)).toContain('@app/base');
   });
 
   it('a config that imports $api fails clearly (the isolated import cannot resolve it)', async () => {

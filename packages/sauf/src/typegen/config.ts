@@ -6,6 +6,18 @@ import { loadEnv } from "@laratype/support";
 import { ScanError, checkBase } from "./scan";
 
 /**
+ * `app/config/config.ts` itself could not be imported (an alias, a module needing Vite transforms, a `$api` import).
+ * `sauf types:generate` falls back to its flags and the defaults on it; an `api` key that loads but is invalid is a
+ * plain `ScanError`.
+ */
+export class ConfigImportError extends ScanError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ConfigImportError";
+  }
+}
+
+/**
  * Where the contract tree lives: config `api.root` / `api.base` (docs/v1/contract.md › Contract folder tree › Root).
  * `sauf types:generate` and the server's dev scan read the same value; the `--root` / `--base` flags override it.
  */
@@ -58,12 +70,12 @@ export async function readApiTreeConfig(projectDir: string, load: (url: string) 
   } catch (error) {
     // `$api` is generated from the tree this config locates, so the config cannot import it
     if (/Cannot find (module|package) ['"]\$api['"]/.test(String((error as Error)?.message ?? error))) {
-      throw new ScanError("app/config/config.ts must not import $api (directly or indirectly)");
+      throw new ConfigImportError("app/config/config.ts must not import $api (directly or indirectly)", { cause: error });
     }
     // Imported on its own, the config knows no Vite or tsconfig `paths` alias: name the file the error comes from
-    throw new ScanError(`app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): ${String((error as Error)?.message ?? error)}`, { cause: error });
+    throw new ConfigImportError(`app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): ${String((error as Error)?.message ?? error)}`, { cause: error });
   }
-  if (!mod) throw new ScanError("could not load app/config/config.ts (see the error above)");
+  if (!mod) throw new ConfigImportError("could not load app/config/config.ts (see the error above)");
   return apiTreeConfig(mod.default);
 }
 

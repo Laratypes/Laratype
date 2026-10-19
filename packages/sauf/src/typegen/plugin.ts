@@ -82,7 +82,8 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   const rescan = () => {
     const run = scan().catch((error: unknown) => {
       if (current === run) current = undefined;
-      throw error instanceof ScanError ? new ScanError(`[${API_PLUGIN_NAME}] ${error.message}`) : error;
+      // The original's cause (the jiti import error and its stack) is kept
+      throw error instanceof ScanError ? new ScanError(`[${API_PLUGIN_NAME}] ${error.message}`, { cause: error.cause }) : error;
     });
     current = run;
     return run;
