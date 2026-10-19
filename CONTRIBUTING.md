@@ -52,10 +52,12 @@ These match [AGENTS.md](AGENTS.md#commands).
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
+`.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on PRs from branches of this repo, on push to `master` and on manual `workflow_dispatch` runs; the pkg.pr.new app comments the install links on the PR. Changes that touch only `docs/**` or root-level `*.md` files get no preview.
+
 ## Branches and commits
 
 - **Branch:** `<type>/<id>-<slug>`, with type one of `feat | fix | refactor | perf | spike | test | docs | chore | build | ci`, e.g. `feat/c3-standard-schema-adapter`.
-- **Commit:** `<type>(<area>): <summary>`, with LF line endings (see [Line endings on Windows](#line-endings-on-windows)).
+- **Commit:** `<type>(<area>): <summary>`, with LF line endings (see [Line endings](#line-endings)).
 - Don't bump package versions; release PRs do that.
 
 ## Pull requests
@@ -79,11 +81,11 @@ After the parent PR merges:
 2. A retarget is an `edited` event, so CI does not run. Wait until `refs/pull/<N>/merge` is rebuilt on the new `master`: `git fetch origin refs/pull/<N>/merge && git log -1 --format=%P FETCH_HEAD` must print the new `master` SHA first.
 3. Close and reopen the PR to trigger CI. In the run's checkout step, the line `HEAD is now at ... Merge <head> into <base>` must name the new `master`; if it names the old base, close and reopen again.
 
-## Line endings on Windows
+## Line endings
 
-The repo has no `.gitattributes` yet ([#189](https://github.com/Laratypes/Laratype/issues/189)). With `core.autocrlf=true`, files that git rewrites (checkout, rebase) get CRLF, and the sauf DI snapshot tests fail with whitespace-only diffs.
+`.gitattributes` sets `* text=auto eol=lf` (and `*.png binary`), so git checks text files out as LF on every platform, whatever `core.autocrlf` is.
 
-- To fix a working copy, delete the affected files and check them out again: `git -c core.autocrlf=false checkout HEAD -- <paths>`.
+- A clone or worktree checked out before that commit keeps CRLF copies of the files git has not rewritten since (on Windows with `core.autocrlf=true`, nearly every file), `git status` does not show them, and snapshot tests fail on them with whitespace-only diffs. Run these commands from the repo root: `git ls-files --eol | grep crlf` lists them. To fix the checkout once, commit your changes to tracked files first, because `reset --hard` discards them (untracked files are kept). Then run `git rm -rq --cached . && git reset --hard HEAD`; afterwards `git ls-files --eol | grep crlf` prints nothing.
 - Before pushing, check that committed files are LF: `git show HEAD:<file> | tr -cd '\r' | wc -c` prints `0`.
 
 ## Security
