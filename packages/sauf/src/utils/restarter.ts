@@ -80,11 +80,19 @@ export class RescanFlag {
     this.pending = true;
   }
 
-  /** Runs `rescan` when pending; clears the flag only if it resolves. */
+  /**
+   * Runs `rescan` when pending. The flag is cleared before it runs, so a `mark()` during the rescan (a file added
+   * while the config is imported) makes the next run rescan again, and set again if it throws.
+   */
   async run(rescan: (() => Promise<void>) | undefined): Promise<void> {
     if (!this.pending) return;
-    await rescan?.();
     this.pending = false;
+    try {
+      await rescan?.();
+    } catch (error) {
+      this.pending = true;
+      throw error;
+    }
   }
 }
 

@@ -220,11 +220,19 @@ const warnUnenforced = (routes: readonly RouteEntry[]) => {
   console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 
+/** Whether a param pattern can match `/`: an unescaped `.`, a `/`, a negated class `[^...]`, or `\S`, `\W`, `\D`. */
+const spansSegments = (pattern: string) => /(^|[^\\])\.|\/|\[\^|\\[SWD]/.test(pattern);
+
 /**
- * 0 for a static segment, 1 for a param (`:user`, `:id?`), 1.5 for a regex param (`:id{[0-9]+}`, which may span
- * segments, as `:path{.+}` does), 2 for a wildcard.
+ * 0 for a static segment, 0.5 for a param constrained to one segment (`:id{[0-9]+}`, more specific than a plain one),
+ * 1 for a param (`:user`, `:id?`), 1.5 for a regex param that can span segments (`:path{.+}`), 2 for a wildcard.
  */
-const segmentRank = (segment: string) => (segment.startsWith(":") ? (segment.includes("{") ? 1.5 : 1) : segment.includes("*") ? 2 : 0);
+const segmentRank = (segment: string) => {
+  if (!segment.startsWith(":")) return segment.includes("*") ? 2 : 0;
+  const open = segment.indexOf("{");
+  if (open === -1) return 1;
+  return spansSegments(segment.slice(open + 1, segment.lastIndexOf("}"))) ? 1.5 : 0.5;
+};
 
 /** The path segments, keeping a `/` inside a regex pattern (`:file{.+/.+}`) in its segment, as the contract types do. */
 const segments = (path: string): string[] => {

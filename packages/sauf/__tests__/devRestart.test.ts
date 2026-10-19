@@ -112,6 +112,18 @@ describe('RescanFlag', () => {
     await flag.run(undefined);
     expect(flag.isPending).toBe(false);
   });
+
+  it('a mark() during an in-flight rescan makes the next run rescan again', async () => {
+    const flag = new RescanFlag();
+    let calls = 0;
+    flag.mark();
+    // config.ts changed: the rescan is importing it when app/api/comments.ts is added
+    await flag.run(async () => { calls++; flag.mark(); });
+    expect(flag.isPending).toBe(true);
+    await flag.run(async () => { calls++; });
+    expect(calls).toBe(2);
+    expect(flag.isPending).toBe(false);
+  });
 });
 
 describe('shouldRestart', () => {

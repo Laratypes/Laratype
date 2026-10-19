@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createJiti } from "jiti";
 import { loadEnv } from "@laratype/support";
 import { ScanError, checkBase } from "./scan";
 
@@ -49,8 +48,10 @@ export function apiTreeConfig(config: unknown): ApiTreeConfig {
  * not touched, so the app's own later import of the file evaluates it fresh (after `EnvLoadServiceProvider`), and a
  * config that imports a module still loading up the app's import chain can't deadlock the scan.
  */
-export const isolatedImport = (url: string): Promise<unknown> => {
+export const isolatedImport = async (url: string): Promise<unknown> => {
   const file = fileURLToPath(url);
+  // Loaded here only: this module is part of every `sauf` start (even `--help`), which never needs jiti
+  const { createJiti } = await import("jiti");
   // No module cache (a fresh evaluation each time); the transpile cache stays, so rescans don't re-transpile the graph
   return createJiti(file, { moduleCache: false }).import(file);
 };

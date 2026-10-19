@@ -103,6 +103,21 @@ describe('Route.api', () => {
     expect(await (await app.request('/api/files/a/b.txt')).json()).toEqual({ path: 'a/b.txt' })
   })
 
+  it('a param constrained to one segment ranks before a plain param at the same position', async () => {
+    // /api/posts/:slug and /api/posts/:id{[0-9]+}: the slug route comes first in tree order
+    const bySlug = defineContract()({ show: endpoint.get('/:slug').response(anything) })
+    const byId = defineContract()({ show: endpoint.get('/:id{[0-9]+}').response(anything) })
+    const tree = defineApi({
+      slugs: { contract: bySlug, path: '/api/posts', scopes: [], dirs: [] },
+      ids: { contract: byId, path: '/api/posts', scopes: [], dirs: [] },
+    })
+    class SlugController extends Controller { show(_req: unknown, { slug }: { slug: string }) { return { slug } } }
+    class IdController extends Controller { show(_req: unknown, { id }: { id: string }) { return { id } } }
+    const { app } = mount(Route.api(tree, (r) => [r.contract(bySlug, SlugController), r.contract(byId, IdController)]))
+    expect(await (await app.request('/api/posts/42')).json()).toEqual({ id: '42' })
+    expect(await (await app.request('/api/posts/abc')).json()).toEqual({ slug: 'abc' })
+  })
+
   it('a tree node mounts its contract, so two contracts of the same shape can be told apart', async () => {
     const postsOnly = defineContract()({ index: endpoint.get('/').response(anything) })
     const comments = defineContract()({ index: endpoint.get('/').response(anything) })
