@@ -56,14 +56,21 @@ export function emitTypesFile(folder: ScannedFolder, options: EmitOptions): Gene
 /** `<outDir>/api/index.gen.ts`: the aggregated `appApi`, imported as `$api`. */
 export function emitApiIndex(tree: ContractTree, options: EmitOptions): GeneratedFile {
   const outDir = posix.join(options.outDir, "api");
+  // Each scope file's import id, and its folder (`""` for the root): the `dirs` entry of `defineApi`
   const scopeIds = new Map<string, string>();
-  for (const folder of tree.folders) if (folder.scope) scopeIds.set(folder.scope, `s${scopeIds.size}`);
+  const scopeDirs = new Map<string, string>();
+  for (const folder of tree.folders) {
+    if (!folder.scope) continue;
+    scopeIds.set(folder.scope, `s${scopeIds.size}`);
+    scopeDirs.set(folder.scope, folder.dir);
+  }
   const imports = [
     ...[...scopeIds].map(([file, id]) => `import ${id} from ${quote(specifier(outDir, posix.join(options.root, file)))}`),
     ...tree.contracts.map((c, i) => `import c${i} from ${quote(specifier(outDir, posix.join(options.root, c.file)))}`),
   ];
   const entries = tree.contracts.map(
-    (c, i) => `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => scopeIds.get(s)).join(", ")}] },`,
+    (c, i) =>
+      `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => scopeIds.get(s)).join(", ")}], dirs: [${c.scopes.map((s) => quote(scopeDirs.get(s)!)).join(", ")}] },`,
   );
   const content =
     BANNER +

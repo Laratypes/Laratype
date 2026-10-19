@@ -71,26 +71,36 @@ expectTypeOf(apiRoutes(appApi)[0]!).toEqualTypeOf<ApiRoute<ApiRouteName<AppApi>>
 
 // pure folder nodes (`v1` in `v1.health`) and inline contracts
 const health = defineContract()({ check: endpoint.get('/').response(z.object({ ok: z.boolean() })) })
-const v1 = defineApi({ 'v1.health': { contract: health, path: '/api/v1/health', scopes: [] } })
+const v1 = defineApi({ 'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] } })
 expectTypeOf<ApiRouteName<typeof v1>>().toEqualTypeOf<'v1.health.check'>()
 expectTypeOf<ApiTypes<typeof v1>['v1']['health']['check']['path']>().toEqualTypeOf<'/api/v1/health'>()
 
 // --- defineApi diagnostics
 defineApi({
   // @ts-expect-error defineApi: "users.posts" path must start with its folder prefix "/api/users/:user"
-  'users.posts': { contract: posts, path: '/api/posts', scopes: [usersUser] },
+  'users.posts': { contract: posts, path: '/api/posts', scopes: [usersUser], dirs: ['users/[user]'] },
 })
 defineApi({
   // @ts-expect-error defineApi: "users" has an endpoint and a child contract with the same name
-  users: { contract: users, path: '/api/users', scopes: [] },
-  'users.show': { contract: health, path: '/api/users/show', scopes: [] },
+  users: { contract: users, path: '/api/users', scopes: [], dirs: [] },
+  'users.show': { contract: health, path: '/api/users/show', scopes: [], dirs: [] },
 })
 // @ts-expect-error defineApi: invalid tree name
-defineApi({ 'users..x': { contract: health, path: '/x', scopes: [] } })
-// @ts-expect-error entries are { contract, path, scopes }
+defineApi({ 'users..x': { contract: health, path: '/x', scopes: [], dirs: [] } })
+// @ts-expect-error entries are { contract, path, scopes, dirs }
 defineApi({ users })
+// @ts-expect-error defineApi: "x" needs dirs: the folder of each scope ("" for the root)
+defineApi({ x: { contract: health, path: '/x', scopes: [] } })
+defineApi({
+  // @ts-expect-error defineApi: "users.posts" dirs must hold one folder per scope
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [usersUser], dirs: [] },
+})
+defineApi({
+  // @ts-expect-error defineApi: "users.posts" dirs must hold one folder per scope
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [usersUser], dirs: ['', 'users/[user]'] },
+})
 // @ts-expect-error scopes must be scopes
-defineApi({ x: { contract: health, path: '/x', scopes: [{ auth: true }] } })
+defineApi({ x: { contract: health, path: '/x', scopes: [{ auth: true }], dirs: [''] } })
 
 // --- ApiTypes / EndpointTypes: schema-free projection
 type T = ApiTypes<AppApi>

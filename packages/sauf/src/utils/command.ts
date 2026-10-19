@@ -4,6 +4,12 @@ import Transpile from './transplie';
 import { resolveSync } from '@laratype/support';
 import SignatureNotConfigYet from '../exceptions/SignatureNotConfigYet';
 
+/**
+ * Whether a command needs the app: `register()` (which imports the app's providers, routes and `$api`) and the
+ * provider boot. A command opts out with `static bootsApp = false` (`types:generate` only reads files).
+ */
+export const bootsApp = (command: typeof CommandInstance): boolean => (command as { bootsApp?: boolean }).bootsApp !== false;
+
 export default class Command {
   protected signature: string;
   
@@ -54,12 +60,15 @@ export default class Command {
       const instance = new this.commandInstance();
       instance.opts = commander.opts.bind(commander);
       await instance.boot.call(instance, this.transpiler);
-      const vite = await this.transpiler.getRunner()
-      const laratype = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
-      const serviceProviders = await laratype.register();
+      let downs: Array<() => unknown> = [];
+      if (bootsApp(this.commandInstance)) {
+        const vite = await this.transpiler.getRunner()
+        const laratype = await vite.ssrLoadModule(resolveSync("laratype")) as typeof import("laratype");
+        const serviceProviders = await laratype.register();
 
-      const filteredProviders = await instance.providers(serviceProviders);
-      const downs = await laratype.bootProviders(laratype.Serve.getContainer(), filteredProviders);
+        const filteredProviders = await instance.providers(serviceProviders);
+        downs = await laratype.bootProviders(laratype.Serve.getContainer(), filteredProviders);
+      }
       const exitCode = await instance.handle.call(instance, ...args);
       
       downs.forEach(down => {

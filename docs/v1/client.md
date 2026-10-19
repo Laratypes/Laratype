@@ -68,7 +68,7 @@ Decided by S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)). Enforced
 None of its own. The FE entry is `.laratype/api/index.gen.ts`, written by `sauf types:generate` and imported as `$api`:
 
 ```ts
-export const appApi = defineApi({ 'users': { contract, path, scopes }, 'users.posts': { ... } })   // see contract.md › defineApi
+export const appApi = defineApi({ 'users': { contract, path, scopes, dirs }, 'users.posts': { ... } })   // see contract.md › defineApi
 export type AppApi = typeof appApi
 ```
 

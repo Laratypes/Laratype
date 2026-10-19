@@ -364,7 +364,7 @@ describe('createClient', () => {
   it('accepts endpoints from another package copy (Symbol.for brand, not instanceof)', async () => {
     const foreign = { def: endpoint.get('/:id').def }
     Object.defineProperty(foreign, Symbol.for('laratype.endpoint'), { value: true })
-    const api = defineApi({ things: { contract: defineContract()({ show: foreign as never }), path: '/api/things', scopes: [] } })
+    const api = defineApi({ things: { contract: defineContract()({ show: foreign as never }), path: '/api/things', scopes: [], dirs: [] } })
     const { fetch, calls } = fakeFetch()
     await (createClient(api, { fetch }) as { things: { show: (i: object) => Promise<Response> } }).things.show({ params: { id: 3 } })
     expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', '/api/things/3']])

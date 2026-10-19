@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 /**
  * Scan of the contract folder tree (docs/v1/contract.md › Contract folder tree). It reads file and folder
@@ -42,8 +42,9 @@ export interface ContractTree {
 }
 
 export class ScanError extends Error {
-  constructor(message: string) {
-    super(`[sauf types:generate] ${message}`);
+  constructor(message: string, options?: ErrorOptions) {
+    // No prefix: `sauf types:generate` prints `[sauf types:generate] `, the dev scan `[laratype:api] `
+    super(message, options);
     this.name = "ScanError";
   }
 }
@@ -52,13 +53,20 @@ const SCOPE_FILE = "_scope.ts";
 const PARAM = /^\[([A-Za-z_][A-Za-z0-9_]*)\]$/;
 const SEGMENT = /^[A-Za-z0-9_-]+$/;
 
+/** The URL base of the root: `""` or a path that starts with `/` and does not end with `/`. Shared by the scan and config `api.base`. */
+export function checkBase(base: unknown, label: string): asserts base is string {
+  if (typeof base !== "string" || (base !== "" && (!base.startsWith("/") || base.endsWith("/")))) {
+    throw new ScanError(`${label} must be "" or a path that starts with "/" and does not end with "/", such as "/api"`);
+  }
+}
+
 const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$");
 
 /** Whether a root-relative file takes part in the tree: a contract or a scope. */
 export const isTreeFile = (file: string): boolean => {
   const parts = file.split("/");
   const base = parts[parts.length - 1]!;
-  if (parts.slice(0, -1).some(isPrivate)) return false;
+  if (parts.slice(0, -1).some((part) => isPrivate(part) || part === "node_modules")) return false;
   if (base === SCOPE_FILE) return true;
   return base.endsWith(".ts") && !/\.(d|test|spec)\.ts$/.test(base) && !isPrivate(base);
 };
@@ -83,7 +91,7 @@ const join2 = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 /** Builds the tree from root-relative file paths (any order). Throws a ScanError on an invalid tree. */
 export function scanFiles(files: readonly string[], base: string): ContractTree {
-  if (base !== "" && (!base.startsWith("/") || base.endsWith("/"))) throw new ScanError(`base "${base}" must be "" or start with "/" and not end with "/"`);
+  checkBase(base, `base "${base}"`);
   const treeFiles = files.map((f) => f.replace(/\\/g, "/")).filter(isTreeFile).sort();
   const scopeDirs = new Set(treeFiles.filter((f) => f === SCOPE_FILE || f.endsWith(`/${SCOPE_FILE}`)).map((f) => f.slice(0, -SCOPE_FILE.length - 1)));
 
@@ -146,14 +154,18 @@ export function scanFiles(files: readonly string[], base: string): ContractTree 
   return { contracts: contracts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)), folders };
 }
 
-/** Lists the files under `rootDir` (root-relative, `/` separators). Private folders (`_x`, `$x`) are skipped. */
-export function listTreeFiles(rootDir: string): string[] {
+/**
+ * Lists the files under `rootDir` (root-relative, `/` separators). Private folders (`_x`, `$x`), `node_modules` and
+ * the `skip` folders (absolute: the output folder when it is inside the root) are skipped.
+ */
+export function listTreeFiles(rootDir: string, skip: readonly string[] = []): string[] {
   const out: string[] = [];
+  const skipped = new Set(skip.map((dir) => resolve(dir)));
   const walk = (dir: string, rel: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const relPath = join2(rel, entry.name);
       if (entry.isDirectory()) {
-        if (!isPrivate(entry.name) && entry.name !== "node_modules") walk(join(dir, entry.name), relPath);
+        if (!isPrivate(entry.name) && entry.name !== "node_modules" && !skipped.has(resolve(dir, entry.name))) walk(join(dir, entry.name), relPath);
       } else if (entry.isFile()) {
         out.push(relPath);
       }
@@ -163,4 +175,4 @@ export function listTreeFiles(rootDir: string): string[] {
   return out;
 }
 
-export const scanTree = (rootDir: string, base: string): ContractTree => scanFiles(listTreeFiles(rootDir), base);
+export const scanTree = (rootDir: string, base: string, skip: readonly string[] = []): ContractTree => scanFiles(listTreeFiles(rootDir, skip), base);

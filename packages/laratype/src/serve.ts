@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { Container, depsRegistry } from "@laratype/core";
 import { bootProviders, HTTP_APP } from "@laratype/support";
+import type { ServiceProvider } from "@laratype/support";
 import { register } from "./bootstrap";
 
 export default class Serve {
@@ -27,9 +28,38 @@ export default class Serve {
     return this.container
   }
 
-  public static async bootProvider() {
-    const serviceProviderBootstrapped = await register()
-    return bootProviders(this.getContainer(), serviceProviderBootstrapped);
+  /**
+   * Boots the providers (the app's, from `register()`, by default). On failure the providers' `down()` has run and the
+   * Hono instance and container are reset, so a dev restart never reuses a half-booted app.
+   */
+  public static async bootProvider(providers?: Array<typeof ServiceProvider>) {
+    try {
+      return await bootProviders(this.getContainer(), providers ?? await register());
+    } catch (error) {
+      this.down();
+      throw error;
+    }
+  }
+
+  /**
+   * Runs every cleanup (the `down()` list from `bootProvider()`), then always resets the app with `down()`, so the next
+   * boot never reuses a stale Hono app or container. Errors are collected and thrown after the reset.
+   */
+  public static async stop(cleanups: ReadonlyArray<() => unknown>) {
+    const errors: unknown[] = [];
+    try {
+      for (const cleanup of cleanups) {
+        try {
+          await cleanup();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    } finally {
+      this.down();
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Serve.stop: several cleanups failed");
   }
 
   public static down() {

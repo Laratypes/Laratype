@@ -28,6 +28,11 @@ export namespace LaratypeConfig {
     readonly cipher: string
     readonly logging?: Logging.Config
     readonly database?: Database.Config
+    /** The contract folder tree: `root` (default `app/api`) and its URL `base` (default `/api`). `sauf types:generate --root/--base` override it. */
+    readonly api?: {
+      readonly root?: string
+      readonly base?: string
+    }
   }
 
   export namespace Logging {

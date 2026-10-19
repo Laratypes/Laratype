@@ -7,6 +7,8 @@ import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
+import { contractTreePlugin } from "../typegen/plugin";
+import { DevRestarter, RescanFlag, shouldRestart } from "../utils/restarter";
 
 export default class LaratypeDevCommand extends Command {
 
@@ -27,10 +29,10 @@ export default class LaratypeDevCommand extends Command {
 
   protected runner: Runner | undefined;
 
-  protected serverInstance: {
-    app: Hono,
-    down: () => void,
-  } | undefined;
+  protected server: DevRestarter<{ app: Hono, down: () => void }> | undefined;
+
+  /** Set by a watcher event that can change the contract tree; the next (re)start rescans it. */
+  protected rescan = new RescanFlag();
 
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
@@ -49,14 +51,22 @@ export default class LaratypeDevCommand extends Command {
         {
           name: 'laratype:dev-server',
           configureServer: async (server) => {
-            this.serverInstance = await this.appStart(server);
+            const restarter = new DevRestarter(() => this.appStart(server), (error) => Console.error(error));
+            this.server = restarter;
+            await restarter.start();
 
             if(opts.hmr) {
-              server.watcher.on('change', (async () => {
-                Console.info('File change detected. Restarting server...');
-                await this.serverInstance!.down();
-                this.serverInstance = await this.appStart(server);
-              }));
+              const tree = contractTreePlugin(server.config.plugins);
+              for (const event of ['change', 'add', 'unlink'] as const) {
+                server.watcher.on(event, (file: string) => {
+                  // The scan rewrites its output folder during a restart: that must not trigger another one
+                  if (!shouldRestart(event, file, tree)) return;
+                  // Only a file added or deleted under the root, or the config, can change the tree
+                  if (tree?.affectsTree(event, file)) this.rescan.mark();
+                  Console.info('File change detected. Restarting server...');
+                  void restarter.restart();
+                });
+              }
             }
 
             server.middlewares.use(await this.createMiddleware(server));
@@ -81,7 +91,11 @@ export default class LaratypeDevCommand extends Command {
   }
 
   protected async appStart(vite: ViteDevServer): Promise<{ app: Hono, down: () => void }> {
-    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);    
+    globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
+
+    // Rescan the contract tree before a restart when it can have changed (the first `$api` import scans it)
+    const tree = contractTreePlugin(vite.config.plugins);
+    await this.rescan.run(tree && (() => tree.restart()));
 
     const { Serve } = await vite.ssrLoadModule(resolveModule("laratype", {
       internal: true,
@@ -89,16 +103,8 @@ export default class LaratypeDevCommand extends Command {
 
     const cleanupFns = await Serve.bootProvider();
 
-    const cleanup = async () => {
-      for (const cleanupFn of cleanupFns) {
-        await cleanupFn();
-      }
-    }
-
-    const down = async () => {
-      await cleanup()
-      Serve.down();
-    }
+    // Every cleanup runs and the Hono app and container are reset even when one throws (Serve.stop)
+    const down = () => Serve.stop(cleanupFns);
 
     return {
       app: Serve.getInstance(),
@@ -128,7 +134,14 @@ export default class LaratypeDevCommand extends Command {
       res: ServerResponse,
       next: (err?: any) => void
     ) => {
-      await this.requestHandler({ app: this.serverInstance!.app, server, req, res, next });
+      const instance = this.server?.current;
+      if (!instance) {
+        // Restarting, or the last restart failed (its error is printed): the next change retries
+        res.statusCode = 503;
+        res.end('Laratype dev server is restarting or failed to start; see the terminal.');
+        return;
+      }
+      await this.requestHandler({ app: instance.app, server, req, res, next });
     }
   }
 

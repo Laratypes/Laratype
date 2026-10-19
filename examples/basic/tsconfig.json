@@ -2,6 +2,14 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "../../",
-    "strict": false
+    "strict": false,
+    // The generated contract tree (docs/v1/typegen.md): ./$types next to each contract, and $api
+    "rootDirs": [".", ".laratype/types"],
+    "paths": {
+      "@laratype/*": ["packages/*/src"],
+      "sauf": ["packages/sauf/src"],
+      "laratype": ["packages/laratype/src"],
+      "$api": ["examples/basic/.laratype/api/index.gen.ts"]
+    }
   }
 }
