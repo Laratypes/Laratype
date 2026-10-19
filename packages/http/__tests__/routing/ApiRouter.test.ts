@@ -88,6 +88,21 @@ describe('Route.api', () => {
     expect(entries.map((e) => e.name)).toEqual(['users.show', 'users.me.index'])
   })
 
+  it('a regex param that can span segments ranks after a plain param, so it does not catch a child route', async () => {
+    // app/api/files.ts { show: '/:path{.+}' } and app/api/files/[id]/raw.ts { index: '/' }
+    const files = defineContract()({ show: endpoint.get('/:path{.+}').response(anything) })
+    const raw = defineContract()({ index: endpoint.get('/').response(anything) })
+    const tree = defineApi({
+      files: { contract: files, path: '/api/files', scopes: [], dirs: [] },
+      'files.raw': { contract: raw, path: '/api/files/:id/raw', scopes: [], dirs: [] },
+    })
+    class FilesController extends Controller { show(_req: unknown, { path }: { path: string }) { return { path } } }
+    class RawController extends Controller { index(_req: unknown, { id }: { id: string }) { return { raw: id } } }
+    const { app } = mount(Route.api(tree, (r) => [r.contract(files, FilesController), r.contract(raw, RawController)]))
+    expect(await (await app.request('/api/files/42/raw')).json()).toEqual({ raw: '42' })
+    expect(await (await app.request('/api/files/a/b.txt')).json()).toEqual({ path: 'a/b.txt' })
+  })
+
   it('a tree node mounts its contract, so two contracts of the same shape can be told apart', async () => {
     const postsOnly = defineContract()({ index: endpoint.get('/').response(anything) })
     const comments = defineContract()({ index: endpoint.get('/').response(anything) })

@@ -289,6 +289,14 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(readFileSync(id!, 'utf8')).not.toContain('things');
   });
 
+  it('a config import that fails (an alias the isolated import does not know) names app/config/config.ts', async () => {
+    const dir = project('alias', "import { base } from '@app/base'\nexport default { api: { base } }\n");
+    const resolveId = laratypeApi({ projectDir: dir }).resolveId as (source: string) => Promise<string | null>;
+    await expect(resolveId('$api')).rejects.toThrow(
+      /^\[laratype:api\] app\/config\/config\.ts could not be imported on its own \(no Vite or tsconfig path aliases there\): .*@app\/base/,
+    );
+  });
+
   it('a config that imports $api fails clearly (the isolated import cannot resolve it)', async () => {
     const dir = project('imports-api', "import { appApi } from '$api'\nexport default { api: {}, appApi }\n");
     const resolveId = laratypeApi({ projectDir: dir }).resolveId as (source: string) => Promise<string | null>;

@@ -95,7 +95,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 - `<dir>: "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
 - `<dir>: folder name "<name>" may only use letters, digits, "_" and "-"`
 - `<file>: file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
-- `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"`, `could not load app/config/config.ts (see the error above)`
+- `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"`, `could not load app/config/config.ts (see the error above)`, `app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): <error>` (the config, or a module it imports, failed to import, for example through a path alias)
 - `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`

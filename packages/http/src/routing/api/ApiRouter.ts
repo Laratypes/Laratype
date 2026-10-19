@@ -220,8 +220,30 @@ const warnUnenforced = (routes: readonly RouteEntry[]) => {
   console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 
-/** 0 for a static segment, 1 for a param (`:user`, `:id?`, `:id{[0-9]+}`), 2 for a wildcard. */
-const segmentRank = (segment: string) => (segment.startsWith(":") ? 1 : segment.includes("*") ? 2 : 0);
+/**
+ * 0 for a static segment, 1 for a param (`:user`, `:id?`), 1.5 for a regex param (`:id{[0-9]+}`, which may span
+ * segments, as `:path{.+}` does), 2 for a wildcard.
+ */
+const segmentRank = (segment: string) => (segment.startsWith(":") ? (segment.includes("{") ? 1.5 : 1) : segment.includes("*") ? 2 : 0);
+
+/** The path segments, keeping a `/` inside a regex pattern (`:file{.+/.+}`) in its segment, as the contract types do. */
+const segments = (path: string): string[] => {
+  const out: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of path) {
+    if (char === "/" && depth === 0) {
+      if (current) out.push(current);
+      current = "";
+      continue;
+    }
+    if (char === "{") depth++;
+    else if (char === "}") depth = Math.max(0, depth - 1);
+    current += char;
+  }
+  if (current) out.push(current);
+  return out;
+};
 
 /**
  * The routes sorted so a static segment comes before a param or a wildcard at the same position, comparing the
@@ -230,7 +252,7 @@ const segmentRank = (segment: string) => (segment.startsWith(":") ? 1 : segment.
  * `users.me.index`.
  */
 const registrationOrder = (routes: readonly RouteEntry[]): RouteEntry[] => {
-  const ranks = new Map(routes.map((route) => [route, route.path.split("/").filter(Boolean).map(segmentRank)]));
+  const ranks = new Map(routes.map((route) => [route, segments(route.path).map(segmentRank)]));
   return [...routes].sort((a, b) => {
     const ra = ranks.get(a)!;
     const rb = ranks.get(b)!;

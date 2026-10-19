@@ -60,7 +60,8 @@ export async function readApiTreeConfig(projectDir: string, load: (url: string) 
     if (/Cannot find (module|package) ['"]\$api['"]/.test(String((error as Error)?.message ?? error))) {
       throw new ScanError("app/config/config.ts must not import $api (directly or indirectly)");
     }
-    throw error;
+    // Imported on its own, the config knows no Vite or tsconfig `paths` alias: name the file the error comes from
+    throw new ScanError(`app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): ${String((error as Error)?.message ?? error)}`, { cause: error });
   }
   if (!mod) throw new ScanError("could not load app/config/config.ts (see the error above)");
   return apiTreeConfig(mod.default);
