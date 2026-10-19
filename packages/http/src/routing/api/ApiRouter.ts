@@ -1,6 +1,6 @@
 import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes, isEndpoint } from "@laratype/contract";
-import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import type { Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
@@ -31,7 +31,7 @@ class RouteBuilder {
     return new RouteBuilder([...this.stack, ...middleware]);
   }
 
-  contract(contract: AnyContract, controller: ControllerClass): MountedContract {
+  contract(contract: object, controller: ControllerClass): MountedContract<object> {
     return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack });
   }
 
@@ -44,6 +44,8 @@ class RouteBuilder {
 interface TreeEntry {
   readonly name: string;
   readonly entry: ApiEntry;
+  /** The tree node holding the contract (`appApi.users.posts`), which `r.contract()` also takes. */
+  readonly node: object;
 }
 
 const nodeInfo = (value: unknown) =>
@@ -63,7 +65,7 @@ const treeEntries = (api: unknown): TreeEntry[] => {
       if (isEndpoint(child)) continue;
       const info = nodeInfo(child);
       if (!info) return fail("expected the appApi tree built with defineApi");
-      if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry });
+      if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry, node: child as object });
       walk(child as object);
     }
   };
@@ -105,26 +107,28 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   for (const { entry } of entries) entry.scopes.forEach((scope, i) => scopeDirs.set(entry.dirs[i]!, scope.authorize === true || scopeDirs.get(entry.dirs[i]!) === true));
 
   const scopes = new Map<string, MountedScope>();
-  const contracts = new Map<AnyContract, MountedContract>();
+  // Keyed by tree name: a tree node names one contract, a contract value every entry that holds it
+  const contracts = new Map<string, MountedContract<object>>();
   for (const item of items) {
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
-      const names = entries.filter((e) => e.entry.contract === item.contract).map((e) => e.name);
+      const names = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract).map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
       if (typeof item.controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
       }
-      if (contracts.has(item.contract)) fail(`contract "${names.join('", "')}" is mounted twice`);
-      contracts.set(item.contract, item);
+      const twice = names.filter((name) => contracts.has(name));
+      if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
+      for (const name of names) contracts.set(name, item);
     } else {
       fail("the routes callback must return r.contract() and r.scope() items");
     }
   }
 
-  const missing = entries.filter((e) => !contracts.has(e.entry.contract)).map((e) => e.name);
+  const missing = entries.filter((e) => !contracts.has(e.name)).map((e) => e.name);
   if (missing.length) fail(`contract "${missing.join('", "')}" is not mounted (add r.contract())`);
   for (const [dir, authorize] of scopeDirs) {
     if (authorize && !scopes.has(dir)) fail(`scope "${dir}" has authorize but no policy (add r.scope('${dir}', { policy }))`);
@@ -133,8 +137,9 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   const byName = new Map(entries.map((e) => [e.name, e.entry]));
   return (apiRoutes(api as Api) as ApiRoute[]).map((route): RouteEntry => {
     const key = route.name.slice(route.name.lastIndexOf(".") + 1);
-    const entry = byName.get(route.name.slice(0, route.name.lastIndexOf(".")))!;
-    const mounted = contracts.get(entry.contract)!;
+    const name = route.name.slice(0, route.name.lastIndexOf("."));
+    const entry = byName.get(name)!;
+    const mounted = contracts.get(name)!;
     if (!isHandler(mounted.controller, key)) {
       fail(`${route.name}: ${mounted.controller.name} has no method "${key}" (handlers must be class methods, not arrow-function fields)`);
     }
@@ -215,6 +220,25 @@ const warnUnenforced = (routes: readonly RouteEntry[]) => {
   console.warn(`[@laratype/http] Route.api: ${UNENFORCED_NOTICE}, so these routes skip those checks: ${list.join(", ")}`);
 };
 
+/** 0 for a static segment, 1 for a param (`:user`, `:id?`, `:id{[0-9]+}`), 2 for a wildcard. */
+const segmentRank = (segment: string) => (segment.startsWith(":") ? 1 : segment.includes("*") ? 2 : 0);
+
+/**
+ * The routes sorted so a static segment comes before a param or a wildcard at the same position, comparing the
+ * segments left to right (stable, so equal routes keep their tree order). Without it a parent's param route would
+ * shadow a child's static one: `users.show` (`/api/users/:user`) registered first answers `GET /api/users/me` of
+ * `users.me.index`.
+ */
+const registrationOrder = (routes: readonly RouteEntry[]): RouteEntry[] => {
+  const ranks = new Map(routes.map((route) => [route, route.path.split("/").filter(Boolean).map(segmentRank)]));
+  return [...routes].sort((a, b) => {
+    const ra = ranks.get(a)!;
+    const rb = ranks.get(b)!;
+    for (let i = 0; i < Math.min(ra.length, rb.length); i++) if (ra[i] !== rb[i]) return ra[i]! - rb[i]!;
+    return ra.length - rb.length;
+  });
+};
+
 /** The routes of one `Route.api(...)`, checked and ready to mount. */
 export class ApiRoutes {
   /** One entry per route, depth-first in tree order. */
@@ -231,10 +255,13 @@ export class ApiRoutes {
     return new ApiRoutes(this.routes.map((route) => Object.freeze({ ...route, domain: host })));
   }
 
-  /** Registers every route on Hono and returns the registry entries. */
+  /**
+   * Registers every route on Hono and returns the registry entries. Hono matches in registration order, so routes
+   * are registered by specificity (`registrationOrder`), not in tree order.
+   */
   mount(app: Hono): RouteEntry[] {
     warnUnenforced(this.routes);
-    for (const route of this.routes) {
+    for (const route of registrationOrder(this.routes)) {
       const handle = RequestKernel.handle({
         method: route.method,
         path: route.path,

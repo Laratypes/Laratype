@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 /**
  * Scan of the contract folder tree (docs/v1/contract.md › Contract folder tree). It reads file and folder
@@ -66,7 +66,7 @@ const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$")
 export const isTreeFile = (file: string): boolean => {
   const parts = file.split("/");
   const base = parts[parts.length - 1]!;
-  if (parts.slice(0, -1).some(isPrivate)) return false;
+  if (parts.slice(0, -1).some((part) => isPrivate(part) || part === "node_modules")) return false;
   if (base === SCOPE_FILE) return true;
   return base.endsWith(".ts") && !/\.(d|test|spec)\.ts$/.test(base) && !isPrivate(base);
 };
@@ -154,14 +154,18 @@ export function scanFiles(files: readonly string[], base: string): ContractTree 
   return { contracts: contracts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)), folders };
 }
 
-/** Lists the files under `rootDir` (root-relative, `/` separators). Private folders (`_x`, `$x`) are skipped. */
-export function listTreeFiles(rootDir: string): string[] {
+/**
+ * Lists the files under `rootDir` (root-relative, `/` separators). Private folders (`_x`, `$x`), `node_modules` and
+ * the `skip` folders (absolute: the output folder when it is inside the root) are skipped.
+ */
+export function listTreeFiles(rootDir: string, skip: readonly string[] = []): string[] {
   const out: string[] = [];
+  const skipped = new Set(skip.map((dir) => resolve(dir)));
   const walk = (dir: string, rel: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const relPath = join2(rel, entry.name);
       if (entry.isDirectory()) {
-        if (!isPrivate(entry.name) && entry.name !== "node_modules") walk(join(dir, entry.name), relPath);
+        if (!isPrivate(entry.name) && entry.name !== "node_modules" && !skipped.has(resolve(dir, entry.name))) walk(join(dir, entry.name), relPath);
       } else if (entry.isFile()) {
         out.push(relPath);
       }
@@ -171,4 +175,4 @@ export function listTreeFiles(rootDir: string): string[] {
   return out;
 }
 
-export const scanTree = (rootDir: string, base: string): ContractTree => scanFiles(listTreeFiles(rootDir), base);
+export const scanTree = (rootDir: string, base: string, skip: readonly string[] = []): ContractTree => scanFiles(listTreeFiles(rootDir, skip), base);

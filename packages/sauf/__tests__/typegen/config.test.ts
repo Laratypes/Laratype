@@ -58,7 +58,7 @@ describe('api config key', () => {
   it('rejects a root outside the project, absolute paths included, naming where it came from (one rule)', async () => {
     // the message shows the normalized root
     expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({}, { root: 'app/../../api' }) })).toThrow('the contract tree root "../api" (config api.root)');
-    for (const root of ['/srv/api', '../api', '.', '..']) {
+    for (const root of ['/srv/api', '../api', '..']) {
       const tree = resolveApiTree({}, apiTreeConfig({ api: { root } }));
       expect(() => syncContractTree({ projectDir: tmp, ...tree })).toThrow(`the contract tree root "${root}" (config api.root) must be a folder inside the project`);
     }
@@ -80,6 +80,23 @@ describe('api config key', () => {
     expect(() => syncContractTree({ projectDir: tmp, ...resolveApiTree({ root: 'C:/proj/app/api' }, {}) })).toThrow('the contract tree root "C:/proj/app/api" (--root) must be a folder inside the project');
     // a root that only passes through ".." but stays inside is fine
     expect(syncContractTree({ projectDir: tmp, root: 'app/../none' })).toBeUndefined();
+  });
+
+  it('accepts the project itself as the root (api.root: "."), skipping the output folder in the scan and the watcher', async () => {
+    const dir = join(tmp, 'root-dot');
+    mkdirSync(dir);
+    cpSync(join(here, 'fixtures/project/app/api'), dir, { recursive: true });
+    const first = syncContractTree({ projectDir: dir, ...resolveApiTree({}, apiTreeConfig({ api: { root: '.' } })) })!;
+    const again = syncContractTree({ projectDir: dir, root: '.' })!;
+    expect(again.tree).toEqual(first.tree);
+    expect(again.changed).toEqual([]);
+    expect(again.tree.contracts.map((c) => c.name)).toEqual(['users', 'users.posts', 'v1.health']);
+    const plugin = laratypeApi({ projectDir: dir, config: () => ({ api: { root: '.' } }) });
+    await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
+    const api = plugin.api as ApiPluginApi;
+    expect(api.inTree(join(dir, 'things.ts'))).toBe(true);
+    expect(api.inTree(join(dir, '.laratype/api/index.gen.ts'))).toBe(false);
+    expect(api.inTree(join(dir, 'node_modules/x/index.ts'))).toBe(false);
   });
 
   it('shares one api.base rule with the scan', () => {
@@ -287,14 +304,23 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(y).toBe(x);
   });
 
-  it('re-reads the config on each scan (no module cache) while keeping the transpile cache', async () => {
-    const dir = project('fresh-eval', "export default { api: { base: '/one' } }\n");
+  it('re-reads the config when config.ts changed (no module cache), and reuses it for a contract add or unlink', async () => {
+    const reads = globalThis as { __h1ConfigReads?: number };
+    reads.__h1ConfigReads = 0;
+    const counted = (base: string) => `(globalThis as any).__h1ConfigReads++\nexport default { api: { base: '${base}' } }\n`;
+    const dir = project('fresh-eval', counted('/one'));
     const plugin = laratypeApi({ projectDir: dir });
     const id = await (plugin.resolveId as (source: string) => Promise<string | null>)('$api');
     expect(readFileSync(id!, 'utf8')).toContain("path: '/one/users'");
-    writeFileSync(join(dir, 'app/config/config.ts'), "export default { api: { base: '/two' } }\n");
+    // a contract added: the scan sees it, the config is not evaluated again
+    writeFileSync(join(dir, 'app/api/things.ts'), 'export default {}\n');
+    await (plugin.api as ApiPluginApi).rescan();
+    expect(readFileSync(id!, 'utf8')).toContain("path: '/one/things'");
+    expect(reads.__h1ConfigReads).toBe(1);
+    writeFileSync(join(dir, 'app/config/config.ts'), counted('/two'));
     await (plugin.api as ApiPluginApi).rescan();
     expect(readFileSync(id!, 'utf8')).toContain("path: '/two/users'");
+    expect(reads.__h1ConfigReads).toBe(2);
   });
 
   it('falls back to the default root when the first scan fails, so contract adds still restart', async () => {

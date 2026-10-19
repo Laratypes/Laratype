@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Middleware, Route } from '../../src/index'
-import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, MountedContract, MountedScope } from '../../src/index'
+import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, MountedContract, MountedScope } from '../../src/index'
 
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
@@ -110,17 +110,60 @@ describe('Route.api', () => {
     ] as never)
   })
 
-  test('two contracts with identical types: compile-time checks skip them, the runtime check covers them', () => {
-    const a = defineContract()({ index: endpoint.get('/') })
-    const b = defineContract()({ index: endpoint.get('/') })
+  test('a tree node mounts its contract', () => {
+    Route.api(appApi, (r) => [
+      r.contract(appApi.users, UserController),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(appApi.users.posts, PostController),
+      r.contract(health, HealthController),
+    ])
+    // @ts-expect-error Route.api: contract "users" is mounted twice
+    Route.api(appApi, (r) => [
+      r.contract(appApi.users, UserController),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(posts, PostController),
+      r.contract(health, HealthController),
+      r.contract(users, UserController),
+    ])
+    Route.api(appApi, (r) => [
+      // @ts-expect-error a folder node without a contract is not mountable
+      r.contract(appApi.v1, HealthController),
+    ] as never)
+  })
+
+  test('two contracts with the same type in one folder: the contract alone is an error, the tree node tells them apart', () => {
+    // app/api/posts.ts and app/api/comments.ts, both `{ index: endpoint.get('/').response(Dto) }` with the same Prefix
+    type Prefix = ContractPrefix<'/api', []>
+    const dto = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
+    const postsOnly = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
+    const comments = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
     const twins = defineApi({
-      a: { contract: a, path: '/a', scopes: [], dirs: [] },
-      b: { contract: b, path: '/b', scopes: [], dirs: [] },
+      posts: { contract: postsOnly, path: '/api/posts', scopes: [], dirs: [] },
+      comments: { contract: comments, path: '/api/comments', scopes: [], dirs: [] },
     })
     class Ctrl extends Controller { index() { return [] } }
-    // both mounted: no false duplicate
-    Route.api(twins, (r) => [r.contract(a, Ctrl), r.contract(b, Ctrl)])
-    // only one mounted: not caught at compile time (Route.api throws at runtime)
-    Route.api(twins, (r) => [r.contract(a, Ctrl)])
+    // @ts-expect-error Route.api: contract "posts" | "comments" has the type of another contract of the tree
+    Route.api(twins, (r) => [r.contract(postsOnly, Ctrl)])
+    // @ts-expect-error both mounted by value: still ambiguous at compile time
+    Route.api(twins, (r) => [r.contract(postsOnly, Ctrl), r.contract(comments, Ctrl)])
+    Route.api(twins, (r) => [r.contract(twins.posts, Ctrl), r.contract(twins.comments, Ctrl)])
+    // @ts-expect-error Route.api: contract "comments" is not mounted (add r.contract())
+    Route.api(twins, (r) => [r.contract(twins.posts, Ctrl)])
+    // @ts-expect-error Route.api: contract "posts" is mounted twice
+    Route.api(twins, (r) => [r.contract(twins.posts, Ctrl), r.contract(twins.comments, Ctrl), r.contract(twins.posts, Ctrl)])
+  })
+
+  test('the error names the problem', () => {
+    const a = defineContract()({ index: endpoint.get('/') })
+    const b = defineContract()({ index: endpoint.get('/') })
+    const twins = defineApi({ a: { contract: a, path: '/a', scopes: [], dirs: [] }, b: { contract: b, path: '/b', scopes: [], dirs: [] } })
+    type Items = [MountedContract<typeof a>]
+    expectTypeOf<CheckApiRoutes<typeof twins, Items>>().toEqualTypeOf<{
+      error:
+        | 'Route.api: contract "a" has the type of another contract of the tree: mount it with its tree node, r.contract(appApi.<name>, ...)'
+        | 'Route.api: contract "b" has the type of another contract of the tree: mount it with its tree node, r.contract(appApi.<name>, ...)'
+    }>()
+    type ByNode = [MountedContract<typeof twins.a>]
+    expectTypeOf<CheckApiRoutes<typeof twins, ByNode>>().toEqualTypeOf<{ error: 'Route.api: contract "b" is not mounted (add r.contract())' }>()
   })
 })

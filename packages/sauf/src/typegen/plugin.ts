@@ -5,10 +5,11 @@
  * have changed (`affectsTree()`, then `restart()`), so an app that never imports it is never scanned. Production reads
  * the build manifest instead (#125). No runtime import of vite: this module is loaded on every `sauf` start.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import { DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
+import type { ApiTreeConfig } from './config';
 import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
 
@@ -53,8 +54,16 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   let missingRoot: string | undefined;
   let server: ViteDevServer | undefined;
 
-  // readApiTreeConfig imports the config outside Vite (jiti), so a config importing `$api` fails there, never re-enters here
-  const loadConfig = async () => (options.config ? apiTreeConfig(options.config()) : readApiTreeConfig(projectDir));
+  // readApiTreeConfig imports the config outside Vite (jiti), so a config importing `$api` fails there, never re-enters here.
+  // It evaluates the config's whole import graph (no module cache), so it runs again only when config.ts changed: a
+  // rescan for a contract add or unlink reuses the last value. A failed read is not kept.
+  let lastConfig: { source: string; value: ApiTreeConfig } | undefined;
+  const loadConfig = async () => {
+    if (options.config) return apiTreeConfig(options.config());
+    const source = existsSync(configFile) ? readFileSync(configFile, 'utf8') : '';
+    if (lastConfig?.source !== source) lastConfig = { source, value: await readApiTreeConfig(projectDir) };
+    return lastConfig.value;
+  };
 
   const scan = async () => {
     const tree = resolveApiTree({}, await loadConfig());
@@ -92,7 +101,9 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
       if (used) await rescan();
     },
     // A contract or a _scope.ts the scan would read: not a private _x/$x folder, a non-.ts file or an editor temp file
-    inTree: (file) => used && inside(rootPath, resolve(file)) && isTreeFile(slash(relative(rootPath, resolve(file)))),
+    // The output folder is skipped like the scan does (it is inside the root with `api.root: '.'`)
+    inTree: (file) =>
+      used && inside(rootPath, resolve(file)) && !inside(outPath, resolve(file)) && isTreeFile(slash(relative(rootPath, resolve(file)))),
     isGenerated: (file) => inside(outPath, resolve(file)),
     affectsTree: (event, file) => resolve(file) === configFile || (event !== 'change' && api.inTree(file)),
   };

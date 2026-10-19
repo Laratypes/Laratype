@@ -104,9 +104,10 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   const projectDir = resolve(options.projectDir);
   const root = slash(options.root ?? DEFAULT_ROOT);
   const outDir = slash(options.outDir ?? DEFAULT_OUT);
-  // A relative folder inside the project: emit uses the root as a path segment, so an absolute root (a drive letter
-  // included) is rejected even when it points inside
-  if (isAbsolute(root) || /^[a-zA-Z]:/.test(root) || !inside(projectDir, resolve(projectDir, root))) {
+  // A relative folder inside the project, or the project itself (`.`): emit uses the root as a path segment, so an
+  // absolute root (a drive letter included) is rejected even when it points inside
+  const rootDir = resolve(projectDir, root);
+  if (isAbsolute(root) || /^[a-zA-Z]:/.test(root) || (rootDir !== projectDir && !inside(projectDir, rootDir))) {
     throw new ScanError(`the contract tree root "${root}"${options.rootSource ? ` (${options.rootSource})` : ""} must be a folder inside the project`);
   }
   checkOutDir(projectDir, root, outDir);
@@ -115,7 +116,8 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
 
 /** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
 export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncResult {
-  const tree = scanTree(resolve(projectDir, root), base);
+  // With `--root .` the output folder is inside the root: its generated files are not contracts
+  const tree = scanTree(resolve(projectDir, root), base, [resolve(projectDir, outDir)]);
   const files = emitTree(tree, { root, outDir });
   // $types.d.ts files of removed folders must not linger
   const removed = removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));

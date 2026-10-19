@@ -14,8 +14,11 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
 
-/** `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key. */
-export interface MountedContract<C extends AnyContract = AnyContract> {
+/**
+ * `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key.
+ * `contract` is the contract, or its tree node (`appApi.users.posts`).
+ */
+export interface MountedContract<C extends object = AnyContract> {
   readonly kind: "contract";
   readonly contract: C;
   readonly controller: ControllerClass;
@@ -31,7 +34,7 @@ export interface MountedScope<D extends string = string> {
   readonly middleware: readonly MiddlewareClass[];
 }
 
-export type ApiRouteItem = MountedContract | MountedScope;
+export type ApiRouteItem = MountedContract<object> | MountedScope;
 
 export interface ScopeRouteOptions {
   readonly policy: PolicyClass;
@@ -42,10 +45,10 @@ export interface ScopeRouteOptions {
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 
 type NodeEntry<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, infer En> }
-  ? En extends ApiEntry<infer C, any, infer S, infer D> ? { name: Name; contract: C; scopes: S; dirs: D } : never
+  ? En extends ApiEntry<infer C, any, infer S, infer D> ? { name: Name; contract: C; scopes: S; dirs: D; node: N } : never
   : never;
 
-/** Every mounted contract of an API tree: `{ name, contract, scopes, dirs }`, one member per tree name. */
+/** Every mounted contract of an API tree: `{ name, contract, scopes, dirs, node }`, one member per tree name. */
 export type ApiTreeEntry<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? never : NodeEntry<A[K]> | ApiTreeEntry<A[K]> }[keyof A & string];
 
 /** Tree names of the contracts: `"users" | "users.posts"`. */
@@ -53,6 +56,9 @@ export type ApiTreeName<A> = ApiTreeEntry<A> extends infer E ? (E extends { name
 
 /** The contracts of an API tree. */
 export type ApiTreeContract<A> = ApiTreeEntry<A> extends infer E ? (E extends { contract: infer C } ? C : never) : never;
+
+/** The tree nodes that hold a contract: `typeof appApi.users | typeof appApi.users.posts`. */
+export type ApiTreeNode<A> = ApiTreeEntry<A> extends infer E ? (E extends { node: infer N } ? N : never) : never;
 
 type ScopePairs<E> = E extends { scopes: infer S extends readonly unknown[]; dirs: infer D extends readonly string[] }
   ? { [I in keyof S]: { dir: D[I & keyof D]; authorize: S[I] extends { readonly authorize: true } ? true : false } }[number]
@@ -67,16 +73,21 @@ export type ApiAuthorizeDir<A> = ScopePairs<ApiTreeEntry<A>> extends infer P ? (
 // ---- checking the mounted routes ----------------------------------------------
 
 /** Tree names whose contract has exactly the type `C`. Two contracts with identical types share their names. */
-type NamesOf<A, C> = ApiTreeEntry<A> extends infer E ? (E extends { name: infer N; contract: infer EC } ? (Equal<EC, C> extends true ? N : never) : never) : never;
+type ContractNames<A, C> = ApiTreeEntry<A> extends infer E ? (E extends { name: infer N; contract: infer EC } ? (Equal<EC, C> extends true ? N : never) : never) : never;
+
+/** The tree name of a mounted tree node (one name), or the names of a mounted contract's type (several for twins). */
+type NamesOf<A, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer N, infer En> }
+  ? En extends ApiEntry ? Extract<ApiTreeName<A>, N> : never
+  : ContractNames<A, C>;
 
 type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
 
 // Tail-recursive with an accumulator, stopping at 2 (all the checks need), so long route lists stay within
 // TypeScript's tail-call limit instead of its much lower nesting limit
-type ContractCount<M, C, N extends 0[] = []> = N["length"] extends 2
+type ContractCount<A, M, Name, N extends 0[] = []> = N["length"] extends 2
   ? N
   : M extends readonly [infer H, ...infer R]
-    ? ContractCount<R, C, H extends MountedContract<infer HC> ? (Equal<HC, C> extends true ? [...N, 0] : N) : N>
+    ? ContractCount<A, R, Name, H extends MountedContract<infer HC> ? (Equal<NamesOf<A, HC>, Name> extends true ? [...N, 0] : N) : N>
     : N;
 
 type DirCount<M, D, N extends 0[] = []> = N["length"] extends 2
@@ -93,10 +104,15 @@ type MountedNames<A, M extends readonly unknown[]> = Item<M> extends infer I ? (
 
 type Missing<A, M extends readonly unknown[]> = Exclude<ApiTreeName<A>, MountedNames<A, M>>;
 
-/** A contract mounted twice. Skipped when several contracts share its type (the runtime check catches those). */
+/** A contract whose type is the type of several tree contracts: the types can't tell them apart, its tree node can. */
+type Ambiguous<A, M extends readonly unknown[]> = Item<M> extends infer I
+  ? I extends MountedContract<infer C> ? (true extends IsUnion<NamesOf<A, C>> ? NamesOf<A, C> : never) : never
+  : never;
+
+/** A tree name mounted twice, by its contract or its tree node. */
 type Twice<A, M extends readonly unknown[]> = Item<M> extends infer I
   ? I extends MountedContract<infer C>
-    ? ContractCount<M, C>["length"] extends 0 | 1 ? never : true extends IsUnion<NamesOf<A, C>> ? never : NamesOf<A, C>
+    ? ContractCount<A, M, NamesOf<A, C>>["length"] extends 0 | 1 ? never : NamesOf<A, C>
     : never
   : never;
 
@@ -113,23 +129,28 @@ type Err<T extends string> = { error: `Route.api: ${T}` };
 /** `unknown` when the routes mount the tree correctly, otherwise `{ error }` naming the problem. */
 export type CheckApiRoutes<A, M extends readonly unknown[]> =
   [Unknown<A, M>] extends [never]
-    ? [Missing<A, M>] extends [never]
-      ? [Twice<A, M>] extends [never]
-        ? [NoPolicy<A, M>] extends [never]
-          ? [ScopeTwice<M>] extends [never]
-            ? unknown
-            : Err<`scope "${ScopeTwice<M> & string}" is mounted twice`>
-          : Err<`scope "${NoPolicy<A, M> & string}" has authorize but no policy (add r.scope() with { policy })`>
-        : Err<`contract "${Twice<A, M> & string}" is mounted twice`>
-      : Err<`contract "${Missing<A, M> & string}" is not mounted (add r.contract())`>
+    ? [Ambiguous<A, M>] extends [never]
+      ? [Missing<A, M>] extends [never]
+        ? [Twice<A, M>] extends [never]
+          ? [NoPolicy<A, M>] extends [never]
+            ? [ScopeTwice<M>] extends [never]
+              ? unknown
+              : Err<`scope "${ScopeTwice<M> & string}" is mounted twice`>
+            : Err<`scope "${NoPolicy<A, M> & string}" has authorize but no policy (add r.scope() with { policy })`>
+          : Err<`contract "${Twice<A, M> & string}" is mounted twice`>
+        : Err<`contract "${Missing<A, M> & string}" is not mounted (add r.contract())`>
+      : Err<`contract "${Ambiguous<A, M> & string}" has the type of another contract of the tree: mount it with its tree node, r.contract(appApi.<name>, ...)`>
     : Err<"a mounted contract is not in the API tree">;
 
 /** The `r` of `Route.api(appApi, (r) => [...])`. */
 export interface ApiRouteBuilder<A> {
   /** Route middleware (0.5 classes) for the contracts or scope mounted from the returned builder. */
   middleware(...middleware: MiddlewareClass[]): ApiRouteBuilder<A>;
-  /** Mounts every endpoint of `contract` on the controller method of the same key. */
-  contract<C extends ApiTreeContract<A>>(contract: C, controller: ControllerClass): MountedContract<C>;
+  /**
+   * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
+   * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
+   */
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
   scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D>;
 }

@@ -195,6 +195,20 @@ describe('sauf types:generate', () => {
     expect(readFileSync(join(copy, 'fe', 'api.ts'), 'utf8')).toContain("path: '/v2/users/:user/posts'");
   }, 60_000);
 
+  it('accepts --root . (the project itself) and skips the output folder inside it', async () => {
+    const copy = join(tmp, 'root-dot');
+    mkdirSync(copy);
+    cpSync(join(fixtures, 'project', 'app', 'api'), copy, { recursive: true });
+    writeFileSync(join(copy, 'tsconfig.json'), JSON.stringify({ ...appTsconfig, include: ['.'] }));
+    const first = await generateTypes({ projectDir: copy, root: '.' }, ts);
+    // a second run sees .laratype inside the root: its generated files are not contracts
+    const second = await generateTypes({ projectDir: copy, root: '.' }, ts);
+    expect(second.tree).toEqual(first.tree);
+    expect(second.tree.contracts.map((c) => c.name)).toEqual(['users', 'users.posts', 'v1.health']);
+    expect(second.files.map((f) => f.path)).toContain('.laratype/types/users/[user]/$types.d.ts');
+    expect(readFileSync(join(copy, '.laratype', 'api', 'index.gen.ts'), 'utf8')).toContain("import c0 from '../../users'");
+  }, 60_000);
+
   it('fails on an invalid tree before writing anything', async () => {
     const copy = join(tmp, 'invalid');
     cpSync(join(fixtures, 'project'), copy, { recursive: true });

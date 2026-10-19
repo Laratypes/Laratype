@@ -70,6 +70,49 @@ describe('Route.api', () => {
     expect((await app.request('/api/posts')).status).toBe(404)
   })
 
+  it("a parent's param route does not shadow a child's static route (registered by specificity)", async () => {
+    // app/api/users.ts { show: '/:user' } and app/api/users/me.ts { index: '/' }: tree order registers /api/users/:user first
+    const usersShow = defineContract()({ show: endpoint.get('/:user').response(anything) })
+    const usersMe = defineContract()({ index: endpoint.get('/').response(anything) })
+    const tree = defineApi({
+      users: { contract: usersShow, path: '/api/users', scopes: [], dirs: [] },
+      'users.me': { contract: usersMe, path: '/api/users/me', scopes: [], dirs: [] },
+    })
+    class UsersController extends Controller { show(_req: unknown, { user }: { user: string }) { return { show: user } } }
+    class MeController extends Controller { index() { return { me: true } } }
+    const routes = Route.api(tree, (r) => [r.contract(usersShow, UsersController), r.contract(usersMe, MeController)])
+    const { app, entries } = mount(routes)
+    expect(await (await app.request('/api/users/me')).json()).toEqual({ me: true })
+    expect(await (await app.request('/api/users/ada')).json()).toEqual({ show: 'ada' })
+    // the registry keeps the tree order
+    expect(entries.map((e) => e.name)).toEqual(['users.show', 'users.me.index'])
+  })
+
+  it('a tree node mounts its contract, so two contracts of the same shape can be told apart', async () => {
+    const postsOnly = defineContract()({ index: endpoint.get('/').response(anything) })
+    const comments = defineContract()({ index: endpoint.get('/').response(anything) })
+    const twins = defineApi({
+      posts: { contract: postsOnly, path: '/api/posts', scopes: [], dirs: [] },
+      comments: { contract: comments, path: '/api/comments', scopes: [], dirs: [] },
+    })
+    class PostsController extends Controller { index() { return { from: 'posts' } } }
+    class CommentsController extends Controller { index() { return { from: 'comments' } } }
+    const { app } = mount(Route.api(twins, (r) => [r.contract(twins.posts, PostsController), r.contract(twins.comments, CommentsController)]))
+    expect(await (await app.request('/api/posts')).json()).toEqual({ from: 'posts' })
+    expect(await (await app.request('/api/comments')).json()).toEqual({ from: 'comments' })
+    expect(() => Route.api(twins, (r) => [r.contract(twins.posts, PostsController)] as never)).toThrow('contract "comments" is not mounted')
+    expect(() =>
+      Route.api(twins, (r) => [r.contract(twins.posts, PostsController), r.contract(postsOnly, PostsController), r.contract(twins.comments, CommentsController)] as never),
+    ).toThrow('contract "posts" is mounted twice')
+  })
+
+  it('a folder node or a node of another tree is not in the API tree', () => {
+    const other = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
+    const folders = defineApi({ 'v1.health': { contract: posts, path: '/api/v1/health', scopes: [], dirs: [] } })
+    expect(() => Route.api(appApi, (r) => [r.contract(other.users, UserController)] as never)).toThrow('a mounted contract is not in the API tree')
+    expect(() => Route.api(folders, (r) => [r.contract(folders.v1, PostController)] as never)).toThrow('a mounted contract is not in the API tree')
+  })
+
   it('answers with the endpoint status, not one guessed from the method name', async () => {
     const gone = defineContract()({
       destroy: endpoint.delete('/:id').response(anything),
