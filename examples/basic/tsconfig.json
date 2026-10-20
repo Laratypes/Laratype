@@ -17,5 +17,5 @@
     }
   },
   // The root include plus the generated $api module (composite: every file of the program must be listed)
-  "include": ["app", ".laratype/api", "../../packages/*/src", "../../packages/global.d.ts"]
+  "include": ["app", "database", ".laratype/api", "../../packages/*/src", "../../packages/global.d.ts"]
 }

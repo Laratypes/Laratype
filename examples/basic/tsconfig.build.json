@@ -31,6 +31,8 @@
   "include": [
     "app/**/*",
     ".laratype/api/**/*",
+    // The v1 layout keeps database/ at the project root (docs/v1/overview.md › Project structure)
+    "database/**/*",
   ],
   "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
 }

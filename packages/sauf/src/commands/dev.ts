@@ -10,6 +10,7 @@ import type { Runner } from "../utils/runner/Runner";
 import { contractTreePlugin } from "../typegen/plugin";
 import { DevRestarter, RescanFlag, shouldRestart } from "../utils/restarter";
 import { useAppManifest } from "../manifest/load";
+import { isManifestFile } from "../manifest/scan";
 
 export default class LaratypeDevCommand extends Command {
 
@@ -61,7 +62,8 @@ export default class LaratypeDevCommand extends Command {
               for (const event of ['change', 'add', 'unlink'] as const) {
                 server.watcher.on(event, (file: string) => {
                   // The scan rewrites its output folder during a restart: that must not trigger another one
-                  if (!shouldRestart(event, file, tree)) return;
+                  // A file added to or deleted from a manifest folder: laratype:manifest invalidated the list
+                  if (!shouldRestart(event, file, tree, (f) => isManifestFile(process.cwd(), f))) return;
                   // Only a file added or deleted under the root, or the config, can change the tree
                   if (tree?.affectsTree(event, file)) this.rescan.mark();
                   Console.info('File change detected. Restarting server...');

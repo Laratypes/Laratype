@@ -26,7 +26,7 @@ export default class UserController extends Controller {
 
   async me() {
     const user = Auth.user<User>();
-    if(!user) throw new UnauthorizedException();
+    if(!user) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     return user.getUser();
   }
   
@@ -37,7 +37,7 @@ export default class UserController extends Controller {
 
   async destroy(request: Request) {
     const authenticated = Auth.user<User>();
-    if(!authenticated) throw new UnauthorizedException();
+    if(!authenticated) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     const actor = authenticated.getUser();
     const userId = request.param('id');
 
@@ -57,7 +57,7 @@ export default class UserController extends Controller {
 
   async update(request: UpdateUserRequest, model: { user: User }) {
     const authenticated = Auth.user<User>();
-    if(!authenticated) throw new UnauthorizedException();
+    if(!authenticated) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     const actor = authenticated.getUser();
     const updatedData = request.validated();
     const { user } = model;

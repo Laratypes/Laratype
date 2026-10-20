@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import type * as TS from "typescript";
-import { lines } from "./emit";
+import { lines, quote } from "./emit";
 import type { GeneratedFile } from "./emit";
 
 /**
@@ -39,7 +39,6 @@ const ENTRY_NAME = "__laratype_api_entry.ts";
 const FIELDS = ["method", "path", "params", "query", "body", "headers", "response", "status", "errors"] as const;
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-const quote = (s: string) => `'${s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n")}'`;
 const key = (name: string) => (IDENT.test(name) ? name : quote(name));
 
 function compilerOptions(ts: typeof TS, options: ApiFileOptions): TS.CompilerOptions {

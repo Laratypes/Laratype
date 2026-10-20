@@ -1,13 +1,15 @@
 import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, posix } from "node:path";
-import type { ManifestKind } from "@laratype/support";
-import { lines } from "../typegen/emit";
+import { isAbsolute, join, posix, relative, resolve } from "node:path";
+import { emittedPaths, type ManifestKind } from "@laratype/support";
+import { lines, quote } from "../typegen/emit";
+import { isModuleFile } from "../typegen/scan";
 import { MANIFEST_FILE } from "./load";
 
 /**
  * The app manifest's discovery (docs/v1/build.md › Plugin chain): which folders hold which kind of module. Both
  * layouts are read, the 0.5 one (`app/src/...`, `app/database/...`) first, then the v1 one of docs/v1/overview.md ›
- * Project structure. A folder that does not exist is skipped; a kind found in both is loaded from both.
+ * Project structure. A folder that does not exist is skipped; a kind found in both is loaded from both, but one name
+ * in both is a scan error.
  */
 export const MANIFEST_DIRS: Readonly<Record<ManifestKind, readonly string[]>> = {
   configs: ["app/config"],
@@ -19,6 +21,12 @@ export const MANIFEST_DIRS: Readonly<Record<ManifestKind, readonly string[]>> = 
   factories: ["app/database/factories", "database/factories"],
   modules: ["app/modules"],
 };
+
+/** The kinds read with their sub-folders, named by their path in the folder (`Admin/UserSeeder`, as `db:seed --class` takes it). */
+const NESTED: ReadonlySet<ManifestKind> = new Set(["seeders"]);
+
+/** The module extensions read; a declaration, test or spec file is skipped. */
+export const MODULE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs"] as const;
 
 /** `app/config/providers.ts`: the provider list, kept apart from the configs. */
 export const PROVIDERS_FILE = "app/config/providers.ts";
@@ -34,45 +42,73 @@ export interface ScannedManifest {
   readonly kinds: Readonly<Record<ManifestKind, readonly ScannedEntry[]>>;
 }
 
-/** A module file: `*.ts`, but no declaration, test or spec file. */
-const isModuleFile = (name: string) => name.endsWith(".ts") && !/\.(d|test|spec)\.ts$/.test(name);
+/** Two files of one kind with the same name, one per layout. */
+export class ManifestScanError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ManifestScanError";
+  }
+}
 
 const isDir = (path: string) => existsSync(path) && statSync(path).isDirectory();
+const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+const stripExtension = (name: string) => name.replace(/\.[cm]?[jt]s$/, "");
 
-/** The top-level module files of a folder (`modules`: each sub-folder's `index.ts`), sorted by name. */
-function scanDir(projectDir: string, dir: string, kind: ManifestKind): ScannedEntry[] {
-  const abs = join(projectDir, dir);
+/** The module files of a folder (`modules`: each sub-folder's `index.ts`), sorted by name. */
+function scanDir(projectDir: string, dir: string, kind: ManifestKind, prefix = ""): ScannedEntry[] {
+  const abs = join(projectDir, dir, prefix);
   if (!isDir(abs)) return [];
   const entries: ScannedEntry[] = [];
-  for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  for (const entry of readdirSync(abs, { withFileTypes: true }).sort(byName)) {
     if (kind === "modules") {
       if (entry.isDirectory() && existsSync(join(abs, entry.name, "index.ts"))) {
         entries.push({ name: entry.name, path: posix.join(dir, entry.name, "index.ts") });
       }
-    } else if (entry.isFile() && isModuleFile(entry.name)) {
-      const path = posix.join(dir, entry.name);
-      if (path !== PROVIDERS_FILE) entries.push({ name: entry.name.replace(/\.ts$/, ""), path });
+    } else if (entry.isDirectory() && NESTED.has(kind) && entry.name !== "node_modules") {
+      entries.push(...scanDir(projectDir, dir, kind, posix.join(prefix, entry.name)));
+    } else if (entry.isFile() && isModuleFile(entry.name, MODULE_EXTENSIONS)) {
+      const path = posix.join(dir, prefix, entry.name);
+      if (path !== PROVIDERS_FILE) entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path });
     }
   }
   return entries;
 }
 
-/** Reads the folders of `MANIFEST_DIRS` (file names only, never contents). */
+/** Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a duplicate name. */
 export function scanManifest(projectDir: string): ScannedManifest {
-  const kinds = Object.fromEntries(
-    (Object.keys(MANIFEST_DIRS) as ManifestKind[]).map((kind) => [kind, MANIFEST_DIRS[kind].flatMap((dir) => scanDir(projectDir, dir, kind))]),
-  ) as Record<ManifestKind, ScannedEntry[]>;
+  const kinds = {} as Record<ManifestKind, ScannedEntry[]>;
+  for (const kind of Object.keys(MANIFEST_DIRS) as ManifestKind[]) {
+    const entries: ScannedEntry[] = [];
+    for (const dir of MANIFEST_DIRS[kind]) {
+      for (const entry of scanDir(projectDir, dir, kind)) {
+        // `models/User` in both layouts, or `User.ts` next to `User.js`: lookups by name would pick one silently
+        const other = entries.find((e) => e.name === entry.name);
+        if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
+        entries.push(entry);
+      }
+    }
+    kinds[kind] = entries;
+  }
   const providers = existsSync(join(projectDir, PROVIDERS_FILE)) ? { name: "providers", path: PROVIDERS_FILE } : undefined;
   return { providers, kinds };
 }
 
-/** Whether a file can change the manifest when it is added or deleted: it sits in one of `MANIFEST_DIRS`. */
+/** Whether a file of the project (relative path) sits in one of `MANIFEST_DIRS`. */
 export function inManifestDirs(relativePath: string): boolean {
   const path = relativePath.replace(/\\/g, "/");
   return Object.values(MANIFEST_DIRS).some((dirs) => dirs.some((dir) => path.startsWith(`${dir}/`)));
 }
 
-const quote = (s: string) => `'${s.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+/**
+ * Whether adding or deleting `file` (absolute) changes the manifest: a module file in one of `MANIFEST_DIRS`. `sauf dev
+ * --hmr` restarts on it, and `laratype:manifest` invalidates its module. Editor temp files don't count.
+ */
+export function isManifestFile(projectDir: string, file: string): boolean {
+  const rel = relative(projectDir, resolve(file));
+  if (rel.startsWith("..") || isAbsolute(rel)) return false;
+  const base = rel.replace(/\\/g, "/").split("/").pop()!;
+  return inManifestDirs(rel) && isModuleFile(base, MODULE_EXTENSIONS);
+}
 
 /**
  * The manifest module: one lazy loader per entry, each a literal `import()` so a bundler still sees every module.
@@ -93,19 +129,24 @@ export function emitManifest(scan: ScannedManifest, specifier: (path: string) =>
 }
 
 /**
- * `dist/app.manifest.js` (`sauf build`): the manifest of the sources, pointing at what tsc emitted for them. tsc keeps
- * the project tree (`rootDir: "."`), so `app/x.ts` is `dist/app/x.js`. A source with no emitted file is an error.
- * Returns the written file.
+ * `dist/app.manifest.js` (`sauf build`): the manifest of the sources, pointing at what tsc emitted for them. Each file
+ * is looked up with `emittedPaths()`, the rule `getAppPath()` uses too: `dist/app/x.js` when tsc keeps the project tree
+ * (`"rootDir": "."`, which an app importing `$api` needs), else `dist/x.js` (the 0.5 build, rooted at `app/`). A source
+ * with no emitted file is an error that names the `include` entry it needs. Returns the written file.
  */
 export function writeDistManifest(projectDir: string, distDir = "dist"): string {
   const missing: string[] = [];
   const code = emitManifest(scanManifest(projectDir), (path) => {
-    const out = path.replace(/\.ts$/, ".js");
-    if (!existsSync(join(projectDir, distDir, out))) missing.push(posix.join(distDir, out));
-    return `./${out}`;
+    const candidates = emittedPaths(path);
+    const found = candidates.find((file) => existsSync(join(projectDir, distDir, file)));
+    if (!found) {
+      const include = `${path.split("/")[0]}/**/*`;
+      missing.push(`${path} (looked for ${candidates.map((file) => posix.join(distDir, file)).join(", ")}; tsconfig.build.json must include "${include}")`);
+    }
+    return `./${found ?? candidates[0]}`;
   });
   if (missing.length) {
-    throw new Error(`sauf build: tsc emitted no ${missing.join(", ")}: tsconfig.build.json must emit the app with "rootDir": "." into ${distDir}`);
+    throw new Error(`sauf build: tsc emitted no file for ${missing.join("; ")}. An app that imports $api also needs "rootDir": "." in tsconfig.build.json`);
   }
   const target = join(projectDir, distDir, MANIFEST_FILE);
   writeFileSync(target, code);

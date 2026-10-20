@@ -5,10 +5,10 @@
  * Production uses `dist/app.manifest.js` instead (`sauf build`). No runtime import of vite: this module is loaded on
  * every `sauf` start.
  */
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { Plugin } from 'vite';
 import { slash } from '../typegen/sync';
-import { emitManifest, inManifestDirs, scanManifest } from './scan';
+import { emitManifest, isManifestFile, scanManifest } from './scan';
 import { MANIFEST_ID } from './load';
 
 export const MANIFEST_PLUGIN_NAME = 'laratype:manifest';
@@ -34,7 +34,7 @@ export function laratypeManifest(options: ManifestPluginOptions = {}): Plugin {
     },
     configureServer(server) {
       const invalidate = (file: string) => {
-        if (!inManifestDirs(relative(projectDir, resolve(file)))) return;
+        if (!isManifestFile(projectDir, file)) return;
         const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
         if (mod) server.moduleGraph.invalidateModule(mod, new Set(), Date.now(), true);
       };
