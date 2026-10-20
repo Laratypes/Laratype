@@ -1,10 +1,8 @@
-import { existsSync } from "fs";
-import { fileURLToPath } from "url";
 import passport from "passport";
 import { BaseEntity } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { importModule, ServiceProvider, LaratypeConfig as Config, getDefaultExports, ContextApi, RedirectStatusCode, getAppPath } from "@laratype/support";
+import { ServiceProvider, LaratypeConfig as Config, ContextApi, RedirectStatusCode, manifestEntry, loadDefault } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import Authentication from "./Authentication";
@@ -94,15 +92,16 @@ export default class PassportServiceProvider extends ServiceProvider {
   }
 
   public async boot() {
-    const module: Config.Auth = await importModule(getAppPath('config/auth.ts'))
-    const authConfig = getDefaultExports(module)
+    // app/config/auth.ts and the PersonalAccessToken model, from the app manifest (docs/v1/build.md › Plugin chain)
+    const authEntry = manifestEntry('configs', 'auth');
+    if(!authEntry) throw new Error("app/config/auth.ts not found: the app manifest has no auth config");
+    const authConfig = await loadDefault<Config.Auth>(authEntry);
     GuardStore.setAuthConfig(authConfig);
 
-    const personalModelPath = getAppPath("src/models/PersonalAccessToken.ts");
+    const personalModel = manifestEntry('models', 'PersonalAccessToken');
 
-    if(existsSync(fileURLToPath(personalModelPath))) {
-      const { default: model } = await importModule(personalModelPath);
-      GuardStore.setModelVerify(model);
+    if(personalModel) {
+      GuardStore.setModelVerify(await loadDefault(personalModel));
     }
 
     for (const guardName in authConfig.guards) {

@@ -2,6 +2,7 @@ import { program } from "commander";
 import { type Command as CommandInstance } from "@laratype/console";
 import Transpile from "./utils/transplie";
 import { importRootCommands, importRouteConsoleCommands } from "./utils";
+import { useAppManifest } from "./manifest/load";
 import Command from "./utils/command";
 import { InitDatabaseCommand, SeedDatabaseCommand } from "./commands/db";
 import { RouteListCommand } from "./commands/route";
@@ -24,8 +25,8 @@ class AppCommandManager {
       SeedDatabaseCommand,
       RouteListCommand
     ];
-    const projectCommands = await importRootCommands(transpiler);
-    const routeCommands = await importRouteConsoleCommands(transpiler);
+    const projectCommands = await importRootCommands();
+    const routeCommands = await importRouteConsoleCommands();
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
     projectCommands.forEach(command => this.registerCommand(command, transpiler));
     routeCommands.forEach(command => this.registerCommand(command, transpiler));
@@ -35,6 +36,9 @@ class AppCommandManager {
     globalThis.__sauf_start_time = performance.now();
 
     const transpiler = new Transpile({})
+
+    // dist/app.manifest.js, written by `sauf build` next to this file
+    await useAppManifest();
 
     await this.register(transpiler);
 

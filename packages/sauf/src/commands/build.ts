@@ -8,6 +8,7 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import { replaceTscAliasPaths } from 'tsc-alias';
 import { getPlatformAdapter } from "../utils/build/platform";
 import { cpSync } from "fs";
+import { writeDistManifest } from "../manifest";
 
 export default class LaratypeBuildCommand extends Command {
 
@@ -54,6 +55,9 @@ export default class LaratypeBuildCommand extends Command {
       resolveFullPaths: true,
       resolveFullExtension: '.js',
     })
+
+    const manifest = writeDistManifest(getProjectPath('', false));
+    Console.info(`Generated ${manifest}`);
 
     const endTime = performance.now();
 

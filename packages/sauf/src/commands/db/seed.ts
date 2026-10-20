@@ -1,4 +1,4 @@
-import { AppServiceProvider, getDefaultExports, getAppPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, loadDefault, manifestEntry, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
 
 export default class SeedDatabaseCommand extends Command {
@@ -30,24 +30,16 @@ export default class SeedDatabaseCommand extends Command {
   protected async getSeeders() {
     const opts = this.opts();
     const className = opts.class;
-    if(className) {
-      try {
-        const SeederClass = await importModule(getAppPath(`database/seeders/${className}.ts`));
-        return [
-          getDefaultExports(SeederClass)
-        ];
-      }
-      catch(err) {
-        Console.error(`Seeder class ${className} not found in database/seeders/${className}.ts`);
-        return [];
-      }
+    // The seeder files of the app manifest (docs/v1/build.md › Plugin chain)
+    const name = className ?? 'DatabaseSeeder';
+    const entry = manifestEntry('seeders', name);
+    if(!entry) {
+      Console.error(`Seeder class ${name} not found in the seeders folder (app/database/seeders or database/seeders)`);
+      return [];
     }
 
-    const DataBaseSeederClass = await importModule(getAppPath(`database/seeders/DatabaseSeeder.ts`));
-    const DataBaseSeeder = getDefaultExports(DataBaseSeederClass);
-
     return [
-      DataBaseSeeder
+      await loadDefault<any>(entry)
     ];
   }
 

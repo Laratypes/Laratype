@@ -6,6 +6,7 @@ import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
 import { laratypeDi } from "../di/plugin";
 import { laratypeApi } from "../typegen/plugin";
+import { laratypeManifest, useAppManifest } from "../manifest";
 import Command from "../utils/command";
 import "../utils/banner"
 
@@ -24,8 +25,8 @@ export class CommandManager {
 
   public async register(transpiler: Transpile) {
     const { default: frameworkCommands } = await import("../commands");
-    const projectCommands = await importRootCommands(transpiler);
-    const routeCommands = await importRouteConsoleCommands(transpiler);
+    const projectCommands = await importRootCommands();
+    const routeCommands = await importRouteConsoleCommands();
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
     projectCommands.forEach(command => this.registerCommand(command, transpiler));
     routeCommands.forEach(command => this.registerCommand(command, transpiler));
@@ -57,6 +58,8 @@ export class CommandManager {
       },
       esbuild: false,
       plugins: [
+        // `virtual:laratype/app`: the app's providers, configs, routes, commands, models... found at load time
+        laratypeManifest(),
         // Before SWC: the DI transform reads the TypeScript param types SWC erases.
         laratypeDi(),
         // `$api`: the generated contract tree, scanned the first time the app imports it.
@@ -87,6 +90,8 @@ export class CommandManager {
     await runner.ready();
 
     globalThis.__sauf_transpiler_instance = runner.ssrLoadModule.bind(runner);
+
+    await useAppManifest((id) => runner.ssrLoadModule(id));
 
     await this.register(transpiler);
 

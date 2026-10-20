@@ -1,8 +1,7 @@
 import { Log } from "@laratype/log";
-import { camelize, Config, getAppPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { appManifest, camelize, Config, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { BaseEntity, DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
-import { globSync } from "glob";
 import "reflect-metadata"
 
 export default class DatabaseServiceProvider extends ServiceProvider {
@@ -29,13 +28,8 @@ export default class DatabaseServiceProvider extends ServiceProvider {
         throw new DatabaseConnectionNotConfigYet()
       }
 
-      const path = getAppPath("src/models/*", false);
-
-      const files = globSync(path, {
-        windowsPathsNoEscape: true
-      });
-
-      const instances = await Promise.all(files.map(file => importModule(file)));
+      // The model files of the app manifest (docs/v1/build.md › Plugin chain)
+      const instances = await Promise.all(appManifest().models.map(entry => entry.load()));
       const models = this.flattenModels(instances);
       globalThis.__laratype_db.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
 

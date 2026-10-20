@@ -12,11 +12,16 @@ export const getProjectPath = (pathFile: string, withURI = true) => {
   return fileUri;
 }
 
+/**
+ * @deprecated The framework loads app modules from the app manifest (`appManifest()`, the `virtual:laratype/app`
+ * module of `sauf`), not by path. Kept for 0.5 user code; removed with the 0.5 layout (#135).
+ */
 export const getAppPath = (pathFile: string, withURI = true) => {
   let fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
   if(globalThis.__APP_PROD__) {
     const _pathFile = pathFile.replace(/\.[.ts]+$/, '.js');
-    fileUri = path.resolve(`${cwd()}/dist${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`);
+    // `sauf build` emits the project tree as is: app/x.ts → dist/app/x.js
+    fileUri = path.resolve(`${cwd()}/dist/app${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`);
   }
   if(withURI) {
     return pathToFileURL(fileUri).href;
