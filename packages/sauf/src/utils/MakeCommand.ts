@@ -6,6 +6,9 @@ import path from "node:path";
 
 export default class MakeCommand extends Command {
 
+  // Templates only: the app is not loaded, so a broken app manifest still lets `make:*` run
+  static bootsApp = false;
+
   public async providers() {
     return [];
   }

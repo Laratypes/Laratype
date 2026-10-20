@@ -70,7 +70,7 @@ The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `
 ## Project structure
 
 ### Status
-planned → [#125](https://github.com/Laratypes/Laratype/issues/125) (B1, manifest discovery). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
+Discovery merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1): the manifest reads both this layout and the 0.5 one. Moving `examples/basic` to this layout is E3 [#135](https://github.com/Laratypes/Laratype/issues/135). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
 
 ### Design (non-binding)
 ```
@@ -106,7 +106,7 @@ resources/
   js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
 - **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
-- **Discovery:** the `laratype:manifest` virtual module (B1) imports providers, configs, routes, commands, models, migrations and seeders statically. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
+- **Discovery:** the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125); `virtual:laratype/app` in dev, `dist/app.manifest.js` in production) lists providers, configs, routes, commands, models, migrations, seeders, factories and modules, each loaded lazily through a static specifier. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
 
 ### Open questions
@@ -122,6 +122,7 @@ resources/
 | App code uses `import type` for type-only imports (`verbatimModuleSyntax: true`) | An interface imported as a value breaks DI differently in each environment: a Node ESM link error, a `vite build` "is not exported" error, or a `sauf dev` resolve-time `DiError`. Only TS1484 catches it consistently. | S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). Enabled repo-wide by B11 [#185](https://github.com/Laratypes/Laratype/issues/185), merged @ f66eafd. |
 | Keep SWC `decoratorMetadata: true` | TypeORM's bare `@Column()` needs `design:type`, and throws `ColumnTypeUndefinedError` without it | S3 condition 2. Revisit if S5 ([#88](https://github.com/Laratypes/Laratype/issues/88)) drops TypeORM |
 | Consumers need TypeScript ≥ 5.4 | `Endpoint.response()` uses `NoInfer` in emitted `.d.ts` files | `@laratype/contract` peer dep `typescript >=5.4` (optional) |
+| Apps and FEs using contract types need `strictNullChecks` | Without it the contract checks report false errors (`.authorize() needs auth`) | [contract.md](./contract.md) package-level invariants; `sauf types:generate` refuses a tsconfig without it |
 | Docs and stubs write `import * as z from "zod"` | With zod 4, `import { z }` defeats tree-shaking (47.1 vs 16.0 KiB gzip FE entry) | S2 ([#85](https://github.com/Laratypes/Laratype/issues/85)) |
 | Zod 4 coerce in contracts: `z.coerce.number<number>()` | Plain `z.coerce.number()` has input type `unknown`, so client query types become `unknown` | S2 finding for C3 |
 | The FE type is `AppApi = typeof appApi`, from the generated `$api` module (`.laratype/api/index.gen.ts`, merged [#133](https://github.com/Laratypes/Laratype/issues/133)). `AppRouter` is retired. | `typeof routes` pulls server files into the FE program (8 in the S2 fixture) | S2; fixture `fe/bad.ts` (merged @ e2eac4b) |

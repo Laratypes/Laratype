@@ -1,12 +1,21 @@
 {
   "compilerOptions": {
     "strict": false,
+    // The contract types need it (docs/v1/contract.md › Requirements)
+    "strictNullChecks": true,
     "target": "ES2022",
     "module": "es2022",
     "moduleResolution": "node",
     "skipLibCheck": true,
     "declaration": false,
     "outDir": "./dist",
+    // dist mirrors the project, so the generated .laratype/api/index.gen.ts finds ../../app/api/* there too
+    "rootDir": ".",
+    // The generated contract tree (docs/v1/typegen.md): ./$types next to each contract, and $api (rewritten by sauf build)
+    "rootDirs": [".", ".laratype/types"],
+    "paths": {
+      "$api": ["./.laratype/api/index.gen.ts"]
+    },
     "composite": false,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop":  true,
@@ -21,6 +30,9 @@
   },
   "include": [
     "app/**/*",
+    ".laratype/api/**/*",
+    // The v1 layout keeps database/ at the project root (docs/v1/overview.md › Project structure)
+    "database/**/*",
   ],
   "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
 }

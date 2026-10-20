@@ -98,9 +98,15 @@ export class RescanFlag {
 
 /**
  * Which watcher events restart the dev server: any change except the scan's own output, and adding or deleting a
- * file that can change the contract tree (a contract or `_scope.ts` under the root, or the config file).
+ * file that can change the contract tree (a contract or `_scope.ts` under the root, or the config file) or the app
+ * manifest (`inManifest`: a module file in one of its folders, so the restart boots with the new list).
  */
-export const shouldRestart = (event: "change" | "add" | "unlink", file: string, tree: ApiPluginApi | undefined): boolean => {
+export const shouldRestart = (
+  event: "change" | "add" | "unlink",
+  file: string,
+  tree: ApiPluginApi | undefined,
+  inManifest: (file: string) => boolean = () => false,
+): boolean => {
   if (tree?.isGenerated(file)) return false;
-  return event === "change" || (tree?.affectsTree(event, file) ?? false);
+  return event === "change" || (tree?.affectsTree(event, file) ?? false) || inManifest(file);
 };

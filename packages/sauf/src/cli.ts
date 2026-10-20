@@ -1,7 +1,9 @@
 import { program } from "commander";
 import { type Command as CommandInstance } from "@laratype/console";
+import type { AppManifest } from "@laratype/support";
 import Transpile from "./utils/transplie";
 import { importRootCommands, importRouteConsoleCommands } from "./utils";
+import { useAppManifest } from "./manifest/load";
 import Command from "./utils/command";
 import { InitDatabaseCommand, SeedDatabaseCommand } from "./commands/db";
 import { RouteListCommand } from "./commands/route";
@@ -18,14 +20,14 @@ class AppCommandManager {
     this.commands.push(commandWrapper);
   }
   
-  public async register(transpiler: Transpile) {
+  public async register(transpiler: Transpile, manifest: AppManifest) {
     const frameworkCommands = [
       InitDatabaseCommand,
       SeedDatabaseCommand,
       RouteListCommand
     ];
-    const projectCommands = await importRootCommands(transpiler);
-    const routeCommands = await importRouteConsoleCommands(transpiler);
+    const projectCommands = await importRootCommands(manifest);
+    const routeCommands = await importRouteConsoleCommands(manifest);
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
     projectCommands.forEach(command => this.registerCommand(command, transpiler));
     routeCommands.forEach(command => this.registerCommand(command, transpiler));
@@ -36,7 +38,10 @@ class AppCommandManager {
 
     const transpiler = new Transpile({})
 
-    await this.register(transpiler);
+    // dist/app.manifest.js, written by `sauf build` next to this file
+    const manifest = await useAppManifest();
+
+    await this.register(transpiler, manifest);
 
     for (const instance of this.commands) {
       program.name("sauf")

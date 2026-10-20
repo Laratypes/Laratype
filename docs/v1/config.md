@@ -31,7 +31,7 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 planned → [#152](https://github.com/Laratypes/Laratype/issues/152) (K1, M3). Depends on D4 #99.
 
 ### Design (non-binding)
-- **Files:** one file per area in `app/config/*.ts`, written with `defineConfig` ([overview.md › Project structure](./overview.md#project-structure)). The build manifest collects them (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
+- **Files:** one file per area in `app/config/*.ts`, written with `defineConfig` ([overview.md › Project structure](./overview.md#project-structure)). The app manifest collects them (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **Reading:** `config('database.default')` infers the value type from the dot path. The type comes from `typeof configs`, the collected config files.
 - **Per-area files named by issues:** `config/cors.ts` ([#164](https://github.com/Laratypes/Laratype/issues/164)), `config/cache.ts` ([#166](https://github.com/Laratypes/Laratype/issues/166)), `config/filesystems.ts` ([#168](https://github.com/Laratypes/Laratype/issues/168)), `config/mail.ts` ([#170](https://github.com/Laratypes/Laratype/issues/170)).
 - **Drivers:** the driver [Manager](./services.md#driver-manager) types its default driver and driver names from these config keys.

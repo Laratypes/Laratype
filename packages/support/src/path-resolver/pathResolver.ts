@@ -3,6 +3,7 @@ import { cwd } from "process";
 import { pathToFileURL } from 'node:url';
 import { resolveSync } from 'mlly'
 import { existsSync } from "node:fs";
+import { peekAppManifest } from "../manifest/AppManifest";
 
 export const getProjectPath = (pathFile: string, withURI = true) => {
   const fileUri = path.resolve(`${cwd()}${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
@@ -12,11 +13,17 @@ export const getProjectPath = (pathFile: string, withURI = true) => {
   return fileUri;
 }
 
+/**
+ * @deprecated The framework loads app modules from the app manifest (`appManifest()`, the `virtual:laratype/app`
+ * module of `sauf`), not by path. Kept for 0.5 user code; removed with the 0.5 layout (#135).
+ */
 export const getAppPath = (pathFile: string, withURI = true) => {
   let fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
   if(globalThis.__APP_PROD__) {
     const _pathFile = pathFile.replace(/\.[.ts]+$/, '.js');
-    fileUri = path.resolve(`${cwd()}/dist${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`);
+    // Where `sauf build` recorded tsc emitted app/ (dist/app.manifest.js, AppManifest.appDir); without it dist/<path>, as in 0.5
+    const appDir = peekAppManifest()?.appDir ?? '';
+    fileUri = path.resolve(cwd(), 'dist', appDir, _pathFile.replace(/^\//, ''));
   }
   if(withURI) {
     return pathToFileURL(fileUri).href;

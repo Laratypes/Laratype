@@ -1,15 +1,11 @@
-import { ConfigLoadServiceProvider, DateTimeServiceProvider, getDefaultExports, importModule, ServiceProvider, EnvLoadServiceProvider, AppServiceProvider, getAppPath } from '@laratype/support';
-import { existsSync } from "node:fs";
+import { ConfigLoadServiceProvider, DateTimeServiceProvider, importModule, ServiceProvider, EnvLoadServiceProvider, AppServiceProvider, appManifest, loadDefault } from '@laratype/support';
 
 export async function register(onlyConfig: true): Promise<Array<typeof ServiceProvider>>;
 export async function register(onlyConfig?: false): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;
 export async function register(onlyConfig?: boolean): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>> {
-  const providerPath = getAppPath('/config/providers.ts', false);
-  let providers: Array<typeof ServiceProvider> = [];
-  if(existsSync(providerPath)) {
-    const module = await importModule(providerPath);
-    providers = getDefaultExports(module) as Array<typeof ServiceProvider>;
-  }
+  // app/config/providers.ts, from the app manifest (docs/v1/build.md › Plugin chain)
+  const providersEntry = appManifest().providers;
+  const providers = providersEntry ? await loadDefault<Array<typeof ServiceProvider>>(providersEntry) : [];
 
   const { RequestKernel, ResponseKernel } = await importModule("@laratype/http", {
     internal: true

@@ -1,5 +1,6 @@
 import { Console } from "@laratype/console";
 import { Config, getLaratypeVersion, getRootPackageInfo, importModule, resolveSync } from "@laratype/support";
+import { useAppManifest } from "../../manifest/load";
 import { blue, green } from "kolorist";
 import { serve } from "@hono/node-server";
 import path from "path";
@@ -9,6 +10,9 @@ globalThis.__APP_PROD__ = true;
 
 export const start = async () => {
   const startTime = performance.now();
+
+  // dist/app.manifest.js, written by `sauf build` next to this file
+  await useAppManifest();
 
   const laratype = await importModule(resolveSync("laratype"))
   

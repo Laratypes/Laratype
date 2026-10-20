@@ -16,4 +16,12 @@ bun run dev
 open http://localhost:3000
 ```
 
-The production build (`bun run build`) is planned → [#125](https://github.com/Laratypes/Laratype/issues/125): the contract routes import `$api`, which only `sauf dev` resolves until the build manifest lands.
+Production build and start:
+```
+cd examples/basic
+bun run build          # sauf types:generate && tsc -b ./tsconfig.build.json && sauf build
+bun run start          # node ./dist/index.js
+bun run saufx -- route:list   # the sauf CLI of the build (node ./dist/cli.js)
+```
+
+**This example is a demo, not a production-hardened app.** Its `Route.api` routes are fail-open: auth, authorization policies, rate limits and input validation declared in the contracts are not enforced yet (planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229), [#106](https://github.com/Laratypes/Laratype/issues/106)), so `POST /api/posts` answers every caller. In the built app, controllers with constructor dependencies (`GreetingController`) can't be resolved yet, because the production build doesn't run the DI transform (planned → [#126](https://github.com/Laratypes/Laratype/issues/126), [#128](https://github.com/Laratypes/Laratype/issues/128)). Don't deploy it.

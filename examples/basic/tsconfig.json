@@ -3,13 +3,19 @@
   "compilerOptions": {
     "rootDir": "../../",
     "strict": false,
+    // The contract types need it: without it `undefined extends X` holds and Route.api / defineContract report false errors
+    "strictNullChecks": true,
     // The generated contract tree (docs/v1/typegen.md): ./$types next to each contract, and $api
     "rootDirs": [".", ".laratype/types"],
+    // A copy of the root paths plus $api: TS `paths` replace the extended ones instead of merging, and tsc and the
+    // editor need $api (Vite resolves it through laratype:api, and the build through tsconfig.build.json)
     "paths": {
       "@laratype/*": ["packages/*/src"],
       "sauf": ["packages/sauf/src"],
       "laratype": ["packages/laratype/src"],
       "$api": ["examples/basic/.laratype/api/index.gen.ts"]
     }
-  }
+  },
+  // The root include plus the generated $api module (composite: every file of the program must be listed)
+  "include": ["app", "database", ".laratype/api", "../../packages/*/src", "../../packages/global.d.ts"]
 }

@@ -62,13 +62,20 @@ export function checkBase(base: unknown, label: string): asserts base is string 
 
 const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$");
 
+/**
+ * A module file name with one of `extensions` that is no declaration, test or spec file. Shared by the contract tree
+ * (`.ts` only) and the app manifest.
+ */
+export const isModuleFile = (base: string, extensions: readonly string[] = [".ts"]): boolean =>
+  extensions.some((ext) => base.endsWith(ext)) && !/\.(d|test|spec)\.[cm]?[jt]s$/.test(base);
+
 /** Whether a root-relative file takes part in the tree: a contract or a scope. */
 export const isTreeFile = (file: string): boolean => {
   const parts = file.split("/");
   const base = parts[parts.length - 1]!;
   if (parts.slice(0, -1).some((part) => isPrivate(part) || part === "node_modules")) return false;
   if (base === SCOPE_FILE) return true;
-  return base.endsWith(".ts") && !/\.(d|test|spec)\.ts$/.test(base) && !isPrivate(base);
+  return isModuleFile(base) && !isPrivate(base);
 };
 
 interface Segment {

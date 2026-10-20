@@ -1,5 +1,7 @@
-import { AppServiceProvider, getDefaultExports, getAppPath, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { loadDefault, manifestEntry, ServiceProviderType } from "@laratype/support";
+import type { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
+import { importDatabase } from "./database";
 
 export default class SeedDatabaseCommand extends Command {
   public static signature = "db:seed";
@@ -13,51 +15,46 @@ export default class SeedDatabaseCommand extends Command {
   protected database: any;
 
   public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
-    try {
-      this.database = await globalThis.__sauf_transpiler_instance("@laratype/database", {
-        internal: true
-      }) as typeof import("@laratype/database");
-    }
-    catch {
-      throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
-    }
+    // As db:init does: `__sauf_transpiler_instance` is not set in the built `dist/cli.js`
+    this.database = await importDatabase();
     return [
       ...providers.filter((provider) => provider.type === ServiceProviderType.CORE_PROVIDER),
       this.database.DatabaseServiceProvider,
     ]
   }
 
-  protected async getSeeders() {
+  /**
+   * The seeder classes to run: `--class <name>` (its path in the seeders folder, `Admin/UserSeeder`), or
+   * `DatabaseSeeder`. `undefined` when the app manifest has no such seeder (the error is printed).
+   */
+  public async getSeeders(): Promise<Array<new () => { run(): unknown }> | undefined> {
     const opts = this.opts();
-    const className = opts.class;
-    if(className) {
-      try {
-        const SeederClass = await importModule(getAppPath(`database/seeders/${className}.ts`));
-        return [
-          getDefaultExports(SeederClass)
-        ];
-      }
-      catch(err) {
-        Console.error(`Seeder class ${className} not found in database/seeders/${className}.ts`);
-        return [];
-      }
+    // The seeder files of the app manifest (docs/v1/build.md › Plugin chain)
+    // `Admin\UserSeeder` (Windows) and `UserSeeder.ts` name the seeder as before, when the path was resolved
+    const name = String(opts.class ?? 'DatabaseSeeder').replace(/\\/g, '/').replace(/\.m?[jt]s$/, '');
+    const entry = manifestEntry('seeders', name);
+    if(!entry) {
+      Console.error(`Seeder class ${name} not found in the seeders folder (app/database/seeders or database/seeders)`);
+      return undefined;
     }
 
-    const DataBaseSeederClass = await importModule(getAppPath(`database/seeders/DatabaseSeeder.ts`));
-    const DataBaseSeeder = getDefaultExports(DataBaseSeederClass);
-
     return [
-      DataBaseSeeder
+      await loadDefault<new () => { run(): unknown }>(entry)
     ];
   }
 
   public async handle() {
+    // Before the wait for the connection: an unknown seeder fails at once
+    const Seeders = await this.getSeeders();
+    if(!Seeders) {
+      process.exitCode = 1;
+      return 1;
+    }
 
     await new Promise((resolve) => {
       setTimeout(resolve, 5000)
     })
-    const Seeders = await this.getSeeders();
-    
+
     for (const Seeder of Seeders) {
       const seeder = new Seeder();
       Console.start(`Seeding: ${seeder.constructor.name}...`);
