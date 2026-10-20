@@ -14,6 +14,8 @@ export default class LoginController extends Controller {
   
   public async login(req: Request) {
     const authenticated = Auth.user<User>()
+    // The auth middleware runs before this handler; no user means the request is not signed in
+    if(!authenticated) throw new UnauthorizedException();
     const jwtToken = await authenticated.generateToken({
       name: "Default Token",
       abilities: "*",
