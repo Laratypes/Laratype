@@ -1,4 +1,4 @@
-import { AppServiceProvider, loadDefault, manifestEntry, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, importModule, loadDefault, manifestEntry, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
 
 export default class SeedDatabaseCommand extends Command {
@@ -14,7 +14,8 @@ export default class SeedDatabaseCommand extends Command {
 
   public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
     try {
-      this.database = await globalThis.__sauf_transpiler_instance("@laratype/database", {
+      // As db:init does: `__sauf_transpiler_instance` is not set in the built `dist/cli.js`
+      this.database = await importModule("@laratype/database", {
         internal: true
       }) as typeof import("@laratype/database");
     }
