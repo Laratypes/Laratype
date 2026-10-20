@@ -69,7 +69,7 @@ Each command's issue, linked in the table.
 The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
 
 ### Design (non-binding)
-- **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the build manifest (B1 [#125](https://github.com/Laratypes/Laratype/issues/125)).
+- **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` under `.laratype/types/` and `.laratype/api/index.gen.ts` (`$api`) ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
 - **Options:** `-p, --port`, `-H, --host` and `--hmr` carry over from 0.5. HMR stays opt-in through `--hmr` ([#126](https://github.com/Laratypes/Laratype/issues/126)).
 - **Undeclared errors:** an error thrown but not declared on the running endpoint is reported loudly, with the stack. The check is always on, so there is no `--strict-contract` flag ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).

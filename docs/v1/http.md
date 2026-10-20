@@ -18,7 +18,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | decided (S1 #84); code planned → #105 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | decided (S1 #84); code planned → #105 |
-| [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source planned → #125; registry storage planned → #114 |
+| [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | planned → #105 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
@@ -166,7 +166,7 @@ Route.api(appApi, (r) => [
 ## Router v2
 
 ### Status
-merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source (the build manifest) is planned → [#125](https://github.com/Laratypes/Laratype/issues/125); the prod build of `examples/basic` waits on it. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are still built with `new` and run through the 0.5 `RequestKernel` pipeline until H2 [#105](https://github.com/Laratypes/Laratype/issues/105) and H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
+merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are still built with `new` and run through the 0.5 `RequestKernel` pipeline until H2 [#105](https://github.com/Laratypes/Laratype/issues/105) and H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
 
 ### Public API
 [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
@@ -230,7 +230,7 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
   - Files are written only when their content changes. When `index.gen.ts` changes, its module is invalidated (by its normalized module id). Writes under the plugin's output folder don't trigger an `--hmr` restart.
   - When the root folder doesn't exist, importing `$api` fails with `[laratype:api] the app imports $api, but the contract tree root "<root>" does not exist (set config api.root)`, and a stale `index.gen.ts` is never served: a restart that finds the root gone invalidates the index module and its importers, and loading the index fails with the same error. Scan and config errors are printed with the prefix `[laratype:api] `. `app/config/config.ts` must not import `$api`, directly or through other modules: `$api` is generated from the tree the config locates, and the isolated import cannot resolve it. That fails with `[laratype:api] app/config/config.ts must not import $api (directly or indirectly)`.
   - The router itself never scans: it takes the `appApi` value.
-  - In production `$api` comes from the build manifest, planned → [#125](https://github.com/Laratypes/Laratype/issues/125). Until then `examples/basic` runs under `sauf dev` but its prod build (`bun run build`) fails, because tsc can't resolve `$api` and `$types` and the generated tree doesn't fit the dist layout.
+  - In production nothing scans (merged, [#125](https://github.com/Laratypes/Laratype/issues/125)). The build script is `sauf types:generate && tsc -b tsconfig.build.json && sauf build`. `tsconfig.build.json` has `"rootDir": "."` (so `dist` mirrors the project and `dist/.laratype/api/index.gen.js` finds `../../app/api/*`), `rootDirs: [".", ".laratype/types"]` (for `./$types`), `.laratype/api` in `include`, and `paths: { "$api": ["./.laratype/api/index.gen.ts"] }`, which `sauf build` rewrites (`tsc-alias`) in the emitted files ([build.md › Plugin chain](./build.md#plugin-chain)).
   - Regenerating the files without a restart, and for the FE, is G2 [#142](https://github.com/Laratypes/Laratype/issues/142).
 - **Replaces** `_createNestedRoute` and the 0.5 `RouteOptions` tree for contract routes. Both stay for the 0.5 routes until those are migrated.
 

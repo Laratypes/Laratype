@@ -2,8 +2,8 @@
  * `laratype:api`: resolves `$api` to the generated `<out>/api/index.gen.ts` (docs/v1/http.md › Router v2).
  * The first `$api` import scans the contract tree and writes its files, with the root and base from config
  * `api.root` / `api.base`. Once the app has imported `$api`, `sauf dev` rescans before a restart when the tree can
- * have changed (`affectsTree()`, then `restart()`), so an app that never imports it is never scanned. Production reads
- * the build manifest instead (#125). No runtime import of vite: this module is loaded on every `sauf` start.
+ * have changed (`affectsTree()`, then `restart()`), so an app that never imports it is never scanned. Production scans
+ * nothing: the build compiles the generated index (#125). No runtime import of vite: this module is loaded on every `sauf` start.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
