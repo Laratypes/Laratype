@@ -33,9 +33,14 @@ export interface AppManifest {
    * only what needs the app fails; `sauf --help`, `types:generate` and `make:*` print it as a warning and run.
    */
   readonly error?: string;
+  /**
+   * Production only: where `sauf build`'s tsc emitted `app/`, relative to `dist/app.manifest.js` (`"app"` with
+   * `"rootDir": "."`, `""` for the 0.5 build rooted at `app/`). The deprecated `getAppPath()` resolves against it.
+   */
+  readonly appDir?: string;
 }
 
-export type ManifestKind = Exclude<keyof AppManifest, "providers" | "error">;
+export type ManifestKind = Exclude<keyof AppManifest, "providers" | "error" | "appDir">;
 
 /**
  * Kept on globalThis: in `sauf dev`, sauf's own dist sets it, and the app's copy of @laratype/support (loaded from

@@ -1,14 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createServer, type ViteDevServer } from 'vite';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Console } from '@laratype/console';
-import { appManifest, emittedPaths, findEmitted, getAppPath, manifestEntry, setAppManifest, type AppManifest } from '@laratype/support';
+import { appManifest, manifestEntry, setAppManifest, type AppManifest } from '@laratype/support';
 import {
-  emitManifest, emitManifestError, inManifestDirs, isManifestFile, laratypeManifest, MANIFEST_DIRS, MANIFEST_FILE, MANIFEST_ID,
-  ManifestScanError, scanManifest, useAppManifest, writeDistManifest, type ScannedManifest,
+  emitManifest, emitManifestError, inManifestDirs, isManifestFile, laratypeManifest, MANIFEST_DIRS, MANIFEST_ID,
+  ManifestScanError, scanManifest, useAppManifest, type ScannedManifest,
 } from '../../src/manifest';
 import { importRootCommands, importRouteConsoleCommands } from '../../src/utils';
 import { shouldRestart } from '../../src/utils/restarter';
@@ -35,6 +34,8 @@ const project = (name: string) => {
   write(dir, 'app/routes/console.ts', 'export default [];\n');
   write(dir, 'app/routes/user/user.ts');                 // nested route groups are imported by api.ts, not discovered
   write(dir, 'app/src/console/commands/SendMail.ts', 'export default class SendMail {};\n');
+  write(dir, 'app/src/console/commands/helper.js');      // commands are .ts / .mts: a stray .js is not loaded
+  write(dir, 'app/config/legacy.js');                    // so are configs
   write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
   write(dir, 'app/src/models/User.test.ts');             // not a module
   write(dir, 'app/src/models/Shape.d.ts');               // not a module
@@ -52,15 +53,6 @@ const project = (name: string) => {
   write(dir, 'app/modules/notes/index.mts');
   write(dir, 'app/modules/loose.ts');                    // a module is a folder with an index
   return dir;
-};
-
-/** Writes what tsc would emit for every source of `dir`, at `emittedPaths()[layout]` (0: `rootDir: "."`, 1: the 0.5 build). */
-const emit = (dir: string, layout: 0 | 1) => {
-  const scan = scanManifest(dir);
-  for (const entry of [scan.providers!, ...Object.values(scan.kinds).flat()]) {
-    const out = emittedPaths(entry.path);
-    write(dir, join('dist', out[layout] ?? out[0]!), readFileSync(join(dir, entry.path), 'utf8'));
-  }
 };
 
 const paths = (scan: ScannedManifest) => Object.fromEntries(Object.entries(scan.kinds).map(([kind, entries]) => [kind, entries.map((e) => e.path)]));
@@ -94,6 +86,14 @@ describe('scanManifest', () => {
     });
     expect(scan.kinds.models.map((e) => e.name)).toEqual(['Legacy', 'User', 'Post', 'Tag']);
     expect(scan.kinds.modules.map((e) => e.name)).toEqual(['billing', 'notes']);
+  });
+
+  it('each kind reads its own extensions: a stray .js among the commands or configs is ignored, models take any', () => {
+    expect(inManifestDirs('app/src/console/commands/helper.js')).toBe(false);
+    expect(inManifestDirs('app/src/console/commands/Mail.mts')).toBe(true);
+    expect(inManifestDirs('app/config/legacy.js')).toBe(false);
+    expect(inManifestDirs('app/src/models/Legacy.mjs')).toBe(true);
+    expect(inManifestDirs('database/seeders/X.js')).toBe(false);
   });
 
   it('names seeders by their path in the seeders folder, as db:seed --class takes them', () => {
@@ -150,6 +150,51 @@ describe('scanManifest', () => {
     expect(isManifestFile('/p', '/p/app/models/X.d.ts')).toBe(false);
     expect(isManifestFile('/p', '/other/app/models/X.ts')).toBe(false);
     expect(Object.keys(MANIFEST_DIRS)).toEqual(['configs', 'routes', 'commands', 'models', 'migrations', 'seeders', 'factories', 'modules']);
+  });
+});
+
+describe('symlinks', () => {
+  // A folder junction needs no admin rights on Windows; a file symlink may: skipped when it can't be made
+  const link = (target: string, path: string, type: 'file' | 'junction') => {
+    try {
+      symlinkSync(target, path, type);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('follows links inside the project, not loops or links outside it, with one warning', (ctx) => {
+    const dir = join(tmp, 'links');
+    const outside = join(tmp, 'outside');
+    write(dir, 'app/src/models/User.ts');
+    write(dir, 'shared/models/Tag.ts');
+    write(dir, 'shared/seeders/SharedSeeder.ts');
+    write(dir, 'app/database/seeders/DatabaseSeeder.ts');
+    write(outside, 'EvilSeeder.ts');
+    write(outside, 'Evil.ts');
+    if (!link(join(dir, 'shared/seeders'), join(dir, 'app/database/seeders/Shared'), 'junction')) return ctx.skip();
+    link(join(dir, 'app/database/seeders'), join(dir, 'app/database/seeders/Loop'), 'junction');
+    link(outside, join(dir, 'app/database/seeders/Outside'), 'junction');
+    const fileLinks = link(join(dir, 'shared/models/Tag.ts'), join(dir, 'app/src/models/Tag.ts'), 'file')
+      && link(join(outside, 'Evil.ts'), join(dir, 'app/src/models/Evil.ts'), 'file');
+
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const scan = scanManifest(dir);
+      expect(scan.kinds.seeders.map((e) => e.name)).toEqual(['DatabaseSeeder', 'Shared/SharedSeeder']);
+      expect(scan.kinds.models.map((e) => e.name)).toEqual(fileLinks ? ['Tag', 'User'] : ['User']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = warn.mock.calls[0]![0] as string;
+      expect(message).toMatch(/^\[laratype:manifest\] symlinks not followed: /);
+      expect(message).toContain('app/database/seeders/Loop (a symlink loop)');
+      expect(message).toContain('app/database/seeders/Outside (links outside the project)');
+      if (fileLinks) expect(message).toContain('app/src/models/Evil.ts (links outside the project)');
+      scanManifest(dir);
+      expect(warn).toHaveBeenCalledTimes(1);   // once per process
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
@@ -271,86 +316,6 @@ describe('shouldRestart (sauf dev --hmr)', () => {
     expect(shouldRestart('add', '/p/app/models/concerns/HasSlug.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/http/X.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/models/Tag.ts', undefined)).toBe(false);
-  });
-});
-
-describe('writeDistManifest (sauf build)', () => {
-  it('points every entry at the file tsc emitted under dist/app ("rootDir": "."), and loads in plain Node', async () => {
-    const dir = project('dist');
-    emit(dir, 0);
-    const file = writeDistManifest(dir);
-    expect(file).toBe(join(dir, 'dist', MANIFEST_FILE));
-    const code = readFileSync(file, 'utf8');
-    expect(code).toContain("load: () => import('./app/src/models/User.js')");
-    expect(code).toContain("load: () => import('./app/models/Tag.mjs')");
-    expect(code).toContain("load: () => import('./database/seeders/PostSeeder.js')");
-    expect(code).not.toContain('.ts\')');
-
-    const { default: manifest } = await import(/* @vite-ignore */ pathToFileURL(file).href) as { default: AppManifest };
-    const seeders = await Promise.all(manifest.seeders.map(async (e) => new ((await e.load()).default)().layout));
-    expect(seeders).toEqual(['0.5 nested', '0.5', 'v1']);
-  });
-
-  it('supports the 0.5 build, where tsc emits app/x.ts as dist/x.js (include: ["app/**/*"], no rootDir)', async () => {
-    const dir = join(tmp, 'legacy-build');
-    write(dir, 'app/config/config.ts', 'export default { name: "legacy" };\n');
-    write(dir, 'app/config/providers.ts', 'export default [];\n');
-    write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
-    emit(dir, 1);
-    expect(existsSync(join(dir, 'dist/config/config.js'))).toBe(true);
-    const code = readFileSync(writeDistManifest(dir), 'utf8');
-    expect(code).toContain("path: 'app/config/config.ts', load: () => import('./config/config.js')");
-    expect(code).toContain("load: () => import('./src/models/User.js')");
-    const { default: manifest } = await import(/* @vite-ignore */ pathToFileURL(join(dir, 'dist', MANIFEST_FILE)).href) as { default: AppManifest };
-    expect((await manifest.configs[0].load()).default).toEqual({ name: 'legacy' });
-  });
-
-  it('fails, naming the include it needs, when tsc emitted no file for a source', () => {
-    const dir = join(tmp, 'missing');
-    write(dir, 'app/config/config.ts');
-    write(dir, 'database/seeders/DatabaseSeeder.ts');
-    write(dir, 'dist/app/config/config.js');
-    expect(() => writeDistManifest(dir)).toThrow(
-      'sauf build: tsc emitted no file for database/seeders/DatabaseSeeder.ts (looked for dist/database/seeders/DatabaseSeeder.js; tsconfig.build.json must include "database/**/*"). An app that imports $api also needs "rootDir": "." in tsconfig.build.json',
-    );
-    expect(existsSync(join(dir, 'dist', MANIFEST_FILE))).toBe(false);
-  });
-
-  it('fails on a stale dist that holds both layouts\' files', () => {
-    const dir = join(tmp, 'stale');
-    write(dir, 'app/config/config.ts');
-    write(dir, 'dist/app/config/config.js');
-    write(dir, 'dist/config/config.js');
-    expect(() => writeDistManifest(dir)).toThrow('stale dist: both dist/app/config/config.js and dist/config/config.js exist, clean dist/ and build again');
-    expect(() => findEmitted(join(dir, 'dist'), 'app/config/config.ts')).toThrow(/^stale dist/);
-  });
-});
-
-describe('getAppPath (deprecated) in production', () => {
-  const previous = { prod: globalThis.__APP_PROD__, cwd: process.cwd() };
-  let root: string;
-
-  beforeAll(() => {
-    root = join(tmp, 'app-path');
-    write(root, 'legacy/dist/config/config.js');
-    write(root, 'tree/dist/app/config/config.js');
-    write(root, 'stale/dist/config/config.js');
-    write(root, 'stale/dist/app/config/config.js');
-  });
-
-  afterEach(() => {
-    globalThis.__APP_PROD__ = previous.prod;
-    process.chdir(previous.cwd);
-  });
-
-  it('follows the same rule as the manifest: dist/app/x.js, else dist/x.js, and fails on a stale dist', () => {
-    globalThis.__APP_PROD__ = true;
-    process.chdir(join(root, 'legacy'));
-    expect(getAppPath('/config/config.ts', false)).toBe(join(root, 'legacy', 'dist', 'config', 'config.js'));
-    process.chdir(join(root, 'tree'));
-    expect(getAppPath('/config/config.ts', false)).toBe(join(root, 'tree', 'dist', 'app', 'config', 'config.js'));
-    process.chdir(join(root, 'stale'));
-    expect(() => getAppPath('/config/config.ts', false)).toThrow(/^stale dist: both dist\/app\/config\/config\.js and dist\/config\/config\.js exist/);
   });
 });
 
