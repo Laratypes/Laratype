@@ -62,7 +62,6 @@ export function checkBase(base: unknown, label: string): asserts base is string 
 
 const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$");
 
-/** Whether a root-relative file takes part in the tree: a contract or a scope. */
 /**
  * A module file name with one of `extensions` that is no declaration, test or spec file. Shared by the contract tree
  * (`.ts` only) and the app manifest.
@@ -70,6 +69,7 @@ const isPrivate = (name: string) => name.startsWith("_") || name.startsWith("$")
 export const isModuleFile = (base: string, extensions: readonly string[] = [".ts"]): boolean =>
   extensions.some((ext) => base.endsWith(ext)) && !/\.(d|test|spec)\.[cm]?[jt]s$/.test(base);
 
+/** Whether a root-relative file takes part in the tree: a contract or a scope. */
 export const isTreeFile = (file: string): boolean => {
   const parts = file.split("/");
   const base = parts[parts.length - 1]!;

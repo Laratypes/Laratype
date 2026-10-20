@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve } from "node:path";
-import { emittedPaths, type ManifestKind } from "@laratype/support";
+import { emittedPaths, findEmitted, type ManifestKind } from "@laratype/support";
 import { lines, quote } from "../typegen/emit";
 import { isModuleFile } from "../typegen/scan";
 import { MANIFEST_FILE } from "./load";
@@ -28,8 +28,8 @@ const NESTED: ReadonlySet<ManifestKind> = new Set(["seeders"]);
 /** The module extensions read; a declaration, test or spec file is skipped. */
 export const MODULE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs"] as const;
 
-/** `app/config/providers.ts`: the provider list, kept apart from the configs. */
-export const PROVIDERS_FILE = "app/config/providers.ts";
+/** The config named `providers` (`app/config/providers.ts`, or `.mts`, `.js`, `.mjs`): the provider list, kept apart from the configs. */
+export const PROVIDERS_NAME = "providers";
 
 /** A discovered file: its name and its path relative to the project, with `/` separators. */
 export interface ScannedEntry {
@@ -53,35 +53,41 @@ export class ManifestScanError extends Error {
 const isDir = (path: string) => existsSync(path) && statSync(path).isDirectory();
 const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 const stripExtension = (name: string) => name.replace(/\.[cm]?[jt]s$/, "");
+const isModule = (name: string) => isModuleFile(name, MODULE_EXTENSIONS);
+/** A module's entry: `index.ts` (or `.mts`, `.js`, `.mjs`). */
+const isModuleIndex = (name: string) => isModule(name) && stripExtension(name) === "index";
 
-/** The module files of a folder (`modules`: each sub-folder's `index.ts`), sorted by name. */
+/** The module files of a folder (`modules`: each sub-folder's `index.*`), sorted by name. */
 function scanDir(projectDir: string, dir: string, kind: ManifestKind, prefix = ""): ScannedEntry[] {
   const abs = join(projectDir, dir, prefix);
   if (!isDir(abs)) return [];
   const entries: ScannedEntry[] = [];
   for (const entry of readdirSync(abs, { withFileTypes: true }).sort(byName)) {
     if (kind === "modules") {
-      if (entry.isDirectory() && existsSync(join(abs, entry.name, "index.ts"))) {
-        entries.push({ name: entry.name, path: posix.join(dir, entry.name, "index.ts") });
+      if (!entry.isDirectory()) continue;
+      for (const file of readdirSync(join(abs, entry.name)).sort().filter(isModuleIndex)) {
+        entries.push({ name: entry.name, path: posix.join(dir, entry.name, file) });
       }
     } else if (entry.isDirectory() && NESTED.has(kind) && entry.name !== "node_modules") {
       entries.push(...scanDir(projectDir, dir, kind, posix.join(prefix, entry.name)));
-    } else if (entry.isFile() && isModuleFile(entry.name, MODULE_EXTENSIONS)) {
-      const path = posix.join(dir, prefix, entry.name);
-      if (path !== PROVIDERS_FILE) entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path });
+    } else if (entry.isFile() && isModule(entry.name)) {
+      entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path: posix.join(dir, prefix, entry.name) });
     }
   }
   return entries;
 }
 
-/** Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a duplicate name. */
+/**
+ * Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a name found
+ * twice in a kind: in both layouts, or `User.ts` next to `User.js`.
+ */
 export function scanManifest(projectDir: string): ScannedManifest {
   const kinds = {} as Record<ManifestKind, ScannedEntry[]>;
   for (const kind of Object.keys(MANIFEST_DIRS) as ManifestKind[]) {
     const entries: ScannedEntry[] = [];
     for (const dir of MANIFEST_DIRS[kind]) {
       for (const entry of scanDir(projectDir, dir, kind)) {
-        // `models/User` in both layouts, or `User.ts` next to `User.js`: lookups by name would pick one silently
+        // Lookups by name would pick one silently
         const other = entries.find((e) => e.name === entry.name);
         if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
         entries.push(entry);
@@ -89,25 +95,33 @@ export function scanManifest(projectDir: string): ScannedManifest {
     }
     kinds[kind] = entries;
   }
-  const providers = existsSync(join(projectDir, PROVIDERS_FILE)) ? { name: "providers", path: PROVIDERS_FILE } : undefined;
+  const providers = kinds.configs.find((e) => e.name === PROVIDERS_NAME);
+  kinds.configs = kinds.configs.filter((e) => e !== providers);
   return { providers, kinds };
 }
 
-/** Whether a file of the project (relative path) sits in one of `MANIFEST_DIRS`. */
+/** Whether a project-relative file is one the scan reads: a module file where `MANIFEST_DIRS` look, at the depth they look. */
 export function inManifestDirs(relativePath: string): boolean {
   const path = relativePath.replace(/\\/g, "/");
-  return Object.values(MANIFEST_DIRS).some((dirs) => dirs.some((dir) => path.startsWith(`${dir}/`)));
+  const base = path.split("/").pop()!;
+  return (Object.keys(MANIFEST_DIRS) as ManifestKind[]).some((kind) =>
+    MANIFEST_DIRS[kind].some((dir) => {
+      if (!path.startsWith(`${dir}/`)) return false;
+      const depth = path.slice(dir.length + 1).split("/").length;
+      if (kind === "modules") return depth === 2 && isModuleIndex(base);
+      return (NESTED.has(kind) || depth === 1) && isModule(base);
+    }),
+  );
 }
 
 /**
- * Whether adding or deleting `file` (absolute) changes the manifest: a module file in one of `MANIFEST_DIRS`. `sauf dev
- * --hmr` restarts on it, and `laratype:manifest` invalidates its module. Editor temp files don't count.
+ * Whether adding or deleting `file` (absolute) changes the manifest (`inManifestDirs`). `sauf dev --hmr` restarts on
+ * it, and `laratype:manifest` invalidates its module. Editor temp files and helpers in sub-folders don't count.
  */
 export function isManifestFile(projectDir: string, file: string): boolean {
   const rel = relative(projectDir, resolve(file));
   if (rel.startsWith("..") || isAbsolute(rel)) return false;
-  const base = rel.replace(/\\/g, "/").split("/").pop()!;
-  return inManifestDirs(rel) && isModuleFile(base, MODULE_EXTENSIONS);
+  return inManifestDirs(rel);
 }
 
 /**
@@ -128,27 +142,40 @@ export function emitManifest(scan: ScannedManifest, specifier: (path: string) =>
   return lines(parts);
 }
 
+/** The empty manifest with the scan error (`AppManifest.error`): `appManifest()` throws it where the app is needed. */
+export function emitManifestError(message: string): string {
+  const kinds = (Object.keys(MANIFEST_DIRS) as ManifestKind[]).map((kind) => `  ${kind}: [],`);
+  return lines([
+    "// Generated by sauf (laratype:manifest): the scan failed. Do not edit.",
+    "export default {",
+    "  providers: undefined,",
+    ...kinds,
+    `  error: ${quote(message)},`,
+    "};",
+  ]);
+}
+
 /**
  * `dist/app.manifest.js` (`sauf build`): the manifest of the sources, pointing at what tsc emitted for them. Each file
- * is looked up with `emittedPaths()`, the rule `getAppPath()` uses too: `dist/app/x.js` when tsc keeps the project tree
- * (`"rootDir": "."`, which an app importing `$api` needs), else `dist/x.js` (the 0.5 build, rooted at `app/`). A source
- * with no emitted file is an error that names the `include` entry it needs. Returns the written file.
+ * is looked up with `findEmitted()`, the rule `getAppPath()` uses too: `dist/app/x.js` when tsc keeps the project tree
+ * (`"rootDir": "."`, which an app importing `$api` needs), else `dist/x.js` (the 0.5 build, rooted at `app/`); both is a
+ * stale dist. A source with no emitted file is an error that names the `include` entry it needs. Returns the written file.
  */
 export function writeDistManifest(projectDir: string, distDir = "dist"): string {
+  const dist = resolve(projectDir, distDir);
   const missing: string[] = [];
   const code = emitManifest(scanManifest(projectDir), (path) => {
-    const candidates = emittedPaths(path);
-    const found = candidates.find((file) => existsSync(join(projectDir, distDir, file)));
+    const found = findEmitted(dist, path);
     if (!found) {
       const include = `${path.split("/")[0]}/**/*`;
-      missing.push(`${path} (looked for ${candidates.map((file) => posix.join(distDir, file)).join(", ")}; tsconfig.build.json must include "${include}")`);
+      missing.push(`${path} (looked for ${emittedPaths(path).map((file) => posix.join(distDir, file)).join(", ")}; tsconfig.build.json must include "${include}")`);
     }
-    return `./${found ?? candidates[0]}`;
+    return `./${found ?? emittedPaths(path)[0]}`;
   });
   if (missing.length) {
     throw new Error(`sauf build: tsc emitted no file for ${missing.join("; ")}. An app that imports $api also needs "rootDir": "." in tsconfig.build.json`);
   }
-  const target = join(projectDir, distDir, MANIFEST_FILE);
+  const target = join(dist, MANIFEST_FILE);
   writeFileSync(target, code);
   return target;
 }

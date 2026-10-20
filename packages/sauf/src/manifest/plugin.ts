@@ -8,7 +8,7 @@
 import { resolve } from 'node:path';
 import type { Plugin } from 'vite';
 import { slash } from '../typegen/sync';
-import { emitManifest, isManifestFile, scanManifest } from './scan';
+import { emitManifest, emitManifestError, isManifestFile, ManifestScanError, scanManifest } from './scan';
 import { MANIFEST_ID } from './load';
 
 export const MANIFEST_PLUGIN_NAME = 'laratype:manifest';
@@ -30,7 +30,13 @@ export function laratypeManifest(options: ManifestPluginOptions = {}): Plugin {
     },
     load(id) {
       if (id !== RESOLVED_ID) return null;
-      return emitManifest(scanManifest(projectDir), (path) => slash(resolve(projectDir, path)));
+      try {
+        return emitManifest(scanManifest(projectDir), (path) => slash(resolve(projectDir, path)));
+      } catch (error) {
+        // Thrown by appManifest() where the app is needed: `--help`, `types:generate` and `make:*` still run
+        if (error instanceof ManifestScanError) return emitManifestError(`[${MANIFEST_PLUGIN_NAME}] ${error.message}`);
+        throw error;
+      }
     },
     configureServer(server) {
       const invalidate = (file: string) => {

@@ -1,5 +1,6 @@
-import { AppServiceProvider, importModule, loadDefault, manifestEntry, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, loadDefault, manifestEntry, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
+import { importDatabase } from "./database";
 
 export default class SeedDatabaseCommand extends Command {
   public static signature = "db:seed";
@@ -13,15 +14,8 @@ export default class SeedDatabaseCommand extends Command {
   protected database: any;
 
   public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
-    try {
-      // As db:init does: `__sauf_transpiler_instance` is not set in the built `dist/cli.js`
-      this.database = await importModule("@laratype/database", {
-        internal: true
-      }) as typeof import("@laratype/database");
-    }
-    catch {
-      throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
-    }
+    // As db:init does: `__sauf_transpiler_instance` is not set in the built `dist/cli.js`
+    this.database = await importDatabase();
     return [
       ...providers.filter((provider) => provider.type === ServiceProviderType.CORE_PROVIDER),
       this.database.DatabaseServiceProvider,

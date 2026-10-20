@@ -1,5 +1,6 @@
-import { AppServiceProvider, importModule, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
+import { importDatabase } from "./database";
 
 export default class InitDatabaseCommand extends Command {
   public static signature = "db:init";
@@ -9,14 +10,7 @@ export default class InitDatabaseCommand extends Command {
   protected database: any;
 
   public async providers(providers: Array<typeof AppServiceProvider | typeof ServiceProvider>) {
-    try {
-      this.database = await importModule("@laratype/database", {
-        internal: true
-      }) as typeof import("@laratype/database");
-    }
-    catch {
-      throw new Error("Database package is not installed. Please install it with 'npm install @laratype/database' or 'yarn add @laratype/database'");
-    }
+    this.database = await importDatabase();
     return [
       ...providers.filter((provider) => provider.type === ServiceProviderType.CORE_PROVIDER),
       this.database.DatabaseServiceProvider,

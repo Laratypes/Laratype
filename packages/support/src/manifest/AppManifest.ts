@@ -28,9 +28,14 @@ export interface AppManifest {
   readonly factories: readonly ManifestEntry[];
   /** `app/modules/<name>/index.ts`, by folder name. Read by K2 (#153); nothing boots them yet. */
   readonly modules: readonly ManifestEntry[];
+  /**
+   * Set when the dev scan failed (one name twice in a kind); the lists are then empty. `appManifest()` throws it, so
+   * only what needs the app fails; `sauf --help`, `types:generate` and `make:*` print it as a warning and run.
+   */
+  readonly error?: string;
 }
 
-export type ManifestKind = Exclude<keyof AppManifest, "providers">;
+export type ManifestKind = Exclude<keyof AppManifest, "providers" | "error">;
 
 /**
  * Kept on globalThis: in `sauf dev`, sauf's own dist sets it, and the app's copy of @laratype/support (loaded from
@@ -42,16 +47,20 @@ export const setAppManifest = (manifest: AppManifest) => {
   store.__laratype_manifest = manifest;
 };
 
-/** The manifest the entry set. Throws when there is none: the app was started without `sauf`. */
+/**
+ * The manifest the entry set. Throws when there is none (the app was started without `sauf`), and throws the scan
+ * error of a manifest that has one.
+ */
 export const appManifest = (): AppManifest => {
   const manifest = store.__laratype_manifest;
   if (!manifest) {
     throw new Error("No app manifest: start the app with `sauf dev`, or `node dist/index.js` after `sauf build` (docs/v1/build.md › Plugin chain)");
   }
+  if (manifest.error !== undefined) throw new Error(manifest.error);
   return manifest;
 };
 
-/** The first entry of a kind with that name (both project layouts may have one: the 0.5 one comes first). */
+/** The entry of a kind with that name (a name is unique within a kind: the scan rejects duplicates). */
 export const manifestEntry = (kind: ManifestKind, name: string): ManifestEntry | undefined =>
   appManifest()[kind].find((entry) => entry.name === name);
 

@@ -24,6 +24,20 @@ export const emittedPaths = (sourcePath: string): string[] => {
 }
 
 /**
+ * The build of a project source under `distDir` (absolute), by the `emittedPaths()` rule, or `undefined` when tsc
+ * emitted none. Both layouts' files at once is a stale dist (`tsc -b` doesn't clean after a layout switch): an error,
+ * not a silent pick.
+ */
+export const findEmitted = (distDir: string, sourcePath: string): string | undefined => {
+  const found = emittedPaths(sourcePath).filter((file) => existsSync(path.resolve(distDir, file)));
+  if (found.length > 1) {
+    const dist = path.basename(distDir);
+    throw new Error(`stale dist: both ${found.map((file) => `${dist}/${file}`).join(' and ')} exist, clean ${dist}/ and build again`);
+  }
+  return found[0];
+}
+
+/**
  * @deprecated The framework loads app modules from the app manifest (`appManifest()`, the `virtual:laratype/app`
  * module of `sauf`), not by path. Kept for 0.5 user code; removed with the 0.5 layout (#135).
  */
@@ -31,9 +45,10 @@ export const getAppPath = (pathFile: string, withURI = true) => {
   let fileUri = path.resolve(`${cwd()}/app${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
   if(globalThis.__APP_PROD__) {
     const _pathFile = pathFile.replace(/\.[.ts]+$/, '.js');
-    // Either build layout (`emittedPaths`); the 0.5 one when neither file exists, as before
-    const candidates = emittedPaths(`app${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`).map((file) => path.resolve(cwd(), 'dist', file));
-    fileUri = candidates.find((file) => existsSync(file)) ?? candidates[candidates.length - 1]!;
+    // Either build layout (`findEmitted`); the 0.5 one when neither file exists, as before
+    const source = `app${_pathFile[0] == '/' ? _pathFile : '/' + _pathFile}`;
+    const dist = path.resolve(cwd(), 'dist');
+    fileUri = path.resolve(dist, findEmitted(dist, source) ?? emittedPaths(source).at(-1)!);
   }
   if(withURI) {
     return pathToFileURL(fileUri).href;

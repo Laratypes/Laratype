@@ -1,7 +1,9 @@
 import { type Command as CommandInstance } from "@laratype/console";
 import { program } from "commander"
-import { resolveModule } from "@laratype/support";
-import { importRootCommands, importRouteConsoleCommands } from "../utils";
+import { resolveModule, type AppManifest } from "@laratype/support";
+import { resolve } from "node:path";
+import { importRootCommands, importRouteConsoleCommands, type EntryLoader } from "../utils";
+import { slash } from "../typegen/sync";
 import Transpile from "../utils/transplie";
 import { RollupPluginSwc } from "../utils/plugin";
 import { laratypeDi } from "../di/plugin";
@@ -23,10 +25,10 @@ export class CommandManager {
     this.commands.push(commandWrapper);
   }
 
-  public async register(transpiler: Transpile) {
+  public async register(transpiler: Transpile, manifest: AppManifest, load?: EntryLoader) {
     const { default: frameworkCommands } = await import("../commands");
-    const projectCommands = await importRootCommands();
-    const routeCommands = await importRouteConsoleCommands();
+    const projectCommands = await importRootCommands(manifest, load);
+    const routeCommands = await importRouteConsoleCommands(manifest, load);
     frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
     projectCommands.forEach(command => this.registerCommand(command, transpiler));
     routeCommands.forEach(command => this.registerCommand(command, transpiler));
@@ -91,9 +93,11 @@ export class CommandManager {
 
     globalThis.__sauf_transpiler_instance = runner.ssrLoadModule.bind(runner);
 
-    await useAppManifest((id) => runner.ssrLoadModule(id));
+    // A scan error is printed here and thrown only where the app is needed (appManifest())
+    const manifest = await useAppManifest((id) => runner.ssrLoadModule(id));
 
-    await this.register(transpiler);
+    // The manifest's own module ids, with Vite's source-mapped stack traces for errors in the app's commands
+    await this.register(transpiler, manifest, (entry) => runner.ssrLoadModule(slash(resolve(entry.path)), { fixStacktrace: true }));
 
     for (const instance of this.commands) {
       program.name("sauf")

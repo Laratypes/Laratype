@@ -4,3 +4,5 @@ node_modules
 dist
 examples/laratype-test
 dist_tmp
+# Fixture projects of packages/sauf/__tests__/manifest/cli.test.ts, left by an interrupted run
+packages/sauf/__tests__/manifest/.cli-*

@@ -4,7 +4,7 @@ import { appManifest, loadDefault, manifestEntry, setAppManifest } from '../src/
 import type { AppManifest, ManifestEntry, ManifestKind } from '../src/manifest/AppManifest'
 
 describe('AppManifest', () => {
-  test('ManifestKind is every list of the manifest, not providers', () => {
+  test('ManifestKind is every list of the manifest, not providers or error', () => {
     expectTypeOf<ManifestKind>().toEqualTypeOf<'configs' | 'routes' | 'commands' | 'models' | 'migrations' | 'seeders' | 'factories' | 'modules'>()
   })
 
@@ -12,6 +12,7 @@ describe('AppManifest', () => {
     expectTypeOf<AppManifest['models']>().toEqualTypeOf<readonly ManifestEntry[]>()
     expectTypeOf<AppManifest['providers']>().toEqualTypeOf<ManifestEntry | undefined>()
     expectTypeOf<ManifestEntry['load']>().returns.toEqualTypeOf<Promise<Record<string, any>>>()
+    expectTypeOf<AppManifest['error']>().toEqualTypeOf<string | undefined>()
   })
 
   test('setAppManifest takes a manifest, appManifest returns it', () => {
