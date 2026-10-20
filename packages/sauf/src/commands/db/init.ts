@@ -1,4 +1,5 @@
-import { AppServiceProvider, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { ServiceProviderType } from "@laratype/support";
+import type { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
 import { importDatabase } from "./database";
 

@@ -50,6 +50,15 @@ describe('db:seed', () => {
     expect(new Default!()).toMatchObject({ name: 'DatabaseSeeder' });
   });
 
+  it('--class takes a Windows path and a file name with its extension, as before the manifest', async () => {
+    for (const name of ['Admin\\UserSeeder', 'Admin/UserSeeder.ts', 'Admin\\UserSeeder.mts']) {
+      const [Seeder] = (await seed({ class: name }).getSeeders())!;
+      expect(new Seeder!()).toMatchObject({ name: 'Admin/UserSeeder' });
+    }
+    const [Default] = (await seed({ class: 'DatabaseSeeder.ts' }).getSeeders())!;
+    expect(new Default!()).toMatchObject({ name: 'DatabaseSeeder' });
+  });
+
   it('an unknown seeder is an error and exits non-zero, before the wait for the connection', async () => {
     const error = vi.spyOn(Console, 'error').mockImplementation(() => {});
     const exitCode = process.exitCode;

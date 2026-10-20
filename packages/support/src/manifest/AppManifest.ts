@@ -52,6 +52,9 @@ export const setAppManifest = (manifest: AppManifest) => {
   store.__laratype_manifest = manifest;
 };
 
+/** The manifest the entry set, if any, scan error or not: for code that has a fallback without it (`getAppPath()`). */
+export const peekAppManifest = (): AppManifest | undefined => store.__laratype_manifest;
+
 /**
  * The manifest the entry set. Throws when there is none (the app was started without `sauf`), and throws the scan
  * error of a manifest that has one.

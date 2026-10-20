@@ -307,6 +307,25 @@ describe('laratype:manifest (dev)', () => {
   });
 });
 
+describe('importRootCommands', () => {
+  it('skips a command file whose default export is not a command class, with one warning', async () => {
+    class SendMail { static signature = 'send:mail'; }
+    const entry = (path: string, mod: Record<string, unknown>) => ({ name: path, path, load: async () => mod });
+    const manifest = {
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      commands: [entry('app/src/console/commands/SendMail.ts', { default: SendMail }), entry('app/src/console/commands/format.ts', { default: () => '' }), entry('app/src/console/commands/util.ts', {})],
+    } satisfies AppManifest;
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRootCommands(manifest)).toEqual([SendMail]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command class (a class with a static signature)');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 describe('shouldRestart (sauf dev --hmr)', () => {
   const inManifest = (file: string) => isManifestFile('/p', file);
 

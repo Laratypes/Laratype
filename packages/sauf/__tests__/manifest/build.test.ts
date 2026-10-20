@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Console } from '@laratype/console';
 import { getAppPath, setAppManifest, type AppManifest } from '@laratype/support';
 import LaratypeBuildCommand, { loadBuildTypeScript, writeDistManifest } from '../../src/commands/build';
-import { MANIFEST_FILE } from '../../src/manifest';
+import { MANIFEST_FILE, useAppManifest } from '../../src/manifest';
 
 /**
  * `sauf build`'s `dist/app.manifest.js` (B1 #125): each source points at the file TypeScript says tsc emitted for it
@@ -73,6 +73,14 @@ describe('writeDistManifest', () => {
     expect(new ((await manifest.seeders[0]!.load()).default)()).toMatchObject({ layout: 'v1' });
   });
 
+  it('appDir comes from the config, not from the entries: "rootDir": "." with every app/** file excluded is still "app"', async () => {
+    const dir = project('no-app', { rootDir: '.' }, { include: ['app/**/*', 'database/**/*'], exclude: ['app/**/*'] });
+    const { file, omitted, appDir } = writeDistManifest(ts, dir);
+    expect(appDir).toBe('app');
+    expect(omitted).toContain('app/config/config.ts');
+    expect((await load(file)).appDir).toBe('app');
+  });
+
   it('an outDir other than dist: the manifest (next to the bundles in dist/) points into it', async () => {
     const dir = project('outdir', { rootDir: '.', outDir: './build' });
     mkdirSync(join(dir, 'dist'));
@@ -136,6 +144,20 @@ describe('sauf build', () => {
       'sauf build needs typescript (install it as a devDependency)',
     );
     expect(await loadBuildTypeScript(async () => ({ default: ts }))).toBe(ts);
+  });
+
+  it('a missing dist/app.manifest.js in production says to run sauf build', async () => {
+    const prod = globalThis.__APP_PROD__;
+    globalThis.__APP_PROD__ = true;
+    try {
+      const notFound = Object.assign(new Error(`Cannot find module '/app/dist/${MANIFEST_FILE}' imported from /app/dist/index.js`), { code: 'ERR_MODULE_NOT_FOUND' });
+      await expect(useAppManifest(() => Promise.reject(notFound))).rejects.toThrow(`dist/${MANIFEST_FILE} not found: run \`sauf build\``);
+      // Another missing module, imported by the manifest: its own error
+      const other = Object.assign(new Error("Cannot find module '/app/dist/app/config/config.js'"), { code: 'ERR_MODULE_NOT_FOUND' });
+      await expect(useAppManifest(() => Promise.reject(other))).rejects.toBe(other);
+    } finally {
+      globalThis.__APP_PROD__ = prod;
+    }
   });
 
   it('a failed manifest step leaves no stale app.manifest.js and copies no bundles', async () => {

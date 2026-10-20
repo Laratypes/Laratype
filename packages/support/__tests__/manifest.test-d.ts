@@ -1,6 +1,6 @@
 // Type tests for the app manifest (B1 #125): run by `bunx vitest run --project types`.
 import { describe, expectTypeOf, test } from 'vitest'
-import { appManifest, loadDefault, manifestEntry, setAppManifest } from '../src/manifest/AppManifest'
+import { appManifest, loadDefault, manifestEntry, peekAppManifest, setAppManifest } from '../src/manifest/AppManifest'
 import type { AppManifest, ManifestEntry, ManifestKind } from '../src/manifest/AppManifest'
 
 describe('AppManifest', () => {
@@ -19,6 +19,7 @@ describe('AppManifest', () => {
   test('setAppManifest takes a manifest, appManifest returns it', () => {
     expectTypeOf(setAppManifest).parameter(0).toEqualTypeOf<AppManifest>()
     expectTypeOf(appManifest).returns.toEqualTypeOf<AppManifest>()
+    expectTypeOf(peekAppManifest).returns.toEqualTypeOf<AppManifest | undefined>()
   })
 
   test('manifestEntry takes a kind and may find nothing', () => {

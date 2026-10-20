@@ -27,13 +27,19 @@ export class TypeScriptMissingError extends Error {
   }
 }
 
-/** Loads `typescript` only when types:generate runs, so `sauf dev` and app boot never pull it in. */
-export async function loadTypeScript(load: () => Promise<unknown> = () => import("typescript")): Promise<typeof TS> {
+/**
+ * Loads `typescript` only when a command needs it (types:generate, sauf build), so `sauf dev` and app boot never pull
+ * it in. `missing` is the error when it is not installed.
+ */
+export async function loadTypeScript(
+  load: () => Promise<unknown> = () => import("typescript"),
+  missing: (cause: unknown) => Error = (cause) => new TypeScriptMissingError(cause),
+): Promise<typeof TS> {
   try {
     const mod = (await load()) as typeof TS & { default?: typeof TS };
     return mod.default ?? mod;
   } catch (error) {
-    throw new TypeScriptMissingError(error);
+    throw missing(error);
   }
 }
 

@@ -3,6 +3,7 @@ import { cwd } from "process";
 import { pathToFileURL } from 'node:url';
 import { resolveSync } from 'mlly'
 import { existsSync } from "node:fs";
+import { peekAppManifest } from "../manifest/AppManifest";
 
 export const getProjectPath = (pathFile: string, withURI = true) => {
   const fileUri = path.resolve(`${cwd()}${pathFile[0] == '/' ? pathFile : '/' + pathFile}`);
@@ -21,7 +22,7 @@ export const getAppPath = (pathFile: string, withURI = true) => {
   if(globalThis.__APP_PROD__) {
     const _pathFile = pathFile.replace(/\.[.ts]+$/, '.js');
     // Where `sauf build` recorded tsc emitted app/ (dist/app.manifest.js, AppManifest.appDir); without it dist/<path>, as in 0.5
-    const appDir = (globalThis as { __laratype_manifest?: { appDir?: string } }).__laratype_manifest?.appDir ?? '';
+    const appDir = peekAppManifest()?.appDir ?? '';
     fileUri = path.resolve(cwd(), 'dist', appDir, _pathFile.replace(/^\//, ''));
   }
   if(withURI) {

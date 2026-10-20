@@ -17,7 +17,16 @@ export const MANIFEST_FILE = "app.manifest.js";
  */
 export async function useAppManifest(load: (id: string) => Promise<any> = (id) => import(/* @vite-ignore */ id)): Promise<AppManifest> {
   const id = globalThis.__APP_PROD__ ? new URL(`./${MANIFEST_FILE}`, import.meta.url).href : MANIFEST_ID;
-  const { default: manifest } = await load(id) as { default: AppManifest };
+  let manifest: AppManifest;
+  try {
+    ({ default: manifest } = await load(id) as { default: AppManifest });
+  } catch (error) {
+    // Production: the bundles were copied, but the app was never built (or dist was cleaned)
+    if (globalThis.__APP_PROD__ && (error as { code?: string })?.code === "ERR_MODULE_NOT_FOUND" && String((error as Error).message).includes(MANIFEST_FILE)) {
+      throw new Error(`dist/${MANIFEST_FILE} not found: run \`sauf build\``, { cause: error });
+    }
+    throw error;
+  }
   setAppManifest(manifest);
   // Each scan error once per process (`sauf dev` loads the manifest again on every restart)
   if (manifest.error !== undefined && !warned.has(manifest.error)) {
