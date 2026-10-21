@@ -3,6 +3,7 @@
 import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
 import { Exception, HTTP_APP, MetaDataKey, NotFoundException } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
@@ -106,9 +107,17 @@ describe('unknown errors', () => {
     }
     const app = bootApp()
     app.post('/hidden', RequestKernel.handle({ method: 'post', path: '/hidden', status: 201, controller: [Hidden, 'store'] }))
-    const response = await app.request('/hidden', { method: 'POST' })
-    expect(response.status).toBe(500)
-    expect(await response.text()).not.toContain('secret detail')
+    await expectGeneric500(await app.request('/hidden', { method: 'POST' }), 'secret detail')
+  })
+
+  it("a Hono HTTPException keeps its own response", async () => {
+    quiet()
+    class Limited extends Controller { store() { throw new HTTPException(413, { message: 'Payload Too Large' }) } }
+    const app = bootApp()
+    app.post('/limited', RequestKernel.handle({ method: 'post', path: '/limited', status: 201, controller: [Limited, 'store'] }))
+    const response = await app.request('/limited', { method: 'POST' })
+    expect(response.status).toBe(413)
+    expect(errors).not.toHaveBeenCalled()
   })
 
   it('a responsible Exception keeps its own status and body', async () => {

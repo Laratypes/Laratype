@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { HTTPException } from "hono/http-exception";
 import type { RouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
@@ -102,13 +103,17 @@ export default class Response extends AppServiceProvider {
         return Response.resolveResponse(c, response)
       }
     }
-    if(!(err instanceof Exception)) {
-      // An unknown error (#267): logged on the server only, answered with an explicit 500 that no route or
-      // controller status overrides, and the generic body of docs/v1/http.md › Exceptions (no code, message, name or stack)
-      console.error(err);
-      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, 500))
+    // Hono's own errors (basicAuth 401, bodyLimit 413, ...) carry their response
+    if(err instanceof HTTPException) {
+      return err.getResponse()
     }
-    return Response.resolveResponse(c, new ResponseSupport("Something went wrong!", 500))
+    if(!(err instanceof Exception)) {
+      // An unknown error (#267): logged on the server only
+      console.error(err);
+    }
+    // An explicit 500 that no route or controller status overrides, with the generic body of
+    // docs/v1/http.md › Exceptions: no code, message, name or stack (#267)
+    return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, 500))
   }
 
   public boot(): void {
