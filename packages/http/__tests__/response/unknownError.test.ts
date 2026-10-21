@@ -5,9 +5,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
-import { Exception, HTTP_APP, MetaDataKey, NotFoundException } from '@laratype/support'
+import { Exception, HTTP_APP, InternalException, MetaDataKey, NotFoundException } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
-import { Controller, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -39,8 +39,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const expectGeneric500 = async (response: Response, ...hidden: string[]) => {
-  expect(response.status).toBe(500)
+const expectGeneric500 = async (response: Response, ...hidden: string[]) => expectGeneric(response, 500, ...hidden)
+
+const expectGeneric = async (response: Response, status: number, ...hidden: string[]) => {
+  expect(response.status).toBe(status)
   const text = await response.text()
   expect(JSON.parse(text)).toEqual(GENERIC)
   for (const value of hidden) expect(text).not.toContain(value)
@@ -54,6 +56,7 @@ describe('unknown errors', () => {
     const app = bootApp()
     app.get('/fail', RequestKernel.handle({ method: 'get', path: '/fail', controller: [Failing, 'index'] }))
     await expectGeneric500(await app.request('/fail'), 'secret detail', 'at ')
+    expect(errors).toHaveBeenCalledTimes(1)
     expect(errors).toHaveBeenCalledWith(failure)
   })
 
@@ -120,6 +123,58 @@ describe('unknown errors', () => {
     expect(errors).not.toHaveBeenCalled()
   })
 
+  it('a non-responsible Exception that is not reportable is still logged, once', async () => {
+    quiet()
+    const failure = new Exception({ message: 'secret detail', responsible: false, reportable: false })
+    class Quiet extends Controller { index() { throw failure } }
+    const app = bootApp()
+    app.get('/quiet', RequestKernel.handle({ method: 'get', path: '/quiet', controller: [Quiet, 'index'] }))
+    await expectGeneric500(await app.request('/quiet'), 'secret detail')
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(errors).toHaveBeenCalledWith(failure)
+  })
+
+  it('a responsible 5xx Exception (InternalException) answers the generic body and is logged once', async () => {
+    quiet()
+    class Internal extends Controller { store() { throw new InternalException('Model User does not have a primary key defined.') } }
+    const app = bootApp()
+    app.post('/internal', RequestKernel.handle({ method: 'post', path: '/internal', status: 201, controller: [Internal, 'store'] }))
+    await expectGeneric500(await app.request('/internal', { method: 'POST' }), 'primary key', 'User', 'INTERNAL_ERROR')
+    expect(errors).toHaveBeenCalledTimes(1)
+  })
+
+  it('the reserved-endpoint error of a request class reaches the client as the generic 500', async () => {
+    quiet()
+    const items = defineContract()({ index: endpoint.get('/').response(anything) })
+    class SecretRequest extends LaratypeRequest { endpoint = 'mine' }
+    class Items extends Controller { index() { return {} } }
+    const app = bootApp()
+    app.get('/items', RequestKernel.handle({ method: 'get', path: '/items', name: 'items.index', request: SecretRequest, endpoint: items.index, controller: [Items, 'index'] }))
+    await expectGeneric500(await app.request('/items'), 'SecretRequest', 'items.index', 'endpoint')
+  })
+
+  it('a 5xx HTTPException keeps its status with the generic body and is logged', async () => {
+    quiet()
+    class Down extends Controller { index() { throw new HTTPException(503, { message: 'redis at 10.0.0.7 refused' }) } }
+    const app = bootApp()
+    app.get('/down', RequestKernel.handle({ method: 'get', path: '/down', controller: [Down, 'index'] }))
+    await expectGeneric(await app.request('/down'), 503, 'redis', '10.0.0.7')
+    expect(errors).toHaveBeenCalledTimes(1)
+  })
+
+  it('an HTTPException from another copy of hono is told by its shape', async () => {
+    quiet()
+    // what `instanceof HTTPException` misses when the app has a second hono
+    const foreign = Object.assign(new Error('Unauthorized'), { status: 401, getResponse: () => new Response('Unauthorized', { status: 401 }) })
+    class Guarded extends Controller { index() { throw foreign } }
+    const app = bootApp()
+    app.get('/guarded', RequestKernel.handle({ method: 'get', path: '/guarded', controller: [Guarded, 'index'] }))
+    const response = await app.request('/guarded')
+    expect(response.status).toBe(401)
+    expect(await response.text()).toBe('Unauthorized')
+    expect(errors).not.toHaveBeenCalled()
+  })
+
   it('a responsible Exception keeps its own status and body', async () => {
     quiet()
     class Missing extends Controller { store() { throw new NotFoundException('No such post.') } }
@@ -128,5 +183,7 @@ describe('unknown errors', () => {
     const response = await app.request('/missing', { method: 'POST' })
     expect(response.status).toBe(404)
     expect(await response.json()).toMatchObject({ message: 'No such post.' })
+    // a 4xx that is not reportable is not logged
+    expect(errors).not.toHaveBeenCalled()
   })
 })

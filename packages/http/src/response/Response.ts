@@ -1,11 +1,21 @@
 import type { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { HTTPException } from "hono/http-exception";
+import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
+
+/**
+ * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
+ * peer dependency, so the app may hold another copy of the class.
+ */
+const asHttpError = (err: unknown): { status: StatusCode; getResponse(): globalThis.Response } | undefined => {
+  const candidate = err as { status?: unknown; getResponse?: unknown } | null;
+  return typeof candidate?.getResponse === "function" && typeof candidate.status === "number"
+    ? (candidate as { status: StatusCode; getResponse(): globalThis.Response })
+    : undefined;
+};
 
 export default class Response extends AppServiceProvider {
 
@@ -90,30 +100,25 @@ export default class Response extends AppServiceProvider {
   }
 
   public resolveException(err: Error | Exception, c: Context) {
-    // @ts-ignore
-    if(err.reportable) {
+    const responsible = err instanceof Exception && err.canResponsible();
+    const httpError = responsible ? undefined : asHttpError(err);
+    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
+    const status = responsible ? (err as Exception).getHttpCode() : httpError ? httpError.status : 500;
+
+    // One log line per error: a reportable one, or any error that ends as a 5xx (#267)
+    if ((err as { reportable?: unknown }).reportable || status >= 500) {
       console.error(err);
     }
-    //@ts-ignore
-    if(err.canResponsible?.()) {
-      //TODO: Response exception with HTML
-      //@ts-ignore
-      if(err instanceof Exception) {
-        const response = new ResponseSupport(err.toJson(), err.getHttpCode())
-        return Response.resolveResponse(c, response)
-      }
+    // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
+    // no route or controller status overrides, with the generic body of docs/v1/http.md › Exceptions
+    if (status >= 500) {
+      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
     }
-    // Hono's own errors (basicAuth 401, bodyLimit 413, ...) carry their response
-    if(err instanceof HTTPException) {
-      return err.getResponse()
+    if (httpError) {
+      return httpError.getResponse();
     }
-    if(!(err instanceof Exception)) {
-      // An unknown error (#267): logged on the server only
-      console.error(err);
-    }
-    // An explicit 500 that no route or controller status overrides, with the generic body of
-    // docs/v1/http.md › Exceptions: no code, message, name or stack (#267)
-    return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, 500))
+    //TODO: Response exception with HTML
+    return Response.resolveResponse(c, new ResponseSupport((err as Exception).toJson(), status));
   }
 
   public boot(): void {
