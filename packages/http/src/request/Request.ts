@@ -58,7 +58,7 @@ export default class Request extends AppServiceProvider {
     } catch (error) {
       if (error instanceof DiError && error.message.startsWith(`Cannot autowire ${controller.name}:`)) {
         throw new DiError(
-          `${error.message} Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it in a service provider \`register()\`.`,
+          `${error.message} Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or add @Inject(token) to its params or bind it in a service provider \`register()\`.`,
           { cause: error },
         );
       }

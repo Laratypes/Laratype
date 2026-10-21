@@ -151,7 +151,7 @@ describe('controller resolution', () => {
     expect(errors[0]).toMatchObject({
       name: 'DiError',
       message: 'Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. ' +
-        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it in a service provider `register()`.',
+        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or add @Inject(token) to its params or bind it in a service provider `register()`.',
     })
   })
 })
