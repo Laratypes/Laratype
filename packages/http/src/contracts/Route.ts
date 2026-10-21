@@ -1,4 +1,5 @@
 import type { Ability, Policy } from "@laratype/auth";
+import type { AnyEndpoint } from "@laratype/contract";
 import Controller from "../controller/Controller"
 import Middleware from "../middleware/Middleware"
 import Request from "../supports/Request";
@@ -40,6 +41,8 @@ export type RouteParams = {
   status?: number,
   /** `false` for `Route.api` routes: no 0.5 implicit or `Route.model` binding (contract binding is `r.bind`, H7 #118). */
   modelBinding?: false,
+  /** The endpoint of a `Route.api` route, exposed to the handler as the read-only `ctx.endpoint` (#105). */
+  endpoint?: AnyEndpoint,
   request?: typeof Request,
   can?: PolicyFactory[],
   controller: [typeof Controller, string]

@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Middleware, Route } from '../../src/index'
-import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, MountedContract, MountedScope } from '../../src/index'
+import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, Ctx, EndpointKey, MountedContract, MountedScope } from '../../src/index'
 
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
@@ -165,5 +165,38 @@ describe('Route.api', () => {
     }>()
     type ByNode = [MountedContract<typeof twins.a>]
     expectTypeOf<CheckApiRoutes<typeof twins, ByNode>>().toEqualTypeOf<{ error: 'Route.api: contract "b" is not mounted (add r.contract())' }>()
+  })
+})
+
+describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
+  class PostPolicy {}
+
+  test('ctx.endpoint is the endpoint, read-only', () => {
+    const ctx = {} as Ctx<typeof users.show>
+    expectTypeOf(ctx.endpoint).toEqualTypeOf<typeof users.show>()
+    // @ts-expect-error endpoint is read-only
+    ctx.endpoint = users.show
+  })
+
+  test('endpoints are keyed by the endpoints of the contract or its tree node', () => {
+    expectTypeOf<EndpointKey<typeof users>>().toEqualTypeOf<'index' | 'show'>()
+    expectTypeOf<EndpointKey<typeof appApi.users>>().toEqualTypeOf<'index' | 'show'>()
+    Route.api(appApi, (r) => [
+      r.contract(users, UserController, { policy: PostPolicy, endpoints: { show: (r) => r.middleware(Audit) } }),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(appApi.users.posts, PostController, { endpoints: { store: (r) => r.middleware(Audit).middleware(Audit) } }),
+      r.contract(health, HealthController, {}),
+    ])
+  })
+
+  test('an unknown endpoint, a callback that does not return the builder, or a policy that is not a class is an error', () => {
+    Route.api(appApi, (r) => [
+      // @ts-expect-error destroy is not an endpoint of users
+      r.contract(users, UserController, { endpoints: { destroy: (r) => r.middleware(Audit) } }),
+      // @ts-expect-error the callback returns the builder
+      r.contract(posts, PostController, { endpoints: { index: () => [Audit] } }),
+      // @ts-expect-error policy is a class
+      r.contract(health, HealthController, { policy: 'HealthPolicy' }),
+    ] as never)
   })
 })

@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@laratype/contract": "workspace:*",
+    "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",
     "@laratype/validation": "workspace:*",
     "es-toolkit": "^1.31.0"

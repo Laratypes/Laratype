@@ -6,6 +6,13 @@ import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
+import { Container, depsRegistry } from "@laratype/core";
+
+/** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
+const CONTAINER = "laratype.container";
+
+/** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
+let fallbackContainer: Container | undefined;
 
 type PipeLineType = {
   type: 'middleware',
@@ -36,10 +43,19 @@ export default class Request extends AppServiceProvider {
     return result
   }
 
+  /**
+   * The container controllers are resolved from: the app container `boot()` puts on each request, else one
+   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   */
+  public static container(): Container {
+    return ContextApi.getContainer() ?? (fallbackContainer ??= new Container({ deps: depsRegistry }));
+  }
+
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
     return (req: RequestSupport | undefined) => {
-      
-      const controller = new (c[0] as any)();
+
+      // Constructor DI (H2 #105): an unbound controller is autowired, a new instance per request as with `new`
+      const controller = Request.container().make(c[0]) as any;
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
@@ -233,10 +249,16 @@ export default class Request extends AppServiceProvider {
         ? { ...transformedRequest.param() }
         : await this.queryFromModelBinding(this.explicitModelBinding(transformedRequest));
 
+      // ctx.endpoint (#105): a read-only field of this request's own object, for Route.api routes only
+      if(routeOption.endpoint) {
+        Object.defineProperty(transformedRequest, 'endpoint', { value: routeOption.endpoint, enumerable: true });
+      }
+
       return ContextApi.run({
         request: transformedRequest,
         user: undefined,
         modelBindings: res,
+        container: (ctx.get as (key: string) => Container | undefined)(CONTAINER),
       }, async () => {
 
         const pipelines: PipeLineType[] = [];
@@ -266,6 +288,7 @@ export default class Request extends AppServiceProvider {
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
+      (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
       this.resolveRequest(ctx);
       return next();
     });
