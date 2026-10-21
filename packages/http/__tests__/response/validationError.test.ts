@@ -148,6 +148,6 @@ describe('validation errors', () => {
   it('rules() that returns no schema is a 500 with a server-side message', async () => {
     quiet()
     await expectGeneric500(await post(() => ({ parse: () => ({}) }), { name: 'ada' }))
-    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.24+, valibot, ...)' }))
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.25+, valibot, ...)' }))
   })
 })

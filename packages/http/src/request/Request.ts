@@ -19,7 +19,7 @@ type RulesResult = { ok: true; value: any } | { ok: false; issues: unknown[] };
  * Validates `rules()` once. A zod schema runs `safeParseAsync`: its Standard Schema `validate` catches an error thrown
  * by a refinement or transform and runs the whole schema again, async, so side effects would run twice. Its issues are
  * the 422 body as before. Any other Standard Schema runs `validate`, and its issues are cut to `{ path, message }`:
- * raw issues (valibot's) carry the `input`, which would echo request data such as a password.
+ * raw issues (valibot's) carry the whole `input` of the request. A message may still repeat the submitted value.
  */
 const validateRules = async (rules: StandardSchemaV1 & { safeParseAsync?: unknown }, data: unknown): Promise<RulesResult> => {
   if(typeof rules.safeParseAsync === "function") {
@@ -272,7 +272,7 @@ export default class Request extends AppServiceProvider {
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
       const rules = requestInstance.rules() as StandardSchemaV1 & { safeParseAsync?: unknown };
       if(typeof rules?.["~standard"]?.validate !== "function") {
-        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.24+, valibot, ...)`);
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
       }
       const result = await validateRules(rules, requestInstance.all());
       if(!result.ok) {
