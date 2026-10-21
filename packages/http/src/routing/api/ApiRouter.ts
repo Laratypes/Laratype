@@ -45,14 +45,15 @@ class RouteBuilder {
 }
 
 /**
- * A frozen copy of an object's own enumerable keys, on the same prototype so `checkOptions` still sees a prototype that
- * is not plain and its inherited keys (it throws on them). `nested` names a key whose object value is copied too.
+ * A frozen copy of an object's own string keys, on the same prototype so `checkOptions` still sees a prototype that is
+ * not plain and its inherited keys (it throws on them). A non-enumerable own key is copied as enumerable, so it is
+ * checked and applied as before instead of dropped. `nested` names a key whose object value is copied too.
  */
 const snapshot = (value: unknown, nested?: string): unknown => {
   if (typeof value !== "object" || value === null) return value;
   const copy: object = Object.create(Object.getPrototypeOf(value));
   // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
-  for (const key of Object.keys(value)) {
+  for (const key of Object.getOwnPropertyNames(value)) {
     const item = (value as Record<string, unknown>)[key];
     Object.defineProperty(copy, key, { value: key === nested ? snapshot(item) : item, enumerable: true });
   }
@@ -206,6 +207,9 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   const at = `contract "${names.join('", "')}"`;
   if (options !== undefined && (typeof options !== "object" || options === null)) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
   if (options !== undefined) checkPlain(at, "options", options);
+  // A misspelled key (`endpoint`) would drop its middleware silently, as an inherited one would
+  const unknown = options === undefined ? undefined : Object.keys(options).find((key) => key !== "policy" && key !== "endpoints");
+  if (unknown !== undefined) fail(`${at}: r.contract() options must be { policy?, endpoints? }, not options.${unknown}`);
   if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on

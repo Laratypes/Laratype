@@ -381,6 +381,23 @@ describe('r.contract() options', () => {
     expect(Object.getPrototypeOf(mounted.options)).toBe(Object.prototype)
   })
 
+  it('a non-enumerable own callback is copied, checked and applied', () => {
+    const endpoints = Object.defineProperty({}, 'destroy', { value: (r: EndpointRouteBuilder) => r.middleware(Audit) })
+    const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints } as never)]))
+    expect(entries.find((e) => e.name === 'posts.destroy')!.middleware).toEqual([Audit])
+    const unknown = Object.defineProperty({}, 'show', { value: (r: EndpointRouteBuilder) => r })
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints: unknown } as never)])).toThrow(
+      'contract "posts": endpoints.show is not an endpoint of the contract',
+    )
+  })
+
+  it('an unknown option key is an error', () => {
+    const options = { endpoint: { destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) } }
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, options as never)])).toThrow(
+      '[@laratype/http] Route.api: contract "posts": r.contract() options must be { policy?, endpoints? }, not options.endpoint',
+    )
+  })
+
   it('an own "__proto__" key stays a key in the copy', () => {
     const endpoints = JSON.parse('{"__proto__": 1}')
     expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints } as never)])).toThrow(

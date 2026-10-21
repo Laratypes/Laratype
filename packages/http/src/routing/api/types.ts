@@ -22,12 +22,13 @@ export interface EndpointRouteBuilder {
 
 /**
  * The callback of one `endpoints` key. For an endpoint named after an `Object.prototype` member (`toString`), a map that
- * leaves it out still has the inherited member, which TypeScript compares with the callback type, so `Function` is
- * accepted there too: it has no call signature, so `r` keeps its contextual type. The runtime reads own keys only and
- * rejects a callback that does not return the builder.
+ * leaves it out still has the inherited member, which TypeScript compares with the callback type, so that member's type
+ * is accepted too. A member with parameters (`hasOwnProperty`) widens to `Function` instead, which has no call signature,
+ * so `r` keeps its contextual type. The runtime reads own keys only and rejects a callback that does not return the
+ * builder.
  */
 type EndpointCallback<K> = K extends keyof Object
-  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | Function
+  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
   : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
 
 /** `r.contract(contract, Controller, { policy, endpoints })`. */

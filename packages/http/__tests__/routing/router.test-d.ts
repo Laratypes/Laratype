@@ -213,6 +213,10 @@ describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
     Route.api(oddApi, (r) => [
       // @ts-expect-error the callback of a non-colliding key still returns the builder
       r.contract(odd, OddController as never, { endpoints: { index: () => [Audit] } }),
+      // @ts-expect-error so does the callback of a colliding key whose Object.prototype member takes no parameter
+      r.contract(odd, OddController as never, { endpoints: { toString: () => [Audit] } }),
+      // @ts-expect-error a middleware class is not a callback
+      r.contract(odd, OddController as never, { endpoints: { valueOf: Audit } }),
     ] as never)
   })
 

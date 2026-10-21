@@ -229,8 +229,8 @@ interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClas
   readonly policy?: P;                 // recorded; running it is #121
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
 }
-// (r: EndpointRouteBuilder) => EndpointRouteBuilder; for a key named after an Object.prototype member (toString),
-// Function too, so a map that leaves that key out still type-checks
+// (r: EndpointRouteBuilder) => EndpointRouteBuilder; for a key named after an Object.prototype member (toString), that
+// member's type too (Function when it takes parameters, as hasOwnProperty), so a map that leaves the key out type-checks
 
 interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
@@ -317,6 +317,7 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
 - `<route name>: endpoint has .authorize() but r.contract() has no { policy }`
 - `contract "<tree name>": r.contract() options must be { policy?, endpoints? }`
+- `contract "<tree name>": r.contract() options must be { policy?, endpoints? }, not options.<key>`
 - `contract "<tree name>": { policy } must be a policy class`
 - `contract "<tree name>": { endpoints } must map endpoint names to (r) => r.middleware(...)`
 - `contract "<tree name>": options.<key> is inherited: pass options as an object literal` (and `endpoints.<key> is inherited: pass endpoints as an object literal`)
