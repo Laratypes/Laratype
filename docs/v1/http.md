@@ -16,8 +16,8 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 
 | Section | Status |
 |---|---|
-| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | decided (S1 #84); `ctx.endpoint` merged (#105, H2a); the rest planned → #105, #106 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | decided (S1 #84); `r.contract()` options merged at runtime (#105, H2a); route proof planned → #105 |
+| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `params`, `query`, `body` planned → #106 |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
@@ -40,7 +40,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 ## Controller typing: Ctx and ControllerOf
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. `Ctx<E>` is merged with `endpoint` only (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). Its `params`, `query`, `body` and `Requires` are planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b), [#106](https://github.com/Laratypes/Laratype/issues/106) (H3), and `ControllerOf` → [#105](https://github.com/Laratypes/Laratype/issues/105). The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
+Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Merged: `Ctx<E, Requires>`, `Result<E>` and `ControllerOf<C>` (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)). `BaseCtx`'s `params`, `query` and `body` are planned → [#106](https://github.com/Laratypes/Laratype/issues/106) (H3): the runtime does not build them yet, so `Ctx` has only `endpoint` and `Requires`, and H3 swaps `BaseCtx` in on both sides, `Ctx` and the route's `Provided`. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
 
 ### Public API
 Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/ctx.ts)). This is not package code, and H2 may refine the names of the helper types:
@@ -53,15 +53,17 @@ type Result<E extends AnyEndpoint>;        // response schema INPUT (void if non
 type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }
 ```
 
-Merged so far ([`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)):
+Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)):
 
 ```ts
-type Ctx<E extends AnyEndpoint> = { readonly endpoint: E };   // H2b adds Requires, H2b/H3 params, query and body
+type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonly endpoint: E } & Requires;   // H3 adds BaseCtx
+type Result<E extends AnyEndpoint>;   // the response schema INPUT, void without one
+type ControllerOf<C>;                 // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }, for a contract or its tree node
 ```
 
-Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property.
+Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property, so a handler reads `ctx.endpoint` and its `Requires`, or types its parameter as that request object. Destructuring `{ params }` from a `Ctx` does not compile yet.
 
-Usage (decided style):
+Usage (decided style; `query` and `params` as shown need H3 #106):
 
 ```ts
 export class UserController implements ControllerOf<typeof users> {   // optional
@@ -90,7 +92,7 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 See [Route proof at r.contract()](#route-proof-at-rcontract).
 
 ### Example
-None compiled yet. The usage above is the S1 fixture `s1-controller/app/controllers/UserControllerA.ts`, with its `fail()` branch removed.
+Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../packages/http/__tests__/routing/route-proof.test-d.ts). The usage above is the S1 fixture `s1-controller/app/controllers/UserControllerA.ts`, with its `fail()` branch removed.
 
 ### Non-goals
 - No decorators for routes, params or bodies.
@@ -107,7 +109,7 @@ None compiled yet. The usage above is the S1 fixture `s1-controller/app/controll
 ## Route proof at r.contract()
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84). The `r.contract()` options are merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The route proof is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b), [#117](https://github.com/Laratypes/Laratype/issues/117) (H6), [#118](https://github.com/Laratypes/Laratype/issues/118) (H7).
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params, and `Route.api` runs it with neither until the builder provides them: typed middleware → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6), `r.bind()` → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7). Until then a handler that requires either fails the proof.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -123,17 +125,37 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
 // Provided<E, X, B> = Ctx<E, X & { params: BoundParams<E, B> }>
 ```
 
+Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)):
+
+```ts
+// Until H3 #106: what the runtime passes. H3 swaps BaseCtx in for RequestSupport
+type Provided<E, Path extends string, X extends object = {}, B = {}> =
+  RequestSupport & { readonly endpoint: E } & X & { params: BoundParams<PathParams<JoinPath<Path, E path>>, B> };
+// Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 and H7 #118 feed X and B
+type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}>;
+type RouteProof<A, C, I, O>;          // VerifyController for the tree entry r.contract() mounts, with X = B = {}
+type Binder;                          // a model class or a resolver (raw: string) => value, for r.bind() (H7)
+
+interface ApiRouteBuilder<A> {
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;
+}
+```
+
 ### Invariants
-- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params.
+- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), `Provided` also holds the 0.5 request object, which the runtime passes, so a handler typed with it passes too.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
 - **Return check:** `[Awaited<R>] extends [Result<E>]`.
 - **Also checked at `r.contract()`:**
   - exhaustiveness, so every endpoint needs a handler;
-  - `.bind()` keys that are not a path param of any endpoint;
-  - a handler typed for a different endpoint.
+  - `.bind()` keys that are not a path param of any endpoint (a type today; `r.bind()` is H7 [#118](https://github.com/Laratypes/Laratype/issues/118));
+  - a handler typed for a different endpoint (told by `ctx.endpoint`: two endpoints with identical types can't be told apart);
+  - an endpoint with its own `.authorize()` needs the `policy` of `r.contract()`, with a method named after the endpoint or a `before` hook. Running the policy is [#121](https://github.com/Laratypes/Laratype/issues/121).
+- **Handlers:** any callable property passes the type check (so `action()` can come later), but the runtime still requires class methods ([Router v2](#router-v2)).
 - **Options:** `r.contract(c, Ctrl, { policy, endpoints: {...} })`, merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105), see [Router v2](#router-v2)).
-  - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It is recorded, not run: running it is planned → [#121](https://github.com/Laratypes/Laratype/issues/121), and the compile check that an `.authorize()` endpoint has one is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b).
+  - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It is recorded, not run: running it is planned → [#121](https://github.com/Laratypes/Laratype/issues/121). The compile check that an `.authorize()` endpoint has one is merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
   - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(audit()) }`. Their extensions count for that endpoint only (typed middleware is planned → [#117](https://github.com/Laratypes/Laratype/issues/117)). Endpoint names can't collide with option keys.
 - **Return check, errors:** errors are thrown, so the return check covers the response schema only.
 - **Readable errors:** when the controller is valid, the controller parameter's type is `K & unknown`. Otherwise it is an object type whose **property names are the diagnosis**, because tsc prints missing property names in full but truncates property types.
@@ -143,11 +165,13 @@ Message templates from the S1 spike (real tsc 5.9.2 output in `s1-controller/tsc
 - `` <c>.<e>: handler requires `<key>`, route does not provide it (add middleware / .bind()) ``, with `{ handler_requires: T }`
 - `` <c>.<e>: `<key>` provided by the route does not match the handler (missing .bind()?) ``, with `{ route_provides; handler_requires }`
 - `<c>.<e>: handler ctx is typed for a different endpoint`
-- `<c>.<e>: return type does not match the response schema / declared errors`
+- `<c>.<e>: return type does not match the response schema`, with `{ expected; got }` (errors are thrown, so only the response schema counts)
 - `<c>.<e>: controller has no handler for this endpoint`
 - `` .bind(): `<key>` is not a path param of any endpoint in <contract> ``
+- `<c>.<e>: endpoint has .authorize() but r.contract() has no { policy }`
+- `` <c>.<e>: .authorize() needs a `<e>` method or `before` on the policy ``
 
-Here `<key>` may be nested, for example `params.user`. H2 must keep the "endpoint name + key" information in its messages (#84 Done-when (c)).
+Here `<key>` may be nested, for example `params.user`. At `r.contract()`, tsc reports them as a missing property of the controller argument: `Argument of type 'typeof PostController' is not assignable to parameter of type 'typeof PostController & { "posts.store: controller has no handler for this endpoint": undefined; }'`.
 
 ### Example
 Planned shape (E3, E10; illustrative, no compiled example yet):
@@ -187,13 +211,14 @@ class Route {
 
 interface ApiRouteBuilder<A> {
   middleware(...middleware: MiddlewareClass[]): ApiRouteBuilder<A>;                       // 0.5 Middleware classes
-  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass,
-    options?: ContractRouteOptions<NoInfer<C>>): MountedContract<C>;                   // a contract or its tree node
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;               // a contract or its tree node; Route proof
   scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
 }
 
-interface ContractRouteOptions<C> {
-  readonly policy?: PolicyClass;                 // recorded; running it is #121
+interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
+  readonly policy?: P;                 // recorded; running it is #121
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
 }
 
@@ -216,7 +241,7 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly domain: string | undefined;
 }
 
-type Ctx<E extends AnyEndpoint>;   // { readonly endpoint: E }, see Controller typing
+type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // see Controller typing
 type EndpointKey<C>;          // the endpoint keys of a contract or of its tree node
 type ApiTreeName<A>;          // "users" | "users.posts"
 type ApiTreeContract<A>;      // the contracts of the tree
@@ -235,7 +260,7 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Registration order.** Hono matches in registration order, so `mount()` registers the routes by specificity, not in tree order: comparing the path segments left to right, a static segment comes before a param constrained to one segment (`:id{[0-9]+}`), that one before a plain param (`:slug`), a plain param before a regex param that can match `/` (`:path{.+}`: an unescaped `.`, a `/`, a negated class `[^...]`, or `\S`, `\W`, `\D`), and that one before a wildcard (a stable sort, so equal routes keep their tree order). A parent's param route therefore never shadows a child's static one: with `users.ts` `{ show: '/:user' }` and `users/me.ts` `{ index: '/' }`, `GET /api/users/me` reaches `users.me.index`. With `files.ts` `{ show: '/:path{.+}' }` and `files/[id]/raw.ts`, `GET /api/files/42/raw` reaches the raw route; with `/:slug` and `/:id{[0-9]+}` at the same position, `GET /api/posts/42` reaches the id route and `/api/posts/abc` the slug one. `routes` and the returned entries keep the tree order.
   - Known limitation: the sort is per `Route.api`. Other `Route.api` groups and 0.5 `defineRouteGroup` routes register in the order the providers mount them, so a param route of one group can still shadow a static route of another: mount order matters across groups.
 - **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes keep `Route.prefix(...)` and `group(...)` ([Ad-hoc routes](#ad-hoc-routes)), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
-- **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods of the controller or of a class between it and the base `Controller`: an arrow-function class field, `constructor`, an `Object.prototype` method or a base `Controller` method is not a handler, and is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is H2 [#105](https://github.com/Laratypes/Laratype/issues/105) ([Route proof at r.contract()](#route-proof-at-rcontract)).
+- **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods of the controller or of a class between it and the base `Controller`: an arrow-function class field, `constructor`, an `Object.prototype` method or a base `Controller` method is not a handler, and is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is the [Route proof at r.contract()](#route-proof-at-rcontract) (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as in the entry `dirs` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
 - **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(req, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
@@ -304,7 +329,7 @@ export const apiRoutes = Route.api(appApi, (r) => [
 Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http/__tests__/routing/ApiRouter.test.ts) (requests through `app.request()`), [`controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts) (constructor DI, `endpoints`, `ctx.endpoint`) and [`router.test-d.ts`](../../packages/http/__tests__/routing/router.test-d.ts) (type errors).
 
 ### Non-goals
-- No controller check (the route proof): H2b [#105](https://github.com/Laratypes/Laratype/issues/105). No policy execution: [#121](https://github.com/Laratypes/Laratype/issues/121).
+- No policy execution: [#121](https://github.com/Laratypes/Laratype/issues/121).
 - No model binding (`r.bind()`): H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
 - No 401, 403 or 429 from the contract's capabilities: [#120](https://github.com/Laratypes/Laratype/issues/120), [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229).
 - No domain params (`{account}.example.com`).
