@@ -200,6 +200,41 @@ describe('error response headers', () => {
     expect(errors).toHaveBeenCalledWith(failure)
   })
 
+  it('a middleware that throws after the handler returned, and after reading its body, drops its headers', async () => {
+    quiet()
+    class Fine extends Controller { index() { return { ok: true } } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      await c.res.text()
+      throw new HTTPException(401, { message: 'Unauthorized' })
+    })
+    app.use(cachingMiddleware)
+    route(app, '/after', Fine)
+    const response = await app.request('/after')
+    expect(response.status).toBe(401)
+    expect(await response.text()).toBe('Unauthorized')
+    expectScrubbed(response)
+  })
+
+  it('a handler returning a fetch response with immutable headers, then a throw, answers the generic 5xx', async () => {
+    quiet()
+    const app = bootApp()
+    app.use(async (_c, next) => {
+      await next()
+      throw new Error('secret detail')
+    })
+    app.get('/proxied', async (c) => {
+      // what fetch() returns: its headers are immutable
+      c.res = Response.redirect('https://upstream.example.test/', 302)
+      return c.res
+    })
+    const response = await app.request('/proxied')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
   it('a successful response keeps the headers middleware set', async () => {
     class Fine extends Controller { index() { return { ok: true } } }
     const app = bootApp()

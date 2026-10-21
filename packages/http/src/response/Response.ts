@@ -39,6 +39,14 @@ const DROPPED_ERROR_HEADERS = [
   "Set-Cookie", "ETag", "Last-Modified", "Expires", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control",
 ];
 
+/** Drops the headers no error response carries and sets `Cache-Control: no-store` (#272) */
+const scrubErrorHeaders = (headers: Headers) => {
+  for (const name of DROPPED_ERROR_HEADERS) {
+    headers.delete(name);
+  }
+  headers.set("Cache-Control", "no-store");
+};
+
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
 
@@ -131,11 +139,13 @@ export default class Response extends AppServiceProvider {
     const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
 
     // On the context, not only on the response built below: Hono merges the context's headers into the error response
-    // (#272). The other headers set before the throw (CORS, Vary) stay
-    for (const name of DROPPED_ERROR_HEADERS) {
-      c.header(name, undefined);
+    // (#272). The other headers set before the throw (CORS, Vary) stay. A context finalized before the throw holds a
+    // response whose body may be read already, and whose headers may be immutable: the error starts from a copy of
+    // its headers only
+    if (c.finalized) {
+      c.res = new globalThis.Response(null, { headers: c.res.headers });
     }
-    c.header("Cache-Control", "no-store");
+    scrubErrorHeaders(c.res.headers);
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
@@ -156,10 +166,7 @@ export default class Response extends AppServiceProvider {
       // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay. The
       // error's own headers are set on purpose and stay too, but they never set a cookie or cache the error either
       const headers = new Headers(httpError.response.headers);
-      for (const name of DROPPED_ERROR_HEADERS) {
-        headers.delete(name);
-      }
-      headers.set("Cache-Control", "no-store");
+      scrubErrorHeaders(headers);
       return c.newResponse(httpError.response.body, { status: httpError.status, headers });
     }
     //TODO: Response exception with HTML
