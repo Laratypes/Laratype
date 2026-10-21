@@ -10,16 +10,16 @@ last-verified: 2026-10-09
 
 The v1 HTTP layer binds contracts to controllers on a Hono router. It runs a typed pipeline (middleware, binding, policies, validation, interceptors) and turns handler results and exceptions into the responses the contract declares.
 
-**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) is the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are created with `new` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and the status is guessed from the method name (`ControllerMethodHttpStatusCode`). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
+**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) and controller resolution (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) are the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are resolved with `app.make()` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and the status is guessed from the method name (`ControllerMethodHttpStatusCode`). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
 
 Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DECISIONS-S1-S2.md §S1](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s1-84-decision).
 
 | Section | Status |
 |---|---|
-| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | decided (S1 #84); code planned → #105 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | decided (S1 #84); code planned → #105 |
+| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | decided (S1 #84); `ctx.endpoint` merged (#105, H2a); the rest planned → #105, #106 |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | decided (S1 #84); `r.contract()` options merged at runtime (#105, H2a); route proof planned → #105 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
-| [Controller resolution](#controller-resolution) | planned → #105 |
+| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
 | [Exceptions](#exceptions) | planned → #108 |
@@ -40,7 +40,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 ## Controller typing: Ctx and ControllerOf
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Code planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2). Neither type exists in `packages/` yet. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
+Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. `Ctx<E>` is merged with `endpoint` only (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). Its `params`, `query`, `body` and `Requires` are planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b), [#106](https://github.com/Laratypes/Laratype/issues/106) (H3), and `ControllerOf` → [#105](https://github.com/Laratypes/Laratype/issues/105). The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
 
 ### Public API
 Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/ctx.ts)). This is not package code, and H2 may refine the names of the helper types:
@@ -52,6 +52,14 @@ type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // BaseCtx<E> m
 type Result<E extends AnyEndpoint>;        // response schema INPUT (void if none)
 type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }
 ```
+
+Merged so far ([`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)):
+
+```ts
+type Ctx<E extends AnyEndpoint> = { readonly endpoint: E };   // H2b adds Requires, H2b/H3 params, query and body
+```
+
+Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property.
 
 Usage (decided style):
 
@@ -71,11 +79,11 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 - `Requires` is what the handler **needs from the route**: middleware extensions and `.bind()`-resolved params.
 - `ctx.user` comes from the endpoint's `auth` capability and is typed per guard, so a handler doesn't list it in `Requires` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120)).
 - `ctx.query` and `ctx.body` use the schema **output**, because they hold validated values.
-- `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it ([#105](https://github.com/Laratypes/Laratype/issues/105)).
+- `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it (merged, [#105](https://github.com/Laratypes/Laratype/issues/105)). It is a non-writable, non-configurable own property of the request's own object, so each request and each endpoint sees its own. 0.5 routes have no `endpoint`.
 - **Return value:** a handler returns the response schema **input**, since the serializer runs afterwards.
 - **Errors are thrown,** at any depth. A domain error is declared with `throws` ([contract.md › Domain errors](./contract.md#domain-errors)). Framework errors (401, 403, 404, 422, 429) come from the contract's capabilities and need no handler code.
 - `implements ControllerOf<typeof c>` is optional. With it, a wrong return shape or a missing handler is reported at the method. Without it, the error appears at `r.contract()`.
-- The runtime always calls `instance[key](ctx)`, never a detached reference (option A methods lose `this`).
+- The runtime always calls `instance[key](ctx)`, never a detached reference (option A methods lose `this`). The instance comes from `app.make()` ([Controller resolution](#controller-resolution)).
 - Option B (`x = action(endpoint, handler)`) is **not** shipped in v1. The route check accepts any callable property, so B can be added later without changing H2.
 
 ### Diagnostics
@@ -99,7 +107,7 @@ None compiled yet. The usage above is the S1 fixture `s1-controller/app/controll
 ## Route proof at r.contract()
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84). Code planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2), [#117](https://github.com/Laratypes/Laratype/issues/117) (H6), [#118](https://github.com/Laratypes/Laratype/issues/118) (H7).
+Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84). The `r.contract()` options are merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The route proof is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b), [#117](https://github.com/Laratypes/Laratype/issues/117) (H6), [#118](https://github.com/Laratypes/Laratype/issues/118) (H7).
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -111,7 +119,7 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
   bind<const NB extends Record<string, Binder>>(bindings: NB): RouteBuilder<X, B & NB>;
   contract<C extends Contract, K extends ControllerClass>(contract: C, controller: K & VerifyController<C, InstanceType<K>, X, B>): void;
 }
-// planned (E10, #105): contract(contract, controller, { policy?, endpoints? })
+// runtime merged (E10, H2a #105): contract(contract, controller, { policy?, endpoints? }), see Router v2
 // Provided<E, X, B> = Ctx<E, X & { params: BoundParams<E, B> }>
 ```
 
@@ -124,9 +132,9 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
   - exhaustiveness, so every endpoint needs a handler;
   - `.bind()` keys that are not a path param of any endpoint;
   - a handler typed for a different endpoint.
-- **Options (planned → [#105](https://github.com/Laratypes/Laratype/issues/105)):** `r.contract(c, Ctrl, { policy, endpoints: {...} })`.
-  - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)).
-  - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(audit()) }`. Their extensions count for that endpoint only. Endpoint names can't collide with option keys.
+- **Options:** `r.contract(c, Ctrl, { policy, endpoints: {...} })`, merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105), see [Router v2](#router-v2)).
+  - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It is recorded, not run: running it is planned → [#121](https://github.com/Laratypes/Laratype/issues/121), and the compile check that an `.authorize()` endpoint has one is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b).
+  - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(audit()) }`. Their extensions count for that endpoint only (typed middleware is planned → [#117](https://github.com/Laratypes/Laratype/issues/117)). Endpoint names can't collide with option keys.
 - **Return check, errors:** errors are thrown, so the return check covers the response schema only.
 - **Readable errors:** when the controller is valid, the controller parameter's type is `K & unknown`. Otherwise it is an object type whose **property names are the diagnosis**, because tsc prints missing property names in full but truncates property types.
 
@@ -166,7 +174,7 @@ Route.api(appApi, (r) => [
 ## Router v2
 
 ### Status
-merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are still built with `new` and run through the 0.5 `RequestKernel` pipeline until H2 [#105](https://github.com/Laratypes/Laratype/issues/105) and H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
+merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are resolved with `app.make()` ([Controller resolution](#controller-resolution), H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) and run through the 0.5 `RequestKernel` pipeline until H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
 
 ### Public API
 [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
@@ -179,8 +187,18 @@ class Route {
 
 interface ApiRouteBuilder<A> {
   middleware(...middleware: MiddlewareClass[]): ApiRouteBuilder<A>;                       // 0.5 Middleware classes
-  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass): MountedContract<C>;   // a contract or its tree node
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass,
+    options?: ContractRouteOptions<NoInfer<C>>): MountedContract<C>;                   // a contract or its tree node
   scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
+}
+
+interface ContractRouteOptions<C> {
+  readonly policy?: PolicyClass;                 // recorded; running it is #121
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
+}
+
+interface EndpointRouteBuilder {
+  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
 class ApiRoutes {                                // exported as a type: only Route.api() builds one
@@ -193,10 +211,13 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly controller: readonly [ControllerClass, string];
   readonly middleware: readonly MiddlewareClass[];
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
+  readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
   readonly unenforced: readonly ("auth" | "authorize" | "throttle" | "validation")[];   // what the router does not enforce yet
   readonly domain: string | undefined;
 }
 
+type Ctx<E extends AnyEndpoint>;   // { readonly endpoint: E }, see Controller typing
+type EndpointKey<C>;          // the endpoint keys of a contract or of its tree node
 type ApiTreeName<A>;          // "users" | "users.posts"
 type ApiTreeContract<A>;      // the contracts of the tree
 type ApiTreeNode<A>;          // the tree nodes that hold a contract: typeof appApi.users | typeof appApi.users.posts
@@ -218,10 +239,10 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as in the entry `dirs` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
 - **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(req, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
-- **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner). Running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
+- **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner), and the `policy` of `r.contract()` on each route of the contract (`RouteEntry.policy`). Running them is planned → [#121](https://github.com/Laratypes/Laratype/issues/121): a scope policy's `before` needs the signed-in user ([#120](https://github.com/Laratypes/Laratype/issues/120)) and the bound models ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - **Auth, rate limits and input validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` sets no rate limit until H17 [#229](https://github.com/Laratypes/Laratype/issues/229). A route whose endpoint has a body, query or headers schema gets its input unchecked until H3 [#106](https://github.com/Laratypes/Laratype/issues/106). `RouteEntry.unenforced` records which of `auth`, `authorize`, `throttle` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column.
-- **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract. A route's middleware is its scopes' (outer to inner), then its contract's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
-- **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The hostname is made of non-empty labels of letters, digits and inner hyphens. `.domain()` re-labels the routes `Route.api` already checked. The match reads the `Host` header only (the request URL's host when there is none, as with an in-process `app.request()`), never `X-Forwarded-Host`: behind a proxy, the proxy must preserve the `Host` header. It ignores case, the request port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). A request for another host falls through to the next matching route, or gets a 404.
+- **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
+- **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The hostname is made of non-empty labels of letters, digits and inner hyphens. `.domain()` re-labels the routes `Route.api` already checked. The match reads the `Host` header only (the request URL's host when there is none, as with an in-process `app.request()`), never `X-Forwarded-Host`: behind a proxy, the proxy must preserve the `Host` header. It ignores case, the request port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). A request for another host falls through to the next matching route, or gets a 404. `.domain()` is name-based virtual hosting, not an access-control boundary: any client can send any `Host` header, so no guard or policy may key on the domain alone.
 - **Registry.** `mount()` returns one `RouteEntry` per route. `RouteAppServiceProvider` stores what `routes()` returns in `globalThis.__laratype_routes`, as in 0.5, and `sauf route:list` reads both v2 and 0.5 entries. The move to a container `RouteRegistry` is planned → [#114](https://github.com/Laratypes/Laratype/issues/114).
 - **Tree source.** In dev, the `laratype:api` plugin runs G1's scan and emit (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, with no TS checker and no `api.ts`) with config `api.root` / `api.base` from `app/config/config.ts`, then resolves `$api` to `.laratype/api/index.gen.ts`. The config is read outside the app's module graph: the project's `.env` is loaded first (`loadEnv`, as `EnvLoadServiceProvider` does), then the file is imported by an isolated jiti instance with no module cache, so the app's own later import evaluates it fresh with env loaded, and a config importing a module still loading up the app's import chain cannot deadlock the scan. That import evaluates the config's whole import graph, so the plugin runs it again only when the content of `app/config/config.ts` changed: a rescan for a contract added or deleted reuses the last value, and a failed read is not kept.
   - Known limitations of the config read: the isolated import knows no Vite or tsconfig `paths` alias, so `app/config/config.ts` and the modules it imports can't use aliases in dev; such an import fails with `[laratype:api] app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): <error>`. The cache is keyed on the text of `app/config/config.ts` only: after a change to `.env` or to a module the config imports, touch `config.ts` or restart `sauf dev` before `api.root` / `api.base` pick it up.
@@ -259,6 +280,12 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `expected the appApi tree built with defineApi`
 - `the routes callback must return r.contract() and r.scope() items`
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
+- `contract "<tree name>": r.contract() options must be { policy?, endpoints? }`
+- `contract "<tree name>": { policy } must be a policy class`
+- `contract "<tree name>": { endpoints } must map endpoint names to (r) => r.middleware(...)`
+- `contract "<tree name>": endpoints.<key> is not an endpoint of the contract (endpoints: "<key>", ...)`
+- `contract "<tree name>": endpoints.<key> must be a callback, (r) => r.middleware(...)`
+- `<route name>: endpoints.<key> must return the builder it gets, (r) => r.middleware(...)`
 
 Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: <route name> (auth[, authorize][, throttle][, validation]), ...`
 
@@ -274,10 +301,10 @@ export const apiRoutes = Route.api(appApi, (r) => [
 ]).domain('api.example.com')
 ```
 
-Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http/__tests__/routing/ApiRouter.test.ts) (requests through `app.request()`) and [`router.test-d.ts`](../../packages/http/__tests__/routing/router.test-d.ts) (type errors).
+Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http/__tests__/routing/ApiRouter.test.ts) (requests through `app.request()`), [`controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts) (constructor DI, `endpoints`, `ctx.endpoint`) and [`router.test-d.ts`](../../packages/http/__tests__/routing/router.test-d.ts) (type errors).
 
 ### Non-goals
-- No `r.contract()` options (`policy`, `endpoints`) and no controller check: H2 [#105](https://github.com/Laratypes/Laratype/issues/105).
+- No controller check (the route proof): H2b [#105](https://github.com/Laratypes/Laratype/issues/105). No policy execution: [#121](https://github.com/Laratypes/Laratype/issues/121).
 - No model binding (`r.bind()`): H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
 - No 401, 403 or 429 from the contract's capabilities: [#120](https://github.com/Laratypes/Laratype/issues/120), [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229).
 - No domain params (`{account}.example.com`).
@@ -293,13 +320,20 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ## Controller resolution
 
 ### Status
-planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2).
+merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). Request scopes are planned → [#112](https://github.com/Laratypes/Laratype/issues/112).
+
+### Invariants
+- **Resolution:** `Request.controllerKernel` resolves the controller with `app.make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
+- **Which container:** `RequestKernel.boot()` puts the app container on every request (`ContextApi.getContainer()`). Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use.
+- **Lifetime:** an unbound controller is transient: a new instance per request, as with `new`. A binding's scope (`singleton`, `@Injectable({ scope })`) applies as it does anywhere else.
+- **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount.
+- **Kernel container:** the kernel container passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 
 ### Design (non-binding)
-- **Resolution:** controllers are resolved with the container (`app.make(Controller)`) instead of `new`. That gives constructor DI through the [DI transform](./di.md#di-transform) and the container's scopes.
 - **Scope bubbling:** a controller that depends on a request-scoped provider becomes request-scoped ([#112](https://github.com/Laratypes/Laratype/issues/112)).
-- **Kernel container:** the kernel container already passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
-- **Done when:** runtime tests with constructor DI.
+
+### Example
+Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts). In `examples/basic`, `GreetingService` is injected into `GreetingController` with no decorator.
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105)
@@ -428,7 +462,7 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
 ## Authorization from the contract
 
 ### Status
-`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). Running policies is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2, compile check and order), [#121](https://github.com/Laratypes/Laratype/issues/121) (A3, policies).
+`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged and recorded on the routes (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The compile check is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b); running policies, in the order below, is planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3). Until then `authorize` is not enforced.
 
 ### Design (non-binding)
 - **Declared in the contract:** `authorize: true` on a [folder scope](./contract.md#folder-scopes) or `.authorize()` on an endpoint adds a 403 ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
