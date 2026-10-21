@@ -229,13 +229,13 @@ interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClas
   readonly policy?: P;                 // recorded; running it is #121
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
 }
-type EndpointCallback<K> = K extends keyof Object       // a key named after an Object.prototype member (toString)
+type EndpointCallback<K> = K extends keyof Object       // not exported; a key named after an Object.prototype member
   ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
   : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
 // A map that leaves such a key out still has the inherited member, which TypeScript compares with the callback type,
 // so the member's type is accepted too: toString, valueOf and toLocaleString take their own signature, constructor,
-// hasOwnProperty, isPrototypeOf and propertyIsEnumerable any Function. A wrong callback there is a mount error, not a
-// compile error
+// hasOwnProperty, isPrototypeOf and propertyIsEnumerable any Function. A wrong callback there (a class, or one that does
+// not return the builder) is a mount error, not a compile error
 
 interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
@@ -330,7 +330,6 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `contract "<tree name>": endpoints.<key> is not an endpoint of the contract (endpoints: "<key>", ...)`
 - `contract "<tree name>": endpoints.<key> must be a callback, (r) => r.middleware(...)`
 - `<route name>: endpoints.<key> must return the builder it gets, (r) => r.middleware(...)`
-- `<route name>: endpoints.<key> threw: it must be a callback, (r) => r.middleware(...)` (the error it threw is the `cause`)
 
 Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: <route name> (auth[, authorize][, throttle][, validation]), ...`
 

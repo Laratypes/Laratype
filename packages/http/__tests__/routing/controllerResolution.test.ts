@@ -381,6 +381,12 @@ describe('r.contract() options', () => {
     expect(Object.getPrototypeOf(mounted.options)).toBe(Object.prototype)
   })
 
+  it('a non-enumerable own key stays non-enumerable in the copy: a brand on options is not an option', () => {
+    const options = Object.defineProperty({ policy: PostPolicy }, '__meta', { value: 1 })
+    const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, options)]))
+    expect(entries.map((e) => e.policy)).toEqual([PostPolicy, PostPolicy])
+  })
+
   it('a non-enumerable own callback is copied, checked and applied', () => {
     const endpoints = Object.defineProperty({}, 'destroy', { value: (r: EndpointRouteBuilder) => r.middleware(Audit) })
     const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints } as never)]))
@@ -398,14 +404,16 @@ describe('r.contract() options', () => {
     )
   })
 
-  it('a callback that throws, such as a class, is an error naming the route', () => {
+  it('a class is not a callback; a callback that throws throws its own error', () => {
     const odd = defineContract()({ hasOwnProperty: endpoint.get('/').response(anything) })
     const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
     class Odd extends Controller { hasOwnProperty() { return {} as never } }
     // typed Function there, so the class compiles
-    const routes = () => Route.api(oddApi, (r) => [r.contract(odd, Odd as never, { endpoints: { hasOwnProperty: Audit } })])
-    expect(routes).toThrow('[@laratype/http] Route.api: odd.hasOwnProperty: endpoints.hasOwnProperty threw: it must be a callback, (r) => r.middleware(...)')
-    try { routes() } catch (error) { expect((error as Error).cause).toBeInstanceOf(TypeError) }
+    expect(() => Route.api(oddApi, (r) => [r.contract(odd, Odd as never, { endpoints: { hasOwnProperty: Audit } })])).toThrow(
+      '[@laratype/http] Route.api: contract "odd": endpoints.hasOwnProperty must be a callback, (r) => r.middleware(...)',
+    )
+    const broken = () => { throw new Error('audit config missing') }
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints: { destroy: broken } })])).toThrow('audit config missing')
   })
 
   it('an own "__proto__" key stays a key in the copy', () => {

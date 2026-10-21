@@ -46,8 +46,8 @@ class RouteBuilder {
 
 /**
  * A frozen copy of an object's own string keys, on the same prototype so `checkOptions` still sees a prototype that is
- * not plain and its inherited keys (it throws on them). A non-enumerable own key is copied as enumerable, so it is
- * checked and applied as before instead of dropped. `nested` names a key whose object value is copied too.
+ * not plain and its inherited keys (it throws on them). A non-enumerable own key stays non-enumerable, so an endpoint
+ * callback under one is applied as before instead of dropped. `nested` names a key whose object value is copied too.
  */
 const snapshot = (value: unknown, nested?: string): unknown => {
   if (typeof value !== "object" || value === null) return value;
@@ -55,7 +55,8 @@ const snapshot = (value: unknown, nested?: string): unknown => {
   // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
   for (const key of Object.getOwnPropertyNames(value)) {
     const item = (value as Record<string, unknown>)[key];
-    Object.defineProperty(copy, key, { value: key === nested ? snapshot(item) : item, enumerable: true });
+    const enumerable = Object.prototype.propertyIsEnumerable.call(value, key);
+    Object.defineProperty(copy, key, { value: key === nested ? snapshot(item) : item, enumerable });
   }
   return Object.freeze(copy);
 };
@@ -214,8 +215,9 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on
   // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's (running it is A3 #121)
+  const contractKeys = contractEndpoints(contract as AnyContract);
   if (options?.policy === undefined) {
-    const authorized = contractEndpoints(contract as AnyContract).find(([, e]) => e.def.authorize === true);
+    const authorized = contractKeys.find(([, e]) => e.def.authorize === true);
     if (authorized) fail(`${names[0]}.${authorized[0]}: endpoint has .authorize() but r.contract() has no { policy }`);
   }
   if (options === undefined) return;
@@ -223,12 +225,16 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
   checkPlain(at, "endpoints", endpoints!);
-  const keys: string[] = contractEndpoints(contract as AnyContract).map(([key]) => key);
-  for (const [key, callback] of Object.entries(endpoints!)) {
-    if (!keys.includes(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${keys.map((k) => `"${k}"`).join(", ")})`);
-    if (typeof callback !== "function") fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
+  const keys = new Set(contractKeys.map(([key]) => key));
+  // Every own key, as endpointStack reads them: a non-enumerable callback is applied, so it is checked too
+  for (const key of Object.getOwnPropertyNames(endpoints)) {
+    if (!keys.has(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${[...keys].map((k) => `"${k}"`).join(", ")})`);
+    if (!isCallback(endpoints![key])) fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
   }
 };
+
+/** A function that can be called: not a class (a middleware class compiles under a key typed `Function`, such as hasOwnProperty). */
+const isCallback = (value: unknown) => typeof value === "function" && !Function.prototype.toString.call(value).startsWith("class");
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
 const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
@@ -236,13 +242,7 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
   // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
   if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
   const callback = endpoints[key]!;
-  let built: unknown;
-  try {
-    built = callback(new RouteBuilder());
-  } catch (cause) {
-    // A class (typed `Function` under a key such as hasOwnProperty) can't be called: name the route, keep the cause
-    throw new Error(`[@laratype/http] Route.api: ${name}: endpoints.${key} threw: it must be a callback, (r) => r.middleware(...)`, { cause });
-  }
+  const built = callback(new RouteBuilder());
   if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
   return (built as RouteBuilder).stack;
 };
