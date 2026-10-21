@@ -1,6 +1,6 @@
 import type { Context, Hono, Next } from "hono";
-import { API_NODE, apiRoutes, isEndpoint } from "@laratype/contract";
-import type { Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import { API_NODE, apiRoutes, contractEndpoints, isEndpoint } from "@laratype/contract";
+import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
@@ -181,7 +181,7 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   const endpoints: Record<string, unknown> | undefined = options.endpoints;
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
-  const keys = Object.keys(contract).filter((key) => isEndpoint((contract as Record<string, unknown>)[key]));
+  const keys: string[] = contractEndpoints(contract as AnyContract).map(([key]) => key);
   for (const [key, callback] of Object.entries(endpoints!)) {
     if (!keys.includes(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${keys.map((k) => `"${k}"`).join(", ")})`);
     if (typeof callback !== "function") fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);

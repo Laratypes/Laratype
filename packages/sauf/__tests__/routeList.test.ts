@@ -19,12 +19,13 @@ const appApi = defineApi({
 class UserController extends Controller { index() { return []; } }
 class PostController extends Controller { destroy() {} }
 class UserScopePolicy {}
+class PostPolicy {}
 class Audit extends Middleware {}
 
 const routes = Route.api(appApi, (r) => [
   r.contract(users, UserController),
   r.scope('users/[user]', { policy: UserScopePolicy }),
-  r.middleware(Audit).contract(posts, PostController),
+  r.middleware(Audit).contract(posts, PostController, { policy: PostPolicy }),
 ]);
 
 afterEach(() => {
@@ -43,7 +44,7 @@ describe('sauf route:list', () => {
       { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', 'Not enforced': 'auth' },
       {
         Method: 'delete', path: '/api/users/:user/posts/:post', Name: 'users.posts.destroy', Controller: 'PostController::destroy',
-        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy', 'Not enforced': 'auth, authorize',
+        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy, contract: PostPolicy', 'Not enforced': 'auth, authorize',
       },
     ]);
     expect(warn).toHaveBeenCalledWith('The routes with a "Not enforced" value skip those checks: see the [@laratype/http] Route.api warning.');

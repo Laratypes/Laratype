@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
-import { Controller, Middleware, RequestKernel, Route } from '../../src/index'
+import { Controller, Middleware, Request as LaratypeRequest, RequestKernel, Route } from '../../src/index'
 import type { ApiRoutes, Ctx } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -134,6 +134,26 @@ describe('controller resolution', () => {
     expect((await app.request('/api/greetings')).status).toBe(500)
     expect(String(errors[0])).toContain('Cannot resolve Broken constructor param #0 `unknown`')
   })
+
+  it('a controller with constructor params and no DI metadata says how to fix it', async () => {
+    class NoMeta extends Controller {
+      constructor(readonly greeter: Greeter) { super() }
+      index() { return {} }
+    }
+    const app = new Hono()
+    const errors: unknown[] = []
+    app.onError((error, c) => {
+      errors.push(error)
+      return c.text('error', 500)
+    })
+    app.get('/no-meta', RequestKernel.handle({ method: 'get', path: '/no-meta', controller: [NoMeta, 'index'] }))
+    expect((await app.request('/no-meta')).status).toBe(500)
+    expect(errors[0]).toMatchObject({
+      name: 'DiError',
+      message: 'Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. ' +
+        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it in a service provider `register()`.',
+    })
+  })
 })
 
 describe('ctx.endpoint', () => {
@@ -183,6 +203,26 @@ describe('ctx.endpoint', () => {
     const app = new Hono()
     Route.api(greetingsApi, (r) => [r.contract(greetings, Spread)]).mount(app)
     expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
+  })
+
+  it('a request class with its own endpoint field is an error, never a writable endpoint', async () => {
+    class WithEndpoint extends LaratypeRequest {
+      endpoint = 'mine'
+    }
+    class Handler extends Controller { index() { return {} } }
+    const app = new Hono()
+    const errors: unknown[] = []
+    app.onError((error, c) => {
+      errors.push(error)
+      return c.text('error', 500)
+    })
+    app.get('/own', RequestKernel.handle({
+      method: 'get', path: '/own', name: 'own', request: WithEndpoint, endpoint: greetings.index, controller: [Handler, 'index'],
+    }))
+    expect((await app.request('/own')).status).toBe(500)
+    expect(String((errors[0] as { getMessage?: () => string }).getMessage?.() ?? errors[0])).toContain(
+      'own: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of WithEndpoint',
+    )
   })
 
   it('a 0.5 route has no endpoint', async () => {
