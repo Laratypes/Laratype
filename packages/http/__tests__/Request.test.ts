@@ -204,7 +204,7 @@ describe('Request validation', () => {
     const validation = RequestKernel.processValidation(await createRequestInstance(request), routeMock);
 
     await expect(validation).rejects.toThrowError(ValidationException);
-    // processValidation wraps any error in a ValidationException, so check that the rules produced it
+    // only invalid input becomes a ValidationException (#275), and its errors are the schema's issues
     await expect(validation).rejects.toMatchObject({
       getErrors: expect.arrayContaining([expect.objectContaining({ path: ['email'] })]),
     });
