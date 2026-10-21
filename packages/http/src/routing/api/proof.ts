@@ -178,16 +178,27 @@ type MethodKeys<P> = { [K in keyof P]-?: P[K] extends (...args: any) => any ? K 
 type IsObject<X> = (<V>() => V extends X ? 1 : 2) extends (<V>() => V extends object ? 1 : 2) ? true : false;
 
 /**
- * The policy instance; `undefined` without one, or when it may be `undefined` (`cond ? Policy : undefined`); `unknown`
- * when the class is only known as a `PolicyClass` (options in a variable), which can't be checked.
+ * The policy instance; `undefined` without one, or when a specific class may be `undefined` (`cond ? Policy : undefined`);
+ * `unknown`, unchecked, when it is `any` or only known as a `PolicyClass` (options typed `ContractRouteOptions<C>`).
  */
 type PolicyOf<O> = O extends { readonly policy: infer P }
-  ? undefined extends P
-    ? undefined
-    : P extends abstract new (...args: any) => any
-      ? IsObject<InstanceType<P>> extends true ? unknown : InstanceType<P>
-      : undefined
+  ? IsAny<P> extends true
+    ? unknown
+    : IsWidePolicy<NonNullable<P>> extends true
+      ? unknown
+      : undefined extends P
+        ? undefined
+        : P extends abstract new (...args: any) => any
+          ? InstanceType<P>
+          : undefined
   : undefined;
+
+/** A class known only as a `PolicyClass` (its instance is exactly `object`), with or without `| undefined`. */
+type IsWidePolicy<PC> = [PC] extends [never]
+  ? false
+  : [PC] extends [abstract new (...args: any) => any]
+    ? IsObject<InstanceType<PC>>
+    : false;
 
 type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
   ? [unknown] extends [P]

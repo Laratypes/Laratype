@@ -150,20 +150,21 @@ describe('Route.api', () => {
       ping: endpoint.get('/ping'),
       queue: endpoint.post('/queue').status(202).response(anything),
     })
-    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() {} queue() { return { queued: true } } }
+    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() { return { ignored: true } } queue() { return { queued: true } } }
     vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone)]))
+    const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone as never)]))
     // the 0.5 kernel would guess 204 for destroy and 201 for store
     expect((await app.request('/gone/1', { method: 'DELETE' })).status).toBe(200)
     expect((await app.request('/gone', { method: 'POST' })).status).toBe(200)
-    // no response schema: 204 with no body (CL2's default)
+    // no response schema: 204 with no body (CL2's default), even when the handler returns one (Gone and Reset return a
+    // body the route proof rejects, so they are cast)
     const ping = await app.request('/gone/ping')
     expect(ping.status).toBe(204)
     expect(await ping.text()).toBe('')
     // 205 Reset Content has no body either
     const reset = defineContract()({ clear: endpoint.post('/').status(205) })
-    class Reset extends Controller { clear() {} }
-    const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [], dirs: [] } }), (r) => [r.contract(reset, Reset)]))
+    class Reset extends Controller { clear() { return { ignored: true } } }
+    const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [], dirs: [] } }), (r) => [r.contract(reset, Reset as never)]))
     const cleared = await resetApp.request('/reset', { method: 'POST' })
     expect(cleared.status).toBe(205)
     expect(await cleared.text()).toBe('')

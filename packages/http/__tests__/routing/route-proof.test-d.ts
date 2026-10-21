@@ -82,9 +82,13 @@ describe('a valid controller', () => {
     expectTypeOf<Proof<Raw>>().toEqualTypeOf<unknown>()
   })
 
-  test('options held in a variable typed ContractRouteOptions: a policy known only as a PolicyClass is not checked', () => {
+  test('options typed ContractRouteOptions (a policy known only as a PolicyClass) or an any policy are not checked', () => {
     const options: ContractRouteOptions<typeof posts> = { policy: PostPolicy }
     Route.api(appApi, (r) => [r.contract(posts, PostController, options)])
+    // a parameter keeps the declared union, so P is PolicyClass | undefined
+    const mount = (o: ContractRouteOptions<typeof posts>) => Route.api(appApi, (r) => [r.contract(posts, PostController, o)])
+    void mount
+    Route.api(appApi, (r) => [r.contract(posts, PostController, { policy: PostPolicy as any })])
   })
 
   test('a handler returns null on an endpoint without a response schema', () => {
