@@ -16,7 +16,7 @@ const appApi = defineApi({
   'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
 });
 
-class UserController extends Controller { index() { return []; } }
+class UserController extends Controller { index() {} }
 class PostController extends Controller { destroy() {} }
 class UserScopePolicy {}
 class PostPolicy {}

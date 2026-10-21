@@ -174,10 +174,16 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
  * endpoint of the contract with a callback.
  */
 const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined) => {
-  if (options === undefined) return;
   const at = `contract "${names.join('", "')}"`;
-  if (typeof options !== "object" || options === null) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
-  if (options.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
+  if (options !== undefined && (typeof options !== "object" || options === null)) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
+  if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
+  // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
+  // .authorize() needs the contract's policy. Its methods are the type check's (running the policy is A3 #121)
+  if (options?.policy === undefined) {
+    const authorized = contractEndpoints(contract as AnyContract).find(([, e]) => e.def.authorize === true);
+    if (authorized) fail(`${names[0]}.${authorized[0]}: endpoint has .authorize() but r.contract() has no { policy }`);
+  }
+  if (options === undefined) return;
   const endpoints: Record<string, unknown> | undefined = options.endpoints;
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);

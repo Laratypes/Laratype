@@ -7,7 +7,7 @@ import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Request as LaratypeRequest, RequestKernel, Route } from '../../src/index'
-import type { ApiRoutes, Ctx } from '../../src/index'
+import type { ApiRoutes, Ctx, EndpointRouteBuilder } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const greetings = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
@@ -304,8 +304,22 @@ describe('r.contract() options', () => {
     const odd = defineContract()({ toString: endpoint.get('/').response(anything), index: endpoint.get('/i').response(anything) })
     const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
     class Odd extends Controller { toString() { return 'odd' } index() { return {} } }
-    const { entries } = mount(Route.api(oddApi, (r) => [r.contract(odd, Odd, { endpoints: { index: (r) => r.middleware(Audit) } })]))
+    // An object literal also has the inherited toString, which the endpoints map would type as a callback
+    const endpoints = { index: (r: EndpointRouteBuilder) => r.middleware(Audit) }
+    const { entries } = mount(Route.api(oddApi, (r) => [r.contract(odd, Odd, { endpoints } as never)]))
     expect(entries.map((e) => [e.name, e.middleware])).toEqual([['odd.toString', []], ['odd.index', [Audit]]])
+  })
+
+  it('an endpoint with its own .authorize() needs the contract policy when Route.api mounts', () => {
+    const guarded = defineContract()({ index: endpoint.get('/').response(anything), destroy: endpoint.delete('/:id').auth().authorize() })
+    const guardedApi = defineApi({ guarded: { contract: guarded, path: '/api/guarded', scopes: [], dirs: [] } })
+    class Guarded extends Controller { index() { return {} } destroy() {} }
+    const message = '[@laratype/http] Route.api: guarded.destroy: endpoint has .authorize() but r.contract() has no { policy }'
+    // the route proof reports the first two at compile time; this is the mount check for untyped callers
+    expect(() => Route.api(guardedApi, ((r: any) => [r.contract(guarded, Guarded)]) as never)).toThrow(message)
+    expect(() => Route.api(guardedApi, ((r: any) => [r.contract(guarded, Guarded, { policy: undefined })]) as never)).toThrow(message)
+    class GuardedPolicy { destroy() { return true } }
+    expect(() => Route.api(guardedApi, (r) => [r.contract(guarded, Guarded, { policy: GuardedPolicy })])).not.toThrow()
   })
 
   it('an unknown endpoint, a callback that is not one or returns no builder, a policy that is not a class', () => {

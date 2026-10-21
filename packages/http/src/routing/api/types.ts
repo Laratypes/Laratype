@@ -21,15 +21,21 @@ export interface EndpointRouteBuilder {
 }
 
 /** `r.contract(contract, Controller, { policy, endpoints })`. */
-export interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
-  /**
-   * The policy for the endpoints with `.authorize()`: it needs a method named after each of them, or `before`
-   * (checked at `r.contract()`). Recorded only: running it is A3 #121.
-   */
-  readonly policy?: P;
+export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> = {
   /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
-}
+} & (
+  // A required `policy` member, so `P` keeps the `undefined` of `cond ? Policy : undefined` (inference from an
+  // optional property drops it) and the route proof reports the missing policy
+  | {
+      /**
+       * The policy for the endpoints with `.authorize()`: it needs a method named after each of them, or `before`
+       * (checked at `r.contract()` and, for its presence, when `Route.api` mounts). Recorded only: running it is A3 #121.
+       */
+      readonly policy: P;
+    }
+  | { readonly policy?: undefined }
+);
 
 /**
  * `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key.

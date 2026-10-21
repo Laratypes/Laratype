@@ -82,11 +82,13 @@ describe('a valid controller', () => {
     expectTypeOf<Proof<Raw>>().toEqualTypeOf<unknown>()
   })
 
-  test('options held in a variable, or a policy that may be undefined, still prove', () => {
+  test('options held in a variable typed ContractRouteOptions: a policy known only as a PolicyClass is not checked', () => {
     const options: ContractRouteOptions<typeof posts> = { policy: PostPolicy }
     Route.api(appApi, (r) => [r.contract(posts, PostController, options)])
-    const maybe = Math.random() > 1 ? PostPolicy : undefined
-    Route.api(appApi, (r) => [r.contract(posts, PostController, { policy: maybe })])
+  })
+
+  test('a handler returns null on an endpoint without a response schema', () => {
+    expectTypeOf<Proof<With<{ destroy(): null }>>>().toEqualTypeOf<unknown>()
   })
 
   test('a policy with before covers every .authorize() endpoint', () => {
@@ -147,6 +149,33 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<Models>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
   })
 
+  test('without bindings the route provides no params: a required params object fails, even an empty or optional-key one', () => {
+    type Optional = With<{ show(ctx: Ctx<typeof posts.show, { params: { post?: PostModel } }>): Post }>
+    expectTypeOf<Proof<Optional>>().toHaveProperty('users.posts.show: handler requires `params`, route does not provide it (add middleware / .bind())')
+    type Empty = With<{ show(ctx: Ctx<typeof posts.show, { params: {} }>): Post }>
+    expectTypeOf<Proof<Empty>>().toHaveProperty('users.posts.show: handler requires `params`, route does not provide it (add middleware / .bind())')
+  })
+
+  test('an optional or rest second parameter typed as models', () => {
+    type Optional = With<{ show(ctx: Ctx<typeof posts.show>, params?: { post: PostModel }): Post }>
+    expectTypeOf<Proof<Optional>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
+    type Rest = With<{ show(ctx: Ctx<typeof posts.show>, ...rest: PostModel[]): Post }>
+    expectTypeOf<Proof<Rest>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
+  })
+
+  test('a request member of the wrong type points at request classes, not .bind()', () => {
+    type Rules = With<{ show(req: { endpoint: typeof posts.show; rules(): number }): Post }>
+    expectTypeOf<Proof<Rules>>().toHaveProperty(
+      'users.posts.show: `rules` of the request does not match the handler (Route.api passes the raw request; request classes are #106)',
+    )
+  })
+
+  test('an endpoint named after a base Controller member has no handler on a bare controller', () => {
+    const odd = defineContract()({ exposed: endpoint.get('/') })
+    class Bare extends Controller {}
+    expectTypeOf<VerifyController<'odd', typeof odd, '/odd', Bare>>().toHaveProperty('odd.exposed: controller has no handler for this endpoint')
+  })
+
   test('a wrong return type', () => {
     type Wrong = With<{ index(): string }>
     expectTypeOf<Proof<Wrong>>().toHaveProperty('users.posts.index: return type does not match the response schema')
@@ -170,6 +199,24 @@ describe('failure modes, by their diagnosis', () => {
     class Nothing {}
     expectTypeOf<Proof<PostController, {}, {}, { policy: typeof Nothing }>>().toHaveProperty(
       'users.posts.destroy: .authorize() needs a `destroy` method or `before` on the policy',
+    )
+    // a property that is not a method doesn't count, for the endpoint's name or for before
+    class Fields { destroy = 1; before = true }
+    expectTypeOf<Proof<PostController, {}, {}, { policy: typeof Fields }>>().toHaveProperty(
+      'users.posts.destroy: .authorize() needs a `destroy` method or `before` on the policy',
+    )
+    // a policy that may be undefined is no policy
+    const maybe = Math.random() > 1 ? PostPolicy : undefined
+    expectTypeOf<Proof<PostController, {}, {}, { policy: typeof maybe }>>().toHaveProperty(
+      'users.posts.destroy: endpoint has .authorize() but r.contract() has no { policy }',
+    )
+    // @ts-expect-error users.posts.destroy: endpoint has .authorize() but r.contract() has no { policy }
+    Route.api(appApi, (r) => [r.contract(posts, PostController, { policy: maybe })])
+    // .authorize(flag) with a boolean flag may authorize, so it is checked too
+    const flag = Math.random() > 1
+    const flagged = defineContract()({ destroy: endpoint.delete('/:post').auth().authorize(flag) })
+    expectTypeOf<VerifyController<'flagged', typeof flagged, '/f', { destroy(): void }>>().toHaveProperty(
+      'flagged.destroy: endpoint has .authorize() but r.contract() has no { policy }',
     )
     // @ts-expect-error users.posts.destroy: endpoint has .authorize() but r.contract() has no { policy }
     Route.api(appApi, (r) => [r.contract(posts, PostController)])

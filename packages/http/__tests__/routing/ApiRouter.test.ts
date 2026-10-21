@@ -150,7 +150,7 @@ describe('Route.api', () => {
       ping: endpoint.get('/ping'),
       queue: endpoint.post('/queue').status(202).response(anything),
     })
-    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() { return { ignored: true } } queue() { return { queued: true } } }
+    class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() {} queue() { return { queued: true } } }
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone)]))
     // the 0.5 kernel would guess 204 for destroy and 201 for store
@@ -162,7 +162,7 @@ describe('Route.api', () => {
     expect(await ping.text()).toBe('')
     // 205 Reset Content has no body either
     const reset = defineContract()({ clear: endpoint.post('/').status(205) })
-    class Reset extends Controller { clear() { return { ignored: true } } }
+    class Reset extends Controller { clear() {} }
     const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [], dirs: [] } }), (r) => [r.contract(reset, Reset)]))
     const cleared = await resetApp.request('/reset', { method: 'POST' })
     expect(cleared.status).toBe(205)
@@ -308,7 +308,7 @@ describe('auth and authorize are not enforced yet', () => {
     mount(build().domain('api.example.test'))
     expect(warn).toHaveBeenCalledTimes(1)
     const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
-    class Ping extends Controller { ping() { return 'pong' } }
+    class Ping extends Controller { ping() {} }
     mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).toHaveBeenCalledTimes(2)
     // the first list is still remembered
@@ -319,7 +319,7 @@ describe('auth and authorize are not enforced yet', () => {
   it('two Route.api groups warn once each, across restarts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
-    class Ping extends Controller { ping() { return 'pong' } }
+    class Ping extends Controller { ping() {} }
     const groups = () => [
       Route.api(appApi, (r) => [r.contract(users, UserController), r.scope('users/[user]', { policy: UserScopePolicy }), r.contract(posts, PostController)]),
       Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]).domain('api.example.test'),
@@ -330,7 +330,7 @@ describe('auth and authorize are not enforced yet', () => {
 
   it('the remembered lists are capped, dropping the oldest', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    class Ping extends Controller { ping() { return 'pong' } }
+    class Ping extends Controller { ping() {} }
     const group = (i: number) => {
       const c = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
       return Route.api(defineApi({ [`p${i}`]: { contract: c, path: `/p${i}`, scopes: [], dirs: [] } }), (r) => [r.contract(c, Ping)])
@@ -371,7 +371,7 @@ describe('auth and authorize are not enforced yet', () => {
       ping: endpoint.get('/ping'),
       slow: endpoint.get('/slow').throttle({ limit: 1, per: 60 }),
     })
-    class Forms extends Controller { list() { return [] } send() { return {} } head() { return {} } ping() { return 'pong' } slow() { return 'ok' } }
+    class Forms extends Controller { list() {} send() {} head() {} ping() {} slow() {} }
     const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
       ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
@@ -382,7 +382,7 @@ describe('auth and authorize are not enforced yet', () => {
   it('no warning without auth or authorize', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const open = defineContract()({ ping: endpoint.get('/') })
-    class Ping extends Controller { ping() { return 'pong' } }
+    class Ping extends Controller { ping() {} }
     mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).not.toHaveBeenCalled()
   })
@@ -442,7 +442,8 @@ describe('Route.api runtime checks', () => {
     class Own extends Base { exposed() { return ['x'] } }
     expect(() => Route.api(oddApi as any, ((r: any) => [r.contract(odd, Own)]) as never)).toThrow('odd.constructor: Own has no method "constructor"')
     const fine = defineContract()({ exposed: endpoint.get('/e'), toString: endpoint.get('/t') })
-    expect(() => Route.api(defineApi({ fine: { contract: fine, path: '/fine', scopes: [], dirs: [] } }), (r) => [r.contract(fine, Own)])).not.toThrow()
+    // the runtime's handler rules for these odd keys, outside the route proof (which reads only the controller's own type)
+    expect(() => Route.api(defineApi({ fine: { contract: fine, path: '/fine', scopes: [], dirs: [] } }), (r) => [r.contract(fine, Own as never)])).not.toThrow()
   })
 
   it('a middleware mounted twice runs once, at its first position', () => {
@@ -450,7 +451,7 @@ describe('Route.api runtime checks', () => {
     const inner = defineScope<ContractPrefix<'/a/:x', [typeof tree]>>()({ throws: [] })
     const deep = defineContract()({ index: endpoint.get('/') })
     const nested = defineApi({ 'a.b': { contract: deep, path: '/a/:x/b', scopes: [tree, inner], dirs: ['', 'a/[x]'] } })
-    class Deep extends Controller { index() { return [] } }
+    class Deep extends Controller { index() {} }
     class Web extends Middleware {}
     const { entries } = mount(Route.api(nested, (r) => {
       const web = r.middleware(Web)
@@ -466,7 +467,7 @@ describe('Route.api runtime checks', () => {
   it('a 0.5 status decorator that disagrees with the endpoint status fails, naming both', () => {
     const shop = defineContract()({ store: endpoint.post('/').response(anything, 201), show: endpoint.get('/') })
     const shopApi = defineApi({ shop: { contract: shop, path: '/shop', scopes: [], dirs: [] } })
-    class Shop extends Controller { store() { return {} } show() { return {} } }
+    class Shop extends Controller { store() { return {} } show() {} }
     Reflect.defineMetadata('laratype:controller_status_code', 202, Shop.prototype, 'store')
     expect(() => Route.api(shopApi, (r) => [r.contract(shop, Shop)])).toThrow(
       '[@laratype/http] Route.api: shop.store: Shop.store has status 202 from its status decorator, but the endpoint declares 201: declare .response(schema, 202) on the endpoint, or drop the decorator',
