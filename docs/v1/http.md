@@ -387,7 +387,7 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
+planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). Unknown errors are merged ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception` with a 500 and `{ message: "Server Error" }`, whatever the route's or controller's status, and logs the error on the server only (`console.error`). An `Exception` that is not responsible answers 500 too.
 
 ### Design (non-binding)
 - **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).

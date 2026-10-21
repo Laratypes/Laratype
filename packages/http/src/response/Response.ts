@@ -103,14 +103,10 @@ export default class Response extends AppServiceProvider {
       }
     }
     if(!(err instanceof Exception)) {
-      const unknownException = new Exception({
-        message: err.message,
-        code: "UNKNOWN",
-        httpCode: 500,
-        responsible: false,
-        reportable: true,
-      });
-      return Response.resolveResponse(c, unknownException.toJson())
+      // An unknown error (#267): logged on the server only, answered with an explicit 500 that no route or
+      // controller status overrides, and the generic body of docs/v1/http.md › Exceptions (no code, message, name or stack)
+      console.error(err);
+      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, 500))
     }
     return Response.resolveResponse(c, new ResponseSupport("Something went wrong!", 500))
   }
