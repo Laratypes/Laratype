@@ -122,8 +122,11 @@ describe('writeDistManifest', () => {
     expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsconfig.build.json has no source file to build (its "include": ["types/**/*"])');
   });
 
-  it('appDir comes from what tsc emitted: a source importing a file outside include (.laratype/) moves the root up', async () => {
+  it('the root is the one tsc uses: a source importing a file outside include (.laratype/) moves it up, whatever dist holds', async () => {
     const dir = join(tmp, 'outside-include');
+    // Stale outputs of an earlier build rooted at app/: never picked
+    write(dir, 'dist/config/config.js', 'export default { name: "stale" };\n');
+    write(dir, 'dist/src/models/User.js', 'export default class User {};\n');
     write(dir, '.laratype/api.ts', 'export const api = "api";\n');
     write(dir, 'app/config/config.ts', 'import { api } from "../../.laratype/api";\nexport default { name: api };\n');
     write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
@@ -144,7 +147,7 @@ describe('writeDistManifest', () => {
   it('without outDir (outputs next to the sources): the .js next to each .ts is not a duplicate, and is what ships', async () => {
     const dir = project('no-outdir', { outDir: undefined });
     expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);
-    mkdirSync(join(dir, 'dist'));
+    expect(existsSync(join(dir, 'dist'))).toBe(false);                      // created for the manifest
     const { file, appDir } = writeDistManifest(ts, dir);
     expect(appDir).toBe('../app');
     const code = readFileSync(file, 'utf8');

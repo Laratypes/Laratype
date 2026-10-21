@@ -7,7 +7,7 @@ import replace from '@rollup/plugin-replace';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import { replaceTscAliasPaths } from 'tsc-alias';
 import { getPlatformAdapter } from "../utils/build/platform";
-import { cpSync, existsSync, rmSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, posix, relative, resolve } from "path";
 import type * as TS from "typescript";
 import { emitManifest, MANIFEST_FILE, scanManifest, type ScannedEntry } from "../manifest";
@@ -21,49 +21,41 @@ export const loadBuildTypeScript = (load?: () => Promise<unknown>): Promise<type
 const isJs = (file: string) => /\.m?js$/.test(file);
 const isDeclaration = (file: string) => /\.d\.[cm]?ts$/.test(file);
 
-/** The `include` of the config, for errors: `["app/**\/*"]`. */
+/** The `include` of the config (its own or the one it extends), for errors: `["app/**\/*"]`. */
 const includeOf = (parsed: TS.ParsedCommandLine) => {
-  const include = (parsed.raw as { include?: unknown } | undefined)?.include;
-  return include === undefined ? "none (every file of its folder)" : JSON.stringify(include);
+  const { include, files } = (parsed.raw ?? {}) as { include?: unknown; files?: unknown };
+  if (include !== undefined) return JSON.stringify(include);
+  return files !== undefined ? `none, "files": ${JSON.stringify(files)}` : "none (every file of its folder)";
 };
 
 /**
  * The folder tsc mirrors under `outDir`, as `getOutputFileNames` takes it from `rootDir`: `rootDir`, else the config's
- * folder for a composite project, else the common folder of the program's sources. That program also holds the files
- * the sources import from outside `include` (`$api` from `.laratype/`), which the config does not list, so the root
- * comes from the outputs tsc wrote: the common folder of the listed sources is tried first, then each folder above it,
- * and the one under which most sources have their output wins. `undefined` without `outDir` (outputs next to sources).
+ * folder for a composite project, else the common folder of the files tsc emits. Those are the files of the program,
+ * not of the config: they include what the sources import from outside `include` (`$api` from `.laratype/`), so the
+ * program is built (parsed, not type-checked) to list them. `undefined` without `outDir` (outputs next to sources).
  */
-function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: string, sources: readonly string[], ignoreCase: boolean): string | undefined {
+function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: string, ignoreCase: boolean): string | undefined {
   const { outDir, rootDir, composite } = parsed.options;
   if (!outDir) return undefined;
   if (rootDir !== undefined) return resolve(rootDir);
   if (composite) return dirname(configFile);
+  const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options, projectReferences: parsed.projectReferences });
+  const emitted = program.getSourceFiles().filter((file) =>
+    !file.isDeclarationFile && !program.isSourceFileFromExternalLibrary(file) && !program.isSourceFileDefaultLibrary(file));
   const same = (a: string, b: string) => (ignoreCase ? a.toLowerCase() === b.toLowerCase() : a === b);
-  const dirs = sources.map((file) => slash(dirname(resolve(file))).split("/"));
-  const common = resolve(dirs.reduce((acc, parts) => {
+  const dirs = emitted.map((file) => slash(dirname(resolve(file.fileName))).split("/"));
+  const common = dirs.reduce((acc, parts) => {
     let i = 0;
     while (i < acc.length && i < parts.length && same(acc[i]!, parts[i]!)) i++;
     return acc.slice(0, i);
-  }).join("/") || "/");
-  let root = common;
-  let most = 0;
-  for (let dir = common; ; dir = dirname(dir)) {
-    const options = { ...parsed, options: { ...parsed.options, rootDir: dir } };
-    const found = sources.filter((file) => ts.getOutputFileNames(options, file, ignoreCase).some((out) => isJs(out) && existsSync(out))).length;
-    if (found > most) {
-      root = dir;
-      most = found;
-    }
-    if (dirname(dir) === dir) break;
-  }
-  return root;
+  });
+  return resolve(common.join("/") || "/");
 }
 
 /**
  * Writes `<distDir>/app.manifest.js`: the app manifest of the sources, each pointing at the file tsc emitted for it, as
  * TypeScript computes it from `tsconfig` (`getOutputFileNames`: outDir and rootDir, whatever the layout) and the root
- * tsc actually used (`emitRoot`). A config with errors, or without any source (an `include` that matches nothing), is
+ * tsc mirrors (`emitRoot`). A config with errors, or without any source (an `include` that matches nothing), is
  * an error: the manifest would be empty. A source that is not in the build program (excluded, such as test-only
  * factories) is left out and returned in `omitted`; one in the program whose output file is missing is an error.
  * `appDir` records where `app/` is emitted, for `getAppPath()`.
@@ -91,7 +83,7 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
   const key = (file: string) => (ignoreCase ? slash(resolve(file)).toLowerCase() : slash(resolve(file)));
   const program = new Set(parsed.fileNames.map(key));
 
-  const root = emitRoot(ts, parsed, configFile, sources, ignoreCase);
+  const root = emitRoot(ts, parsed, configFile, ignoreCase);
   const emit = root === undefined ? parsed : { ...parsed, options: { ...parsed.options, rootDir: root } };
   const app = resolve(projectDir, "app");
   const appDir = posix.relative(slash(dist), slash(root === undefined ? app : resolve(parsed.options.outDir!, relative(root, app))));
@@ -124,6 +116,8 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
     return rel.startsWith("../") ? rel : `./${rel}`;
   }, appDir);
   const file = join(dist, MANIFEST_FILE);
+  // Without outDir, tsc writes nothing to dist/
+  mkdirSync(dist, { recursive: true });
   writeFileSync(file, code);
   return { file, omitted, appDir };
 }
