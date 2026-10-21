@@ -11,6 +11,13 @@ import { Container, DiError, depsRegistry } from "@laratype/core";
 /** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
 
+/**
+ * A zod validation failure (`ZodError`), told by its shape: `instanceof ZodError` misses an error from another copy of
+ * zod (the app's own next to @laratype/validation's). Its `issues` are what its `errors` getter returns.
+ */
+const isValidationFailure = (e: unknown): e is { issues: unknown[] } =>
+  typeof e === "object" && e !== null && (e as { name?: unknown }).name === "ZodError" && Array.isArray((e as { issues?: unknown }).issues);
+
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
 
@@ -239,16 +246,25 @@ export default class Request extends AppServiceProvider {
 
   public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
     if(routeOption.request) {
+      // Outside the try: an error from rules() or the input is not a validation failure
+      const data = requestInstance.all();
+      const rules = requestInstance.rules();
+      let result;
       try {
-        const result = await this.validate(requestInstance.all(), requestInstance.rules())
-        requestInstance.validated = () => result
+        result = await this.validate(data, rules)
       }
       catch(e) {
-          throw new ValidationException({
-            //@ts-ignore
-            errors: e.errors,
-          })
+        // Only the validator's own failure is a 422 with its field errors (#275). Anything else, even an error with its
+        // own `errors` field (an AggregateError, an ORM error from a refinement), goes on to resolveException: a
+        // generic 500 and a server-side log
+        if(!isValidationFailure(e)) {
+          throw e;
+        }
+        throw new ValidationException({
+          errors: e.issues,
+        })
       }
+      requestInstance.validated = () => result
     }
 
     return requestInstance
