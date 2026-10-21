@@ -116,12 +116,13 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
-      const names = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract).map((e) => e.name);
+      const matched = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract);
+      const names = matched.map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
       if (typeof item.controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
       }
-      checkOptions(names, entries.find((e) => e.name === names[0])!.entry.contract, item.options);
+      checkOptions(names, matched[0]!.entry.contract, item.options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       for (const name of names) contracts.set(name, item);
@@ -189,8 +190,10 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
 const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
-  const callback = (options?.endpoints as Record<string, ((r: RouteBuilder) => unknown) | undefined> | undefined)?.[key];
-  if (callback === undefined) return [];
+  const endpoints = options?.endpoints as Record<string, (r: RouteBuilder) => unknown> | undefined;
+  // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
+  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
+  const callback = endpoints[key]!;
   const built = callback(new RouteBuilder());
   if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
   return (built as RouteBuilder).stack;

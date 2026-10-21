@@ -4,7 +4,7 @@ import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
-import { HTTP_APP } from '@laratype/support'
+import { ContextApi, HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, Route } from '../../src/index'
 import type { ApiRoutes, Ctx } from '../../src/index'
@@ -92,6 +92,30 @@ describe('controller resolution', () => {
     expect(await json(bare, '/legacy')).toEqual({ message: 'hello' })
   })
 
+  it('ContextApi.getContainer() is the app container under RequestKernel; RequestKernel.container() falls back outside it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const container = new Container({ deps: depsRegistry })
+    const app = new Hono()
+    container.instance(HTTP_APP, app)
+    new RequestKernel(container).boot()
+    const seen: unknown[] = []
+    class Probe extends Controller {
+      index() {
+        seen.push(ContextApi.getContainer(), RequestKernel.container())
+        return {}
+      }
+    }
+    app.get('/probe', RequestKernel.handle({ method: 'get', path: '/probe', controller: [Probe, 'index'] }))
+    await app.request('/probe')
+    expect(seen).toEqual([container, container])
+    // outside a request, and on a bare app: one autowire-only container, created once
+    expect(ContextApi.getContainer()).toBeUndefined()
+    const fallback = RequestKernel.container()
+    expect(fallback).toBeInstanceOf(Container)
+    expect(fallback).not.toBe(container)
+    expect(RequestKernel.container()).toBe(fallback)
+  })
+
   it('a dependency the container cannot resolve fails the request, not the mount', async () => {
     class Unknown {}
     class Broken extends Controller {
@@ -149,6 +173,16 @@ describe('ctx.endpoint', () => {
     const app = new Hono()
     Route.api(greetingsApi, (r) => [r.contract(greetings, Writer)]).mount(app)
     expect(await json(app, '/api/greetings')).toEqual({ set: false, deleted: false, defined: false, same: true })
+  })
+
+  it('is not enumerable, so spreading the request does not copy it', async () => {
+    class Spread extends Controller {
+      index(ctx: Ctx<typeof greetings.index>) { return { copied: 'endpoint' in { ...ctx }, keys: Object.keys(ctx).includes('endpoint') } }
+      show() { return {} }
+    }
+    const app = new Hono()
+    Route.api(greetingsApi, (r) => [r.contract(greetings, Spread)]).mount(app)
+    expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
   })
 
   it('a 0.5 route has no endpoint', async () => {
@@ -224,6 +258,14 @@ describe('r.contract() options', () => {
     expect(await json(app, '/api/posts')).toEqual({ index: true })
     const { entries: without } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController)]))
     expect(without.map((e) => e.policy)).toEqual([undefined, undefined])
+  })
+
+  it('an endpoint named after an Object.prototype method takes no inherited callback', () => {
+    const odd = defineContract()({ toString: endpoint.get('/').response(anything), index: endpoint.get('/i').response(anything) })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    class Odd extends Controller { toString() { return 'odd' } index() { return {} } }
+    const { entries } = mount(Route.api(oddApi, (r) => [r.contract(odd, Odd, { endpoints: { index: (r) => r.middleware(Audit) } })]))
+    expect(entries.map((e) => [e.name, e.middleware])).toEqual([['odd.toString', []], ['odd.index', [Audit]]])
   })
 
   it('an unknown endpoint, a callback that is not one or returns no builder, a policy that is not a class', () => {

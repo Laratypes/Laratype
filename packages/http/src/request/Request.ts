@@ -251,7 +251,8 @@ export default class Request extends AppServiceProvider {
 
       // ctx.endpoint (#105): a read-only field of this request's own object, for Route.api routes only
       if(routeOption.endpoint) {
-        Object.defineProperty(transformedRequest, 'endpoint', { value: routeOption.endpoint, enumerable: true });
+        // Non-enumerable, so spreading or logging the request doesn't copy the endpoint definition
+        Object.defineProperty(transformedRequest, 'endpoint', { value: routeOption.endpoint });
       }
 
       return ContextApi.run({
