@@ -6,24 +6,38 @@ import type { RouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 
+const isErrorStatus = (status: unknown) => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
+
 /**
  * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
  * peer dependency, so the app may hold another copy of the class. Only an error status (400-599) whose `getResponse()`
- * gives a fetch `Response` counts: anything else (a NestJS-style object, a status 999) is an unknown error.
+ * gives a fetch `Response` with an error status too counts: anything else (a NestJS-style object, a status 999, a 200
+ * response) is an unknown error. The status is the response's, the one actually sent (#272)
  */
 const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.Response } | undefined => {
   const candidate = err as { status?: unknown; getResponse?: unknown } | null;
   const status = candidate?.status;
-  if (typeof candidate?.getResponse !== "function" || !Number.isInteger(status) || (status as number) < 400 || (status as number) > 599) {
+  if (typeof candidate?.getResponse !== "function" || !isErrorStatus(status)) {
     return undefined;
   }
   try {
     const response: unknown = candidate.getResponse();
-    return response instanceof globalThis.Response ? { status: status as StatusCode, response } : undefined;
+    return response instanceof globalThis.Response && isErrorStatus(response.status)
+      ? { status: response.status as StatusCode, response }
+      : undefined;
   } catch {
     return undefined;
   }
 };
+
+/**
+ * Headers set before the throw that no error response carries (#272): a failed request sets no cookie, and no cache
+ * keeps or revalidates an error. Cache-Control is replaced by `no-store`
+ */
+const DROPPED_ERROR_HEADERS = ["Set-Cookie", "ETag", "Last-Modified", "Expires"];
+
+/** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
+const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
 
 export default class Response extends AppServiceProvider {
 
@@ -113,6 +127,13 @@ export default class Response extends AppServiceProvider {
     // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
     const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
 
+    // On the context, not only on the response built below: Hono merges the context's headers into the error response
+    // (#272). The other headers set before the throw (CORS, Vary) stay
+    for (const name of DROPPED_ERROR_HEADERS) {
+      c.header(name, undefined);
+    }
+    c.header("Cache-Control", "no-store");
+
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
     if ((err as { reportable?: unknown }).reportable || status >= 500) {
@@ -121,11 +142,17 @@ export default class Response extends AppServiceProvider {
     // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
     // no route or controller status overrides, with the generic body of docs/v1/http.md › Exceptions
     if (status >= 500) {
-      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
+      const kept: Record<string, string> = {};
+      for (const name of KEPT_5XX_HEADERS) {
+        const value = httpError?.response.headers.get(name);
+        if (value != null) kept[name] = value;
+      }
+      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode, kept));
     }
     if (httpError) {
-      // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay
-      return c.newResponse(httpError.response.body, httpError.response);
+      // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay. The
+      // error's own headers are set on purpose and stay too, but an error is never cached
+      return c.newResponse(httpError.response.body, httpError.response, { "Cache-Control": "no-store" });
     }
     //TODO: Response exception with HTML
     return Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status));
