@@ -675,14 +675,20 @@ describe('createClient(manifest), the separate-repo FE', () => {
   })
 
   it('rejects a route path that would leave the page\'s origin under a same-origin baseUrl', async () => {
-    const forged = { 't.slashes': { method: 'get', path: '//evil.com/x' }, 't.backslash': { method: 'get', path: '/\\evil.com/x' } }
-    type Calls = { t: Record<'slashes' | 'backslash', () => Promise<unknown>> }
+    const forged = {
+      't.slashes': { method: 'get', path: '//evil.com/x' },
+      't.backslash': { method: 'get', path: '/\\evil.com/x' },
+      't.tab': { method: 'get', path: '/\t/evil.com/x' },
+      't.newline': { method: 'get', path: '/\n\\evil.com' },
+      't.invalid': { method: 'get', path: '//[bad' },
+    }
+    type Calls = { t: Record<'slashes' | 'backslash' | 'tab' | 'newline' | 'invalid', () => Promise<unknown>> }
     const { fetch, calls } = fakeFetch()
     const api = createClient(forged, { fetch }) as never as Calls
     await expect(api.t.slashes()).rejects.toThrow(
       new TypeError('[@laratype/client] route path "//evil.com/x" would leave the page\'s origin: "//evil.com/x"'),
     )
-    await expect(api.t.backslash()).rejects.toThrow(/would leave the page's origin/)
+    for (const call of [api.t.backslash, api.t.tab, api.t.newline, api.t.invalid]) await expect(call()).rejects.toThrow(/would leave the page's origin/)
     expect(calls).toEqual([])
     // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
     await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.slashes()

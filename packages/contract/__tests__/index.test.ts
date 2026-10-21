@@ -57,6 +57,11 @@ describe('endpoint builder', () => {
     expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
       new TypeError('[@laratype/contract] endpoint: the path must start with one "/", got "x"'),
     )
+    for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a b', '/a\u0000', '/a\u007f']) {
+      expect(() => endpoint.get(path as never)).toThrow(
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must not contain whitespace or control characters, got ${JSON.stringify(path)}`),
+      )
+    }
     expect(endpoint.get('/').def.path).toBe('/')
     expect(endpoint.get('/a//b').def.path).toBe('/a//b')
   })

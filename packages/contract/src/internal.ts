@@ -22,6 +22,8 @@ export const checkPath = (path: unknown, label: string): string => {
   if (typeof path !== "string" || !/^\/(?![/\\])/.test(path)) {
     fail(`${label}: the path must start with one "/", got ${typeof path === "string" ? JSON.stringify(path) : typeof path}`);
   }
+  // URL parsing drops tab, LF and CR: "/\t/evil.com" is "//evil.com"
+  if (/[\u0000-\u0020\u007f]/.test(path as string)) fail(`${label}: the path must not contain whitespace or control characters, got ${JSON.stringify(path)}`);
   return path as string;
 };
 
