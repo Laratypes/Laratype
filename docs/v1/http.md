@@ -387,7 +387,7 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
+planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). Unknown errors are merged ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary). An HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response`; anything else is an unknown error. `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx; the `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)). Until H5, a thrown `defineError` / catalog error (`ContractError`) is an unknown error too, so it answers 500 instead of its own status.
 
 ### Design (non-binding)
 - **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).
