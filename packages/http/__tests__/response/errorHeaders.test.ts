@@ -46,6 +46,8 @@ const cachingMiddleware: MiddlewareHandler = async (c, next) => {
   c.header('ETag', '"v1"')
   c.header('Last-Modified', 'Wed, 21 Oct 2026 07:28:00 GMT')
   c.header('Expires', 'Wed, 21 Oct 2026 08:28:00 GMT')
+  c.header('CDN-Cache-Control', 'max-age=600')
+  c.header('Surrogate-Control', 'max-age=600')
   c.header('Access-Control-Allow-Origin', 'https://app.example.test')
   await next()
 }
@@ -57,6 +59,8 @@ const expectScrubbed = (response: Response) => {
   expect(response.headers.get('ETag')).toBeNull()
   expect(response.headers.get('Last-Modified')).toBeNull()
   expect(response.headers.get('Expires')).toBeNull()
+  expect(response.headers.get('CDN-Cache-Control')).toBeNull()
+  expect(response.headers.get('Surrogate-Control')).toBeNull()
   // a header the error response may carry stays
   expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
 }
@@ -90,11 +94,17 @@ describe('error response headers', () => {
     expectScrubbed(response)
   })
 
-  it('a 4xx HTTPException drops them and keeps its own headers, but not its own Cache-Control', async () => {
+  it('a 4xx HTTPException drops them and keeps its own headers, but not its own cookie or caching headers', async () => {
     quiet()
     const res = new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="admin"', 'Cache-Control': 'public, max-age=60' },
+      headers: [
+        ['WWW-Authenticate', 'Basic realm="admin"'],
+        ['Cache-Control', 'public, max-age=60'],
+        ['Set-Cookie', 'tracking=1; Path=/'],
+        ['ETag', '"upstream"'],
+        ['CDN-Cache-Control', 'max-age=600'],
+      ],
     })
     class Guarded extends Controller { index() { throw new HTTPException(401, { res }) } }
     const app = bootApp()

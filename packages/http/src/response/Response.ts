@@ -6,7 +6,7 @@ import type { RouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 
-const isErrorStatus = (status: unknown) => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
+const isErrorStatus = (status: unknown): status is number => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
 
 /**
  * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
@@ -31,10 +31,13 @@ const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.R
 };
 
 /**
- * Headers set before the throw that no error response carries (#272): a failed request sets no cookie, and no cache
- * keeps or revalidates an error. Cache-Control is replaced by `no-store`
+ * Headers that no error response carries, whether set before the throw or on an HTTP error's own response (#272): a
+ * failed request sets no cookie, and no cache (CDN-targeted ones included) keeps or revalidates an error.
+ * Cache-Control is replaced by `no-store`
  */
-const DROPPED_ERROR_HEADERS = ["Set-Cookie", "ETag", "Last-Modified", "Expires"];
+const DROPPED_ERROR_HEADERS = [
+  "Set-Cookie", "ETag", "Last-Modified", "Expires", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control",
+];
 
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
@@ -151,8 +154,13 @@ export default class Response extends AppServiceProvider {
     }
     if (httpError) {
       // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay. The
-      // error's own headers are set on purpose and stay too, but an error is never cached
-      return c.newResponse(httpError.response.body, httpError.response, { "Cache-Control": "no-store" });
+      // error's own headers are set on purpose and stay too, but they never set a cookie or cache the error either
+      const headers = new Headers(httpError.response.headers);
+      for (const name of DROPPED_ERROR_HEADERS) {
+        headers.delete(name);
+      }
+      headers.set("Cache-Control", "no-store");
+      return c.newResponse(httpError.response.body, { status: httpError.status, headers });
     }
     //TODO: Response exception with HTML
     return Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status));
