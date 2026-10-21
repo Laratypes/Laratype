@@ -127,7 +127,7 @@ describe("guardStreamErrors (Node adapter)", () => {
   it("returns the response as is without Node bindings", () => {
     const response = new Response(failingStream(20));
 
-    expect(guardStreamErrors(() => response)(new Request("http://localhost/"), undefined as never)).toBe(response);
+    expect(guardStreamErrors((_request: Request, _env: unknown) => response)(new Request("http://localhost/"), undefined as never)).toBe(response);
   });
 
   afterAll(async () => {
@@ -240,7 +240,7 @@ describe("guardStreamErrors (Node adapter)", () => {
 
   it("returns a response without a stream body as is", async () => {
     const response = new Response("hello");
-    const fetchCallback = guardStreamErrors(() => response);
+    const fetchCallback = guardStreamErrors((_request: Request, _env: unknown) => response);
 
     // Also pins the adapter's lightweight Response layout: a string body is read without materializing it
     expect(fetchCallback(new Request("http://localhost/"), { outgoing: {} } as never)).toBe(response);
