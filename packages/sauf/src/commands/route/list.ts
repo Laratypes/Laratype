@@ -45,7 +45,7 @@ const notEnforcedColumn = (route: Record<string, any>) =>
 
 /**
  * One row of the table. Reads both registry shapes: the v2 entries of `Route.api` (name, method, path, endpoint,
- * controller, middleware, scope policies, domain; docs/v1/http.md › Router v2) and the 0.5 `RouteParams`.
+ * controller, middleware, scope policies, the contract policy, domain; docs/v1/http.md › Router v2) and the 0.5 `RouteParams`.
  */
 export const routeRow = (route: Record<string, any>) => ({
   Method: route.method,
@@ -54,7 +54,10 @@ export const routeRow = (route: Record<string, any>) => ({
   Controller: `${route.controller[0].name}::${route.controller[1]}`,
   Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
   Policies: Array.isArray(route.policies)
-    ? route.policies.length ? route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`).join(', ') : '-'
+    ? [
+      ...route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`),
+      ...(route.policy ? [`contract: ${route.policy.name}`] : []),
+    ].join(', ') || '-'
     : route.can?.length ? route.can.map((mw: any) => {
       return `${mw.ability}{${mw.args.map((arg: any) => arg.name ? arg.name : `/:${arg}`).join(', ')}}`
     }).join(', ') : '-',

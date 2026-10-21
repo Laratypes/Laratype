@@ -6,6 +6,13 @@ import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
+import { Container, DiError, depsRegistry } from "@laratype/core";
+
+/** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
+const CONTAINER = "laratype.container";
+
+/** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
+let fallbackContainer: Container | undefined;
 
 type PipeLineType = {
   type: 'middleware',
@@ -36,10 +43,34 @@ export default class Request extends AppServiceProvider {
     return result
   }
 
+  /**
+   * The container controllers are resolved from: the app container `boot()` puts on each request, else one
+   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   */
+  public static container(): Container {
+    return ContextApi.getContainer() ?? (fallbackContainer ??= new Container({ deps: depsRegistry }));
+  }
+
+  /** `app.make(Controller)`, with a fix hint when the controller itself has constructor params but no DI metadata. */
+  private static makeController(controller: Function) {
+    try {
+      return Request.container().make(controller as new (...args: any[]) => unknown);
+    } catch (error) {
+      if (error instanceof DiError && error.message.startsWith(`Cannot autowire ${controller.name}:`)) {
+        throw new DiError(
+          `${error.message} Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\` (an app binding, so it needs RequestKernel).`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  }
+
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
     return (req: RequestSupport | undefined) => {
-      
-      const controller = new (c[0] as any)();
+
+      // Constructor DI (H2 #105): an unbound controller is autowired, a new instance per request as with `new`
+      const controller = Request.makeController(c[0]) as any;
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
@@ -233,10 +264,21 @@ export default class Request extends AppServiceProvider {
         ? { ...transformedRequest.param() }
         : await this.queryFromModelBinding(this.explicitModelBinding(transformedRequest));
 
+      // ctx.endpoint (#105): a read-only field of this request's own object, for Route.api routes only
+      if(routeOption.endpoint) {
+        // A request class with its own `endpoint` field would keep that field's attributes (writable, enumerable)
+        if(Object.hasOwn(transformedRequest, 'endpoint')) {
+          throw new InternalException(`${routeOption.name ?? routeOption.path}: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of ${transformedRequest.constructor.name}`);
+        }
+        // Non-enumerable, so spreading or logging the request doesn't copy the endpoint definition
+        Object.defineProperty(transformedRequest, 'endpoint', { value: routeOption.endpoint, writable: false, enumerable: false, configurable: false });
+      }
+
       return ContextApi.run({
         request: transformedRequest,
         user: undefined,
         modelBindings: res,
+        container: (ctx.get as (key: string) => Container | undefined)(CONTAINER),
       }, async () => {
 
         const pipelines: PipeLineType[] = [];
@@ -266,6 +308,7 @@ export default class Request extends AppServiceProvider {
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
+      (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
       this.resolveRequest(ctx);
       return next();
     });

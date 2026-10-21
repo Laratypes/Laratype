@@ -6,13 +6,35 @@ import type Middleware from "../../middleware/Middleware";
  * (`typeof appApi`) and checks the mounted routes: every contract once, and a policy on every scope with `authorize`.
  */
 
-/** A controller class. It is still built with `new` until H2 #105 resolves it from the container. */
+/** A controller class, resolved with `app.make()`: its constructor params are injected (H2 #105). */
 export type ControllerClass = new (...args: any[]) => object;
 
-/** A policy class. Mounted policies are recorded on the registry; running them is H2 #105 / A3 #121. */
+/** A policy class. Mounted policies are recorded on the registry; running them is A3 #121. */
 export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
+
+/**
+ * What a handler gets for endpoint `E`. So far only the read-only `endpoint`, which `Route.api` sets on the request
+ * object passed to the handler; `params`, `query`, `body` and `Requires` come with H2b #105 and H3 #106.
+ */
+export type Ctx<E extends AnyEndpoint> = { readonly endpoint: E };
+
+/** The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. Typed middleware is H6 #117. */
+export interface EndpointRouteBuilder {
+  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+}
+
+/** The endpoint keys of a contract or of its tree node (a node also holds its child nodes). */
+export type EndpointKey<C> = { [K in keyof C & string]: C[K] extends AnyEndpoint ? K : never }[keyof C & string];
+
+/** `r.contract(contract, Controller, { policy, endpoints })`. */
+export interface ContractRouteOptions<C> {
+  /** The policy for the endpoints with `.authorize()`. Recorded only: running it is A3 #121. */
+  readonly policy?: PolicyClass;
+  /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
+}
 
 /**
  * `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key.
@@ -23,6 +45,7 @@ export interface MountedContract<C extends object = AnyContract> {
   readonly contract: C;
   readonly controller: ControllerClass;
   readonly middleware: readonly MiddlewareClass[];
+  readonly options: ContractRouteOptions<C> | undefined;
 }
 
 /** `r.scope('<folder>', { policy })`: the policy for the `_scope.ts` of that folder. */
@@ -150,7 +173,7 @@ export interface ApiRouteBuilder<A> {
    * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
    * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
    */
-  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass): MountedContract<C>;
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass, options?: ContractRouteOptions<NoInfer<C>>): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
   scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D>;
 }
@@ -159,10 +182,12 @@ export interface ApiRouteBuilder<A> {
 export interface RouteEntry extends ApiRoute {
   /** The controller class and the method, named after the endpoint key. */
   readonly controller: readonly [ControllerClass, string];
-  /** Scope middleware (outer to inner), then the contract's. */
+  /** Scope middleware (outer to inner), then the contract's, then the endpoint's (`endpoints`). */
   readonly middleware: readonly MiddlewareClass[];
-  /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: H2 #105 / A3 #121 run them. */
+  /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: A3 #121 runs them. */
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
+  /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
+  readonly policy: PolicyClass | undefined;
   /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), `throttle` (#229), input schema validation (#106). */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */

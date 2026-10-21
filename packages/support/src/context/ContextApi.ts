@@ -37,6 +37,11 @@ export default class ContextApi {
     return this.getRequestStore().getStore()?.modelBindings ?? {};
   }
 
+  /** The app container of the current request, set by `RequestKernel` (undefined outside a booted app). */
+  static getContainer() {
+    return this.getRequestStore().getStore()?.container;
+  }
+
   static setRequest(request: Request) {
     const store = this.getRequestStore().getStore();
     if(store) {

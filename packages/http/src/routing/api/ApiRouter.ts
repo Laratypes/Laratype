@@ -1,12 +1,13 @@
 import type { Context, Hono, Next } from "hono";
-import { API_NODE, apiRoutes, isEndpoint } from "@laratype/contract";
-import type { Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import { API_NODE, apiRoutes, contractEndpoints, isEndpoint } from "@laratype/contract";
+import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
 import type {
   ApiRouteBuilder,
+  ContractRouteOptions,
   ApiRouteItem,
   CheckApiRoutes,
   ControllerClass,
@@ -25,14 +26,14 @@ const fail = (message: string): never => {
 
 /** Runtime `r`; its types come from `ApiRouteBuilder<A>`. */
 class RouteBuilder {
-  constructor(private readonly stack: readonly MiddlewareClass[] = []) {}
+  constructor(readonly stack: readonly MiddlewareClass[] = []) {}
 
   middleware(...middleware: MiddlewareClass[]) {
     return new RouteBuilder([...this.stack, ...middleware]);
   }
 
-  contract(contract: object, controller: ControllerClass): MountedContract<object> {
-    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack });
+  contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
+    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options });
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
@@ -115,11 +116,13 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
-      const names = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract).map((e) => e.name);
+      const matched = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract);
+      const names = matched.map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
       if (typeof item.controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
       }
+      checkOptions(names, matched[0]!.entry.contract, item.options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       for (const name of names) contracts.set(name, item);
@@ -151,17 +154,49 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
           `declare .response(schema, ${decorated}) on the endpoint, or drop the decorator`,
       );
     }
+    const endpointMiddleware = endpointStack(mounted.options, key, route.name);
     const scopeItems = entry.dirs.map((dir) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
       // One builder can mount a scope and a contract: each middleware runs once, at its first position
-      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware])]),
+      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointMiddleware])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
+      policy: mounted.options?.policy,
       unenforced: unenforcedCaps(route),
       domain: undefined,
     });
   });
+};
+
+/**
+ * The options of `r.contract(c, Ctrl, { policy, endpoints })`: `policy` is a class, and every `endpoints` key is an
+ * endpoint of the contract with a callback.
+ */
+const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined) => {
+  if (options === undefined) return;
+  const at = `contract "${names.join('", "')}"`;
+  if (typeof options !== "object" || options === null) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
+  if (options.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
+  const endpoints: Record<string, unknown> | undefined = options.endpoints;
+  if (endpoints === undefined) return;
+  if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
+  const keys: string[] = contractEndpoints(contract as AnyContract).map(([key]) => key);
+  for (const [key, callback] of Object.entries(endpoints!)) {
+    if (!keys.includes(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${keys.map((k) => `"${k}"`).join(", ")})`);
+    if (typeof callback !== "function") fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
+  }
+};
+
+/** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
+const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
+  const endpoints = options?.endpoints as Record<string, (r: RouteBuilder) => unknown> | undefined;
+  // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
+  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
+  const callback = endpoints[key]!;
+  const built = callback(new RouteBuilder());
+  if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
+  return (built as RouteBuilder).stack;
 };
 
 /**
@@ -298,6 +333,7 @@ export class ApiRoutes {
         name: route.name,
         status: route.endpoint.def.status,
         modelBinding: false,
+        endpoint: route.endpoint,
         controller: route.controller as unknown as RouteParams["controller"],
         middleware: [...route.middleware],
       });
