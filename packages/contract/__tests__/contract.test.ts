@@ -71,6 +71,11 @@ describe('defineContract', () => {
     expect(() => defineContract()({ 'a.b': endpoint.get('/') })).toThrow(/endpoint key "a.b" must be non-empty and must not contain "."/)
     expect(() => defineContract()({ '': endpoint.get('/') })).toThrow(/endpoint key ""/)
     expect(() => defineContract()({ a: { def: {} } as never })).toThrow(/"a" is not an endpoint/)
+    // a forged or older-copy endpoint skips the constructor's path check
+    const forged = Object.defineProperty({ def: { method: 'get', path: ':tenant/x', status: 204, throws: [] } }, ENDPOINT, { value: true })
+    expect(() => defineContract()({ a: forged as never })).toThrow(
+      new TypeError('[@laratype/contract] defineContract: "a": the path must start with "/", got ":tenant/x"'),
+    )
     expect(() => defineContract()({}, { authorize: true } as never)).toThrow(/defineContract: unknown option "authorize"/)
     expect(() => defineContract()({}, { auth: false } as never)).toThrow(/auth must be true or a guard name/)
     expect(() => defineContract()({}, { throttle: { limit: 0, per: 60 } })).toThrow(/throttle must be/)

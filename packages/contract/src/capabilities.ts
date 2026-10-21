@@ -158,8 +158,9 @@ const nearest = <T>(values: ReadonlyArray<T | undefined>): T | undefined => {
 /** Same rule as the `PathParams` type: a segment starting with `:` and a name. */
 export const hasPathParams = (path: string): boolean => /(?:^|\/):[^/{?]/.test(path);
 
+/** Always puts a "/" between the two: a path without one (`".evil.com/x"`) must not extend the prefix or a host before it. */
 export const joinPath = (prefix: string, path: string): string =>
-  path === "" || path === "/" ? prefix || "/" : `${prefix}${path}`;
+  path === "" || path === "/" ? prefix || "/" : path.startsWith("/") ? `${prefix}${path}` : `${prefix}/${path}`;
 
 /** Where an endpoint is resolved at runtime: its contract's URL prefix, the scope chain and the contract options. */
 export interface CapabilityContext {

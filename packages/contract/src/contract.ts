@@ -17,7 +17,7 @@ import type {
 import { isEndpoint } from "./endpoint";
 import type { AnyEndpoint, Method } from "./endpoint";
 import type { AnyErrorDef } from "./errors";
-import { fail } from "./internal";
+import { checkPath, fail } from "./internal";
 
 /** Brand of a contract: holds its options. Non-enumerable, so it never shows up in keys, spreads or JSON. */
 export const CONTRACT: unique symbol = Symbol.for("laratype.contract");
@@ -69,6 +69,8 @@ function buildContract(endpoints: ContractDef, options: ContractOptions): AnyCon
   for (const [key, value] of Object.entries(endpoints)) {
     if (key === "" || key.includes(".")) fail(`defineContract: endpoint key "${key}" must be non-empty and must not contain "."`);
     if (!isEndpoint(value)) fail(`defineContract: "${key}" is not an endpoint`);
+    // an endpoint's constructor checks it too; this catches a forged or older-copy endpoint
+    checkPath(value.def?.path, `defineContract: "${key}"`);
     contract[key] = value;
   }
   const meta = Object.freeze({ options: Object.freeze(checkOptions(options, ["auth", "throws", "throttle"], "defineContract")) });

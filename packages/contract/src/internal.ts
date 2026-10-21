@@ -13,3 +13,9 @@ export const isFailureStatus = (status: unknown): status is number =>
 export const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);
 };
+
+/** An endpoint path must start with "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host. */
+export const checkPath = (path: unknown, label: string): string => {
+  if (typeof path !== "string" || !path.startsWith("/")) fail(`${label}: the path must start with "/", got ${JSON.stringify(path)}`);
+  return path as string;
+};

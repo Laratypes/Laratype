@@ -31,6 +31,33 @@ describe('endpoint builder', () => {
     expect(endpoint.post('/form').status(205).response(z.string()).def.status).toBe(200)
   })
 
+  it('.body() throws on a GET endpoint (fetch refuses a body), and is kept on every other method', () => {
+    const body = z.object({ name: z.string() })
+    const error = new TypeError('[@laratype/contract] body(): a GET endpoint cannot have a body')
+    expect(() => (endpoint.get('/x') as AnyEndpoint).body(body)).toThrow(error)
+    expect(() => (endpoint.get('/x').query(z.object({})) as AnyEndpoint).body(body)).toThrow(error)
+    for (const make of [endpoint.post, endpoint.put, endpoint.patch, endpoint.delete]) {
+      expect(make('/x').body(body).def.body).toBe(body)
+    }
+    // the constructor is public: a GET def with a body throws there too
+    expect(() => new Endpoint({ method: 'get', path: '/x', body, status: 204, throws: [] })).toThrow(
+      new TypeError('[@laratype/contract] endpoint: a GET endpoint cannot have a body'),
+    )
+  })
+
+  it('the path must start with "/", from the builder and the constructor', () => {
+    for (const path of ['x', ':tenant/x', '', ' /x']) {
+      expect(() => endpoint.get(path as never)).toThrow(
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must start with "/", got ${JSON.stringify(path)}`),
+      )
+    }
+    expect(() => endpoint.post(1 as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with "/", got 1'))
+    expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
+      new TypeError('[@laratype/contract] endpoint: the path must start with "/", got "x"'),
+    )
+    expect(endpoint.get('/').def.path).toBe('/')
+  })
+
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
     expect(endpoint.post('/jobs').status(202).def).toMatchObject({ status: 202 })
     expect(endpoint.post('/jobs').status(202).def.response).toBeUndefined()

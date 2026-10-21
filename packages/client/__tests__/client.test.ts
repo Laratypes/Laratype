@@ -655,6 +655,25 @@ describe('createClient(manifest), the separate-repo FE', () => {
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
   })
 
+  it('always puts a "/" before a route path: a ".evil.com" param cannot extend the host', async () => {
+    // a contract path must start with "/", but a manifest or a forged endpoint can still hold one that doesn't
+    const forged = { 't.tenant': { method: 'get', path: ':tenant/x' }, 't.root': { method: 'get', path: 'x' } }
+    type Calls = { t: Record<'tenant' | 'root', (input?: object) => Promise<unknown>> }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls
+    await api.t.tenant({ params: { tenant: '.evil.com' } })
+    await api.t.tenant({ params: { tenant: '.evil.com' }, query: { q: 1 } })
+    await api.t.root()
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com/api' }) as never as Calls).t.tenant({ params: { tenant: '.evil.com' } })
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://api.example.com/.evil.com/x',
+      'https://api.example.com/.evil.com/x?q=1',
+      'https://api.example.com/x',
+      'https://api.example.com/api/.evil.com/x',
+    ])
+    for (const { url } of calls) expect(new URL(url).host).toBe('api.example.com')
+  })
+
   it('checks the manifest errors at createClient: absent or an array of strings', () => {
     const route = { method: 'get', path: '/x' }
     expect(() => createClient({ 'a.b': route })).not.toThrow()

@@ -140,10 +140,11 @@ merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `No
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
 type Schema = StandardSchemaV1 | undefined;   // internal, not exported
+type BodyThis<M, Self> = [M] extends ["get"] ? "body(): a GET endpoint cannot have a body" : Self;   // internal: the `this` of .body()
 
 export interface EndpointDef {                // runtime description: router, client, OpenAPI
   readonly method: Method;
-  readonly path: string;                      // relative to the contract's URL prefix
+  readonly path: string;                      // relative to the contract's URL prefix; starts with "/"
   readonly query?: StandardSchemaV1;
   readonly body?: StandardSchemaV1;
   readonly headers?: StandardSchemaV1;
@@ -166,7 +167,7 @@ export class Endpoint<M extends Method = Method, P extends string = string,
   readonly def: EndpointDef;
   constructor(def: EndpointDef);
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C>;
-  body<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;
+  body<S extends StandardSchemaV1>(this: BodyThis<M, Endpoint<M, P, Q, B, H, R, St, E, C>>, schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;   // not on GET
   headers<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, B, S, R, St, E, C>;
   response<S extends StandardSchemaV1, Code extends BodyStatus | undefined = undefined>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C>;   // 2xx but 204/205; keeps a .status(n) set before
   status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C>;   // body-less 2xx
@@ -178,11 +179,11 @@ export class Endpoint<M extends Method = Method, P extends string = string,
 }
 
 export const endpoint: {
-  get: <P extends string>(path: P) => Endpoint<"get", P>;   // status 204 until .response()
-  post: <P extends string>(path: P) => Endpoint<"post", P>;   // status 204 until .response()
-  put: <P extends string>(path: P) => Endpoint<"put", P>;   // status 204 until .response()
-  patch: <P extends string>(path: P) => Endpoint<"patch", P>;   // status 204 until .response()
-  delete: <P extends string>(path: P) => Endpoint<"delete", P>;   // status 204 until .response()
+  get: <P extends `/${string}`>(path: P) => Endpoint<"get", P>;   // status 204 until .response()
+  post: <P extends `/${string}`>(path: P) => Endpoint<"post", P>;   // status 204 until .response()
+  put: <P extends `/${string}`>(path: P) => Endpoint<"put", P>;   // status 204 until .response()
+  patch: <P extends `/${string}`>(path: P) => Endpoint<"patch", P>;   // status 204 until .response()
+  delete: <P extends `/${string}`>(path: P) => Endpoint<"delete", P>;   // status 204 until .response()
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
@@ -198,11 +199,13 @@ export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
 - **Status.** The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202). `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
 - **Relative paths.** The path is appended to the contract's URL prefix from the [folder tree](#contract-folder-tree). `'/'` is the prefix itself.
+- **A path starts with `/`.** `endpoint.get('x')` is a type error (the path is typed `` `/${string}` ``) and throws when the endpoint is defined; the constructor and `defineContract` check it too. The client appends the path to `baseUrl`, so a path such as `':tenant/x'` with a `.evil.com` param could otherwise extend the host (#257).
+- **No body on GET.** `fetch` refuses a body on a GET request, so `endpoint.get(path).body(schema)` is a type error (its `this` type is the message `"body(): a GET endpoint cannot have a body"`) and throws at runtime, and so does a GET def with a body passed to the constructor. A wide `Endpoint<Method>` can't say which method it has, so only the runtime check applies to it. There is no HEAD method (see Non-goals).
 - **Capabilities.** The builder holds the endpoint level of the [capabilities](#capabilities-and-derived-errors), and an unset capability is inherited. `.auth()` uses the default guard and `.auth('<guard>')` a named one. `.public()`, `.authorize(false)` and `.throttle(false)` are the only opt-outs.
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E, Ctx>`).
 
 ### Diagnostics
-Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a success status outside 2xx (`.response(schema, 404)`, `.status(301)`), `.status()` after `.response()`, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, and an unknown path param.
+Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a success status outside 2xx (`.response(schema, 404)`, `.status(301)`), `.status()` after `.response()`, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, an unknown path param, a path that doesn't start with `/` (`endpoint.get('x')`, `''`) and `.body()` on a GET endpoint.
 
 Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `throws(): throws must be a list of errors (use defineError)`
@@ -212,6 +215,8 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `response(): the status must be a 2xx success status, got <status>` and the same for `status()`
 - `status(): the endpoint has a response schema; use .response(schema, status)`
 - `response(): a 204 has no body; use .status(204)` (and the same for 205)
+- `body(): a GET endpoint cannot have a body`, and `endpoint: a GET endpoint cannot have a body` from the constructor
+- `endpoint.<method>(): the path must start with "/", got <path>`, and `endpoint: the path must start with "/", got <path>` from the constructor (`<path>` is JSON)
 
 Writing to a frozen `def` throws `TypeError` in strict mode.
 
@@ -359,6 +364,7 @@ export const contractEndpoints: <C extends AnyContract>(contract: C) => Array<[E
 Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `defineContract: endpoint key "<key>" must be non-empty and must not contain "."`
 - `defineContract: "<key>" is not an endpoint`
+- `defineContract: "<key>": the path must start with "/", got <path>` (an endpoint built by the constructor already fails there; this catches a forged one)
 - `defineContract: unknown option "<option>"`, and the option checks `auth must be true or a guard name`, `throws must be a list of errors (use defineError)` and `throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`
 
 Type-level: a plain record of endpoints is not assignable to `Contract`. An endpoint with inconsistent capabilities gets `{ error: "<key>: <problem>" }` ([Capabilities and derived errors](#capabilities-and-derived-errors)). `authorize` and `auth: false` are not contract options.
