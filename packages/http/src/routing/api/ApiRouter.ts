@@ -236,7 +236,13 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
   // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
   if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
   const callback = endpoints[key]!;
-  const built = callback(new RouteBuilder());
+  let built: unknown;
+  try {
+    built = callback(new RouteBuilder());
+  } catch (cause) {
+    // A class (typed `Function` under a key such as hasOwnProperty) can't be called: name the route, keep the cause
+    throw new Error(`[@laratype/http] Route.api: ${name}: endpoints.${key} threw: it must be a callback, (r) => r.middleware(...)`, { cause });
+  }
   if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
   return (built as RouteBuilder).stack;
 };

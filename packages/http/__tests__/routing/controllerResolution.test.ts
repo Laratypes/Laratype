@@ -398,6 +398,16 @@ describe('r.contract() options', () => {
     )
   })
 
+  it('a callback that throws, such as a class, is an error naming the route', () => {
+    const odd = defineContract()({ hasOwnProperty: endpoint.get('/').response(anything) })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    class Odd extends Controller { hasOwnProperty() { return {} as never } }
+    // typed Function there, so the class compiles
+    const routes = () => Route.api(oddApi, (r) => [r.contract(odd, Odd as never, { endpoints: { hasOwnProperty: Audit } })])
+    expect(routes).toThrow('[@laratype/http] Route.api: odd.hasOwnProperty: endpoints.hasOwnProperty threw: it must be a callback, (r) => r.middleware(...)')
+    try { routes() } catch (error) { expect((error as Error).cause).toBeInstanceOf(TypeError) }
+  })
+
   it('an own "__proto__" key stays a key in the copy', () => {
     const endpoints = JSON.parse('{"__proto__": 1}')
     expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints } as never)])).toThrow(
