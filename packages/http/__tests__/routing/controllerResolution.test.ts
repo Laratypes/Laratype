@@ -151,7 +151,7 @@ describe('controller resolution', () => {
     expect(errors[0]).toMatchObject({
       name: 'DiError',
       message: 'Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. ' +
-        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or add @Inject(token) to its params or bind it in a service provider `register()`.',
+        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider `register()` (an app binding, so it needs RequestKernel).',
     })
   })
 })
@@ -220,7 +220,7 @@ describe('ctx.endpoint', () => {
       method: 'get', path: '/own', name: 'own', request: WithEndpoint, endpoint: greetings.index, controller: [Handler, 'index'],
     }))
     expect((await app.request('/own')).status).toBe(500)
-    expect(String((errors[0] as { getMessage?: () => string }).getMessage?.() ?? errors[0])).toContain(
+    expect((errors[0] as Error).message).toContain(
       'own: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of WithEndpoint',
     )
   })
