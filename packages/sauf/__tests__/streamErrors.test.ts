@@ -70,6 +70,7 @@ const rawGet = (port: number, path: string) => new Promise<string>((resolve) => 
 describe("guardStreamErrors (Node adapter)", () => {
   const report = vi.fn();
   const slowCanceled = vi.fn();
+  const signalAborted = vi.fn();
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
   let server: Server;
@@ -92,6 +93,19 @@ describe("guardStreamErrors (Node adapter)", () => {
   app.get("/stalled", (c) => {
     stalledResponse = (c.env as HttpBindings).outgoing;
     return c.body(stalledStream());
+  });
+  // One chunk, then an error when the request signal aborts (like a proxied fetch body)
+  app.get("/signal", (c) => {
+    const signal = c.req.raw.signal;
+    return c.body(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("first-chunk;"));
+        signal.addEventListener("abort", () => {
+          signalAborted();
+          controller.error(new Error("aborted"));
+        });
+      },
+    }));
   });
   // One chunk, then nothing until the client goes away
   app.get("/slow", (c) => c.body(new ReadableStream({
@@ -173,6 +187,20 @@ describe("guardStreamErrors (Node adapter)", () => {
     finally {
       socket.destroy();
     }
+  });
+
+  it("does not report a body that fails because the client went away", async () => {
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write("GET /signal HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    });
+    socket.on("error", () => {});
+    await new Promise((resolve) => socket.once("data", resolve));
+    socket.destroy();
+
+    await vi.waitFor(() => expect(signalAborted).toHaveBeenCalledTimes(1), { timeout: 2_000 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(report).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("does not report a client abort", async () => {

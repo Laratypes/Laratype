@@ -19,12 +19,14 @@ const peekBody = (res: Response): { body: unknown, cached: boolean } => {
 }
 
 /**
- * The native Response. The adapter installs its lightweight Response as the global one, with the native one as
- * its prototype. A native Response goes through the adapter's path that reads short bodies and sets Content-Length.
+ * The class to rebuild `res` with, so the adapter takes the same path as before: its lightweight Response while it
+ * still holds its body, else the native one (the lightweight class has it as prototype). A native Response goes
+ * through the adapter's path that reads short bodies and sets Content-Length.
  */
-const nativeResponse = (): typeof Response => {
-  const parent = Object.getPrototypeOf(Response);
-  return parent === Function.prototype ? Response : parent;
+const responseClass = (res: Response, cached: boolean): typeof Response => {
+  const own = res.constructor as typeof Response;
+  const parent = Object.getPrototypeOf(own);
+  return cached || parent === Function.prototype ? own : parent;
 }
 
 /**
@@ -44,6 +46,8 @@ const guardBody = (
       return;
     }
     failed = true;
+    // Already destroyed: the client went away first, and a body tied to the request signal failed because of it
+    const clientGone = outgoing.destroyed;
     // First, before the adapter ends the response: the socket closes and nothing more reaches the client
     outgoing.destroy();
     try {
@@ -52,7 +56,9 @@ const guardBody = (
     catch {
       // Already closed or canceled
     }
-    // A client abort cancels this stream and never gets here: what does is a failure of the body itself
+    if (clientGone) {
+      return;
+    }
     try {
       report(error);
     }
@@ -111,7 +117,7 @@ export const guardStreamErrors = <F extends Fetch>(
     // Status and headers only: the adapter never writes a statusText, and reading it would materialize the Response.
     // The same kind of Response as before, so the adapter takes the same path (and sets Content-Length the same way)
     const { status, headers } = res as Response;
-    return new (cached ? Response : nativeResponse())(guarded, { status, headers });
+    return new (responseClass(res as Response, cached))(guarded, { status, headers });
   }
 
   return ((request: Request, env: HttpBindings | Http2Bindings, ...rest: never[]) => {
