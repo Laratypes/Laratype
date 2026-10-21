@@ -1,6 +1,6 @@
 import type { Http2Bindings, HttpBindings } from "@hono/node-server";
 
-type Fetch = (request: Request, env: HttpBindings | Http2Bindings) => unknown;
+type Fetch = (request: Request, env: HttpBindings | Http2Bindings, ...rest: never[]) => unknown;
 
 /**
  * The body a Response carries, read without materializing @hono/node-server's lightweight Response:
@@ -27,8 +27,6 @@ const nativeResponse = (): typeof Response => {
   return parent === Function.prototype ? Response : parent;
 }
 
-const isPrematureClose = (error: unknown) => (error as { code?: unknown } | null)?.code === "ERR_STREAM_PREMATURE_CLOSE";
-
 /**
  * A pass-through of `body` that never errors. When `body` fails, the response is destroyed (the client sees
  * an aborted response), the error is reported once, and the stream handed to the adapter ends.
@@ -54,14 +52,12 @@ const guardBody = (
     catch {
       // Already closed or canceled
     }
-    // A client abort is not a server error (the adapter only logs it as info)
-    if (!isPrematureClose(error)) {
-      try {
-        report(error);
-      }
-      catch {
-        // A failing reporter must not error the stream: the adapter would write its message to the client
-      }
+    // A client abort cancels this stream and never gets here: what does is a failure of the body itself
+    try {
+      report(error);
+    }
+    catch {
+      // A failing reporter must not error the stream: the adapter would write its message to the client
     }
   }
   // Also when no read is pending (the adapter waits for `drain`): the response is aborted at once
@@ -118,8 +114,8 @@ export const guardStreamErrors = <F extends Fetch>(
     return new (cached ? Response : nativeResponse())(guarded, { status, headers });
   }
 
-  return ((request: Request, env: HttpBindings | Http2Bindings) => {
-    const res = fetch(request, env);
+  return ((request: Request, env: HttpBindings | Http2Bindings, ...rest: never[]) => {
+    const res = fetch(request, env, ...rest);
     return typeof (res as PromiseLike<unknown> | null)?.then === "function"
       ? Promise.resolve(res).then((value) => guard(value, env))
       : guard(res, env);

@@ -69,6 +69,7 @@ const rawGet = (port: number, path: string) => new Promise<string>((resolve) => 
 
 describe("guardStreamErrors (Node adapter)", () => {
   const report = vi.fn();
+  const slowCanceled = vi.fn();
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
   let server: Server;
@@ -92,11 +93,12 @@ describe("guardStreamErrors (Node adapter)", () => {
     stalledResponse = (c.env as HttpBindings).outgoing;
     return c.body(stalledStream());
   });
-  app.get("/premature-close", (c) => c.body(new ReadableStream({
+  // One chunk, then nothing until the client goes away
+  app.get("/slow", (c) => c.body(new ReadableStream({
     start(controller) {
       controller.enqueue(encoder.encode("first-chunk;"));
-      setTimeout(() => controller.error(Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" })), 20);
     },
+    cancel: slowCanceled,
   })));
   app.get("/thenable", () => ({
     then: (resolve: (value: Response) => void) => resolve(new Response(failingStream(20))),
@@ -173,11 +175,15 @@ describe("guardStreamErrors (Node adapter)", () => {
     }
   });
 
-  it("does not report a premature close (a client abort), and still aborts the response", async () => {
-    const raw = await rawGet(port, "/premature-close");
+  it("does not report a client abort", async () => {
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write("GET /slow HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    });
+    socket.on("error", () => {});
+    await new Promise((resolve) => socket.once("data", resolve));
+    socket.destroy();
 
-    expect(raw).toContain("first-chunk;");
-    expect(raw).not.toMatch(/\r\n0\r\n\r\n$/);
+    await vi.waitFor(() => expect(slowCanceled).toHaveBeenCalledTimes(1), { timeout: 2_000 });
     expect(report).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
   });
