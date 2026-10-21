@@ -8,13 +8,21 @@ import { ControllerMethodHttpStatusCode } from "../request/Request";
 
 /**
  * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
- * peer dependency, so the app may hold another copy of the class.
+ * peer dependency, so the app may hold another copy of the class. Only an error status (400-599) whose `getResponse()`
+ * gives a fetch `Response` counts: anything else (a NestJS-style object, a status 999) is an unknown error.
  */
-const asHttpError = (err: unknown): { status: StatusCode; getResponse(): globalThis.Response } | undefined => {
+const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.Response } | undefined => {
   const candidate = err as { status?: unknown; getResponse?: unknown } | null;
-  return typeof candidate?.getResponse === "function" && typeof candidate.status === "number"
-    ? (candidate as { status: StatusCode; getResponse(): globalThis.Response })
-    : undefined;
+  const status = candidate?.status;
+  if (typeof candidate?.getResponse !== "function" || !Number.isInteger(status) || (status as number) < 400 || (status as number) > 599) {
+    return undefined;
+  }
+  try {
+    const response: unknown = candidate.getResponse();
+    return response instanceof globalThis.Response ? { status: status as StatusCode, response } : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 export default class Response extends AppServiceProvider {
@@ -100,12 +108,13 @@ export default class Response extends AppServiceProvider {
   }
 
   public resolveException(err: Error | Exception, c: Context) {
-    const responsible = err instanceof Exception && err.canResponsible();
+    const responsible = err instanceof Exception && err.canResponsible() ? err : undefined;
     const httpError = responsible ? undefined : asHttpError(err);
     // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
-    const status = responsible ? (err as Exception).getHttpCode() : httpError ? httpError.status : 500;
+    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
 
-    // One log line per error: a reportable one, or any error that ends as a 5xx (#267)
+    // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
+    // constructor's own log of reportable Exceptions is separate, tracked in #273
     if ((err as { reportable?: unknown }).reportable || status >= 500) {
       console.error(err);
     }
@@ -115,10 +124,11 @@ export default class Response extends AppServiceProvider {
       return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
     }
     if (httpError) {
-      return httpError.getResponse();
+      // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay
+      return c.newResponse(httpError.response.body, httpError.response);
     }
     //TODO: Response exception with HTML
-    return Response.resolveResponse(c, new ResponseSupport((err as Exception).toJson(), status));
+    return Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status));
   }
 
   public boot(): void {

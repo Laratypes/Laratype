@@ -24,6 +24,8 @@ const bootApp = () => {
 // The unknown-error body of docs/v1/http.md › Exceptions: no code, so the client classifies it as unexpected
 const GENERIC = { message: 'Server Error' }
 
+// The log counts below are of console.error, the one resolveException writes. The Exception constructor's own consola
+// log of reportable Exceptions is separate (#273) and not counted
 let errors: ReturnType<typeof vi.spyOn>
 
 beforeAll(() => {
@@ -173,6 +175,37 @@ describe('unknown errors', () => {
     expect(response.status).toBe(401)
     expect(await response.text()).toBe('Unauthorized')
     expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('a 4xx HTTPException keeps the headers middleware set (CORS)', async () => {
+    quiet()
+    class Guarded extends Controller { index() { throw new HTTPException(401, { message: 'Unauthorized' }) } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('Access-Control-Allow-Origin', 'https://app.example.test')
+      await next()
+    })
+    app.get('/cors', RequestKernel.handle({ method: 'get', path: '/cors', controller: [Guarded, 'index'] }))
+    const response = await app.request('/cors')
+    expect(response.status).toBe(401)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    expect(await response.text()).toBe('Unauthorized')
+  })
+
+  it('an error shaped like an HTTP error but with an object getResponse() or a status out of 400-599 is unknown', async () => {
+    quiet()
+    const nestLike = Object.assign(new Error('secret detail'), { status: 403, getResponse: () => ({ statusCode: 403, message: 'secret detail' }) })
+    const odd = Object.assign(new Error('secret detail'), { status: 999, getResponse: () => new Response('secret detail', { status: 200 }) })
+    class Odd extends Controller {
+      index() { throw nestLike }
+      show() { throw odd }
+    }
+    const app = bootApp()
+    app.get('/nest', RequestKernel.handle({ method: 'get', path: '/nest', controller: [Odd, 'index'] }))
+    app.get('/odd', RequestKernel.handle({ method: 'get', path: '/odd', controller: [Odd, 'show'] }))
+    await expectGeneric500(await app.request('/nest'), 'secret detail')
+    await expectGeneric500(await app.request('/odd'), 'secret detail')
+    expect(errors).toHaveBeenCalledTimes(2)
   })
 
   it('a responsible Exception keeps its own status and body', async () => {
