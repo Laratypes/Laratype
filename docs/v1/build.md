@@ -95,9 +95,9 @@ Package manifests, build configuration and scripts:
   - support: `dotenv`, `glob`, `mlly`, `ts-toolbelt`;
   - http: `es-toolkit`;
   - auth: `jsonwebtoken`, `@types/jsonwebtoken`, `@types/passport`, plus the workspace packages it imports (`@laratype/console`, `@laratype/database`);
-  - database: `glob`, `reflect-metadata`;
+  - database: `reflect-metadata`;
   - console: `@laratype/support`;
-  - sauf: the CLI's imports (`commander`, `glob`, `handlebars`, `figlet`, `kolorist`, `@hono/node-server`, the rollup plugins and `rollup`).
+  - sauf: the CLI's imports (`commander`, `handlebars`, `figlet`, `kolorist`, `@hono/node-server`, the rollup plugins and `rollup`).
 - **support** ships `env.d.ts` (`@laratype/support/env`), and its `module` field points at `./dist/index.esm.js`.
 - **sauf**'s `bin` dist starts with `#!/usr/bin/env node` (`buildOptions.banner`).
 - **broadcast, i18n, mail, schedule, storage and ts-gen** are `private: true` until they have code.
