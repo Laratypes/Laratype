@@ -370,6 +370,10 @@ describe('importRootCommands', () => {
         ["Skipped app/src/console/commands/Broken.ts: the command file failed to load\nSyntaxError: Unexpected token '}'\n    at Broken.ts:3:1"],
         ['Skipped app/src/console/commands/Throws.ts: the command file failed to load\nnot an Error'],
       ]);
+      // app/routes/console.ts importing the broken file: the same warning, no crash
+      const routes = { ...manifest, commands: [], routes: [{ ...entry('app/routes/console.ts', () => Promise.reject('broken import')), name: 'console' }] };
+      expect(await importRouteConsoleCommands(routes)).toEqual([]);
+      expect(warn).toHaveBeenLastCalledWith('Skipped app/routes/console.ts: the command file failed to load\nbroken import');
     } finally {
       warn.mockRestore();
     }

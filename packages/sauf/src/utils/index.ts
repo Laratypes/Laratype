@@ -13,6 +13,10 @@ const loadEntry: EntryLoader = (entry) => entry.load();
 const isCommandClass = (value: unknown): value is typeof Command =>
   typeof value === "function" && typeof (value as { signature?: unknown }).signature === "string";
 
+/** The warning for a command file that failed to load: its path, then the error's stack. */
+const warnFailed = (entry: ManifestEntry, error: unknown) =>
+  Console.warn(`Skipped ${entry.path}: the command file failed to load\n${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+
 /**
  * The app's command classes: the command files of the app manifest (docs/v1/build.md › Plugin chain). None when the
  * manifest has a scan error: `useAppManifest()` printed it, and the framework commands still run. A file that fails to
@@ -29,9 +33,7 @@ export const importRootCommands = async (manifest: AppManifest, load: EntryLoade
       return { entry, error };
     }
   }));
-  for (const { entry, error } of modules.filter((m) => "error" in m)) {
-    Console.warn(`Skipped ${entry.path}: the command file failed to load\n${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-  }
+  for (const { entry, error } of modules.filter((m) => "error" in m)) warnFailed(entry, error);
   const loaded = modules.filter((m) => !("error" in m));
   const skipped = loaded.filter(({ command }) => !isCommandClass(command)).map(({ entry }) => entry.path);
   if (skipped.length) {
@@ -40,11 +42,20 @@ export const importRootCommands = async (manifest: AppManifest, load: EntryLoade
   return loaded.map(({ command }) => command).filter(isCommandClass);
 }
 
-/** The commands `app/routes/console.ts` lists, if the app has the file. */
+/**
+ * The commands `app/routes/console.ts` lists, if the app has the file. One that fails to load (it imports a broken
+ * command file) is skipped with the same warning as a command file.
+ */
 export const importRouteConsoleCommands = async (manifest: AppManifest, load: EntryLoader = loadEntry) => {
   if (manifest.error !== undefined) return [];
   const entry = manifest.routes.find((e) => e.name === "console");
-  return entry ? ((await load(entry)).default as typeof Command[] | undefined) ?? [] : [];
+  if (!entry) return [];
+  try {
+    return ((await load(entry)).default as typeof Command[] | undefined) ?? [];
+  } catch (error) {
+    warnFailed(entry, error);
+    return [];
+  }
 }
 
 export default jiti
