@@ -50,8 +50,8 @@ describe('db:seed', () => {
     expect(new Default!()).toMatchObject({ name: 'DatabaseSeeder' });
   });
 
-  it('--class takes a Windows path and a file name with its extension, as before the manifest', async () => {
-    for (const name of ['Admin\\UserSeeder', 'Admin/UserSeeder.ts', 'Admin\\UserSeeder.mts']) {
+  it('--class takes a Windows path, a ./ or // path and a file name with its extension, as before the manifest', async () => {
+    for (const name of ['Admin\\UserSeeder', 'Admin/UserSeeder.ts', 'Admin\\UserSeeder.mts', './Admin/UserSeeder', 'Admin//UserSeeder', '.\\Admin\\UserSeeder.ts']) {
       const [Seeder] = (await seed({ class: name }).getSeeders())!;
       expect(new Seeder!()).toMatchObject({ name: 'Admin/UserSeeder' });
     }

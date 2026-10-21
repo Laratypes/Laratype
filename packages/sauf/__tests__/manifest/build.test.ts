@@ -101,7 +101,56 @@ describe('writeDistManifest', () => {
   it('a source in the program whose output is missing is an error', () => {
     const dir = project('missing', {});
     unlinkSync(join(dir, 'dist/src/models/User.js'));
-    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsc emitted no file for app/src/models/User.ts (dist/src/models/User.js): run tsc -b tsconfig.build.json first');
+    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsc emitted no file for app/src/models/User.ts (dist/src/models/User.js): run tsc -b tsconfig.build.json first (its "include": ["app/**/*"])');
+  });
+
+  it('an include that matches nothing (a typo) is an error, not an empty manifest', () => {
+    const dir = join(tmp, 'typo');
+    write(dir, 'app/config/config.ts');
+    write(dir, 'tsconfig.build.json', JSON.stringify({ compilerOptions: { outDir: './dist' }, include: ['apps/**/*'] }));
+    mkdirSync(join(dir, 'dist'));
+    expect(() => writeDistManifest(ts, dir)).toThrow(/^sauf build: tsconfig\.build\.json: No inputs were found in config file .*"apps\/\*\*\/\*"/);
+    expect(existsSync(join(dir, 'dist', MANIFEST_FILE))).toBe(false);
+  });
+
+  it('a program of declaration files only is an error, naming the include', () => {
+    const dir = join(tmp, 'declarations-only');
+    write(dir, 'types/env.d.ts', 'declare const env: string;\n');
+    write(dir, 'app/config/config.ts');
+    write(dir, 'tsconfig.build.json', JSON.stringify({ compilerOptions: { outDir: './dist' }, include: ['types/**/*'] }));
+    mkdirSync(join(dir, 'dist'));
+    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsconfig.build.json has no source file to build (its "include": ["types/**/*"])');
+  });
+
+  it('appDir comes from what tsc emitted: a source importing a file outside include (.laratype/) moves the root up', async () => {
+    const dir = join(tmp, 'outside-include');
+    write(dir, '.laratype/api.ts', 'export const api = "api";\n');
+    write(dir, 'app/config/config.ts', 'import { api } from "../../.laratype/api";\nexport default { name: api };\n');
+    write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
+    write(dir, 'tsconfig.build.json', JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ES2022', moduleResolution: 'node', skipLibCheck: true, types: [], outDir: './dist' },
+      include: ['app/**/*'],
+    }));
+    const parsed = ts.getParsedCommandLineOfConfigFile(join(dir, 'tsconfig.build.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })!;
+    expect(ts.createProgram(parsed.fileNames, parsed.options).emit().emitSkipped).toBe(false);
+    // tsc rooted at the project, not at app/ (the common folder of include)
+    expect(existsSync(join(dir, 'dist/app/config/config.js'))).toBe(true);
+    const { file, appDir } = writeDistManifest(ts, dir);
+    expect(appDir).toBe('app');
+    expect(readFileSync(file, 'utf8')).toContain("load: () => import('./app/config/config.js')");
+    expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'api' });
+  });
+
+  it('without outDir (outputs next to the sources): the .js next to each .ts is not a duplicate, and is what ships', async () => {
+    const dir = project('no-outdir', { outDir: undefined });
+    expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);
+    mkdirSync(join(dir, 'dist'));
+    const { file, appDir } = writeDistManifest(ts, dir);
+    expect(appDir).toBe('../app');
+    const code = readFileSync(file, 'utf8');
+    expect(code).toContain("path: 'app/src/models/User.ts', load: () => import('../app/src/models/User.js')");
+    expect(code).not.toContain("path: 'app/src/models/User.js'");
+    expect(new ((await (await load(file)).models[0]!.load()).default)()).toBeInstanceOf(Object);
   });
 });
 

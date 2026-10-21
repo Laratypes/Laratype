@@ -109,7 +109,7 @@ describe('scanManifest', () => {
     expect(scan.kinds.configs.map((e) => e.name)).toEqual(['config']);
   });
 
-  it('a name twice in one kind is a scan error: both layouts, providers.ts next to providers.js, two module indexes', () => {
+  it('a name twice in one kind is a scan error: both layouts, providers.ts next to providers.mjs, two module indexes', () => {
     const models = join(tmp, 'duplicate-models');
     write(models, 'app/src/models/User.ts');
     write(models, 'app/models/User.ts');
@@ -117,14 +117,33 @@ describe('scanManifest', () => {
     expect(() => scanManifest(models)).toThrow('models/User is in both app/src/models/User.ts and app/models/User.ts: rename or remove one');
 
     const providers = join(tmp, 'duplicate-providers');
-    write(providers, 'app/config/providers.js');
+    write(providers, 'app/config/providers.mjs');
     write(providers, 'app/config/providers.ts');
-    expect(() => scanManifest(providers)).toThrow('configs/providers is in both app/config/providers.js and app/config/providers.ts');
+    expect(() => scanManifest(providers)).toThrow('configs/providers is in both app/config/providers.mjs and app/config/providers.ts');
 
     const modules = join(tmp, 'duplicate-modules');
-    write(modules, 'app/modules/billing/index.js');
+    write(modules, 'app/modules/billing/index.mjs');
     write(modules, 'app/modules/billing/index.ts');
-    expect(() => scanManifest(modules)).toThrow('modules/billing is in both app/modules/billing/index.js and app/modules/billing/index.ts');
+    expect(() => scanManifest(modules)).toThrow('modules/billing is in both app/modules/billing/index.mjs and app/modules/billing/index.ts');
+  });
+
+  it('a .js next to its .ts (.mjs next to .mts) is tsc output of a build without outDir: skipped, not a duplicate', () => {
+    const dir = join(tmp, 'emitted-next-to');
+    for (const file of ['app/config/providers', 'app/src/models/User', 'app/modules/billing/index']) {
+      write(dir, `${file}.ts`);
+      write(dir, `${file}.js`);
+    }
+    write(dir, 'app/src/models/Post.mts');
+    write(dir, 'app/src/models/Post.mjs');
+    write(dir, 'app/src/models/Legacy.js');                                  // no source next to it: still a model
+    const scan = scanManifest(dir);
+    expect(scan.providers).toEqual({ name: 'providers', path: 'app/config/providers.ts' });
+    expect(scan.kinds.models).toEqual([
+      { name: 'Legacy', path: 'app/src/models/Legacy.js' },
+      { name: 'Post', path: 'app/src/models/Post.mts' },
+      { name: 'User', path: 'app/src/models/User.ts' },
+    ]);
+    expect(scan.kinds.modules).toEqual([{ name: 'billing', path: 'app/modules/billing/index.ts' }]);
   });
 
   it('skips folders that do not exist, and has no providers entry without app/config/providers.*', () => {
@@ -228,6 +247,14 @@ describe('emitManifest', () => {
   it('emitManifestError: empty lists and the error', () => {
     expect(emitManifestError("models/User is in both 'a' and 'b'")).toContain("  error: 'models/User is in both \\'a\\' and \\'b\\'',\n");
   });
+
+  it('escapes every control character and U+2028 / U+2029: the manifest parses and keeps the string', async () => {
+    const message = "a\\b'c\nd\re\tf\u0000g h i";
+    const code = emitManifestError(message);
+    expect(code).toContain("  error: 'a\\\\b\\'c\\nd\\u000de\\u0009f\\u0000g\\u2028h\\u2029i',\n");
+    const manifest = (await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(code)}`)).default as AppManifest;
+    expect(manifest.error).toBe(message);
+  });
 });
 
 describe('laratype:manifest (dev)', () => {
@@ -320,6 +347,27 @@ describe('importRootCommands', () => {
       expect(await importRootCommands(manifest)).toEqual([SendMail]);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command class (a class with a static signature)');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a command file that fails to load is skipped with a warning naming it: the other commands still register', async () => {
+    class SendMail { static signature = 'send:mail'; }
+    const entry = (path: string, load: () => Promise<Record<string, unknown>>) => ({ name: path, path, load });
+    const manifest = {
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      commands: [
+        entry('app/src/console/commands/Broken.ts', () => Promise.reject(new SyntaxError("Unexpected token '}'"))),
+        entry('app/src/console/commands/SendMail.ts', async () => ({ default: SendMail })),
+        entry('app/src/console/commands/Throws.ts', () => Promise.reject('not an Error')),
+      ],
+    } satisfies AppManifest;
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRootCommands(manifest)).toEqual([SendMail]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith("Skipped app/src/console/commands/Broken.ts (Unexpected token '}'), app/src/console/commands/Throws.ts (not an Error): the command file failed to load");
     } finally {
       warn.mockRestore();
     }

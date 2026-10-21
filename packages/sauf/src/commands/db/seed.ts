@@ -30,8 +30,8 @@ export default class SeedDatabaseCommand extends Command {
   public async getSeeders(): Promise<Array<new () => { run(): unknown }> | undefined> {
     const opts = this.opts();
     // The seeder files of the app manifest (docs/v1/build.md › Plugin chain)
-    // `Admin\UserSeeder` (Windows) and `UserSeeder.ts` name the seeder as before, when the path was resolved
-    const name = String(opts.class ?? 'DatabaseSeeder').replace(/\\/g, '/').replace(/\.m?[jt]s$/, '');
+    // `Admin\UserSeeder` (Windows), `./Admin//UserSeeder` and `UserSeeder.ts` name the seeder as before, when the path was resolved
+    const name = String(opts.class ?? 'DatabaseSeeder').replace(/\\/g, '/').split('/').filter((part) => part !== '' && part !== '.').join('/').replace(/\.m?[jt]s$/, '');
     const entry = manifestEntry('seeders', name);
     if(!entry) {
       Console.error(`Seeder class ${name} not found in the seeders folder (app/database/seeders or database/seeders)`);
