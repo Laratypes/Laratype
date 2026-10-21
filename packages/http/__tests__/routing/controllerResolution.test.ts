@@ -304,9 +304,9 @@ describe('r.contract() options', () => {
     const odd = defineContract()({ toString: endpoint.get('/').response(anything), index: endpoint.get('/i').response(anything) })
     const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
     class Odd extends Controller { toString() { return 'odd' } index() { return {} } }
-    // An object literal also has the inherited toString, which the endpoints map would type as a callback
+    // An object literal also has the inherited toString: the endpoints map types it, and the runtime skips it
     const endpoints = { index: (r: EndpointRouteBuilder) => r.middleware(Audit) }
-    const { entries } = mount(Route.api(oddApi, (r) => [r.contract(odd, Odd, { endpoints } as never)]))
+    const { entries } = mount(Route.api(oddApi, (r) => [r.contract(odd, Odd, { endpoints })]))
     expect(entries.map((e) => [e.name, e.middleware])).toEqual([['odd.toString', []], ['odd.index', [Audit]]])
   })
 
@@ -333,5 +333,58 @@ describe('r.contract() options', () => {
     )
     expect(api({ policy: 'PostPolicy' })).toThrow('contract "posts": { policy } must be a policy class')
     expect(api({ endpoints: 1 })).toThrow('contract "posts": { endpoints } must map endpoint names to (r) => r.middleware(...)')
+  })
+
+  it('options and endpoints with an inherited key or a prototype that is not plain are an error, naming the key', () => {
+    const api = (options: object) => () => Route.api(postsApi, (r) => [r.contract(posts, PostController, options as never)])
+    const audited = { destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) }
+    // Middleware under an inherited key would be dropped silently: fail open for auth middleware
+    expect(api({ endpoints: Object.create(audited) })).toThrow(
+      '[@laratype/http] Route.api: contract "posts": endpoints.destroy is inherited: pass endpoints as an object literal',
+    )
+    expect(api(Object.create({ endpoints: audited }))).toThrow('contract "posts": options.endpoints is inherited: pass options as an object literal')
+    expect(api(Object.create({ policy: PostPolicy }))).toThrow('contract "posts": options.policy is inherited: pass options as an object literal')
+    class Options { endpoints = audited }
+    expect(api(new Options())).toThrow('contract "posts": options must be an object literal, not an instance or an Object.create() object')
+    expect(api({ endpoints: Object.create({}) })).toThrow('contract "posts": endpoints must be an object literal, not an instance or an Object.create() object')
+    expect(api({ endpoints: [] })).toThrow('contract "posts": endpoints must be an object literal')
+    // An enumerable key added to Object.prototype is inherited too
+    Object.defineProperty(Object.prototype, 'polluted', { value: 1, enumerable: true, configurable: true, writable: true })
+    try {
+      expect(api({ endpoints: audited })).toThrow('contract "posts": options.polluted is inherited')
+    } finally {
+      delete (Object.prototype as { polluted?: unknown }).polluted
+    }
+    // A null prototype is plain
+    const bare = Object.assign(Object.create(null), { endpoints: Object.assign(Object.create(null), audited) })
+    expect(mount(api(bare)()).entries.find((e) => e.name === 'posts.destroy')!.middleware).toEqual([Audit])
+  })
+
+  it('options and endpoints are copied and frozen at r.contract(): mutating the originals changes nothing', () => {
+    const endpoints: Record<string, unknown> = { destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) }
+    const options: Record<string, unknown> = { endpoints }
+    let mounted: any
+    const routes = Route.api(postsApi, (r) => {
+      mounted = r.contract(posts, PostController, options as never)
+      // after r.contract(), before Route.api checks and builds the routes
+      endpoints.destroy = (r: EndpointRouteBuilder) => r.middleware(Web)
+      endpoints.index = (r: EndpointRouteBuilder) => r.middleware(Web)
+      options.policy = 'not a class'
+      return [mounted]
+    })
+    options.endpoints = { index: (r: EndpointRouteBuilder) => r.middleware(Web) }
+    const { entries } = mount(routes)
+    expect(entries.map((e) => [e.name, e.middleware, e.policy])).toEqual([['posts.index', [], undefined], ['posts.destroy', [Audit], undefined]])
+    expect(mounted.options).not.toBe(options)
+    expect(mounted.options.endpoints).not.toBe(endpoints)
+    expect(Object.isFrozen(mounted.options) && Object.isFrozen(mounted.options.endpoints)).toBe(true)
+    expect(Object.getPrototypeOf(mounted.options)).toBe(Object.prototype)
+  })
+
+  it('an own "__proto__" key stays a key in the copy', () => {
+    const endpoints = JSON.parse('{"__proto__": 1}')
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints } as never)])).toThrow(
+      'contract "posts": endpoints.__proto__ is not an endpoint of the contract',
+    )
   })
 })

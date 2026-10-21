@@ -33,7 +33,9 @@ class RouteBuilder {
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
-    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options });
+    // A copy: mutating the options (or their endpoints map) after r.contract() must not change the routes
+    const copy = snapshot(options, "endpoints") as ContractRouteOptions<object> | undefined;
+    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options: copy });
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
@@ -41,6 +43,21 @@ class RouteBuilder {
     return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack });
   }
 }
+
+/**
+ * A frozen copy of an object's own enumerable keys, on the same prototype so `checkOptions` still sees a prototype that
+ * is not plain and its inherited keys (it throws on them). `nested` names a key whose object value is copied too.
+ */
+const snapshot = (value: unknown, nested?: string): unknown => {
+  if (typeof value !== "object" || value === null) return value;
+  const copy: object = Object.create(Object.getPrototypeOf(value));
+  // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
+  for (const key of Object.keys(value)) {
+    const item = (value as Record<string, unknown>)[key];
+    Object.defineProperty(copy, key, { value: key === nested ? snapshot(item) : item, enumerable: true });
+  }
+  return Object.freeze(copy);
+};
 
 interface TreeEntry {
   readonly name: string;
@@ -170,12 +187,25 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
 };
 
 /**
- * The options of `r.contract(c, Ctrl, { policy, endpoints })`: `policy` is a class, and every `endpoints` key is an
- * endpoint of the contract with a callback.
+ * `options` and `endpoints` are plain objects: an option or an endpoint callback under an inherited key would be
+ * dropped (`Object.entries` and `Object.hasOwn` read own keys), which fails open for auth middleware.
+ */
+const checkPlain = (at: string, label: string, value: object) => {
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) fail(`${at}: ${label}.${key} is inherited: pass ${label} as an object literal`);
+  }
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) fail(`${at}: ${label} must be an object literal, not an instance or an Object.create() object`);
+};
+
+/**
+ * The options of `r.contract(c, Ctrl, { policy, endpoints })`: plain objects, `policy` is a class, and every
+ * `endpoints` key is an endpoint of the contract with a callback.
  */
 const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined) => {
   const at = `contract "${names.join('", "')}"`;
   if (options !== undefined && (typeof options !== "object" || options === null)) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
+  if (options !== undefined) checkPlain(at, "options", options);
   if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on
@@ -188,6 +218,7 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   const endpoints: Record<string, unknown> | undefined = options.endpoints;
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
+  checkPlain(at, "endpoints", endpoints!);
   const keys: string[] = contractEndpoints(contract as AnyContract).map(([key]) => key);
   for (const [key, callback] of Object.entries(endpoints!)) {
     if (!keys.includes(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${keys.map((k) => `"${k}"`).join(", ")})`);
