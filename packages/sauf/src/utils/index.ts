@@ -16,8 +16,8 @@ const isCommandClass = (value: unknown): value is typeof Command =>
 /**
  * The app's command classes: the command files of the app manifest (docs/v1/build.md › Plugin chain). None when the
  * manifest has a scan error: `useAppManifest()` printed it, and the framework commands still run. A file that fails to
- * load is skipped with a warning naming it and its error, as a scan error is: the other commands, `make:*` and
- * `types:generate` still run. A file whose default export is not a command class (a helper) is skipped, with one
+ * load is skipped with a warning naming it, with its error and stack, as a scan error is: the other commands, `make:*`
+ * and `types:generate` still run. A file whose default export is not a command class (a helper) is skipped, with one
  * warning naming the files.
  */
 export const importRootCommands = async (manifest: AppManifest, load: EntryLoader = loadEntry) => {
@@ -29,10 +29,8 @@ export const importRootCommands = async (manifest: AppManifest, load: EntryLoade
       return { entry, error };
     }
   }));
-  const failed = modules.filter((m) => "error" in m);
-  if (failed.length) {
-    const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
-    Console.warn(`Skipped ${failed.map(({ entry, error }) => `${entry.path} (${reason(error)})`).join(", ")}: the command file failed to load`);
+  for (const { entry, error } of modules.filter((m) => "error" in m)) {
+    Console.warn(`Skipped ${entry.path}: the command file failed to load\n${error instanceof Error ? error.stack ?? error.message : String(error)}`);
   }
   const loaded = modules.filter((m) => !("error" in m));
   const skipped = loaded.filter(({ command }) => !isCommandClass(command)).map(({ entry }) => entry.path);

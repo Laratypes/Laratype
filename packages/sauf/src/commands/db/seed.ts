@@ -1,6 +1,7 @@
 import { loadDefault, manifestEntry, ServiceProviderType } from "@laratype/support";
 import type { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import { Command, Console } from "@laratype/console";
+import { posix } from "node:path";
 import { importDatabase } from "./database";
 
 export default class SeedDatabaseCommand extends Command {
@@ -31,7 +32,7 @@ export default class SeedDatabaseCommand extends Command {
     const opts = this.opts();
     // The seeder files of the app manifest (docs/v1/build.md › Plugin chain)
     // `Admin\UserSeeder` (Windows), `./Admin//UserSeeder` and `UserSeeder.ts` name the seeder as before, when the path was resolved
-    const name = String(opts.class ?? 'DatabaseSeeder').replace(/\\/g, '/').split('/').filter((part) => part !== '' && part !== '.').join('/').replace(/\.m?[jt]s$/, '');
+    const name = posix.normalize(String(opts.class ?? 'DatabaseSeeder').replace(/\\/g, '/')).replace(/\.m?[jt]s$/, '');
     const entry = manifestEntry('seeders', name);
     if(!entry) {
       Console.error(`Seeder class ${name} not found in the seeders folder (app/database/seeders or database/seeders)`);

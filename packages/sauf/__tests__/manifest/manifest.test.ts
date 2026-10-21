@@ -352,13 +352,13 @@ describe('importRootCommands', () => {
     }
   });
 
-  it('a command file that fails to load is skipped with a warning naming it: the other commands still register', async () => {
+  it('a command file that fails to load is skipped with a warning naming it, with its stack: the other commands still register', async () => {
     class SendMail { static signature = 'send:mail'; }
     const entry = (path: string, load: () => Promise<Record<string, unknown>>) => ({ name: path, path, load });
     const manifest = {
       configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
       commands: [
-        entry('app/src/console/commands/Broken.ts', () => Promise.reject(new SyntaxError("Unexpected token '}'"))),
+        entry('app/src/console/commands/Broken.ts', () => Promise.reject(Object.assign(new SyntaxError("Unexpected token '}'"), { stack: "SyntaxError: Unexpected token '}'\n    at Broken.ts:3:1" }))),
         entry('app/src/console/commands/SendMail.ts', async () => ({ default: SendMail })),
         entry('app/src/console/commands/Throws.ts', () => Promise.reject('not an Error')),
       ],
@@ -366,8 +366,10 @@ describe('importRootCommands', () => {
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     try {
       expect(await importRootCommands(manifest)).toEqual([SendMail]);
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith("Skipped app/src/console/commands/Broken.ts (Unexpected token '}'), app/src/console/commands/Throws.ts (not an Error): the command file failed to load");
+      expect(warn.mock.calls).toEqual([
+        ["Skipped app/src/console/commands/Broken.ts: the command file failed to load\nSyntaxError: Unexpected token '}'\n    at Broken.ts:3:1"],
+        ['Skipped app/src/console/commands/Throws.ts: the command file failed to load\nnot an Error'],
+      ]);
     } finally {
       warn.mockRestore();
     }

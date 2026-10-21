@@ -39,17 +39,21 @@ function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: strin
   if (!outDir) return undefined;
   if (rootDir !== undefined) return resolve(rootDir);
   if (composite) return dirname(configFile);
-  const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options, projectReferences: parsed.projectReferences });
+  // Without the default lib and @types: declaration files never count, and parsing them is most of the cost
+  const options = { ...parsed.options, noLib: true, types: [] };
+  const program = ts.createProgram({ rootNames: parsed.fileNames, options, projectReferences: parsed.projectReferences });
   const emitted = program.getSourceFiles().filter((file) =>
     !file.isDeclarationFile && !program.isSourceFileFromExternalLibrary(file) && !program.isSourceFileDefaultLibrary(file));
   const same = (a: string, b: string) => (ignoreCase ? a.toLowerCase() === b.toLowerCase() : a === b);
   const dirs = emitted.map((file) => slash(dirname(resolve(file.fileName))).split("/"));
+  if (!dirs.length) return dirname(configFile);
   const common = dirs.reduce((acc, parts) => {
     let i = 0;
     while (i < acc.length && i < parts.length && same(acc[i]!, parts[i]!)) i++;
     return acc.slice(0, i);
   });
-  return resolve(common.join("/") || "/");
+  // The root itself (`/`, `C:/`): `resolve("C:")` would be the current folder of the drive
+  return resolve(common.length > 1 ? common.join("/") : `${common[0] ?? ""}/`);
 }
 
 /**
