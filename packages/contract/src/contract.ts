@@ -71,7 +71,7 @@ function buildContract(endpoints: ContractDef, options: ContractOptions): AnyCon
     if (!isEndpoint(value)) fail(`defineContract: "${key}" is not an endpoint`);
     // an endpoint's constructor checks these too; this catches a forged or older-copy endpoint
     checkPath(value.def?.path, `defineContract: "${key}"`);
-    if (value.def.method === "get" && value.def.body) fail(`defineContract: "${key}": ${NO_GET_BODY}`);
+    if (value.def?.method === "get" && value.def.body) fail(`defineContract: "${key}": ${NO_GET_BODY}`);
     contract[key] = value;
   }
   const meta = Object.freeze({ options: Object.freeze(checkOptions(options, ["auth", "throws", "throttle"], "defineContract")) });

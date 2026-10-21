@@ -681,17 +681,22 @@ describe('createClient(manifest), the separate-repo FE', () => {
       't.tab': { method: 'get', path: '/\t/evil.com/x' },
       't.newline': { method: 'get', path: '/\n\\evil.com' },
       't.invalid': { method: 'get', path: '//[bad' },
+      't.sentinel': { method: 'get', path: '//__laratype_base__/x' },
+      't.tabSentinel': { method: 'get', path: '/\t/__laratype_base__/x' },
     }
-    type Calls = { t: Record<'slashes' | 'backslash' | 'tab' | 'newline' | 'invalid', () => Promise<unknown>> }
+    type Calls = { t: Record<'slashes' | 'backslash' | 'tab' | 'newline' | 'invalid' | 'sentinel' | 'tabSentinel', () => Promise<unknown>> }
     const { fetch, calls } = fakeFetch()
     const api = createClient(forged, { fetch }) as never as Calls
-    await expect(api.t.slashes()).rejects.toThrow(
-      new TypeError('[@laratype/client] route path "//evil.com/x" would leave the page\'s origin: "//evil.com/x"'),
+    // buildUrl refuses a result starting with "//" or "/\\"; the client parses what URL parsing would still read as a host
+    for (const call of [api.t.slashes, api.t.backslash, api.t.invalid, api.t.sentinel]) await expect(call()).rejects.toThrow(/which a URL reads as another host/)
+    await expect(api.t.tab()).rejects.toThrow(
+      new TypeError('[@laratype/client] route path "/\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
     )
-    for (const call of [api.t.backslash, api.t.tab, api.t.newline, api.t.invalid]) await expect(call()).rejects.toThrow(/would leave the page's origin/)
+    // the sentinel host itself is another host too
+    for (const call of [api.t.newline, api.t.tabSentinel]) await expect(call()).rejects.toThrow(/would leave the page's origin/)
     expect(calls).toEqual([])
     // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
-    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.slashes()
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.tab()
     expect(new URL(calls[0]!.url).host).toBe('api.example.com')
   })
 

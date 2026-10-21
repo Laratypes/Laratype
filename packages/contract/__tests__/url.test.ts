@@ -44,6 +44,14 @@ describe('buildUrl', () => {
     expect(buildUrl('/files/:name', { params: { name: '../x' } })).toBe('/files/..%2Fx')
   })
 
+  it('rejects a result that URL parsing reads as another host ("/:a?//x" without a)', () => {
+    expect(() => buildUrl('/:a?//evil.com/x' as string, {})).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: "/:a?//evil.com/x" builds "//evil.com/x", which a URL reads as another host'),
+    )
+    expect(() => buildUrl('/:a?/\\evil.com' as string, { params: { a: '' } })).toThrow(/which a URL reads as another host/)
+    expect(buildUrl('/:a?//evil.com/x' as string, { params: { a: 't' } })).toBe('/t//evil.com/x')
+  })
+
   it('keeps a ":" that does not start a segment', () => {
     expect(buildUrl('/time/12:30')).toBe('/time/12:30')
   })

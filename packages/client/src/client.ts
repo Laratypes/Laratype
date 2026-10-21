@@ -123,10 +123,13 @@ const isManifest = (value: unknown): value is Manifest =>
 /** The origin a path-only `baseUrl` is parsed against; a path must keep it (`//host` would not). */
 const SENTINEL = "http://__laratype_base__";
 
-/** A path parsed against the sentinel keeps it; one URL parsing reads as another host (or can't parse) does not. */
-const keepsSentinel = (path: string): boolean => {
+/**
+ * A relative path keeps any origin it is parsed against; one URL parsing reads as another host (or can't parse) does not.
+ * Two bases, so a `"//__laratype_base__/x"` that names the sentinel itself fails too.
+ */
+const keepsOrigin = (path: string): boolean => {
   try {
-    return new URL(path, SENTINEL).origin === SENTINEL;
+    return [SENTINEL, "http://__laratype_other__"].every((base) => new URL(path, base).origin === base);
   } catch {
     return false;
   }
@@ -188,7 +191,7 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
   // without an origin, "//evil.com" (or "/\evil.com", "/\t/evil.com", as URL parsing reads them) is another host: a route
   // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
-  if (!origin && !keepsSentinel(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
+  if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
   const url = origin + pathname + (q < 0 ? "" : built.slice(q));
   const headers = new Headers(options.headers);
   for (const [key, value] of Object.entries(input.headers ?? {})) {
