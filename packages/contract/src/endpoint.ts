@@ -3,7 +3,7 @@ import type { AuthOption, ThrottleOptions } from "./capabilities";
 import type { AnyErrorDef } from "./errors";
 import type { PathParams } from "./path";
 import type { StandardSchemaV1 } from "./standard-schema";
-import { checkPath, fail } from "./internal";
+import { NO_GET_BODY, checkPath, fail } from "./internal";
 import type { Digit, ToNumber } from "./internal";
 
 export type Method = "get" | "post" | "put" | "patch" | "delete";
@@ -71,11 +71,11 @@ export const ENDPOINT: unique symbol = Symbol.for("laratype.endpoint");
 const freeze = (def: EndpointDef): EndpointDef =>
   Object.freeze({ ...def, throws: Object.freeze([...def.throws]) });
 
-/** `fetch` refuses a body on GET, so such an endpoint could never be called. */
-const NO_BODY = "a GET endpoint cannot have a body";
-
-/** The `this` of `.body()`: a GET endpoint gets this message instead, a type error. */
-type BodyThis<M extends Method, Self> = [M] extends ["get"] ? `body(): ${typeof NO_BODY}` : Self;
+/**
+ * The `this` of `.body()`: a GET endpoint gets this message instead, a type error. Distributing over `M` gives `true`
+ * for `"get"` alone, `boolean` for a wide method and for `any` (`AnyEndpoint`), which are left to the runtime check.
+ */
+type BodyThis<M extends Method, Self> = (M extends "get" ? true : false) extends true ? `body(): ${typeof NO_GET_BODY}` : Self;
 
 /** Immutable builder: every method returns a new Endpoint and leaves `this` untouched. */
 export class Endpoint<
@@ -108,7 +108,7 @@ export class Endpoint<
   constructor(def: EndpointDef) {
     // also run by every builder call: the constructor is public, and a JS caller or a cast skips the types
     checkPath(def.path, "endpoint");
-    if (def.method === "get" && def.body) fail(`endpoint: ${NO_BODY}`);
+    if (def.method === "get" && def.body) fail(`endpoint: ${NO_GET_BODY}`);
     this.def = freeze(def);
     Object.defineProperty(this, ENDPOINT, { value: true });
   }
@@ -120,7 +120,7 @@ export class Endpoint<
   /** A request body. Not on a GET endpoint: `fetch` refuses one, so the call could never be sent. */
   body<S extends StandardSchemaV1>(this: BodyThis<M, Endpoint<M, P, Q, B, H, R, St, E, C>>, schema: S): Endpoint<M, P, Q, S, H, R, St, E, C> {
     const self = this as Endpoint<M, P, Q, B, H, R, St, E, C>;
-    if (self.def.method === "get") fail(`body(): ${NO_BODY}`);
+    if (self.def.method === "get") fail(`body(): ${NO_GET_BODY}`);
     return new Endpoint({ ...self.def, body: schema });
   }
 
@@ -182,7 +182,7 @@ export class Endpoint<
 
 /**
  * A new endpoint answers 204 (no content) until `.response(schema, status?)` gives it a body, 200 by default.
- * The path must start with "/", in the types and at runtime.
+ * The path must start with one "/", in the types (`/${string}`) and at runtime (not `//`).
  */
 const make = <M extends Method>(method: M) =>
   <P extends `/${string}`>(path: P): Endpoint<M, P> =>

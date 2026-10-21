@@ -20,6 +20,7 @@ import {
   isContract,
   isEndpoint,
   isScope,
+  joinPath,
   resolveCapabilities,
 } from '@laratype/contract'
 import { appApi } from './fixtures/app/api'
@@ -74,7 +75,11 @@ describe('defineContract', () => {
     // a forged or older-copy endpoint skips the constructor's path check
     const forged = Object.defineProperty({ def: { method: 'get', path: ':tenant/x', status: 204, throws: [] } }, ENDPOINT, { value: true })
     expect(() => defineContract()({ a: forged as never })).toThrow(
-      new TypeError('[@laratype/contract] defineContract: "a": the path must start with "/", got ":tenant/x"'),
+      new TypeError('[@laratype/contract] defineContract: "a": the path must start with one "/", got ":tenant/x"'),
+    )
+    const getBody = Object.defineProperty({ def: { method: 'get', path: '/x', body: z.object({}), status: 204, throws: [] } }, ENDPOINT, { value: true })
+    expect(() => defineContract()({ a: getBody as never })).toThrow(
+      new TypeError('[@laratype/contract] defineContract: "a": a GET endpoint cannot have a body'),
     )
     expect(() => defineContract()({}, { authorize: true } as never)).toThrow(/defineContract: unknown option "authorize"/)
     expect(() => defineContract()({}, { auth: false } as never)).toThrow(/auth must be true or a guard name/)
@@ -252,6 +257,18 @@ describe('apiRoutes', () => {
       ['/api/things', []],
       ['/api/things/:id?', ['NOT_FOUND']],
     ])
+  })
+})
+
+describe('joinPath', () => {
+  it('appends the path to the prefix, always with a "/" between them', () => {
+    expect(joinPath('/api', '/users')).toBe('/api/users')
+    expect(joinPath('', '/users')).toBe('/users')
+    expect(joinPath('/api', '/')).toBe('/api')
+    expect(joinPath('', '')).toBe('/')
+    // a path without its leading "/" (a manifest, a forged endpoint) must not extend the prefix or a host before it
+    expect(joinPath('/api', 'users')).toBe('/api/users')
+    expect(joinPath('', '.evil.com/x')).toBe('/.evil.com/x')
   })
 })
 

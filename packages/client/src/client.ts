@@ -176,7 +176,11 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
-  const url = origin + (q < 0 ? joinPath(basePath, built) : joinPath(basePath, built.slice(0, q)) + built.slice(q));
+  const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
+  // without an origin, "//evil.com" (or "/\evil.com", as URL parsing reads it) is another host: a route path a manifest
+  // or a forged endpoint holds can't be trusted to start with one "/"
+  if (!origin && /^[/\\][/\\]/.test(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
+  const url = origin + pathname + (q < 0 ? "" : built.slice(q));
   const headers = new Headers(options.headers);
   for (const [key, value] of Object.entries(input.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);

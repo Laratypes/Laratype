@@ -92,6 +92,8 @@ expectTypeOf(endpoint.patch('/').body(body).__types.body).toEqualTypeOf<typeof b
 expectTypeOf(endpoint.delete('/').body(body).__types.body).toEqualTypeOf<typeof body>()
 declare const wideMethod: Endpoint<Method, '/'>
 expectTypeOf(wideMethod.body(body).__types.body).toEqualTypeOf<typeof body>()
+declare const anyEndpoint: AnyEndpoint
+expectTypeOf(anyEndpoint.body(body)).toMatchTypeOf<AnyEndpoint>()
 
 // --- runtime def is untyped (consumers read generics from __types)
 expectTypeOf(full.def.query).toEqualTypeOf<StandardSchemaV1 | undefined>()

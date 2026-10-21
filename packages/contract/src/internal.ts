@@ -14,8 +14,16 @@ export const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);
 };
 
-/** An endpoint path must start with "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host. */
+/**
+ * An endpoint path starts with one "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host, and
+ * under a same-origin `baseUrl` a `"//evil.com"` (or `"/\evil.com"`, as URL parsing reads it) is another host.
+ */
 export const checkPath = (path: unknown, label: string): string => {
-  if (typeof path !== "string" || !path.startsWith("/")) fail(`${label}: the path must start with "/", got ${JSON.stringify(path)}`);
+  if (typeof path !== "string" || !/^\/(?![/\\])/.test(path)) {
+    fail(`${label}: the path must start with one "/", got ${typeof path === "string" ? JSON.stringify(path) : typeof path}`);
+  }
   return path as string;
 };
+
+/** `fetch` refuses a body on GET, so such an endpoint could never be called. */
+export const NO_GET_BODY = "a GET endpoint cannot have a body";

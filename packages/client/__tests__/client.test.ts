@@ -674,6 +674,21 @@ describe('createClient(manifest), the separate-repo FE', () => {
     for (const { url } of calls) expect(new URL(url).host).toBe('api.example.com')
   })
 
+  it('rejects a route path that would leave the page\'s origin under a same-origin baseUrl', async () => {
+    const forged = { 't.slashes': { method: 'get', path: '//evil.com/x' }, 't.backslash': { method: 'get', path: '/\\evil.com/x' } }
+    type Calls = { t: Record<'slashes' | 'backslash', () => Promise<unknown>> }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch }) as never as Calls
+    await expect(api.t.slashes()).rejects.toThrow(
+      new TypeError('[@laratype/client] route path "//evil.com/x" would leave the page\'s origin: "//evil.com/x"'),
+    )
+    await expect(api.t.backslash()).rejects.toThrow(/would leave the page's origin/)
+    expect(calls).toEqual([])
+    // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.slashes()
+    expect(new URL(calls[0]!.url).host).toBe('api.example.com')
+  })
+
   it('checks the manifest errors at createClient: absent or an array of strings', () => {
     const route = { method: 'get', path: '/x' }
     expect(() => createClient({ 'a.b': route })).not.toThrow()

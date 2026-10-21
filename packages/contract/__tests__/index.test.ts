@@ -45,17 +45,20 @@ describe('endpoint builder', () => {
     )
   })
 
-  it('the path must start with "/", from the builder and the constructor', () => {
-    for (const path of ['x', ':tenant/x', '', ' /x']) {
+  it('the path must start with one "/", from the builder and the constructor', () => {
+    // "//evil.com" and "/\\evil.com" are another host under a same-origin baseUrl
+    for (const path of ['x', ':tenant/x', '', ' /x', '//evil.com/x', '/\\evil.com/x']) {
       expect(() => endpoint.get(path as never)).toThrow(
-        new TypeError(`[@laratype/contract] endpoint.get(): the path must start with "/", got ${JSON.stringify(path)}`),
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must start with one "/", got ${JSON.stringify(path)}`),
       )
     }
-    expect(() => endpoint.post(1 as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with "/", got 1'))
+    expect(() => endpoint.post(1 as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got number'))
+    expect(() => endpoint.post(1n as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got bigint'))
     expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
-      new TypeError('[@laratype/contract] endpoint: the path must start with "/", got "x"'),
+      new TypeError('[@laratype/contract] endpoint: the path must start with one "/", got "x"'),
     )
     expect(endpoint.get('/').def.path).toBe('/')
+    expect(endpoint.get('/a//b').def.path).toBe('/a//b')
   })
 
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
