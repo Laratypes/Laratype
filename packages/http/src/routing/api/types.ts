@@ -1,5 +1,6 @@
 import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import type Middleware from "../../middleware/Middleware";
+import type { EndpointKey, VerifyController } from "./proof";
 
 /**
  * Type side of `Route.api` (docs/v1/http.md › Router v2). It reads the API tree built by `defineApi`
@@ -14,27 +15,27 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
 
-/**
- * What a handler gets for endpoint `E`. So far only the read-only `endpoint`, which `Route.api` sets on the request
- * object passed to the handler; `params`, `query`, `body` and `Requires` come with H2b #105 and H3 #106.
- */
-export type Ctx<E extends AnyEndpoint> = { readonly endpoint: E };
-
 /** The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. Typed middleware is H6 #117. */
 export interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
-/** The endpoint keys of a contract or of its tree node (a node also holds its child nodes). */
-export type EndpointKey<C> = { [K in keyof C & string]: C[K] extends AnyEndpoint ? K : never }[keyof C & string];
-
 /** `r.contract(contract, Controller, { policy, endpoints })`. */
-export interface ContractRouteOptions<C> {
-  /** The policy for the endpoints with `.authorize()`. Recorded only: running it is A3 #121. */
-  readonly policy?: PolicyClass;
+export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> = {
   /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
-}
+} & (
+  // A required `policy` member, so `P` keeps the `undefined` of `cond ? Policy : undefined` (inference from an
+  // optional property drops it) and the route proof reports the missing policy
+  | {
+      /**
+       * The policy for the endpoints with `.authorize()`: it needs a method named after each of them, or `before`
+       * (checked at `r.contract()` and, for its presence, when `Route.api` mounts). Recorded only: running it is A3 #121.
+       */
+      readonly policy: P;
+    }
+  | { readonly policy?: undefined }
+);
 
 /**
  * `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key.
@@ -68,7 +69,7 @@ export interface ScopeRouteOptions {
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 
 type NodeEntry<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, infer En> }
-  ? En extends ApiEntry<infer C, any, infer S, infer D> ? { name: Name; contract: C; scopes: S; dirs: D; node: N } : never
+  ? En extends ApiEntry<infer C, infer Path, infer S, infer D> ? { name: Name; contract: C; path: Path; scopes: S; dirs: D; node: N } : never
   : never;
 
 /** Every mounted contract of an API tree: `{ name, contract, scopes, dirs, node }`, one member per tree name. */
@@ -165,6 +166,26 @@ export type CheckApiRoutes<A, M extends readonly unknown[]> =
       : Err<`contract "${Ambiguous<A, M> & string}" has the type of another contract of the tree: mount it with its tree node, r.contract(appApi.<name>, ...)`>
     : Err<"a mounted contract is not in the API tree">;
 
+/**
+ * The route proof of `r.contract(contract, controller, options)` (docs/v1/http.md › Route proof at r.contract()), run
+ * with the tree name and path of the mounted contract. A contract that names several tree contracts (twins) is
+ * reported by `CheckApiRoutes`, so it is not proven here.
+ */
+export type RouteProof<A, C, I, O> = MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
+  ? [Hit] extends [never]
+    ? unknown
+    : IsUnion<Hit> extends true
+      ? unknown
+      : Hit extends { name: infer N extends string; contract: infer EC; path: infer P extends string }
+        ? VerifyController<N, EC, P, I, {}, {}, O>
+        : unknown
+  : unknown;
+
+/** The tree entry `r.contract()` mounts: by tree node, or by the exact type of its contract. */
+type MountedEntry<En, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer Name, any> }
+  ? Extract<En, { name: Name }>
+  : En extends { contract: infer EC } ? (Equal<EC, C> extends true ? En : never) : never;
+
 /** The `r` of `Route.api(appApi, (r) => [...])`. */
 export interface ApiRouteBuilder<A> {
   /** Route middleware (0.5 classes) for the contracts or scope mounted from the returned builder. */
@@ -173,7 +194,11 @@ export interface ApiRouteBuilder<A> {
    * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
    * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
    */
-  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>>(contract: C, controller: ControllerClass, options?: ContractRouteOptions<NoInfer<C>>): MountedContract<C>;
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
+    contract: C,
+    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    options?: ContractRouteOptions<NoInfer<C>, P>,
+  ): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
   scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D>;
 }

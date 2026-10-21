@@ -6,7 +6,8 @@ import { test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Route } from '../../src/index'
 
-class Ctrl extends Controller {}
+// One controller for every contract: a handler for each e<n> endpoint (the route proof needs one per endpoint)
+const Ctrl = Controller as unknown as new () => Record<`e${number}`, () => void>
 const c0 = defineContract()({ e0: endpoint.get('/') })
 const c1 = defineContract()({ e1: endpoint.get('/') })
 const c2 = defineContract()({ e2: endpoint.get('/') })
