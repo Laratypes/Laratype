@@ -19,9 +19,10 @@ const appApi = defineApi({
   'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] },
 })
 
-class UserController extends Controller { index() { return [] } show() { return {} } }
-class PostController extends Controller { index() { return [] } store() { return {} } }
-class HealthController extends Controller { check() { return { ok: true } } }
+// The endpoints declare no response schema, so the handlers return nothing (the route proof checks it)
+class UserController extends Controller { index() {} show() {} }
+class PostController extends Controller { index() {} store() {} }
+class HealthController extends Controller { check() {} }
 class UserScopePolicy {}
 class Audit extends Middleware {}
 
