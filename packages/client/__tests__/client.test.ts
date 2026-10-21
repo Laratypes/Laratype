@@ -339,7 +339,7 @@ describe('createClient', () => {
   })
 
   it('rejects a baseUrl that is neither an absolute URL with "://" nor a path starting with "/"', () => {
-    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api']) {
+    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api', '//__laratype_base__/api']) {
       expect(() => createClient(appApi, { baseUrl })).toThrow(
         new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`),
       )
@@ -682,21 +682,25 @@ describe('createClient(manifest), the separate-repo FE', () => {
       't.newline': { method: 'get', path: '/\n\\evil.com' },
       't.invalid': { method: 'get', path: '//[bad' },
       't.sentinel': { method: 'get', path: '//__laratype_base__/x' },
-      't.tabSentinel': { method: 'get', path: '/\t/__laratype_base__/x' },
+      // no leading "/": buildUrl's "\t/evil.com/x" is a path, but "/" + it is not
+      't.joined': { method: 'get', path: '\t/evil.com/x' },
+      't.joinedSentinel': { method: 'get', path: '\t/__laratype_other__/x' },
     }
-    type Calls = { t: Record<'slashes' | 'backslash' | 'tab' | 'newline' | 'invalid' | 'sentinel' | 'tabSentinel', () => Promise<unknown>> }
+    type Calls = { t: Record<keyof typeof forged extends `t.${infer K}` ? K : never, () => Promise<unknown>> }
     const { fetch, calls } = fakeFetch()
     const api = createClient(forged, { fetch }) as never as Calls
-    // buildUrl refuses a result starting with "//" or "/\\"; the client parses what URL parsing would still read as a host
-    for (const call of [api.t.slashes, api.t.backslash, api.t.invalid, api.t.sentinel]) await expect(call()).rejects.toThrow(/which a URL reads as another host/)
-    await expect(api.t.tab()).rejects.toThrow(
-      new TypeError('[@laratype/client] route path "/\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
+    // buildUrl refuses a route path URL parsing reads as another host, whatever the baseUrl
+    for (const call of [api.t.slashes, api.t.backslash, api.t.tab, api.t.newline, api.t.invalid, api.t.sentinel]) {
+      await expect(call()).rejects.toThrow(/which a URL reads as another host/)
+    }
+    // the client checks the joined path, parsed against two origins so a path naming either one fails too
+    await expect(api.t.joined()).rejects.toThrow(
+      new TypeError('[@laratype/client] route path "\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
     )
-    // the sentinel host itself is another host too
-    for (const call of [api.t.newline, api.t.tabSentinel]) await expect(call()).rejects.toThrow(/would leave the page's origin/)
+    await expect(api.t.joinedSentinel()).rejects.toThrow(/would leave the page's origin/)
     expect(calls).toEqual([])
     // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
-    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.tab()
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.joined()
     expect(new URL(calls[0]!.url).host).toBe('api.example.com')
   })
 

@@ -11,6 +11,18 @@ export type UrlInput<P extends string> = ({} extends PathParams<P> ? { params?: 
   query?: object | undefined;
 };
 
+/** Bases a relative path must keep: two, so a path naming one of them as its host fails against the other. */
+const BASES = ["http://__laratype_a__", "http://__laratype_b__"];
+
+/** Whether URL parsing keeps `path` on the origin it is resolved against: `"//x"`, `"/\\x"` and `"/\t/x"` do not. */
+const keepsOrigin = (path: string): boolean => {
+  try {
+    return BASES.every((base) => new URL(path, base).origin === base);
+  } catch {
+    return false;
+  }
+};
+
 /** Replaces each `:name`, `:name?` and `:name{regex}` segment (Hono syntax, see `PathParams`). */
 function fillPath(path: string, params: Readonly<Record<string, unknown>>): string {
   let out = "";
@@ -53,7 +65,7 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
     i = j;
   }
   // an absent optional first segment ("/:a?//x") must not leave "//x", which URL parsing reads as another host
-  if (/^[/\\]{2}/.test(out)) fail(`buildUrl: "${path}" builds "${out}", which a URL reads as another host`);
+  if (!keepsOrigin(out)) fail(`buildUrl: "${path}" builds "${out}", which a URL reads as another host`);
   return out || "/";
 }
 
@@ -77,7 +89,7 @@ function serializeQuery(query: object): string {
  * → `"/api/users/1/posts?page=2"`. Pure and browser-safe; shared by `@laratype/client` and the server `route()` helper (H13).
  * - Param values are encoded with `encodeURIComponent`. A missing required param throws; an absent optional one drops its segment.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
- * - A result starting with `//` or `/\` throws (an absent optional first param in `"/:a?//x"`): it would be another host.
+ * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
  * - Query: `undefined` and `null` are skipped, an array repeats its key, a `Date` is sent as ISO 8601.
  */
 export function buildUrl<P extends string>(

@@ -49,6 +49,8 @@ describe('buildUrl', () => {
       new TypeError('[@laratype/contract] buildUrl: "/:a?//evil.com/x" builds "//evil.com/x", which a URL reads as another host'),
     )
     expect(() => buildUrl('/:a?/\\evil.com' as string, { params: { a: '' } })).toThrow(/which a URL reads as another host/)
+    expect(() => buildUrl('/:a?/\t/evil.com' as string, {})).toThrow(/which a URL reads as another host/)
+    expect(() => buildUrl('/:a?//__laratype_a__/x' as string, {})).toThrow(/which a URL reads as another host/)
     expect(buildUrl('/:a?//evil.com/x' as string, { params: { a: 't' } })).toBe('/t//evil.com/x')
   })
 

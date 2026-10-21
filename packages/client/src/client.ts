@@ -159,8 +159,8 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   } catch {
     return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
   }
-  // a path must keep the sentinel origin: "//host/api" is protocol-relative, another host
-  if (!absolute && url.origin !== SENTINEL) {
+  // a path must keep the origin: "//host/api" is protocol-relative, another host
+  if (!absolute && !keepsOrigin(baseUrl)) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
