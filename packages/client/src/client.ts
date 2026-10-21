@@ -125,11 +125,12 @@ const SENTINEL = "http://__laratype_base__";
 
 /**
  * A relative path keeps any origin it is parsed against; one URL parsing reads as another host (or can't parse) does not.
- * Two bases, so a `"//__laratype_base__/x"` that names the sentinel itself fails too.
+ * Two bases, so a `"//__laratype_base__/x"` that names the sentinel itself fails too, with two schemes, so does a
+ * scheme-relative `"http:/evil.com"`.
  */
 const keepsOrigin = (path: string): boolean => {
   try {
-    return [SENTINEL, "http://__laratype_other__"].every((base) => new URL(path, base).origin === base);
+    return [SENTINEL, "https://__laratype_other__"].every((base) => new URL(path, base).origin === base);
   } catch {
     return false;
   }

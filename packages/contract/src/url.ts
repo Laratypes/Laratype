@@ -11,8 +11,11 @@ export type UrlInput<P extends string> = ({} extends PathParams<P> ? { params?: 
   query?: object | undefined;
 };
 
-/** Bases a relative path must keep: two, so a path naming one of them as its host fails against the other. */
-const BASES = ["http://__laratype_a__", "http://__laratype_b__"];
+/**
+ * Bases a relative path must keep: two, so a path naming one of them as its host fails against the other, with two
+ * schemes, so a scheme-relative `"http:/evil.com"` (a path against an http base, a host against an https page) fails too.
+ */
+const BASES = ["http://__laratype_a__", "https://__laratype_b__"];
 
 /** Whether URL parsing keeps `path` on the origin it is resolved against: `"//x"`, `"/\\x"` and `"/\t/x"` do not. */
 const keepsOrigin = (path: string): boolean => {
