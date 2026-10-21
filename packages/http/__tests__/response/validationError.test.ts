@@ -85,13 +85,37 @@ describe('validation errors', () => {
     await expectGeneric500(await post(() => { z.string().parse(1) }, { name: 'ada' }))
   })
 
-  it('a ZodError from another copy of zod is still a validation failure (told by its shape)', async () => {
+  it('any Standard Schema validates: another zod copy or version, or another library', async () => {
     quiet()
-    // what `instanceof ZodError` misses: an error of the same shape from a second zod
-    const foreign = { name: 'ZodError', message: 'invalid', issues: [{ path: ['email'], message: 'Invalid email', code: 'invalid_string' }] }
-    const schema = { parse: () => { throw foreign } }
-    const response = await post(() => schema, { email: 'nope' })
+    // what `instanceof ZodError` would miss: a schema from a second zod (or zod 4 mini, whose error is a $ZodError)
+    const issues = [{ path: ['email'], message: 'Invalid email' }]
+    const foreign = { '~standard': { version: 1, vendor: 'zod', validate: () => ({ issues }) } }
+    const response = await post(() => foreign, { email: 'nope' })
     expect(response.status).toBe(422)
-    expect((await response.json()).errors).toEqual(foreign.issues)
+    expect((await response.json()).errors).toEqual(issues)
+  })
+
+  it('an async refinement works: 422 when it fails, the controller when it passes', async () => {
+    quiet()
+    const taken = () => z.object({ email: z.string() }).refine(async (v) => v.email !== 'taken@example.test', { message: 'taken', path: ['email'] })
+    const response = await post(taken, { email: 'taken@example.test' })
+    expect(response.status).toBe(422)
+    expect((await response.json()).errors).toEqual([expect.objectContaining({ path: ['email'], message: 'taken' })])
+    expect(await (await post(taken, { email: 'free@example.test' })).json()).toEqual({ created: true })
+  })
+
+  it('a ZodError from a nested parse inside the schema is a 500: it is not a failure of the input', async () => {
+    quiet()
+    const Config = z.object({ DB_PASSWORD: z.string() })
+    const rules = () => z.object({ name: z.string() }).transform((v) => ({ ...v, config: Config.parse({}) }))
+    await expectGeneric500(await post(rules, { name: 'ada' }))
+    const text = await (await post(rules, { name: 'ada' })).text()
+    expect(text).not.toContain('DB_PASSWORD')
+  })
+
+  it('rules() that returns no schema is a 500 with a server-side message', async () => {
+    quiet()
+    await expectGeneric500(await post(() => ({ parse: () => ({}) }), { name: 'ada' }))
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.25+, valibot, ...)' }))
   })
 })

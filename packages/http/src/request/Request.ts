@@ -7,16 +7,11 @@ import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelMa
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, DiError, depsRegistry } from "@laratype/core";
+import { validate } from "@laratype/contract";
+import type { StandardSchemaV1 } from "@laratype/contract";
 
 /** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
-
-/**
- * A zod validation failure (`ZodError`), told by its shape: `instanceof ZodError` misses an error from another copy of
- * zod (the app's own next to @laratype/validation's). Its `issues` are what its `errors` getter returns.
- */
-const isValidationFailure = (e: unknown): e is { issues: unknown[] } =>
-  typeof e === "object" && e !== null && (e as { name?: unknown }).name === "ZodError" && Array.isArray((e as { issues?: unknown }).issues);
 
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
@@ -246,25 +241,21 @@ export default class Request extends AppServiceProvider {
 
   public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
     if(routeOption.request) {
-      // Outside the try: an error from rules() or the input is not a validation failure
-      const data = requestInstance.all();
-      const rules = requestInstance.rules();
-      let result;
-      try {
-        result = await this.validate(data, rules)
+      // Standard Schema validation (#275): invalid input resolves to its issues, the only 422, with the field errors
+      // (zod's own issues). Anything thrown, by rules() or inside the schema (an AggregateError, an ORM error, a nested
+      // parse), goes on to resolveException: a generic 500 and a server-side log. Async refinements work, and so does
+      // any zod copy or version
+      const rules = requestInstance.rules() as StandardSchemaV1;
+      if(typeof rules?.["~standard"]?.validate !== "function") {
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
       }
-      catch(e) {
-        // Only the validator's own failure is a 422 with its field errors (#275). Anything else, even an error with its
-        // own `errors` field (an AggregateError, an ORM error from a refinement), goes on to resolveException: a
-        // generic 500 and a server-side log
-        if(!isValidationFailure(e)) {
-          throw e;
-        }
+      const result = await validate(rules, requestInstance.all());
+      if(!result.ok) {
         throw new ValidationException({
-          errors: e.issues,
+          errors: [...result.issues],
         })
       }
-      requestInstance.validated = () => result
+      requestInstance.validated = () => result.value
     }
 
     return requestInstance
