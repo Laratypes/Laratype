@@ -12,18 +12,13 @@ export type UrlInput<P extends string> = ({} extends PathParams<P> ? { params?: 
 };
 
 /**
- * Bases a relative path must keep: two, so a path naming one of them as its host fails against the other, with two
- * schemes, so a scheme-relative `"http:/evil.com"` (a path against an http base, a host against an https page) fails too.
+ * Whether URL parsing reads `path` as another host or scheme, without `URL` (string work only): it drops leading C0
+ * controls and spaces and every tab, LF and CR, and reads `\` as `/`. Then `//x` is a host, and so is a leading
+ * `scheme:` (`http:/x` is another host from an https page).
  */
-const BASES = ["http://__laratype_a__", "https://__laratype_b__"];
-
-/** Whether URL parsing keeps `path` on the origin it is resolved against: `"//x"`, `"/\\x"` and `"/\t/x"` do not. */
-const keepsOrigin = (path: string): boolean => {
-  try {
-    return BASES.every((base) => new URL(path, base).origin === base);
-  } catch {
-    return false;
-  }
+const leavesOrigin = (path: string): boolean => {
+  const parsed = path.replace(/^[\u0000-\u0020]+/, "").replace(/[\t\n\r]/g, "").replace(/\\/g, "/");
+  return parsed.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(parsed);
 };
 
 /** Replaces each `:name`, `:name?` and `:name{regex}` segment (Hono syntax, see `PathParams`). */
@@ -68,7 +63,7 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
     i = j;
   }
   // an absent optional first segment ("/:a?//x") must not leave "//x", which URL parsing reads as another host
-  if (!keepsOrigin(out)) fail(`buildUrl: "${path}" builds "${out}", which a URL reads as another host`);
+  if (leavesOrigin(out)) fail(`buildUrl: "${path}" builds "${out}", which a URL reads as another host`);
   return out || "/";
 }
 

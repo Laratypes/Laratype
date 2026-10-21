@@ -57,11 +57,13 @@ describe('endpoint builder', () => {
     expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
       new TypeError('[@laratype/contract] endpoint: the path must start with one "/", got "x"'),
     )
-    for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a b', '/a\u0000', '/a\u007f', '/a\u00a0b', '/a\u0085', '/a\u2028']) {
+    for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a\u0000', '/a\u007f']) {
       expect(() => endpoint.get(path as never)).toThrow(
-        new TypeError(`[@laratype/contract] endpoint.get(): the path must not contain whitespace or control characters, got ${JSON.stringify(path)}`),
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must not contain control characters, got ${JSON.stringify(path)}`),
       )
     }
+    // other whitespace can't change the host: a regex param may hold a space
+    expect(endpoint.get('/files/:name{[\\w ]+}').def.path).toBe('/files/:name{[\\w ]+}')
     expect(endpoint.get('/').def.path).toBe('/')
     expect(endpoint.get('/a//b').def.path).toBe('/a//b')
   })

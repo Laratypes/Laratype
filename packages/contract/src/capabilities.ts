@@ -160,7 +160,7 @@ export const hasPathParams = (path: string): boolean => /(?:^|\/):[^/{?]/.test(p
 
 /** Always puts a "/" between the two: a path without one (`".evil.com/x"`) must not extend the prefix or a host before it. */
 export const joinPath = (prefix: string, path: string): string =>
-  path === "" || path === "/" ? prefix || "/" : path.startsWith("/") ? `${prefix}${path}` : `${prefix}/${path}`;
+  path === "" || path === "/" ? prefix || "/" : path.startsWith("/") || prefix.endsWith("/") ? `${prefix}${path}` : `${prefix}/${path}`;
 
 /** Where an endpoint is resolved at runtime: its contract's URL prefix, the scope chain and the contract options. */
 export interface CapabilityContext {

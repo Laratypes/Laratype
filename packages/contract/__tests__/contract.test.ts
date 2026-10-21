@@ -269,6 +269,9 @@ describe('joinPath', () => {
     // a path without its leading "/" (a manifest, a forged endpoint) must not extend the prefix or a host before it
     expect(joinPath('/api', 'users')).toBe('/api/users')
     expect(joinPath('', '.evil.com/x')).toBe('/.evil.com/x')
+    // a prefix that already ends with "/" gets none added: "/" + "x" is "/x", not "//x"
+    expect(joinPath('/', 'x')).toBe('/x')
+    expect(joinPath('/api/', 'users')).toBe('/api/users')
   })
 })
 
