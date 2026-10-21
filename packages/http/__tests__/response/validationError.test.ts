@@ -76,6 +76,38 @@ describe('validation errors', () => {
     await expectGeneric500(await post(() => z.object({ name: z.string() }).transform(() => { throw secret() }), { name: 'ada' }))
   })
 
+  it('a throwing refinement runs once (zod runs safeParseAsync, not its validate, which re-runs the schema)', async () => {
+    quiet()
+    let calls = 0
+    const rules = () => z.object({ name: z.string() }).superRefine(() => { calls++; throw secret() })
+    await expectGeneric500(await post(rules, { name: 'ada' }))
+    expect(calls).toBe(1)
+  })
+
+  it('a request class that does not override rules() is not validated: validated() keeps its default', async () => {
+    quiet()
+    let validated: unknown
+    class Plain extends LaratypeRequest {}
+    class Reader extends Controller { store(req: LaratypeRequest) { validated = req.validated(); return { created: true } } }
+    const app = bootApp()
+    app.post('/plain', RequestKernel.handle({ method: 'post', path: '/plain', request: Plain, controller: [Reader, 'store'] }))
+    const response = await app.request('/plain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":"ada"}' })
+    // reached the controller (201: the 0.5 status guess for store)
+    expect(response.status).toBe(201)
+    expect(validated).toEqual({})
+  })
+
+  it('another Standard Schema library answers 422 with { path, message } only, never the issue input', async () => {
+    quiet()
+    const issues = [{ message: 'Too short', path: [{ key: 'password', input: { password: 'hunter2' } }], input: 'hunter2', received: '"hunter2"' }]
+    const valibotLike = { '~standard': { version: 1, vendor: 'valibot', validate: () => ({ issues }) } }
+    const response = await post(() => valibotLike, { password: 'hunter2' })
+    expect(response.status).toBe(422)
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual([{ path: ['password'], message: 'Too short' }])
+    expect(text).not.toContain('hunter2')
+  })
+
   it('an error from rules() is a 500, not a 422', async () => {
     quiet()
     const failure = secret()
@@ -116,6 +148,6 @@ describe('validation errors', () => {
   it('rules() that returns no schema is a 500 with a server-side message', async () => {
     quiet()
     await expectGeneric500(await post(() => ({ parse: () => ({}) }), { name: 'ada' }))
-    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.25+, valibot, ...)' }))
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.24+, valibot, ...)' }))
   })
 })

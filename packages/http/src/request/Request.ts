@@ -13,6 +13,32 @@ import type { StandardSchemaV1 } from "@laratype/contract";
 /** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
 
+type RulesResult = { ok: true; value: any } | { ok: false; issues: unknown[] };
+
+/**
+ * Validates `rules()` once. A zod schema runs `safeParseAsync`: its Standard Schema `validate` catches an error thrown
+ * by a refinement or transform and runs the whole schema again, async, so side effects would run twice. Its issues are
+ * the 422 body as before. Any other Standard Schema runs `validate`, and its issues are cut to `{ path, message }`:
+ * raw issues (valibot's) carry the `input`, which would echo request data such as a password.
+ */
+const validateRules = async (rules: StandardSchemaV1 & { safeParseAsync?: unknown }, data: unknown): Promise<RulesResult> => {
+  if(typeof rules.safeParseAsync === "function") {
+    const parsed = await (rules.safeParseAsync as (data: unknown) => Promise<{ success: boolean; data?: unknown; error?: { issues: unknown[] } }>)(data);
+    return parsed.success ? { ok: true, value: parsed.data } : { ok: false, issues: parsed.error!.issues };
+  }
+  const result = await validate(rules, data);
+  if(result.ok) {
+    return { ok: true, value: result.value };
+  }
+  return {
+    ok: false,
+    issues: result.issues.map((issue) => ({
+      path: (issue.path ?? []).map((segment) => (typeof segment === "object" ? segment.key : segment)),
+      message: issue.message,
+    })),
+  };
+};
+
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
 
@@ -240,19 +266,18 @@ export default class Request extends AppServiceProvider {
   }
 
   public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
-    if(routeOption.request) {
-      // Standard Schema validation (#275): invalid input resolves to its issues, the only 422, with the field errors
-      // (zod's own issues). Anything thrown, by rules() or inside the schema (an AggregateError, an ORM error, a nested
-      // parse), goes on to resolveException: a generic 500 and a server-side log. Async refinements work, and so does
-      // any zod copy or version
-      const rules = requestInstance.rules() as StandardSchemaV1;
+    // A request class that doesn't override rules() has nothing to validate: validated() keeps its default `{}`
+    if(routeOption.request && requestInstance.rules !== RequestSupport.prototype.rules) {
+      // Only invalid input is a 422, with its field errors (#275). Anything thrown, by rules() or inside the schema (an
+      // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
+      const rules = requestInstance.rules() as StandardSchemaV1 & { safeParseAsync?: unknown };
       if(typeof rules?.["~standard"]?.validate !== "function") {
-        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.24+, valibot, ...)`);
       }
-      const result = await validate(rules, requestInstance.all());
+      const result = await validateRules(rules, requestInstance.all());
       if(!result.ok) {
         throw new ValidationException({
-          errors: [...result.issues],
+          errors: result.issues,
         })
       }
       requestInstance.validated = () => result.value
