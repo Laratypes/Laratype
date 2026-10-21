@@ -147,7 +147,9 @@ interface ApiRouteBuilder<A> {
 - **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), `Provided` also holds the 0.5 request object, which the runtime passes, so a handler typed with it passes too.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
-- **Return check:** `[Awaited<R>] extends [Result<E>]`.
+- **Return check:** `[Awaited<R>] extends [Result<E>]`. A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` (schema typing is H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) also pass, since the runtime takes them as is (`ResponseEscape`).
+- **Second parameter:** until H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
+- **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
 - **Also checked at `r.contract()`:**
   - exhaustiveness, so every endpoint needs a handler;
   - `.bind()` keys that are not a path param of any endpoint (a type today; `r.bind()` is H7 [#118](https://github.com/Laratypes/Laratype/issues/118));
@@ -165,6 +167,8 @@ Message templates from the S1 spike (real tsc 5.9.2 output in `s1-controller/tsc
 - `` <c>.<e>: handler requires `<key>`, route does not provide it (add middleware / .bind()) ``, with `{ handler_requires: T }`
 - `` <c>.<e>: `<key>` provided by the route does not match the handler (missing .bind()?) ``, with `{ route_provides; handler_requires }`
 - `<c>.<e>: handler ctx is typed for a different endpoint`
+- `<c>.<e>: handler ctx does not accept what the route provides`, with `{ route_provides; handler_requires }`, when no single key explains it (a private member, a call signature)
+- `<c>.<e>: the second parameter gets the raw path params (strings), use .bind() and ctx`
 - `<c>.<e>: return type does not match the response schema`, with `{ expected; got }` (errors are thrown, so only the response schema counts)
 - `<c>.<e>: controller has no handler for this endpoint`
 - `` .bind(): `<key>` is not a path param of any endpoint in <contract> ``

@@ -5,8 +5,8 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { z } from 'zod'
 import { defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
-import { Controller, Route } from '../../src/index'
-import type { ControllerOf, Ctx, Result, RouteProof, VerifyController } from '../../src/index'
+import { Controller, JsonResource, Route, redirect, response } from '../../src/index'
+import type { ContractRouteOptions, ControllerOf, Ctx, Result, RouteProof, VerifyController } from '../../src/index'
 
 const Post = z.object({ id: z.number(), title: z.string() })
 const PostLocked = defineError(423, 'POST_LOCKED')
@@ -71,6 +71,24 @@ describe('a valid controller', () => {
     expectTypeOf<Proof<Props>>().toEqualTypeOf<unknown>()
   })
 
+  test('a response() / redirect() value or a 0.5 JsonResource passes: the runtime takes them as is', () => {
+    type Escapes = With<{ index(): ReturnType<typeof response>; show(): Promise<JsonResource>; destroy(): ReturnType<typeof redirect> }>
+    expectTypeOf<Proof<Escapes>>().toEqualTypeOf<unknown>()
+  })
+
+  test('an any handler passes, and a second parameter that takes the raw path params passes', () => {
+    expectTypeOf<Proof<With<{ index: any }>>>().toEqualTypeOf<unknown>()
+    type Raw = With<{ show(ctx: Ctx<typeof posts.show>, params: { user: string; post: string }): Post }>
+    expectTypeOf<Proof<Raw>>().toEqualTypeOf<unknown>()
+  })
+
+  test('options held in a variable, or a policy that may be undefined, still prove', () => {
+    const options: ContractRouteOptions<typeof posts> = { policy: PostPolicy }
+    Route.api(appApi, (r) => [r.contract(posts, PostController, options)])
+    const maybe = Math.random() > 1 ? PostPolicy : undefined
+    Route.api(appApi, (r) => [r.contract(posts, PostController, { policy: maybe })])
+  })
+
   test('a policy with before covers every .authorize() endpoint', () => {
     class Before { before() { return true } }
     expectTypeOf<Proof<PostController, {}, {}, { policy: typeof Before }>>().toEqualTypeOf<unknown>()
@@ -118,6 +136,17 @@ describe('failure modes, by their diagnosis', () => {
     )
   })
 
+  test('a handler ctx that no key explains (a private member)', () => {
+    class Special { private secret = 1; declare readonly endpoint: typeof posts.show }
+    type Private = With<{ show(req: Special): Post }>
+    expectTypeOf<Proof<Private>>().toHaveProperty('users.posts.show: handler ctx does not accept what the route provides')
+  })
+
+  test('a second parameter typed as bound models (the runtime passes raw strings)', () => {
+    type Models = With<{ show(ctx: Ctx<typeof posts.show>, params: { post: PostModel }): Post }>
+    expectTypeOf<Proof<Models>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
+  })
+
   test('a wrong return type', () => {
     type Wrong = With<{ index(): string }>
     expectTypeOf<Proof<Wrong>>().toHaveProperty('users.posts.index: return type does not match the response schema')
@@ -136,6 +165,10 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<PostController, {}, {}, {}>>().toHaveProperty("users.posts.destroy: endpoint has .authorize() but r.contract() has no { policy }")
     class Empty { show() { return true } }
     expectTypeOf<Proof<PostController, {}, {}, { policy: typeof Empty }>>().toHaveProperty(
+      'users.posts.destroy: .authorize() needs a `destroy` method or `before` on the policy',
+    )
+    class Nothing {}
+    expectTypeOf<Proof<PostController, {}, {}, { policy: typeof Nothing }>>().toHaveProperty(
       'users.posts.destroy: .authorize() needs a `destroy` method or `before` on the policy',
     )
     // @ts-expect-error users.posts.destroy: endpoint has .authorize() but r.contract() has no { policy }

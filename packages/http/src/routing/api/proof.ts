@@ -1,4 +1,6 @@
-import type { AnyEndpoint, InferIn, JoinPath, PathParams } from "@laratype/contract";
+import type { AnyEndpoint, EndpointTypes, InferIn } from "@laratype/contract";
+import type ResponseSupport from "../../supports/Response";
+import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
 
 /**
@@ -23,6 +25,12 @@ export type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonl
 /** What a handler returns: the response schema input (the serializer runs afterwards), or nothing without one. */
 export type Result<E extends AnyEndpoint> = T<E>["response"] extends undefined ? void : InferIn<T<E>["response"]>;
 
+/**
+ * What the runtime also takes from a handler, unchecked against the schema: a `response()` / `redirect()` value, whose
+ * own status still wins, and a 0.5 `JsonResource` (its schema typing is H9 #123).
+ */
+export type ResponseEscape = ResponseSupport | JsonResource;
+
 /** The endpoint keys of a contract or of its tree node (a node also holds its child nodes). */
 export type EndpointKey<C> = { [K in keyof C & string]: C[K] extends AnyEndpoint ? K : never }[keyof C & string];
 
@@ -31,7 +39,7 @@ export type EndpointKey<C> = { [K in keyof C & string]: C[K] extends AnyEndpoint
  * type at the method. Requirements are checked at `r.contract()` only (`implements` doesn't type params, TS #23911).
  */
 export type ControllerOf<C> = {
-  [K in EndpointKey<C>]: C[K] extends AnyEndpoint ? (ctx: any) => MaybePromise<Result<C[K]>> : never;
+  [K in EndpointKey<C>]: C[K] extends AnyEndpoint ? (ctx: any) => MaybePromise<Result<C[K]> | ResponseEscape> : never;
 };
 
 // ---- what the route provides ------------------------------------------------
@@ -47,8 +55,8 @@ type Bound<B> = B extends ModelClass ? InstanceType<B> : B extends Resolver ? No
 
 type BoundParams<P, B> = { [K in keyof B & keyof P]: Bound<B[K]> };
 
-/** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract. */
-type FullParams<E extends AnyEndpoint, Path extends string> = PathParams<JoinPath<Path, T<E>["path"]>>;
+/** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
+type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
 
 /**
  * What the route passes to the handler of endpoint `E` under `Path`: the request object with `endpoint` (H2a), the
@@ -99,18 +107,35 @@ export interface ReturnMismatch<Expected, Got> {
   got: Got;
 }
 
+type IsAny<X> = 0 extends 1 & X ? true : false;
+
+/** A requirement that no single key explains (a private member, a call signature): the handler can't take the ctx. */
+type Unexplained<N extends string, Pv, Rq, Issues> = keyof Issues extends never
+  ? { [_ in `${N}: handler ctx does not accept what the route provides`]: { route_provides: Pv; handler_requires: Rq } }
+  : Issues;
+
+/**
+ * Until H3 #106, the runtime passes the raw path params (strings) as the second argument: a handler that types it
+ * as bound models would read strings.
+ */
+type SecondIssues<N extends string, Rest extends unknown[], Raw> = Rest extends [infer Second, ...unknown[]]
+  ? [Raw] extends [Second] ? {} : { [_ in `${N}: the second parameter gets the raw path params (strings), use .bind() and ctx`]: { route_provides: Raw; handler_requires: Second } }
+  : {};
+
 /**
  * Conditional types, not function assignability: methods compare bivariantly, so `{ show(ctx: Provided): any }`
  * would accept a handler that needs more than the route provides. `[Provided] extends [Param]` is one-directional.
- * Any callable property counts as a handler (class methods, and an `action()` property later).
+ * Any callable property counts as a handler (class methods, and an `action()` property later); an `any` one passes.
  */
-type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv> = H extends (ctx: infer Rq, ...rest: any[]) => infer R
-  ? [Pv] extends [Rq]
-    ? [Awaited<R>] extends [Result<E>]
-      ? {}
-      : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
-    : RequirementIssues<N, Pv, Rq>
-  : { [_ in `${N}: controller has no handler for this endpoint`]: H };
+type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw> = IsAny<H> extends true
+  ? {}
+  : H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
+    ? [Pv] extends [Rq]
+      ? [Awaited<R>] extends [Result<E> | ResponseEscape]
+        ? SecondIssues<N, Rest, Raw>
+        : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
+      : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
+    : { [_ in `${N}: controller has no handler for this endpoint`]: H };
 
 type HandlerOf<I, K> = K extends keyof I ? I[K] : undefined;
 
@@ -118,7 +143,7 @@ type ControllerIssues<N extends string, C, Path extends string, I, X extends obj
   {
     [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
       ? // The extensions of the endpoint's own `endpoints` middleware join `X` with typed middleware (H6 #117)
-        HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>>
+        HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }>
       : {};
   }[EndpointKey<C>]
 >;
@@ -134,10 +159,20 @@ type BindIssues<N extends string, C, Path extends string, B> = {
 /** Endpoint keys with their own `.authorize()`: each needs a policy method of the same name, or `before`. */
 type AuthorizedKeys<C> = { [K in EndpointKey<C>]: C[K] extends { readonly __types: { caps: { authorize: true } } } ? K : never }[EndpointKey<C>];
 
-type PolicyOf<O> = O extends { readonly policy: infer P extends abstract new (...args: any) => any } ? InstanceType<P> : undefined;
+/** Exactly `object`: the instance of a class known only as a `PolicyClass` (an empty class gives `{}`). */
+type IsObject<X> = (<V>() => V extends X ? 1 : 2) extends (<V>() => V extends object ? 1 : 2) ? true : false;
+
+/** The policy instance, `undefined` without one, or `unknown` when the class is only known as a `PolicyClass`. */
+type PolicyOf<O> = O extends { readonly policy: infer P }
+  ? NonNullable<P> extends infer PC extends abstract new (...args: any) => any
+    ? [PC] extends [never] ? undefined : IsObject<InstanceType<PC>> extends true ? unknown : InstanceType<PC>
+    : undefined
+  : undefined;
 
 type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
-  ? [P] extends [undefined]
+  ? [unknown] extends [P]
+    ? {}
+    : [P] extends [undefined]
     ? { [K in AuthorizedKeys<C> as `${N}.${K}: endpoint has .authorize() but r.contract() has no { policy }`]: K }
     : "before" extends keyof P
       ? {}
