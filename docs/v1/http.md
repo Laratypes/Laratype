@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | planned → #108 |
+| [Exceptions](#exceptions) | current error handling merged (#267, #272, #273, #275); planned → #108 |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
@@ -420,7 +420,7 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). The current `Response.resolveException` behavior in Invariants is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#273](https://github.com/Laratypes/Laratype/issues/273), [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). The current error handling in Invariants is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#273](https://github.com/Laratypes/Laratype/issues/273), [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Invariants
 - **Unknown errors** ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
