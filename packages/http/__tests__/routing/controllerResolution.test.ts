@@ -205,16 +205,12 @@ describe('ctx.endpoint', () => {
     expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
   })
 
-  it('ctx.endpoint is on the ctx, not the request: a request class with its own endpoint field changes nothing', async () => {
-    class WithEndpoint extends LaratypeRequest {
-      endpoint = 'mine'
-    }
-    class Handler extends Controller { index(ctx: Ctx<typeof greetings.index>) { return { same: ctx.endpoint === greetings.index } } }
-    const app = new Hono()
-    app.get('/own', RequestKernel.handle({
-      method: 'get', path: '/own', name: 'own', request: WithEndpoint, endpoint: greetings.index, controller: [Handler, 'index'],
-    }))
-    expect(await (await app.request('/own')).json()).toEqual({ same: true })
+  it('a contract route takes no request class: its rules() would be skipped, so registering it throws', () => {
+    class StoreRequest extends LaratypeRequest {}
+    class Handler extends Controller { index() { return {} } }
+    expect(() => RequestKernel.handle({
+      method: 'get', path: '/own', name: 'own', request: StoreRequest, endpoint: greetings.index, controller: [Handler, 'index'],
+    })).toThrow("own: a contract route validates its endpoint's query and body schemas, so it takes no request class (StoreRequest)")
   })
 
   it('a 0.5 route has no endpoint', async () => {

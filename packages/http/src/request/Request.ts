@@ -4,6 +4,7 @@ import RequestSupport from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, DiError, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
@@ -24,8 +25,8 @@ type PipeLineType = {
 } | {
   type: 'request',
   handler: RequestSupport,
-  /** The raw input of a contract route, validated against its endpoint before the handler runs. */
-  input: RawInput,
+  /** A contract route's endpoint and raw input, validated before the handler runs. */
+  contract?: { endpoint: AnyEndpoint, input: RawInput },
 } | {
   type: 'controller',
   handler: any,
@@ -43,6 +44,12 @@ export enum ControllerMethodHttpStatusCode {
 }
 
 export default class Request extends AppServiceProvider {
+
+  /** @deprecated The 0.5 `FormValidation` path: validate a Standard Schema with `validate()` from `@laratype/contract`. */
+  public static async validate(data: any, rule: any) {
+    const result = FormValidation.validationResult(rule, data);
+    return result
+  }
 
   /**
    * The container controllers are resolved from: the app container `boot()` puts on each request, else one
@@ -155,12 +162,14 @@ export default class Request extends AppServiceProvider {
     return Object.fromEntries(models);
   }
 
-  /** The 0.5 `input()`: the query merged with the body (`readBody`: JSON by media type, else form fields). */
-  public static async processData(request: HonoRequest) {
-    const body = await readBody(request) as Record<string, any>;
+  /**
+   * The 0.5 `input()`: the query merged with the body (`readBody`: JSON by media type, else form fields). `body` is
+   * one `readBody()` already read, so the body is parsed once.
+   */
+  public static async processData(request: HonoRequest, body?: unknown) {
     request.input = {
       ...request.query(),
-      ...body,
+      ...(body === undefined ? await readBody(request) : body) as Record<string, any>,
     }
     
     return request;
@@ -171,9 +180,9 @@ export default class Request extends AppServiceProvider {
    * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
    * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
    */
-  public static async contractContext(endpoint: AnyEndpoint, input: RawInput) {
+  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = { params: { ...input.params }, query, body };
+    const ctx = { params: input.params, query, body };
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
   }
 
@@ -193,8 +202,8 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'request') {
-              handlerArg = routeOption.endpoint
-                ? await this.contractContext(routeOption.endpoint, currentPipeline.input)
+              handlerArg = currentPipeline.contract
+                ? await this.contractContext(currentPipeline.contract)
                 : await this.processValidation(requestInstance, routeOption);
               return await next(arg);
             }
@@ -270,10 +279,16 @@ export default class Request extends AppServiceProvider {
   }
   
   public static handle (routeOption: RouteParams) {
+    const { endpoint } = routeOption;
+    // A contract route validates its endpoint's schemas: the rules() of a request class would be skipped silently
+    if(endpoint && routeOption.request) {
+      throw new TypeError(`${routeOption.name ?? routeOption.path}: a contract route validates its endpoint's query and body schemas, so it takes no request class (${routeOption.request.name})`);
+    }
     return async (ctx: Context) => {
-      const requestInstance = await this.processData(ctx.req);
-      // The input a contract route validates: the body is Hono's cached parse from processData, the params raw strings
-      const input: RawInput = { params: { ...ctx.req.param() }, query: readQuery(ctx.req), body: await readBody(ctx.req) };
+      const body = await readBody(ctx.req);
+      const requestInstance = await this.processData(ctx.req, body);
+      // A contract route's raw input: Hono builds a new params object per call
+      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
@@ -295,7 +310,7 @@ export default class Request extends AppServiceProvider {
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
         }
-        pipelines.push({ type: 'request' as const, handler: transformedRequest, input });
+        pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
         const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);

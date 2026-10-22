@@ -24,15 +24,17 @@ const malformedJson = () =>
 
 /**
  * The request body: JSON for a JSON media type, else the form fields `parseBody()` reads (`multipart/form-data` and
- * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). A malformed JSON body is a 400. Hono caches
- * the parsed body, so a second call reads it again for free.
+ * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty JSON body is no body, `{}` as for
+ * the other types (a client may send its JSON Content-Type on a GET); a malformed one is a 400.
  */
 export const readBody = async (request: HonoRequest): Promise<unknown> => {
   if (!isJsonMediaType(request.header("Content-Type"))) {
     return request.parseBody({ dot: true });
   }
+  const text = await request.text();
+  if (text.trim() === "") return {};
   try {
-    return await request.json();
+    return JSON.parse(text);
   } catch {
     throw malformedJson();
   }
@@ -40,26 +42,33 @@ export const readBody = async (request: HonoRequest): Promise<unknown> => {
 
 /**
  * The query string as the client's `buildUrl` sends it: a key once is a string, a repeated key an array. Converting
- * a value (`"2"` to `2`) is the schema's job (`z.coerce.number<number>()`). `fromEntries` defines own keys, so a
- * `__proto__` key stays a key.
+ * a value (`"2"` to `2`) is the schema's job (`z.coerce.number<number>()`). Hono's `queries()` drops a `__proto__` key.
  */
 export const readQuery = (request: HonoRequest): Record<string, string | string[]> =>
   Object.fromEntries(Object.entries(request.queries()).map(([key, values]) => [key, values.length === 1 ? values[0]! : values]));
 
 type Segment = NonNullable<StandardIssue["path"]>[number];
 
+/** The fields of zod and valibot issues that hold submitted data. */
+type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
+
 const RECEIVED_TAILS = (received: string) => [`, received '${received}'`, `, received ${received}`, ` but received ${received}`];
 
 /**
- * An issue's message without the submitted value: zod 3 (`Invalid enum value. Expected 'a' | 'b', received 'c'`) and
- * valibot (`Invalid type: Expected string but received 5`) end their default messages with the issue's `received`.
- * It is the client's own data, but it would reach proxy and client logs. A message of the app's own is kept.
+ * An issue's message without the submitted data, which would reach proxy and client logs. Default messages put it
+ * last: zod 3 and valibot end with the issue's `received` (`Invalid enum value. Expected 'a' | 'b', received 'c'`,
+ * `Invalid type: Expected string but received 5`), zod's unrecognized keys follow the first `": "`. A zod
+ * `invalid_type` keeps its `received`, a type name. Any other message is kept as it is.
  */
-const issueMessage = (issue: StandardIssue & { readonly received?: unknown }): string => {
-  const { received } = issue;
-  if (!["string", "number", "boolean", "bigint"].includes(typeof received)) return issue.message;
-  const tail = RECEIVED_TAILS(String(received)).find((suffix) => issue.message.endsWith(suffix));
-  return tail ? issue.message.slice(0, -tail.length) : issue.message;
+const issueMessage = (issue: LibraryIssue): string => {
+  const { message, code, received, keys } = issue;
+  if (Array.isArray(keys) && keys.length > 0) {
+    const at = message.indexOf(": ");
+    if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return message.slice(0, at);
+  }
+  if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
+  const tail = RECEIVED_TAILS(String(received)).find((suffix) => message.endsWith(suffix));
+  return tail ? message.slice(0, -tail.length) : message;
 };
 
 /**
@@ -99,8 +108,7 @@ const validateSlot = async (schema: StandardSchemaV1 | undefined, value: unknown
  * 422: an error thrown inside a schema rejects, and ends as a generic 500.
  */
 export const validateInput = async (endpoint: AnyEndpoint, input: RawInput): Promise<{ query: unknown; body: unknown }> => {
-  const query = await validateSlot(endpoint.def.query, input.query);
-  const body = await validateSlot(endpoint.def.body, input.body);
+  const [query, body] = await Promise.all([validateSlot(endpoint.def.query, input.query), validateSlot(endpoint.def.body, input.body)]);
   if (!query.ok || !body.ok) {
     throw unprocessable([...(query.ok ? [] : query.issues), ...(body.ok ? [] : body.issues)]);
   }

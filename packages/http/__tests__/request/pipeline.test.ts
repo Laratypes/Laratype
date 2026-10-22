@@ -100,6 +100,13 @@ describe('a contract route', () => {
     expect((await invalid.json()).errors.page).toHaveLength(1)
   })
 
+  it('a GET with a JSON Content-Type and no body is no body, not a 400', async () => {
+    quiet()
+    const response = await app().request('/api/users/7/posts?page=2', { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ query: { page: 2 } })
+  })
+
   it('a 422 message never repeats the submitted value', async () => {
     quiet()
     const response = await app().request('/api/users/7/posts?draft=s3cr3t', json({ title: 'Hi' }))
@@ -217,10 +224,21 @@ describe('a 0.5 request class', () => {
     expect(text).not.toContain('s3cr3t')
   })
 
-  it('keeps a message of the app own', async () => {
+  it('keeps a message of the app own, and the type name of an invalid_type', async () => {
     quiet()
-    const response = await post(() => z.object({ name: z.string().min(3, 'Name too short') }), { name: 'a' })
-    expect((await response.json()).errors).toEqual([{ path: ['name'], message: 'Name too short' }])
+    const response = await post(() => z.object({ name: z.string().min(3, 'Name too short'), age: z.number() }), { name: 'a', age: 'x' })
+    expect((await response.json()).errors).toEqual([
+      { path: ['name'], message: 'Name too short' },
+      { path: ['age'], message: 'Expected number, received string' },
+    ])
+  })
+
+  it('cuts the unrecognized keys of a strict object from the message', async () => {
+    quiet()
+    const response = await post(() => z.object({ name: z.string() }).strict(), { name: 'ada', s3cr3t: 1 })
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual([{ path: [], message: 'Unrecognized key(s) in object' }])
+    expect(text).not.toContain('s3cr3t')
   })
 
   it('a default rules() is told by its brand, so another copy of @laratype/http skips it too', async () => {
