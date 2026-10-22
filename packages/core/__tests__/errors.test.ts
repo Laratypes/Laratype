@@ -54,14 +54,14 @@ describe('missing binding', () => {
 
 describe('no dependency metadata', () => {
   it('for a named class', () => {
-    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\`."`)
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: have the laratype:di plugin compile the class (it compiles app code), or bind it with a factory in a service provider \`register()\`."`)
   })
 
   it('for an anonymous class', () => {
     const Anonymous = (() => class {
       constructor(readonly mailer: unknown) {}
     })()
-    expect(messageOf(() => new Container().make(Anonymous))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\`."`)
+    expect(messageOf(() => new Container().make(Anonymous))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: have the laratype:di plugin compile the class (it compiles app code), or bind it with a factory in a service provider \`register()\`."`)
   })
 
   it('for a class a constructor param needs', () => {
@@ -69,7 +69,7 @@ describe('no dependency metadata', () => {
       constructor(readonly notifier: Notifier) {}
     }
     const deps = depsOf([[App, { slots: [() => Notifier], meta: { params: ['notifier'] } }]])
-    expect(messageOf(() => new Container({ deps }).make(App))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\`."`)
+    expect(messageOf(() => new Container({ deps }).make(App))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: have the laratype:di plugin compile the class (it compiles app code), or bind it with a factory in a service provider \`register()\`."`)
   })
 })
 

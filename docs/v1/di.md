@@ -495,7 +495,7 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - `Cannot resolve <P>: type \`<TypeText>\` has no runtime value. Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
 - `Cannot resolve <P>: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
 - `Conflicting metadata for <P>: transform says <A>, @Inject says <B>. Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).`
-- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\`.` Every `make()` gets it, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)).
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: have the laratype:di plugin compile the class (it compiles app code), or bind it with a factory in a service provider \`register()\`.` Every `make()` gets it, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)).
 
 `Cannot bind …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
 

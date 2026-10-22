@@ -48,10 +48,10 @@ const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
 /** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
 const createFallbackContainer = () => {
   const store = globalThis as { [FALLBACK_WARNED]?: true };
-  const prod = globalThis.__PROD__ || globalThis.process?.env?.NODE_ENV === "production";
+  const prod = globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
   if (!prod && !store[FALLBACK_WARNED]) {
     store[FALLBACK_WARNED] = true;
-    console.warn("[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and singletons it autowires live for the whole process. Serve them through RequestKernel to resolve them from the app container.");
+    console.warn("[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve them through RequestKernel to resolve them from the app container.");
   }
   return new Container({ deps: depsRegistry });
 };

@@ -65,7 +65,7 @@ const errors = {
     + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
   noMetadata: (cls: Function): string =>
     `Cannot autowire ${keyName(cls)}: its constructor takes ${cls.length} param(s) but no dependency metadata was found.`
-    + ' Fix: compile the class with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider `register()`.',
+    + ' Fix: have the laratype:di plugin compile the class (it compiles app code), or bind it with a factory in a service provider `register()`.',
   conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
     `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
     + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',

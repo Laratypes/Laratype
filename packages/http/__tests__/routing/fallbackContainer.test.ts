@@ -12,16 +12,22 @@ const load = async () => {
   return { ...http, ...core, ...support }
 }
 
+const clearWarned = () => { delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED] }
+
 let warn: ReturnType<typeof vi.spyOn>
+let modelBindings: typeof globalThis.__laratype_route_model_bindings
 
 beforeEach(() => {
-  delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED]
+  clearWarned()
+  modelBindings = globalThis.__laratype_route_model_bindings
   vi.stubGlobal('__PROD__', false)
   vi.stubEnv('NODE_ENV', 'development')
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 afterEach(() => {
+  clearWarned()
+  globalThis.__laratype_route_model_bindings = modelBindings
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -33,7 +39,7 @@ describe('fallback container', () => {
     const fallback = RequestKernel.container()
     expect(RequestKernel.container()).toBe(fallback)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn.mock.calls[0]![0]).toMatchInlineSnapshot(`"[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and singletons it autowires live for the whole process. Serve them through RequestKernel to resolve them from the app container."`)
+    expect(warn.mock.calls[0]![0]).toMatchInlineSnapshot(`"[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve them through RequestKernel to resolve them from the app container."`)
     const copy = await load()
     expect(copy.RequestKernel.container()).not.toBe(fallback)
     expect(warn).toHaveBeenCalledTimes(1)
@@ -45,6 +51,14 @@ describe('fallback container', () => {
     RequestKernel.container()
     RequestKernel.container()
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('reads NODE_ENV only when __PROD__ is unset', async () => {
+    vi.stubGlobal('__PROD__', false)
+    vi.stubEnv('NODE_ENV', 'production')
+    const { RequestKernel } = await load()
+    RequestKernel.container()
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 
   it('never warns when NODE_ENV is production', async () => {
