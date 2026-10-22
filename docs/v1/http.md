@@ -21,7 +21,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
-| [Response from the contract](#response-from-the-contract) | proposed: PR #PR_N @ PR_SHA |
+| [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 08379f0 |
 | [Exceptions](#exceptions) | planned → #108 |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
@@ -401,7 +401,7 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 ## Response from the contract
 
 ### Status
-proposed: PR #PR_N @ PR_SHA (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)). `Jsonify` is in [contract.md › API type projection](./contract.md#api-type-projection).
+proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 08379f0 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)). `Jsonify` is in [contract.md › API type projection](./contract.md#api-type-projection).
 
 ### Public API
 No new API: a `Route.api` route answers through `resolveContractResponse` ([`packages/http/src/response/contractResponse.ts`](../../packages/http/src/response/contractResponse.ts)), which `RequestKernel.handle` calls for a route with an endpoint.
