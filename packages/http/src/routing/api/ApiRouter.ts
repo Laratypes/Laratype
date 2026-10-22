@@ -19,6 +19,7 @@ import type {
   UnenforcedCap,
 } from "./types";
 import { UNENFORCED_NOTICE } from "./types";
+import { throttled } from "./throttle";
 
 const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
@@ -207,8 +208,7 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
 };
 
 /**
- * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121), its `throttle`
- * (#229) and the
+ * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
  * validation of its body, query and headers schemas (#106). The one place that decides it: the mount warning and
  * `sauf route:list` both read `RouteEntry.unenforced`.
  */
@@ -217,7 +217,6 @@ const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
   return Object.freeze([
     ...(route.auth ? (["auth"] as const) : []),
     ...(route.authorize ? (["authorize"] as const) : []),
-    ...(route.throttle ? (["throttle"] as const) : []),
     ...(query || body || headers ? (["validation"] as const) : []),
   ]);
 };
@@ -249,7 +248,7 @@ const statusMetadata = (controller: ControllerClass, key: string): number | unde
 const WARNED = Symbol.for("laratype.http.unenforcedWarned");
 const WARNED_MAX = 32;
 
-/** One warning per process and route set: until #105 / #121 / #229 / #106 such a route skips those checks. */
+/** One warning per process and route set: until #105 / #121 / #106 such a route skips those checks. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
@@ -333,8 +332,9 @@ export class ApiRoutes {
    */
   mount(app: Hono): RouteEntry[] {
     warnUnenforced(this.routes);
-    for (const route of registrationOrder(this.routes)) {
-      const handle = RequestKernel.handle({
+    // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
+    const handlers = registrationOrder(this.routes).map((route) => {
+      const kernel = RequestKernel.handle({
         method: route.method,
         path: route.path,
         name: route.name,
@@ -344,13 +344,12 @@ export class ApiRoutes {
         controller: route.controller as unknown as RouteParams["controller"],
         middleware: [...route.middleware],
       });
+      // The contract's rate limit runs before the route middleware, with no middleware of its own (#229)
+      const handle = route.throttle ? throttled(route, route.throttle, kernel) : kernel;
       const domain = route.domain;
-      app.on(
-        route.method.toUpperCase(),
-        route.path,
-        domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c) : next()),
-      );
-    }
+      return [route, domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next())] as const;
+    });
+    for (const [route, handle] of handlers) app.on(route.method.toUpperCase(), route.path, handle);
     return [...this.routes];
   }
 }

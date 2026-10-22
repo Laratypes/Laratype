@@ -21,6 +21,25 @@ type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globa
  */
 export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
 
+/** `request.ip()` read from the Hono context: the rate limit (#229) keys on it before the request is built. */
+export const clientIp = (ctx: Context | undefined): string => {
+  if(!ctx?.env) {
+    return ""
+  }
+  // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
+  const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
+  const bindings = env.server || env
+  // Node passes `{ incoming, outgoing }`, its IncomingMessage carries the socket
+  if(bindings.incoming?.socket) {
+    return getNodeConnInfo(ctx).remote.address ?? ""
+  }
+  // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
+  if(typeof bindings.requestIP === "function") {
+    return bindings.requestIP(ctx.req.raw)?.address ?? ""
+  }
+  return ""
+}
+
 export default class Request implements RequestInterface {
 
   protected requestCtx: HonoRequest
@@ -103,22 +122,7 @@ export default class Request implements RequestInterface {
    * address.
    */
   ip(): string {
-    const ctx = (this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT]
-    if(!ctx?.env) {
-      return ""
-    }
-    // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
-    const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
-    const bindings = env.server || env
-    // Node passes `{ incoming, outgoing }`, its IncomingMessage carries the socket
-    if(bindings.incoming?.socket) {
-      return getNodeConnInfo(ctx).remote.address ?? ""
-    }
-    // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
-    if(typeof bindings.requestIP === "function") {
-      return bindings.requestIP(ctx.req.raw)?.address ?? ""
-    }
-    return ""
+    return clientIp((this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT])
   }
 
   isMethod(method: string): boolean {
