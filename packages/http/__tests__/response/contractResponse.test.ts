@@ -247,6 +247,14 @@ describe('dev-mode output validation', () => {
     expect(empty.status).toBe(200)
     expect(await empty.text()).toBe('null')
   })
+
+  it('a value JSON.stringify throws on is a 500 without the handler\'s headers, in production too', async () => {
+    vi.stubGlobal('__PROD__', true)
+    result = new LaratypeResponse({ id: 1n }, undefined, { 'Set-Cookie': 'sid=x' })
+    const response = await bootApp().request('/api/users/1')
+    expect(response.status).toBe(500)
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
 })
 
 describe('0.5 routes', () => {

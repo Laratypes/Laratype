@@ -14,11 +14,8 @@ const fail = (route: string, message: string): never => {
 /** Dev and test: the output check runs unless the app is a production build (`__PROD__`) or `NODE_ENV=production`. */
 const isProduction = () => globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
 
-/** What the client parses: the value after `JSON.stringify` + `JSON.parse`, `null` for no JSON text at all. */
-const wire = (value: unknown): unknown => {
-  const text = JSON.stringify(value);
-  return text === undefined ? null : JSON.parse(text);
-};
+/** The JSON text sent for a value: `JSON.stringify` gives none for `undefined` (or a function), which is sent as `null`. */
+const serialize = (value: unknown): string => JSON.stringify(value) ?? "null";
 
 /**
  * Dev-mode output validation: the handler's value against the endpoint's response schema. The handler's value is what
@@ -26,13 +23,13 @@ const wire = (value: unknown): unknown => {
  * hash), would send what the client's `Jsonify<output>` type doesn't say. A mismatch is the server's bug, not the
  * client's, so it throws: the exception handler answers a generic 500 and logs the issues.
  */
-const checkOutput = async (schema: StandardSchemaV1, value: unknown, route: string) => {
+const checkOutput = async (schema: StandardSchemaV1, value: unknown, text: string, route: string) => {
   const result = await validate(schema, value);
   if (!result.ok) {
     const issues = Object.entries(result.errors).map(([path, messages]) => `${path || "(root)"}: ${messages.join(", ")}`);
-    fail(route, `the handler's value does not match the endpoint's response schema (${issues.join("; ")})`);
+    return fail(route, `the handler's value does not match the endpoint's response schema (${issues.join("; ")})`);
   }
-  if (!isEqual(wire(value), wire(result.value))) {
+  if (!isEqual(JSON.parse(text), JSON.parse(serialize(result.value)))) {
     fail(route, "the endpoint's response schema changes the handler's value (a transform, or a key it strips), so the client's type would not match what is sent: return the schema's output");
   }
 };
@@ -63,9 +60,11 @@ export const resolveContractResponse = async (ctx: Context, result: unknown, end
   }
   const bodyless = !schema || isBodylessStatus(status);
   const value = bodyless ? undefined : JsonResource.toJson(support ? support.getContent() : result);
-  // Before any header is set: the 500 of a failed check must not carry the handler's cookies or cache headers
-  if (!bodyless && !isProduction()) {
-    await checkOutput(schema, value, route);
+  // Serialized and checked before any header is set: the 500 of a value JSON.stringify throws on (a bigint, a cycle)
+  // or of a failed check must not carry the handler's cookies or cache headers
+  const text = bodyless ? undefined : serialize(value);
+  if (text !== undefined && !isProduction()) {
+    await checkOutput(schema!, value, text, route);
   }
   const headers = support?.getHeaders() ?? {};
   for (const name in headers) {
@@ -73,9 +72,8 @@ export const resolveContractResponse = async (ctx: Context, result: unknown, end
     if (name.toLowerCase() !== "content-type") ctx.header(name, headers[name]);
   }
 
-  if (bodyless) {
+  if (text === undefined) {
     return ctx.body(null, status as 204);
   }
-  // JSON.stringify(undefined) is no JSON text at all: an empty answer is `null`
-  return ctx.json((value === undefined ? null : value) as {}, status as ContentfulStatusCode);
+  return ctx.body(text, status as ContentfulStatusCode, { "Content-Type": "application/json" });
 };
