@@ -400,6 +400,33 @@ describe('r.contract() options', () => {
     }
   })
 
+  it('a prototype chain deeper than one null prototype is not plain, even when nothing in it is enumerable', () => {
+    const hidden = Object.create(Object.create(null, { destroy: { value: (r: EndpointRouteBuilder) => r.middleware(Audit) } }))
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints: hidden } as never)])).toThrow(
+      'contract "posts": endpoints must be an object literal, not an instance or an Object.create() object',
+    )
+  })
+
+  it('a null-prototype map with a Symbol.toStringTag (a module namespace) is plain', () => {
+    const ns = Object.create(null, { destroy: { value: (r: EndpointRouteBuilder) => r.middleware(Audit), enumerable: true }, [Symbol.toStringTag]: { value: 'Module' } })
+    const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints: ns })]))
+    expect(entries.find((e) => e.name === 'posts.destroy')!.middleware).toEqual([Audit])
+  })
+
+  it('the verdict travels with the copy: a spread item is still rejected', () => {
+    const endpoints = Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) })
+    expect(() => Route.api(postsApi, ((r: any) => [{ ...r.contract(posts, PostController, { endpoints }) }]) as never)).toThrow(
+      'contract "posts": endpoints.destroy is inherited',
+    )
+  })
+
+  it('a getter is read once: the check and the routes see the same endpoints', () => {
+    let reads = 0
+    const options = { get endpoints() { return reads++ ? {} : Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) }) } }
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, options as never)])).toThrow('endpoints.destroy is inherited')
+    expect(reads).toBe(1)
+  })
+
   it('an item built without r.contract() is checked and copied too', () => {
     const endpoints = Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) })
     const item = { kind: 'contract', contract: posts, controller: PostController, middleware: [], options: { endpoints } }
@@ -430,6 +457,10 @@ describe('r.contract() options', () => {
     const { entries } = mount(Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r.middleware(Audit) } } })]))
     expect(entries[0]!.middleware).toEqual([Audit])
     expect(() => Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r } } })])).not.toThrow()
+    // a class with a comment after the keyword is still a class
+    expect(() => Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes: class/* mw */ Mw {} } as never })])).toThrow(
+      'contract "classy": endpoints.classes must be a callback',
+    )
   })
 
   it('a class is not a callback; a callback that throws throws its own error', () => {

@@ -2,7 +2,6 @@ import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes, contractEndpoints, isEndpoint } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
-import { isPlainObject } from "es-toolkit";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
@@ -35,11 +34,8 @@ class RouteBuilder {
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
     // A copy: mutating the options (or their endpoints map) after r.contract() must not change the routes. Whether the
-    // originals are plain is decided now, and reported by Route.api, which knows the contract's tree name
-    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copyOptions(options) });
-    const issue = plainIssue(options);
-    if (issue !== undefined) plainIssues.set(mounted, issue);
-    return mounted;
+    // originals are plain is decided now and kept on the copy; Route.api reports it, as it knows the contract's tree name
+    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options: copyOptions(options) });
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
@@ -50,42 +46,49 @@ class RouteBuilder {
 
 const isObject = (value: unknown): value is object => typeof value === "object" && value !== null;
 
+/** On a `copyOptions` copy: why the original options were not plain, or `undefined`. Marks the object as a copy. */
+const PLAIN_ISSUE = Symbol("plainIssue");
+
 /**
  * A frozen copy of every own string key on a `null` prototype, so nothing inherited is read later (not even from a
- * polluted `Object.prototype`) and a non-enumerable key is checked like any other. `nested` names a key whose object
- * value is copied too.
+ * polluted `Object.prototype`) and a non-enumerable key is checked like any other.
  */
-const frozenCopy = (value: object, nested?: string): object => {
+const frozenCopy = (value: object, map: (key: string, item: unknown) => unknown = (_, item) => item): object => {
   const copy: object = Object.create(null);
   // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
   for (const key of Object.getOwnPropertyNames(value)) {
-    const item = (value as Record<string, unknown>)[key];
-    Object.defineProperty(copy, key, { value: key === nested && isObject(item) ? frozenCopy(item) : item, enumerable: true });
+    Object.defineProperty(copy, key, { value: map(key, (value as Record<string, unknown>)[key]), enumerable: true });
   }
-  return Object.freeze(copy);
+  return copy;
 };
-
-/** `r.contract()` options and their `endpoints` map as frozen copies; anything else as is, for `checkOptions` to report. */
-const copyOptions = (options: unknown) =>
-  (isObject(options) ? frozenCopy(options, "endpoints") : options) as ContractRouteOptions<object> | undefined;
 
 /**
  * Why `options` or its `endpoints` map is not plain: an inherited enumerable key, whose option or callback would be
- * dropped (which fails open for auth middleware), or a prototype that is not a plain object's.
+ * dropped (which fails open for auth middleware), or a prototype other than `Object.prototype` or `null` (a deeper
+ * chain could hide a non-enumerable inherited callback).
  */
-const plainIssue = (options: unknown): string | undefined => {
-  const issue = (label: string, value: object) => {
-    for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: pass ${label} as an object literal`;
-    if (!isPlainObject(value)) return `${label} must be an object literal, not an instance or an Object.create() object`;
-    return undefined;
-  };
-  if (!isObject(options)) return undefined;
-  const endpoints = Object.hasOwn(options, "endpoints") ? (options as { endpoints?: unknown }).endpoints : undefined;
-  return issue("options", options) ?? (isObject(endpoints) ? issue("endpoints", endpoints) : undefined);
+const plainIssue = (label: string, value: object): string | undefined => {
+  for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: pass ${label} as an object literal`;
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return `${label} must be an object literal, not an instance or an Object.create() object`;
+  return undefined;
 };
 
-/** The `plainIssue` of each `r.contract()` item, taken from the originals before they were copied. */
-const plainIssues = new WeakMap<object, string>();
+/**
+ * Frozen copies of `r.contract()` options and their `endpoints` map, each key read once, carrying the `plainIssue` of
+ * the originals. Anything else is returned as is, for `checkOptions` to report; a copy is returned as is too.
+ */
+const copyOptions = (options: unknown): ContractRouteOptions<object> | undefined => {
+  if (!isObject(options) || Object.hasOwn(options, PLAIN_ISSUE)) return options as ContractRouteOptions<object> | undefined;
+  let issue = plainIssue("options", options);
+  const copy = frozenCopy(options, (key, item) => {
+    if (key !== "endpoints" || !isObject(item)) return item;
+    issue ??= plainIssue("endpoints", item);
+    return Object.freeze(frozenCopy(item));
+  });
+  Object.defineProperty(copy, PLAIN_ISSUE, { value: issue });
+  return Object.freeze(copy) as ContractRouteOptions<object>;
+};
 
 interface TreeEntry {
   readonly name: string;
@@ -167,9 +170,10 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       if (typeof item.controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
       }
-      // An item built without r.contract() (untyped callers) is checked and copied here
+      // An item built without r.contract() (untyped callers) is copied here
       const options = copyOptions(item.options);
-      checkOptions(names, matched[0]!.entry.contract, options, plainIssues.get(item) ?? plainIssue(item.options));
+      const issue = isObject(options) ? (options as { [PLAIN_ISSUE]?: string })[PLAIN_ISSUE] : undefined;
+      checkOptions(names, matched[0]!.entry.contract, options, issue);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       for (const name of names) contracts.set(name, { ...item, options });
@@ -249,10 +253,10 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
 
 /**
  * A function that can be called: not a class (a middleware class compiles under a key typed `Function`, such as
- * hasOwnProperty). The `class` keyword only, so a method shorthand `classes(r) {}` passes. A bound class or a Proxy of
- * one prints `[native code]` and gets past this check: calling it then throws its own TypeError.
+ * hasOwnProperty). The `class` keyword only: a method shorthand `classes(r) {}` or `class(r) {}` passes. A bound class
+ * or a Proxy of one prints `[native code]` and gets past this check: calling it then throws its own TypeError.
  */
-const isCallback = (value: unknown) => typeof value === "function" && !/^class[\s{]/.test(Function.prototype.toString.call(value));
+const isCallback = (value: unknown) => typeof value === "function" && !/^class\b(?!\s*\()/.test(Function.prototype.toString.call(value));
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
 const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
