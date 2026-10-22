@@ -113,22 +113,17 @@ export default class Response extends AppServiceProvider {
    * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
    */
   public resolveException(err: Error | Exception, c: Context) {
-    try {
-      return Response.filterException(err, c);
-    }
-    catch (failure) {
-      // The filter itself failed (a body JSON can't hold, a toJson() that throws): the error it was answering is logged
-      // with that failure, and the answer is the generic 500
-      console.error(err, failure);
-      return c.json({ message: "Server Error" }, 500);
-    }
-  }
-
-  protected static filterException(err: Error | Exception, c: Context) {
     // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
     // controller's status. It is expected, so it is not logged (#108)
     if (isContractError(err)) {
-      return c.json({ code: err.code, ...err.body }, err.status as ContentfulStatusCode);
+      try {
+        return c.json({ code: err.code, ...err.body }, err.status as ContentfulStatusCode);
+      }
+      catch (failure) {
+        // A body JSON can't hold (a BigInt, a cycle): the generic 500, with the error logged
+        console.error(err, failure);
+        return c.json({ message: "Server Error" }, 500, { "Cache-Control": "no-store" });
+      }
     }
 
     const responsible = isException(err) && err.canResponsible() ? err : undefined;

@@ -127,7 +127,9 @@ describe('domain errors', () => {
   it('a body JSON cannot hold answers the generic 500, and the error is logged with the failure', async () => {
     quiet()
     const error = defineError(409, 'HUGE', () => ({ size: 1n }))()
-    await expectBody(await throwing(() => error), 500, GENERIC)
+    const response = await throwing(() => error)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    await expectBody(response, 500, GENERIC)
     expect(logged).toHaveBeenCalledTimes(1)
     expect(logged).toHaveBeenCalledWith(error, expect.any(TypeError))
   })
@@ -185,6 +187,17 @@ describe('non-Error throws', () => {
     await expectBody(await app.request('/hono'), 500, GENERIC)
     await expectBody(await app.request('/legacy'), 500, GENERIC)
     expect(logged).toHaveBeenCalledTimes(2)
+  })
+
+  it('a fetch that throws synchronously answers the generic 500 too', async () => {
+    quiet()
+    const { app, boot } = bootApp()
+    app.fetch = () => { throw 'secret detail' }
+    boot()
+    const response = app.fetch(new Request('http://localhost/'))
+    expect(response).toBeInstanceOf(Response)
+    await expectBody(response as Response, 500, GENERIC)
+    expect(logged).toHaveBeenCalledWith('secret detail')
   })
 
   it('an Error still goes through the filter, with the context headers', async () => {
