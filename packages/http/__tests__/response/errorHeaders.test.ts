@@ -245,17 +245,22 @@ describe('error response headers', () => {
       'Content-Length': '812',
       'Content-Range': 'bytes 0-811/812',
       'Content-Disposition': 'attachment; filename="report.csv"',
+      'Content-Language': 'fr',
+      'Content-Location': '/reports/r.csv',
+      'Transfer-Encoding': 'chunked',
       'Access-Control-Allow-Origin': 'https://app.example.test',
     },
   })
 
-  const expectNoRepresentationHeaders = (response: Response) => {
-    expect(response.headers.get('Location')).toBeNull()
-    expect(response.headers.get('Content-Encoding')).toBeNull()
-    expect(response.headers.get('Content-Range')).toBeNull()
-    expect(response.headers.get('Content-Disposition')).toBeNull()
+  /** Asserts the error response carries no header of the earlier body or redirect; `text` is the error's own body */
+  const expectNoBodyHeaders = (response: Response, text: string) => {
+    for (const name of ['Location', 'Content-Encoding', 'Content-Range', 'Content-Disposition', 'Content-Language', 'Content-Location', 'Transfer-Encoding']) {
+      expect(response.headers.get(name), name).toBeNull()
+    }
+    expect(response.headers.get('Content-Type')).not.toBe('application/octet-stream')
     // Content-Length, when present, is the error body's own
-    expect(response.headers.get('Content-Length')).not.toBe('812')
+    const length = response.headers.get('Content-Length')
+    if (length !== null) expect(Number(length)).toBe(new TextEncoder().encode(text).byteLength)
   }
 
   for (const [label, thrown, status] of [
@@ -277,12 +282,31 @@ describe('error response headers', () => {
       expect(response.status).toBe(status)
       const text = await response.text()
       expect(text).not.toBe('compressed bytes')
-      expectNoRepresentationHeaders(response)
+      expectNoBodyHeaders(response, text)
       expect(response.headers.get('Cache-Control')).toBe('no-store')
       // a header the error response may carry stays
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
     })
   }
+
+  it('a handler that sets body and redirect headers with c.header() and then throws answers without them', async () => {
+    quiet()
+    const app = bootApp()
+    app.get('/export', (c) => {
+      c.header('Content-Type', 'application/octet-stream')
+      c.header('Content-Disposition', 'attachment; filename="report.csv"')
+      c.header('Content-Length', '812')
+      c.header('Location', '/reports/r.csv')
+      c.header('Access-Control-Allow-Origin', 'https://app.example.test')
+      throw new Error('secret detail')
+    })
+    const response = await app.request('/export')
+    expect(response.status).toBe(500)
+    const text = await response.text()
+    expect(JSON.parse(text)).toEqual(GENERIC)
+    expectNoBodyHeaders(response, text)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+  })
 
   it('a successful response keeps the headers middleware set', async () => {
     class Fine extends Controller { index() { return { ok: true } } }
