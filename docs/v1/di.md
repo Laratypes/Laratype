@@ -24,7 +24,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)) |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
@@ -477,7 +477,7 @@ None of its own. The transform never throws on user code, and resolve-time failu
 ## Resolution errors with fix hints
 
 ### Status
-merged ([#100](https://github.com/Laratypes/Laratype/issues/100)).
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Public API
 None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
@@ -495,8 +495,9 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - `Cannot resolve <P>: type \`<TypeText>\` has no runtime value. Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
 - `Cannot resolve <P>: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
 - `Conflicting metadata for <P>: transform says <A>, @Inject says <B>. Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).`
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container.` Every `make()` gets it, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)).
 
-`Cannot bind …`, `Cannot autowire …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
+`Cannot bind …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
 
 Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
 
