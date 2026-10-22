@@ -1,4 +1,5 @@
-// docs/v1/client.md: options and hooks (CL3 #124). Proposed: moves up to examples/client/ when the PR merges.
+// docs/v1/client.md: options and hooks (CL3 #124). Proposed: when the PR merges, it moves up to examples/client/ and
+// imports '../contract/contracts'.
 import { createClient } from '@laratype/client'
 import { appApi } from '../../contract/contracts'
 

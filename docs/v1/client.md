@@ -171,7 +171,6 @@ if (result.ok) result.data.title                     // see Result union
 
 ### Non-goals
 - No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
-- Dynamic headers, hooks and `credentials` are in [Options and hooks](#options-and-hooks) (CL3 [#124](https://github.com/Laratypes/Laratype/issues/124)).
 
 ### Open questions
 - None recorded.
@@ -276,9 +275,9 @@ export interface ClientRequest {
 - **`AbortSignal`:** per call, `signal` in the call input ([createClient](#createclient) › Call input). There is no client-wide signal; `onRequest` can set `request.init.signal`.
 - **Custom `fetch`:** `options.fetch` ([createClient](#createclient) › Global `fetch` vs injected `fetch`).
 - **Order of a call:** build the URL and the JSON body → the checks that reject before sending (a missing param, a GET with a body, a body JSON cannot hold, no `fetch`, a relative URL outside a browser) → the `headers` function → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So neither the `headers` function nor `onRequest` is called for a request that is never sent.
-- **`onRequest`** gets a frozen `{ url, init }`: the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL and the `init` object itself can't be replaced. A body it puts on a GET or HEAD rejects the call with `a <METHOD> request cannot have a body`.
-- **Abort before `fetch`:** a call whose `signal` is aborted while the `headers` function or `onRequest` runs resolves as the status-0 unexpected result, with the signal's reason, without calling `fetch`. Aborting does not interrupt a pending `headers` function or hook.
-- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; it must read a `response.clone()`, since the client reads the body itself, and one that reads `response` rejects the call. It is not called when `fetch` rejects (the status-0 result).
+- **`onRequest`** gets a frozen `{ url, init }`: the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL and the `init` object itself can't be replaced. A body it puts on a GET or HEAD (or on a request whose `method` it removes: `fetch` then sends a GET) rejects the call with `a <METHOD> request cannot have a body`.
+- **Abort before `fetch`:** a call whose `signal` is aborted before `fetch` resolves as the status-0 unexpected result, with the signal's reason. The signal is checked before the `headers` function, before `onRequest` and before `fetch`, so no step runs once it is aborted; aborting does not interrupt a pending `headers` function or hook.
+- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; it must read a `response.clone()`, since the client reads the body itself, and one that reads or locks the body of `response` rejects the call. A clone it makes is its own to read or cancel. It is not called when `fetch` rejects (the status-0 result).
 - **Failures:** a `headers` function or a hook that throws or rejects rejects the call, like the other configuration errors ([createClient](#createclient) › Result); it is never turned into a result. A failing `headers` function or `onRequest` means `fetch` is not called; a failing `onResponse` cancels the unread body, so it doesn't hold a connection open.
 - **Runtime:** browser-pure, as the rest of the client: no Node API.
 

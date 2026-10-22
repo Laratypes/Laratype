@@ -566,10 +566,15 @@ describe('options and hooks', () => {
     expect(headers).not.toHaveBeenCalled()
   })
 
-  it('a body that onRequest puts on a GET rejects the call, and is not taken for a network failure', async () => {
+  it('a body that onRequest puts on a GET or HEAD rejects the call, and is not taken for a network failure', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, { fetch, onRequest: ({ init }) => void (init.body = 'x') })
     await expect(api.users.index()).rejects.toThrow('[@laratype/client] a GET request cannot have a body: "/api/users"')
+    // a POST whose method onRequest removes: fetch's default is GET
+    const unset = createClient(appApi, { fetch, onRequest: ({ init }) => void delete init.method })
+    await expect(unset.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(/a GET request cannot have a body/)
+    const head = createClient(appApi, { fetch, onRequest: ({ init }) => void (init.method = 'head') })
+    await expect(head.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(/a HEAD request cannot have a body/)
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -586,15 +591,21 @@ describe('options and hooks', () => {
     expect(fetch.mock.calls[0]![0]).toBe('/api/users')
   })
 
-  it('a call aborted while the headers function runs resolves as status 0 without calling fetch', async () => {
+  it('a call aborted before fetch resolves as status 0, and runs no step after the abort', async () => {
     const { fetch } = fakeFetch()
+    const onRequest = vi.fn()
     const controller = new AbortController()
-    const headers = async () => {
+    const headers = vi.fn(async () => {
       controller.abort()
       return {}
-    }
-    const result = await createClient(appApi, { fetch, headers }).users.index({ signal: controller.signal })
+    })
+    const api = createClient(appApi, { fetch, headers, onRequest })
+    const result = await api.users.index({ signal: controller.signal })
     expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: controller.signal.reason, response: undefined })
+    // already aborted: not even the headers function runs
+    expect(await api.users.index({ signal: controller.signal })).toMatchObject({ status: 0, error: controller.signal.reason })
+    expect(headers).toHaveBeenCalledTimes(1)
+    expect(onRequest).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -607,6 +618,18 @@ describe('options and hooks', () => {
     expect(cancel).toHaveBeenCalled()
     const reading = createClient(appApi, { fetch: fakeFetch([]).fetch, onResponse: async (response) => void (await response.text()) })
     await expect(reading.users.index()).rejects.toThrow('[@laratype/client] onResponse read the response body: read a response.clone() instead')
+    const locking = createClient(appApi, { fetch: fakeFetch([]).fetch, onResponse: (response) => void response.body!.getReader() })
+    await expect(locking.users.index()).rejects.toThrow(/onResponse read the response body/)
+  })
+
+  it('a body the injected fetch already used is not blamed on onResponse: the result is unexpected', async () => {
+    const fetch = async () => {
+      const response = new Response('[]')
+      await response.text()
+      return response
+    }
+    const result = await createClient(appApi, { fetch, onResponse: () => {} }).users.index()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 200 })
   })
 
   it('reads credentials and the hooks from the options at each call', async () => {
