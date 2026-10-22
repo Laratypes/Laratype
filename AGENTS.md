@@ -56,6 +56,8 @@ CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and p
 - TypeScript >= 5.4: public types use `NoInfer`, and the contract package declares an optional `typescript >=5.4` peer.
 - Keep SWC `legacyDecorator: true` and `decoratorMetadata: true` (`packages/sauf/src/bin/warmup.ts`) and `emitDecoratorMetadata` in `tsconfig.app.json` until S5 #88 decides otherwise. TypeORM entities rely on them.
 - v1 DI is constructor injection with no mandatory decorators; a sauf build transform generates the dependency metadata.
+- Before writing code, check whether Hono (`packages/http`, `laratype`, `support` already depend on it) or an existing dependency covers it. If it does, use that and do not reimplement or wrap it.
+- Prefer an existing library over hand-written code. When adding a dependency, prefer MIT (or similarly permissive: Apache-2.0, BSD, ISC) licenses, name the library and its license in the PR, and ask before adding a copyleft (GPL, AGPL, LGPL) one. `@laratype/contract` stays the exception: no runtime dependencies.
 - Match the surrounding code: naming, quotes, comment density. New public API gets runtime tests and type tests.
 - Don't bump package versions; release PRs do that.
 
