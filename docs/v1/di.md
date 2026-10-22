@@ -585,7 +585,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthManager;
 
 ### Invariants
 - A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
-- Facade methods call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
+- `Hash`, `Log` and `Auth` call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
 - The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
 - The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).

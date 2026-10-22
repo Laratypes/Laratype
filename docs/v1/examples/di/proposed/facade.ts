@@ -9,7 +9,7 @@ export class Clock {
 }
 export class Time extends Facade {
   static override readonly accessor = Clock
-  static now() { return this.root().now() }
+  static now() { return Time.root().now() } // the class, not `this`, so a detached call works
 }
 
 // The kernel (`Serve.getContainer()`) sets the app container as the facade application.
