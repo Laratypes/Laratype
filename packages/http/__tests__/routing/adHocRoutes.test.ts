@@ -135,6 +135,13 @@ describe('ad-hoc routes', () => {
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:user', () => 'shadowed')])).toThrow(
       "[@laratype/http] Route.api: r.get('/api/users/:user') is the same route as users.show",
     )
+    // Hono serves a last optional param as two routes: /api/users/:id? also answers /api/users/:id
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:x?', () => 'shadowed')])).toThrow(
+      "[@laratype/http] Route.api: r.get('/api/users/:x?') is the same route as users.show",
+    )
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/health', () => 'a'), r.get('/health/:check?', () => 'b')])).toThrow(
+      "[@laratype/http] Route.api: r.get('/health/:check?') is the same route as another r.get('/health')",
+    )
     // Another method, pattern or trailing slash on the same path is another route
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:id{[0-9]+}', () => 'a')])).not.toThrow()
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/items', () => 'a'), r.get('/items/', () => 'b')])).not.toThrow()

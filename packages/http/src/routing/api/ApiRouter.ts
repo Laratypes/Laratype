@@ -191,23 +191,33 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): { routes: RouteEntr
 };
 
 /**
- * `/users/:user/posts/:id{[0-9]+}?` → `/users/:/posts/:{[0-9]+}?`: a param name does not change what a path matches
- * (a trailing slash does, for Hono's strict routing).
+ * The paths a route matches, with param names dropped: `/users/:user/posts/:id{[0-9]+}` → `/users/:/posts/:{[0-9]+}`
+ * (a trailing slash counts, for Hono's strict routing). Hono serves a last optional param (`/posts/:id?`) as two
+ * routes, `/posts` and `/posts/:`.
  */
-const routeShape = (path: string) =>
-  `/${segments(path).map((segment) => segment.replace(/^:[^{?]*/, ":")).join("/")}${path.length > 1 && path.endsWith("/") ? "/" : ""}`;
+const routeShapes = (path: string): string[] => {
+  const parts = segments(path).map((segment) => segment.replace(/^:[^{?]*/, ":"));
+  const shape = (list: string[]) => `/${list.join("/")}${path.length > 1 && path.endsWith("/") ? "/" : ""}`;
+  const last = parts.at(-1);
+  if (last?.startsWith(":") && last.endsWith("?")) return [shape(parts.slice(0, -1)), shape([...parts.slice(0, -1), last.slice(0, -1)])];
+  return [shape(parts)];
+};
 
 /**
  * Hono answers with the first of two routes with the same method and path, so a second one would never run: an
  * ad-hoc route may not repeat a contract route or another ad-hoc route of the group (`/items/:id` repeats `/items/:item`).
  */
 const checkAdHocPaths = (routes: readonly RouteEntry[], adHoc: readonly AdHocRouteEntry[]) => {
-  const served = new Map(routes.map((route) => [`${route.method} ${routeShape(route.path)}`, route.name]));
+  const served = new Map<string, string>();
+  const serve = (method: string, path: string, name: string) => {
+    // The first one wins, as in Hono: it is the route that answers
+    for (const shape of routeShapes(path)) if (!served.has(`${method} ${shape}`)) served.set(`${method} ${shape}`, name);
+  };
+  for (const route of routes) serve(route.method, route.path, route.name);
   for (const route of adHoc) {
-    const key = `${route.method} ${routeShape(route.path)}`;
-    const other = served.get(key);
+    const other = routeShapes(route.path).map((shape) => served.get(`${route.method} ${shape}`)).find((name) => name !== undefined);
     if (other !== undefined) fail(`r.${route.method}('${route.path}') is the same route as ${other}`);
-    served.set(key, `another r.${route.method}('${route.path}')`);
+    serve(route.method, route.path, `another r.${route.method}('${route.path}')`);
   }
 };
 
