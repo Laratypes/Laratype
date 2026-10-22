@@ -13,3 +13,19 @@ export const isFailureStatus = (status: unknown): status is number =>
 export const fail = (message: string): never => {
   throw new TypeError(`[@laratype/contract] ${message}`);
 };
+
+/**
+ * An endpoint path starts with one "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host, and
+ * under a same-origin `baseUrl` a `"//evil.com"` (or `"/\evil.com"`, `"/\t/evil.com"`, as URL parsing reads them) is another host.
+ */
+export const checkPath = (path: unknown, label: string): string => {
+  if (typeof path !== "string" || !/^\/(?![/\\])/.test(path)) {
+    fail(`${label}: the path must start with one "/", got ${typeof path === "string" ? JSON.stringify(path) : typeof path}`);
+  }
+  // URL parsing drops tab, LF and CR: "/\t/evil.com" is "//evil.com"; the other control characters are refused with them
+  if (/[\u0000-\u001f\u007f]/.test(path as string)) fail(`${label}: the path must not contain control characters, got ${JSON.stringify(path)}`);
+  return path as string;
+};
+
+/** `fetch` refuses a body on GET, so such an endpoint could never be called. */
+export const NO_GET_BODY = "a GET endpoint cannot have a body";
