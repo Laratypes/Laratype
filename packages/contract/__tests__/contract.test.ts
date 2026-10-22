@@ -203,6 +203,11 @@ describe('defineApi', () => {
   })
 
   it('apiPaths and apiRoutes take the root, a node or a contract only (C10 #258)', () => {
+    // a node's routes share one frozen scope list, taken from its { scope, dir } chain
+    const [index, store] = apiRoutes(appApi.users.posts)
+    expect(index!.scopes).toEqual([usersUser])
+    expect(Object.isFrozen(index!.scopes)).toBe(true)
+    expect(store!.scopes).toBe(index!.scopes)
     for (const fake of [{}, { users: appApi.users }, users.show, null]) {
       expect(() => apiPaths(fake as never)).toThrow(new TypeError('[@laratype/contract] apiPaths: expected the appApi from defineApi, an API node or a contract'))
       expect(() => apiRoutes(fake as never)).toThrow(new TypeError('[@laratype/contract] apiRoutes: expected the appApi from defineApi, an API node or a contract'))

@@ -1,6 +1,6 @@
 import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes, contractEndpoints, isApiNode, isApiRoot, isEndpoint } from "@laratype/contract";
-import type { AnyContract, Api, ApiEntry, ApiRoute } from "@laratype/contract";
+import type { API_ROOT, AnyContract, Api, ApiEntry, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
@@ -355,7 +355,7 @@ export class ApiRoutes {
  * Their URLs come from the tree, so there is no route prefix. A missing or duplicate contract, and a scope with
  * `authorize` and no policy, are compile errors and runtime errors.
  */
-export function api<A extends object, const M extends readonly ApiRouteItem[]>(
+export function api<A extends { readonly [API_ROOT]: true }, const M extends readonly ApiRouteItem[]>(
   appApi: A,
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {

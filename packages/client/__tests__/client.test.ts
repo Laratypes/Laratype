@@ -432,7 +432,7 @@ describe('createClient', () => {
     expect(() => createClient({ users: appApi.users, other: users })).toThrow(error)
     // @ts-expect-error the root's own nodes under their own names, or a copy of the root, carry no root brand
     expect(() => createClient({ users: appApi.users })).toThrow(error)
-    // @ts-expect-error a spread drops the non-enumerable brand
+    // a spread drops the non-enumerable brand at runtime (its type keeps it, so this one compiles)
     expect(() => createClient({ ...appApi })).toThrow(error)
   })
 

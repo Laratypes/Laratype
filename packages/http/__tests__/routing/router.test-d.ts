@@ -35,6 +35,13 @@ describe('reading the tree', () => {
 })
 
 describe('Route.api', () => {
+  test('takes the root that defineApi returns only, told by its brand (C10 #258)', () => {
+    // @ts-expect-error a hand-made object of the root's own nodes
+    Route.api({ users: appApi.users }, () => [])
+    // @ts-expect-error an API node
+    Route.api(appApi.users, () => [])
+  })
+
   test('every contract once, and a policy on the authorize scope', () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(users, UserController),

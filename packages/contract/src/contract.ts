@@ -280,11 +280,13 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
       }
     });
     const node = nodeAt(name);
-    infos.get(node)!.entry = Object.freeze({ contract: entry.contract, path: entry.path, scopes: Object.freeze(chain) });
+    const mounted: ApiEntry = Object.freeze({ contract: entry.contract, path: entry.path, scopes: Object.freeze(chain) });
+    infos.get(node)!.entry = mounted;
+    const ctx = contextOf(mounted);
     for (const [key, endpoint] of contractEndpoints(entry.contract)) {
       if (node[key] !== undefined) fail(`defineApi: "${name}.${key}" is both an endpoint and a contract`);
       node[key] = endpoint;
-      resolveCapabilities(endpoint.def, contextOf(infos.get(node)!.entry!), `${name}.${key}`);
+      resolveCapabilities(endpoint.def, ctx, `${name}.${key}`);
     }
   }
 
@@ -296,7 +298,11 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
   return Object.freeze(root) as Api<A>;
 }
 
-const contextOf = (entry: ApiEntry): { path: string; scopes: readonly AnyScope[]; options: ContractOptions } => ({ path: entry.path, scopes: entry.scopes.map((s) => s.scope), options: entry.contract[CONTRACT].options });
+const contextOf = (entry: ApiEntry): { path: string; scopes: readonly AnyScope[]; options: ContractOptions } => ({
+  path: entry.path,
+  scopes: Object.freeze(entry.scopes.map((s) => s.scope)),
+  options: entry.contract[CONTRACT].options,
+});
 
 /** One route of an API without its capabilities: tree name, method, full path and where it sits. */
 export interface ApiPath<N extends string = string> {
@@ -333,13 +339,14 @@ function walkRoutes(api: unknown, label: string, visit: (name: string, endpoint:
   }
   const walk = (current: TreeNode) => {
     const info = current[API_NODE] as ApiNodeInfo | undefined;
+    // one context per node: its endpoints share the frozen scope list
+    const ctx = info?.entry && contextOf(info.entry);
     for (const [key, value] of Object.entries(current)) {
       if (!isEndpoint(value)) {
         walk(value as TreeNode);
         continue;
       }
-      const entry = info!.entry!;
-      visit(`${info!.name}.${key}`, value, entry.contract, contextOf(entry));
+      visit(`${info!.name}.${key}`, value, info!.entry!.contract, ctx!);
     }
   };
   walk(api as TreeNode);

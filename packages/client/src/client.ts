@@ -1,5 +1,5 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { API_ROOT, AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -94,7 +94,7 @@ class FetchFailed {
 }
 
 /** One node of an API tree (`appApi.users`), as `createClient` takes it. */
-export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
+export type ApiNodeShape = AnyApiNode;
 
 /** The `defineApi` root, told by its brand: a hand-made object (`{ posts: appApi.users.posts }`) is not one. */
 export type ApiRootShape = { readonly [API_ROOT]: true };

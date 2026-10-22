@@ -130,13 +130,13 @@ function createPrinter(ts: typeof TS, program: TS.Program, checker: TS.TypeCheck
 export function generateApiFile(ts: typeof TS, options: ApiFileOptions): GeneratedFile & { manifest: Record<string, ManifestEntry> } {
   const entryFile = resolve(dirname(options.indexFile), ENTRY_NAME);
   const indexSpecifier = `./${options.indexFile.slice(dirname(options.indexFile).length + 1).replace(/\.ts$/, "")}`;
-  // `Kind` marks each member by brand, as `isApiRoot` and `isApiNode` do at runtime: a node's members, or `true` for an
-  // endpoint. It is `never` when `AppApi` is not a `defineApi` root.
+  // `Kind` marks each member as `ApiTypes` reads it: `true` for an endpoint, else a node's members. It is `never` when
+  // `AppApi` is not a `defineApi` root, told by its brand as `isApiRoot` does at runtime.
   const entrySource = lines([
-    "import type { API_ROOT, AnyApiNode, ApiTypes } from '@laratype/contract'",
+    "import type { API_ROOT, AnyEndpoint, ApiTypes } from '@laratype/contract'",
     `import type { AppApi } from '${indexSpecifier}'`,
     "export type Flat = ApiTypes<AppApi>",
-    "type Kinds<A> = { [K in keyof A & string]: A[K] extends AnyApiNode ? Kinds<A[K]> : true }",
+    "type Kinds<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? true : Kinds<A[K]> }",
     "export type Kind = AppApi extends { readonly [API_ROOT]: true } ? Kinds<AppApi> : never",
   ]);
 

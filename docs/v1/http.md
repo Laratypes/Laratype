@@ -309,7 +309,7 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `<route name>: <Controller> has no method "<key>" (handlers must be class methods, not arrow-function fields)`
 - `contract "<tree name>": r.contract() got <value> as its controller (a circular import?)`
 - `<route name>: <Controller>.<key> has status <n> from its status decorator, but the endpoint declares <m>: declare .response(schema, <n>) on the endpoint, or drop the decorator`
-- `expected the appApi tree built with defineApi` (told by the root brand, `isApiRoot`: a hand-made object of nodes is rejected)
+- `expected the appApi tree built with defineApi` (told by the root brand, `isApiRoot`: a hand-made object of nodes is rejected; `Route.api` also requires the brand in its type, so most such calls fail to compile)
 - `the routes callback must return r.contract() and r.scope() items`
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
 - `<route name>: endpoint has .authorize() but r.contract() has no { policy }`
