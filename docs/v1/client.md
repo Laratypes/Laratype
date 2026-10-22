@@ -18,7 +18,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
-| [Options and hooks](#options-and-hooks) | proposed: PR #PRNUM @ HEADSHA ([#124](https://github.com/Laratypes/Laratype/issues/124)) |
+| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)) |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
@@ -248,10 +248,10 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 ## Options and hooks
 
 ### Status
-proposed: PR #PRNUM @ HEADSHA ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3). Extends the `ClientOptions` of [createClient](#createclient).
+proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3). Extends the `ClientOptions` of [createClient](#createclient).
 
 ### Public API
-[`packages/client/src/types.ts` @ HEADSHA](https://github.com/Laratypes/Laratype/blob/HEADSHA/packages/client/src/types.ts)
+[`packages/client/src/types.ts` @ f68de49](https://github.com/Laratypes/Laratype/blob/f68de494976eee08523e9ee4efe74fc86cd8bcaa/packages/client/src/types.ts)
 
 ```ts
 export interface ClientOptions {
