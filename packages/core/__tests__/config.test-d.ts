@@ -20,6 +20,7 @@ interface Mail {
   readonly url: URL
   readonly hosts: string[]
   readonly from: Record<string, string>
+  readonly mailers: Record<string, { readonly host: string }>
   readonly transport: () => void
 }
 
@@ -42,6 +43,8 @@ describe('config() (K1 #152)', () => {
 
   test('a key read through an index signature may be missing', () => {
     expectTypeOf(config('mail.from.sender')).toEqualTypeOf<string | undefined>()
+    expectTypeOf(config('mail.mailers.smtp')).toEqualTypeOf<{ readonly host: string } | undefined>()
+    expectTypeOf(config('mail.mailers.smtp.host')).toEqualTypeOf<string | undefined>()
   })
 
   test('a key that contains a dot ends the path', () => {

@@ -48,6 +48,7 @@ describe('config() (K1 #152)', () => {
     expect(config('app.client.constructor')).toBeUndefined()
     expect(config('app.client.toString')).toBeUndefined()
     expect(config('app.client.hasOwnProperty')).toBeUndefined()
+    expect(config('app.url.toString')).toBe(URL.prototype.toString)
     expect(config('app.plain.toString')).toBeUndefined()
   })
 

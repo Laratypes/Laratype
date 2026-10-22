@@ -22,23 +22,24 @@ export class EnvValidationError extends Error {
 
 const REDACTED = "***";
 
-/** Values this long are cut out of every message, wherever they appear: a secret quoted under another name. */
-const ANYWHERE = 8;
-/** Shorter values of a failing variable are cut out only where they stand alone, so `0` leaves `>=1024` readable. */
-const SUBSTRING = 4;
+/** Env values this long are cut out of every message: a secret that a refinement quotes under another name. */
+const LONG = 8;
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The value as it may appear in a message: raw, and JSON-escaped (valibot quotes it: `received "..."`). */
-const forms = (value: string) => [...new Set([value, JSON.stringify(value).slice(1, -1)])].map(escape);
+/** A value as a message may show it: raw, trimmed, JSON-escaped (valibot quotes it: `received "..."`). */
+const forms = (value: string) =>
+  [value, value.trim()].flatMap((form) => [form, JSON.stringify(form).slice(1, -1)]).filter((form) => form !== "");
 
-/** One pattern for the values to cut out of a message, longest first so a value never leaves part of a longer one. */
-const redaction = (values: ReadonlyArray<string>): RegExp | undefined => {
-  const patterns = [...new Set(values)]
-    .filter((value) => value !== "")
+/**
+ * One pattern for these values, longest first so a value never leaves part of a longer one. A value of 8+ characters
+ * matches anywhere; a shorter one only where it stands alone, so `prod` leaves `"production"` and `0` leaves `>=1024`.
+ */
+const pattern = (values: ReadonlyArray<string>): RegExp | undefined => {
+  const all = [...new Set(values.flatMap(forms))]
     .sort((a, b) => b.length - a.length)
-    .flatMap((value) => forms(value).map((form) => (value.length < SUBSTRING ? `(?<![\\w])${form}(?![\\w])` : form)));
-  return patterns.length ? new RegExp(patterns.join("|"), "g") : undefined;
+    .map((form) => (form.length >= LONG ? escape(form) : `(?<!\\w)${escape(form)}(?!\\w)`));
+  return all.length ? new RegExp(all.join("|"), "g") : undefined;
 };
 
 /**
@@ -54,14 +55,15 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
   const env = { ...source };
   const result = await validate(definition.schema, env);
   if (result.ok) return;
-  const failing = Object.entries(result.errors).map(([path, messages]) => ({ path, name: path.split(".")[0], messages }));
-  const longValues = Object.values(env).filter((value): value is string => typeof value === "string" && value.length >= ANYWHERE);
-  const issues = failing.flatMap(({ path, name, messages }) => {
+  const long = Object.values(env).filter((value): value is string => typeof value === "string" && value.length >= LONG);
+  const issues = Object.entries(result.errors).flatMap(([path, messages]) => {
+    const name = path.split(".")[0];
     const own = Object.hasOwn(env, name) ? env[name] : undefined;
-    const pattern = redaction(typeof own === "string" ? [own, ...longValues] : longValues);
+    // One pattern: cutting the own value first could split a longer value that contains it
+    const values = pattern(typeof own === "string" ? [own, ...long] : long);
     return messages.map((message) => ({
       name: path === "" ? "(environment)" : path,
-      message: pattern ? message.replace(pattern, REDACTED) : message,
+      message: values ? message.replace(values, REDACTED) : message,
     }));
   });
   throw new EnvValidationError(issues);

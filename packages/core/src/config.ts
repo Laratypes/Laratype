@@ -31,19 +31,29 @@ export type ConfigPath<T = AppConfigs, Depth extends unknown[] = []> = Depth['le
         }[keyof T & Key]
       : never
 
+/** The keys of `T` but its index signatures. */
+type LiteralKey<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: 0 }
+
 /** A key read through an index signature (`Record<string, X>`) may be missing. */
 type Missing<T> = string extends keyof T ? undefined : number extends keyof T ? undefined : never
 
-/** The value at dot path `P` of `T`; `| undefined` when a key on the path is optional or an index signature. */
-export type ConfigValue<P extends string, T = AppConfigs> = T extends null | undefined
-  ? undefined
-  : P extends keyof T
-    ? T[P] | Missing<T>
-    : P extends `${infer N extends number}`
-      ? N extends keyof T ? T[N] | Missing<T> : undefined
+/**
+ * The value at dot path `P` of `T`; `| undefined` when a key on the path is optional or an index signature.
+ * Same lookup as `config()`: the whole path as a declared key, then the segment before the first dot.
+ */
+export type ConfigValue<P extends string, T = AppConfigs> = unknown extends T
+  ? unknown
+  : T extends null | undefined
+    ? undefined
+    : P extends LiteralKey<T>
+      ? T[P]
       : P extends `${infer Head}.${infer Rest}`
         ? ConfigValue<Rest, ConfigValue<Head, T>>
-        : undefined
+        : P extends keyof T
+          ? T[P] | Missing<T>
+          : P extends `${infer N extends number}`
+            ? N extends keyof T ? T[N] | Missing<T> : undefined
+            : undefined
 
 /** Kept on globalThis: every package dist inlines its own copy of @laratype/core (see `HTTP_APP`, remove after #188). */
 const store = globalThis as { __laratype_configs?: Readonly<Record<string, unknown>> }
@@ -61,13 +71,14 @@ export const setConfigs = (configs: Readonly<Record<string, unknown>>): void => 
 
 /**
  * Own keys of a plain object; on a class instance (a `URL`, a client), its members too, as `ConfigPath` types them.
- * Never `Object.prototype` members (`constructor`, `__proto__`, `toString`).
+ * Never `Object.prototype` members (`__proto__`, `hasOwnProperty`) or `constructor`.
  */
 const has = (target: unknown, key: string): target is Record<string, unknown> => {
-  if (typeof target !== 'object' || target === null) return false
-  if (Object.hasOwn(target, key)) return true
-  const proto = Object.getPrototypeOf(target)
-  return proto !== null && proto !== Object.prototype && !Object.hasOwn(Object.prototype, key) && key in target
+  if (typeof target !== 'object' || target === null || key === 'constructor') return false
+  for (let level: object | null = target; level !== null && level !== Object.prototype; level = Object.getPrototypeOf(level)) {
+    if (Object.hasOwn(level, key)) return true
+  }
+  return false
 }
 
 /**

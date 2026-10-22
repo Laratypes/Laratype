@@ -92,6 +92,19 @@ describe('validateEnv', () => {
     ])
   })
 
+  it('keeps the schema text that only contains a value', async () => {
+    const definition = defineEnv(z.object({ NODE_ENV: z.enum(['development', 'production']) }))
+    const error = await validateEnv(definition, { NODE_ENV: 'prod' }).catch((e: unknown) => e) as EnvValidationError
+    expect(error.issues).toEqual([{ name: 'NODE_ENV', message: 'Invalid option: expected one of "development"|"production"' }])
+  })
+
+  it('redacts a trimmed value', async () => {
+    const definition = defineEnv(v.object({ KEY: v.pipe(v.string(), v.trim(), v.check(() => false, issue => `bad key ${String(issue.input)}`)) }))
+    const error = await validateEnv(definition, { KEY: `  ${SECRET}  ` }).catch((e: unknown) => e) as EnvValidationError
+    expect(error.message).not.toContain(SECRET)
+    expect(error.issues).toEqual([{ name: 'KEY', message: 'bad key ***' }])
+  })
+
   it('awaits an async schema', async () => {
     const definition = defineEnv(z.object({ A: z.string().refine(async a => a === 'ok', 'not ok') }))
     await expect(validateEnv(definition, { A: 'ok' })).resolves.toBeUndefined()
