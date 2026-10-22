@@ -15,17 +15,18 @@ const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
 /** What `ip()` reads of the adapter's env: Node's `incoming` request, or Bun's `Server.requestIP`. */
 type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globalThis.Request) => { address: string } | null }
 
+/**
+ * The key of the Hono context `RequestKernel.handle` attaches to the request after building it: `ip()` reads the
+ * connection from it. A symbol, so a request class's own fields and constructor can't clash with it or drop it.
+ */
+export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
+
 export default class Request implements RequestInterface {
 
   protected requestCtx: HonoRequest
 
-  /** The Hono context of the request, when the kernel built this request: `ip()` reads the connection from it. */
-  declare protected readonly honoCtx?: Context
-
-  constructor(requestCtx: HonoRequest, honoCtx?: Context) {
+  constructor(requestCtx: HonoRequest) {
     this.requestCtx = requestCtx
-    // Non-enumerable, so logging or serializing the request doesn't walk Node's socket
-    Object.defineProperty(this, "honoCtx", { value: honoCtx, writable: false, enumerable: false, configurable: false })
   }
 
   protocol() {
@@ -102,7 +103,7 @@ export default class Request implements RequestInterface {
    * address.
    */
   ip(): string {
-    const ctx = this.honoCtx
+    const ctx = (this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT]
     if(!ctx?.env) {
       return ""
     }

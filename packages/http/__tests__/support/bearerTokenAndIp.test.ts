@@ -120,6 +120,42 @@ describe('request.ip()', () => {
     expect(await (await app.request('/keys', {}, { requestIP })).json()).toEqual({ keys: ['requestCtx'], ip: '192.0.2.12' })
   })
 
+  it('works for a request class with its own constructor that forwards only the request', async () => {
+    class OwnConstructor extends LaratypeRequest {
+      readonly built: boolean
+      constructor(request: HonoRequest) {
+        super(request)
+        this.built = true
+      }
+    }
+    class Own extends Controller {
+      index(request: OwnConstructor) {
+        return { built: request.built, ip: request.ip() }
+      }
+    }
+    const app = bootApp()
+    app.get('/own', RequestKernel.handle({ method: 'get', path: '/own', controller: [Own, 'index'], request: OwnConstructor }))
+    const requestIP = () => ({ address: '192.0.2.13', family: 'IPv4', port: 51234 })
+    expect(await (await app.request('/own', {}, { requestIP })).json()).toEqual({ built: true, ip: '192.0.2.13' })
+  })
+
+  it('works for a request class with its own honoCtx field', async () => {
+    class OwnField extends LaratypeRequest {
+      honoCtx = 'mine'
+    }
+    class Own extends Controller {
+      index(request: OwnField) {
+        return { honoCtx: request.honoCtx, ip: request.ip() }
+      }
+    }
+    const app = bootApp()
+    app.get('/field', RequestKernel.handle({ method: 'get', path: '/field', controller: [Own, 'index'], request: OwnField }))
+    const requestIP = () => ({ address: '192.0.2.14', family: 'IPv4', port: 51234 })
+    const response = await app.request('/field', {}, { requestIP })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ honoCtx: 'mine', ip: '192.0.2.14' })
+  })
+
   it('returns "" for a request built without the Hono context', () => {
     expect(new LaratypeRequest(new HonoRequest(new Request('http://localhost/'))).ip()).toBe('')
   })

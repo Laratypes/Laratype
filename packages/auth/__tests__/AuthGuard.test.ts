@@ -57,6 +57,8 @@ describe('AuthGuard', () => {
     ['a missing header', undefined],
     ['a Basic header', 'Basic dXNlcjpwYXNz'],
     ['a Bearer header with no token', 'Bearer'],
+    // RFC 6750 b64token only, as Hono's bearerAuth: a Sanctum-style token is rejected before verify
+    ['a token outside the b64token grammar', 'Bearer 1|abc'],
   ])('answers the existing 401 for %s', async (_, authorization) => {
     const response = await request(authorization)
     expect(response.status).toBe(401)
