@@ -378,20 +378,26 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
  * `createClient<AppApi>(manifest)`. The `AppApi` type argument types the calls (without it the client is `never`).
  * The manifest holds each route's method and full path, so the FE loads no contract file of the app and no schema library.
- * With an explicit `AppApi`, `H` is not inferred: name the headers `options.headers` provides as the second type
- * argument (`createClient<AppApi, 'x-api-key'>(manifest, { headers: { 'x-api-key': key } })`).
+ * With an explicit `AppApi`, the type of `options.headers` is not inferred: give it as the second type argument
+ * (`createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`).
  */
-export function createClient<T extends ApiShape<T> = never, H extends string = string>(
+export function createClient<T extends ApiShape<T> = never, Hd extends HeadersInit = HeadersInit>(
   manifest: Manifest,
-  options?: ClientOptions<H>,
-): Client<T, ProvidedHeaders<H>>;
+  options?: ClientOptions<Hd>,
+): Client<T, ProvidedHeaders<Hd>>;
 /**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
  * like the server's `joinPath`, and its params are only its own.
  */
-export function createClient<C extends AnyContract, H extends string = string>(contract: C, options?: ClientOptions<H>): ClientOf<C, ProvidedHeaders<H>>;
+export function createClient<C extends AnyContract, Hd extends HeadersInit = HeadersInit>(
+  contract: C,
+  options?: ClientOptions<Hd>,
+): ClientOf<C, ProvidedHeaders<Hd>>;
 /** The typed client for one API node (`appApi.users`), named relative to it: `api.posts.update`. */
-export function createClient<N extends ApiNodeShape, H extends string = string>(node: N, options?: ClientOptions<H>): ClientOf<N, ProvidedHeaders<H>>;
+export function createClient<N extends ApiNodeShape, Hd extends HeadersInit = HeadersInit>(
+  node: N,
+  options?: ClientOptions<Hd>,
+): ClientOf<N, ProvidedHeaders<Hd>>;
 /**
  * The typed client for the generated `appApi` (`$api`). Names follow the folder tree (`api.users.posts.update(...)`)
  * and URLs are the contracts' full paths, so `baseUrl` is only the origin.
@@ -400,7 +406,10 @@ export function createClient<N extends ApiNodeShape, H extends string = string>(
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape<A>, H extends string = string>(api: A, options?: ClientOptions<H>): ClientOf<A, ProvidedHeaders<H>>;
+export function createClient<A extends ApiRootShape<A>, Hd extends HeadersInit = HeadersInit>(
+  api: A,
+  options?: ClientOptions<Hd>,
+): ClientOf<A, ProvidedHeaders<Hd>>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
   const send = createSend(options);

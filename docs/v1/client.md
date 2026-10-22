@@ -16,7 +16,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR #PRNUM @ PRSHA |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check merged @ 47e69e1 ([#257](https://github.com/Laratypes/Laratype/issues/257)); JSON-safe request input and provided headers proposed: PR #PRNUM @ PRSHA |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
 | [Path-style calls](#path-style-calls) | planned → #140 |
@@ -99,24 +99,24 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR #PRNUM @ PRSHA.
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are merged @ 47e69e1. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR #PRNUM @ PRSHA.
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
 
 ```ts
-// H: the header names an options.headers object literal provides (inferred; the manifest takes it as a type argument)
-export function createClient<T extends ApiShape<T> = never, H extends string = string>(manifest: Manifest, options?: ClientOptions<H>): Client<T, ProvidedHeaders<H>>;   // separate-repo FE
-export function createClient<C extends AnyContract, H extends string = string>(contract: C, options?: ClientOptions<H>): ClientOf<C, ProvidedHeaders<H>>;
-export function createClient<N extends ApiNodeShape, H extends string = string>(node: N, options?: ClientOptions<H>): ClientOf<N, ProvidedHeaders<H>>;
-export function createClient<A extends ApiRootShape<A>, H extends string = string>(api: A, options?: ClientOptions<H>): ClientOf<A, ProvidedHeaders<H>>;   // the appApi
+// Hd: the type of options.headers (inferred; the manifest overload takes it as its second type argument)
+export function createClient<T extends ApiShape<T> = never, Hd extends HeadersInit = HeadersInit>(manifest: Manifest, options?: ClientOptions<Hd>): Client<T, ProvidedHeaders<Hd>>;   // separate-repo FE
+export function createClient<C extends AnyContract, Hd extends HeadersInit = HeadersInit>(contract: C, options?: ClientOptions<Hd>): ClientOf<C, ProvidedHeaders<Hd>>;
+export function createClient<N extends ApiNodeShape, Hd extends HeadersInit = HeadersInit>(node: N, options?: ClientOptions<Hd>): ClientOf<N, ProvidedHeaders<Hd>>;
+export function createClient<A extends ApiRootShape<A>, Hd extends HeadersInit = HeadersInit>(api: A, options?: ClientOptions<Hd>): ClientOf<A, ProvidedHeaders<Hd>>;   // the appApi
 export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
 export type ApiRootShape<A>;                         // each key K is an API node named K
 
-export interface ClientOptions<H extends string = string> {
+export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   baseUrl?: string;                 // an absolute URL (https://…) or a path starting with /; default "" (same origin)
   fetch?: FetchLike;                // default: the global fetch
-  headers?: HeadersInit | { readonly [K in H]: string };   // sent with every call
+  headers?: Hd;                     // sent with every call
   // all three are read from this object at each call
 }
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -125,7 +125,7 @@ export type ClientOf<A, P extends string = never> = Client<ApiTypes<A>, P>;
 export type Client<T, P extends string = never> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K], P> : Client<T[K], P> };
 export type EndpointCall<E extends EndpointShape, P extends string = never>;   // (input: CallInput<E, P>) => Promise<ClientResult<E>>, input optional when nothing in it is required
 export type CallInput<E extends EndpointShape, P extends string = never>;      // { params?, query?, body?, headers?, signal? }, see Invariants; P: headers options.headers provides
-export type ProvidedHeaders<H extends string> = string extends H ? never : H;
+export type ProvidedHeaders<Hd>;   // the literal keys an options.headers object always sends (required in every union member); never for Headers, pairs or Record<string, string>
 export type ResponseData<E extends EndpointShape>;   // the wire type of the response schema; undefined without one or for a declared 204 or 205
 export type HeaderValues = Record<string, string>;
 export interface ManifestRoute { readonly method: string; readonly path: string; readonly errors?: readonly string[] }
@@ -148,7 +148,7 @@ if (result.ok) result.data.title                     // see Result union
   - `params`: every param of the full path, `[x]` folder params included. Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param is a type error and throws before `fetch` is called.
   - `query`: the query schema input, serialized by `buildUrl`. A `Date` value (alone or in an array) is typed `Date | string`, since `buildUrl` sends it as its ISO string.
   - `body`: the [JSON-safe input](#json-safe-request-input) of the body schema, sent as `JSON.stringify(body)` with `content-type: application/json` unless a `content-type` is set: the call's own `headers` win, then `options.headers`, then the `application/json` default.
-  - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`. A schema header that an `options.headers` object literal names at `createClient` is optional in every call (names compare case-insensitively): `createClient(appApi, { headers: { 'x-api-key': key } })` makes a required `x-api-key` optional. Only an object literal names headers; a `Headers`, an array of pairs or a `Record<string, string>` names none, so required schema headers stay required. The manifest overload can't infer them next to the explicit `AppApi`, so they are its second type argument: `createClient<AppApi, 'x-api-key'>(manifest, { headers: { 'x-api-key': key } })`. The type trusts the names given at `createClient`; options stay live, so removing such a header later is not seen by the type.
+  - `headers`: the headers schema input plus any `Record<string, string>`. They override `options.headers`. A schema header that `options.headers` always sends is optional in every call (names compare case-insensitively): `createClient(appApi, { headers: { 'x-api-key': key } })` makes a required `x-api-key` optional. `createClient` infers the type of `options.headers`, and `ProvidedHeaders` keeps its literal keys that are required in every member of a union: an optional key, a key in only some members, `string` or a pattern key (`` `x-${string}` ``) names nothing, and so do a `Headers` and an array of pairs, so required schema headers stay required. The manifest overload can't infer it next to the explicit `AppApi`, so the headers type is its second type argument, which `options.headers` is checked against: `createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`. The type trusts `options.headers` as given at `createClient`; options stay live, so removing such a header later is not seen by the type.
   - `signal`: an `AbortSignal`, passed to `fetch`.
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
 - **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.

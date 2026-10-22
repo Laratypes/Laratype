@@ -62,8 +62,17 @@ type QueryInput<T> = unknown extends T ? T : { [K in keyof T]: QueryValue<T[K]> 
 /** Headers a call can send; a `headers` schema types its keys on top. */
 export type HeaderValues = Record<string, string>;
 
-/** `{ [K]: T }`, optional when `T` accepts `{}` (all keys optional), and nothing when the endpoint has no such schema. */
-type Part<K extends string, T> = [T] extends [undefined] ? {} : {} extends T ? { [_ in K]?: T } : { [_ in K]: T };
+/**
+ * `{ [K]: T }`, optional when `T` accepts `{}` (all keys optional), and nothing when the endpoint has no such schema.
+ * A `never` part (a body JSON can't carry at all) stays required, so the call is a type error.
+ */
+type Part<K extends string, T> = [T] extends [never]
+  ? { [_ in K]: never }
+  : [T] extends [undefined]
+    ? {}
+    : {} extends T
+      ? { [_ in K]?: T }
+      : { [_ in K]: T };
 
 type ParamsPart<P> = [keyof P] extends [never] ? {} : Part<"params", { [K in keyof P]: string | number }>;
 
@@ -163,8 +172,16 @@ export type Client<T, P extends string = never> = {
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
 export type ClientOf<A, P extends string = never> = Client<ApiTypes<A>, P>;
 
-/** The header names an `options.headers` object literal provides; none for a `Headers`, an array or a `Record<string, string>`. */
-export type ProvidedHeaders<H extends string> = string extends H ? never : H;
+/** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
+type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;
+
+/**
+ * The header names an `options.headers` object always sends: its literal keys that every member of a union requires.
+ * None for a `Headers`, an array of pairs or a `Record<string, string>`.
+ */
+export type ProvidedHeaders<Hd> = [Hd] extends [Record<string, string>]
+  ? { [K in keyof Hd & string]: undefined extends Hd[K] ? never : LiteralKey<K> }[keyof Hd & string]
+  : never;
 
 /** One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, error codes. */
 export interface ManifestRoute {
@@ -178,14 +195,15 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-export interface ClientOptions<H extends string = string> {
+export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /** Origin the contract paths are appended to. Default `""`: same origin, since contract paths are full (`/api/...`). */
   baseUrl?: string;
   /** The fetch to call. Default: the global `fetch`, read at call time. */
   fetch?: FetchLike;
   /**
-   * Headers sent with every call; a call's own `headers` override them. Given as an object, its names (`H`, inferred
-   * by `createClient`) are optional in each call's `headers`, even when the endpoint's headers schema requires them.
+   * Headers sent with every call; a call's own `headers` override them. Given as an object, the names it always sends
+   * (`ProvidedHeaders<Hd>`, inferred by `createClient`) are optional in each call's `headers`, even when the
+   * endpoint's headers schema requires them.
    */
-  headers?: HeadersInit | { readonly [K in H]: string };
+  headers?: Hd;
 }

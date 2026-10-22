@@ -2,7 +2,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
 import { createClient } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientResult, ClientSuccess, HeaderValues, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
@@ -230,6 +230,14 @@ describe('JSON-safe request input (#255)', () => {
     // @ts-expect-error JSON cannot carry a bigint (JSON.stringify throws)
     void client.big({ body: { n: 1n } })
   })
+
+  test('a body JSON cannot carry at all is never and stays required, so the call is a type error', () => {
+    const maps = defineContract()({ store: endpoint.post('/api/maps').body(z.map(z.string(), z.string())) })
+    const client = createClient(maps)
+    expectTypeOf<Parameters<typeof client.store>>().toEqualTypeOf<[input: { body: never; headers?: HeaderValues; signal?: AbortSignal }]>()
+    // @ts-expect-error the body can't be left out
+    void client.store()
+  })
 })
 
 describe('headers that options.headers provides (#255)', () => {
@@ -248,22 +256,32 @@ describe('headers that options.headers provides (#255)', () => {
     void createClient(appApi, { headers: { authorization: 'Bearer t' } }).users.store({ body: { name: 'Ada', email: 'a@b.c' } })
   })
 
-  test('only an object literal names them: a Headers, an array or a Record<string, string> provides none', () => {
+  test('only the literal names an object always sends: a Headers, an array or a Record<string, string> provides none', () => {
     const record: Record<string, string> = { 'x-tenant': 't1' }
     expectTypeOf(createClient(appApi, { headers: record })).toEqualTypeOf(api)
+    const pattern: Record<`x-${string}`, string> = {}
+    expectTypeOf(createClient(appApi, { headers: pattern })).toEqualTypeOf(api)
+    // a key that may be missing: optional, or in only one member of a union
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant'?: string; authorization: string }>>().toEqualTypeOf<'authorization'>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { authorization: string }>>().toEqualTypeOf<never>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { 'x-tenant': string; authorization: string }>>().toEqualTypeOf<'x-tenant'>()
+    const either = (headers: { 'x-tenant': string } | { authorization: string }) => createClient(appApi, { headers })
+    expectTypeOf(either).returns.toEqualTypeOf(api)
     expectTypeOf(createClient(appApi, { headers: new Headers({ 'x-tenant': 't1' }) })).toEqualTypeOf(api)
     expectTypeOf(createClient(appApi, { headers: [['x-tenant', 't1']] })).toEqualTypeOf(api)
     expectTypeOf(createClient(appApi, { baseUrl: 'https://example.com' })).toEqualTypeOf(api)
   })
 
-  test('the manifest client takes the names as its second type argument', () => {
+  test('the manifest client takes the headers type as its second type argument, checked against options.headers', () => {
     type Store = {
       method: 'post'; path: '/api/keys'; params: {}; query: undefined; body: undefined; headers: { 'x-api-key': string }
       response: undefined; status: 204; errors: never
     }
     type Generated = { keys: { store: Store } }
-    const keyed = createClient<Generated, 'x-api-key'>(manifest, { headers: { 'x-api-key': 'k' } })
+    const keyed = createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k' } })
     void keyed.keys.store()
+    // @ts-expect-error the headers must send what the type argument names
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { authorization: 'a' } })
     // @ts-expect-error without it the header stays required
     void createClient<Generated>(manifest, { headers: { 'x-api-key': 'k' } }).keys.store()
   })
