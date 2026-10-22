@@ -60,7 +60,8 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ### Diagnostics
 - Runtime, before boot: `[@laratype/core] config('<path>') ran before the configs were loaded (ConfigLoadServiceProvider)`.
 - Runtime, no config file: `app/config/config.ts not found: the app manifest has no config` (unchanged from 0.5).
-- Type-only (`core/__tests__/config.test-d.ts`): an unknown path, a path into an array, a function, a class or through a dotted key fails with `Argument of type '"<path>"' is not assignable to parameter of type ...`.
+- Type-only (`core/__tests__/config.test-d.ts`): an unknown path, a path into an array, a function, a class or through a dotted key fails with TS2345, the parameter type being the union of the registered paths. With the [example](./examples/config/proposed/config.ts)'s registration, `config('cache.default')` gives:
+  `error TS2345: Argument of type '"cache.default"' is not assignable to parameter of type '"database" | "database.default" | "database.connections" | "database.connections.mysql" | "database.connections.mysql.host" | "database.connections.mysql.port"'.`
 
 ### Example
 [`examples/config/proposed/config.ts`](./examples/config/proposed/config.ts).
@@ -115,7 +116,9 @@ export class EnvValidationError extends Error {
 - Runtime, the schema throws: `[@laratype/support] the schema of app/config/env.ts threw (<error name>) while validating the environment; its message is withheld since it may hold a value`.
 - Runtime, `env.ts` without `defineEnv`: `TypeError: [@laratype/support] app/config/env.ts must default-export defineEnv(schema)`.
 - Runtime, not a schema: `TypeError: [@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 3.25+, valibot, arktype, ...)`.
-- Type-only: `defineEnv({ ... })` with a value that is not a Standard Schema fails to compile.
+- Type-only (`core/__tests__/config.test-d.ts`), a value that is not a Standard Schema:
+  - `defineEnv({ PORT: 'number' })`: `error TS2353: Object literal may only specify known properties, and 'PORT' does not exist in type 'StandardSchemaV1<unknown, unknown>'.`
+  - `defineEnv((value: unknown) => value)`: `error TS2345: Argument of type '(value: unknown) => unknown' is not assignable to parameter of type 'StandardSchemaV1<unknown, unknown>'.`
 
 ### Example
 [`examples/config/proposed/config.ts`](./examples/config/proposed/config.ts).
