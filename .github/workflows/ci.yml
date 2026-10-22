@@ -20,6 +20,10 @@ jobs:
       - name: Setup bun
         uses: ./.github/setup-bun
 
+      # B22 (#277): Biome lint-only (no formatting) until the repo-wide format lands
+      - name: Lint
+        run: bun run check:lint
+
       - name: Build
         run: bun run build && bun run build:type
 
