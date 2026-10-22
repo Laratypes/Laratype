@@ -28,7 +28,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | planned → #229 |
-| [Resources](#resources) | planned → #123 |
+| [Resources](#resources) | proposed: PR #PRNUM |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
@@ -541,12 +541,54 @@ planned → [#229](https://github.com/Laratypes/Laratype/issues/229) (H17, M2). 
 ## Resources
 
 ### Status
-planned → [#123](https://github.com/Laratypes/Laratype/issues/123) (H9).
+proposed: PR [#PRNUM](https://github.com/Laratypes/Laratype/pull/PRNUM) @ PRSHA (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
-### Design (non-binding)
-- **Definition:** `defineResource(Model, fn)` with an inferred output type, plus `.make`, `.collection`, `.paginate` and `when()` (#123).
-- **Contract check:** the output is checked against the contract's response schema. The contract is the source of truth, so a resource must satisfy the contract.
-- **Replaces:** `JsonResource.toJson(): any`.
+### Public API
+[`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
+
+```ts
+function defineResource<M extends abstract new (...args: any) => any, R extends Record<string, unknown>>(
+  model: M, fn: (model: InstanceType<M>) => R): Resource<M, ResourceOutput<R>>;
+
+interface Resource<M, Out> {
+  make(model: InstanceType<M>): Out;
+  collection(models: Iterable<InstanceType<M>>): Out[];
+  paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
+}
+
+function when<V>(condition: boolean, value: V | (() => V)): V | MissingValue;   // two overloads: a function value is called
+type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue
+interface MissingValue;   // branded: what when() gives for a false condition
+```
+
+### Invariants
+- **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
+- **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
+- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any` stays required.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value, and a function value is called only then. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it, and it is left out of the JSON at runtime.
+- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns an object (an array or a promise does not compile).
+- **paginate** takes any page with `data`, maps `data` and copies the page's other own enumerable fields as they are, so it fits the paginator the ORM gives (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)).
+- `make` copies the result into a new object with `Object.fromEntries`, so a `__proto__` key stays an own key. The resource object is frozen.
+
+### Example
+Illustrative (`params` needs H3 [#106](https://github.com/Laratypes/Laratype/issues/106) and H7 [#118](https://github.com/Laratypes/Laratype/issues/118)):
+```ts
+const UserResource = defineResource(User, (user) => ({
+  id: user.id,
+  name: user.name,
+  email: when(user.isAdmin, user.email),
+  posts: PostResource.collection(user.posts),
+}));
+
+class UserController {
+  async show({ params }: Ctx<typeof users.show, { params: { user: User } }>) { return UserResource.make(params.user); }
+}
+```
+Tests: [`packages/http/__tests__/resource/defineResource.test.ts`](../../packages/http/__tests__/resource/defineResource.test.ts), type tests (the contract mismatches): [`defineResource.test-d.ts`](../../packages/http/__tests__/resource/defineResource.test-d.ts).
+
+### Non-goals
+- No `mergeWhen`, `whenLoaded`, `additional` or `with` (wrapping) helpers.
+- No wire-format typing: the client's `Jsonify` view of the response is H4 [#107](https://github.com/Laratypes/Laratype/issues/107).
 
 ### Acceptance
 [#123 Done when](https://github.com/Laratypes/Laratype/issues/123)
