@@ -18,7 +18,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Path params](#path-params) | merged @ d70daa7 |
 | [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Validation adapter](#validation-adapter) | merged @ 883a8e2; `issuePath` and the zod run-once proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ c027047 |
+| [Validation adapter](#validation-adapter) | merged @ 883a8e2; `issuePath` and the zod run-once proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 32fb0d1 |
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
@@ -280,10 +280,10 @@ Type-only (`types/errors.types.ts`): an unknown built-in (`errors.conflict`), wr
 ## Validation adapter
 
 ### Status
-merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ c027047 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 32fb0d1 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 
 ### Public API
-[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ c027047](https://github.com/Laratypes/Laratype/blob/c0270473813110b415e7ae58a7266d2064e8d10e/packages/contract/src/validate.ts)
+[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ 32fb0d1](https://github.com/Laratypes/Laratype/blob/32fb0d1e3bbb58f3dbbd32671b5e595df3910afc/packages/contract/src/validate.ts)
 
 ```ts
 export type ErrorBag = Record<string, string[]>;   // dot path -> messages; "" for issues without a path
