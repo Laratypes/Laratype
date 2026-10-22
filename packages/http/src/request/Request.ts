@@ -51,7 +51,7 @@ const createFallbackContainer = () => {
   const prod = globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
   if (!prod && !store[FALLBACK_WARNED]) {
     store[FALLBACK_WARNED] = true;
-    console.warn("[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve them through RequestKernel to resolve them from the app container.");
+    console.warn("[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.");
   }
   return new Container({ deps: depsRegistry });
 };
