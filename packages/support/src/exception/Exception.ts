@@ -62,12 +62,13 @@ Object.defineProperty(Exception.prototype, EXCEPTION, { value: true });
 
 /**
  * Whether `value` is an `Exception`, by its brand (not `instanceof`), so one from another copy of the package counts.
- * The methods the exception filter calls are checked too.
+ * Its public methods are checked too, so the narrowed value has every one of them.
  */
 export const isException = (value: unknown): value is Exception => {
   if (typeof value !== "object" || value === null || (value as Record<symbol, unknown>)[EXCEPTION] !== true) return false;
-  const { canResponsible, getHttpCode, toJson } = value as Partial<Record<"canResponsible" | "getHttpCode" | "toJson", unknown>>;
-  return typeof canResponsible === "function" && typeof getHttpCode === "function" && typeof toJson === "function";
+  const methods = value as Partial<Record<"getErrorCode" | "getHttpCode" | "canResponsible" | "toJson", unknown>>;
+  return typeof methods.getErrorCode === "function" && typeof methods.getHttpCode === "function" &&
+    typeof methods.canResponsible === "function" && typeof methods.toJson === "function";
 };
 
 export interface ExceptionConstructorParams {

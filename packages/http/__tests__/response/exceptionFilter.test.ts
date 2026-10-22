@@ -169,6 +169,7 @@ describe('Exceptions by brand', () => {
   it('a responsible Exception of another copy of @laratype/support keeps its status and body', async () => {
     quiet()
     class ForeignNotFound extends Error {
+      getErrorCode() { return 'NOT_FOUND' }
       canResponsible() { return true }
       getHttpCode() { return 404 }
       toJson() { return { code: 'NOT_FOUND', message: 'No such post.' } }
