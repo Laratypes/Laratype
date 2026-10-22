@@ -1,0 +1,9 @@
+# CodeRabbit config: https://docs.coderabbit.ai/reference/configuration
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    # Name master explicitly so auto review doesn't depend on how CodeRabbit
+    # resolves the default branch (PR #285 was skipped as a non-default base).
+    base_branches:
+      - master
