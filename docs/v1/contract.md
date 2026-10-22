@@ -291,13 +291,14 @@ export type ValidationResult<O> =
   | { readonly ok: true; readonly value: O }
   | { readonly ok: false; readonly errors: ErrorBag; readonly issues: ReadonlyArray<StandardIssue> };
 export const toErrorBag: (issues: ReadonlyArray<StandardIssue>) => ErrorBag;
+export const issuePath: (issue: StandardIssue) => PropertyKey[];   // { key } segments unwrapped, [] without a path (H3 #106)
 export const validate: <S extends StandardSchemaV1>(schema: S, value: unknown) => Promise<ValidationResult<InferOut<S>>>;
 export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknown) => ValidationResult<InferOut<S>>;
 ```
 
 ### Invariants
 - Invalid input **resolves** to `{ ok: false }`. `validate()` never rejects because of invalid input.
-- Paths: `["items", 0, "name"]` becomes `"items.0.name"`. `{ key }` segments are unwrapped. A missing or empty path becomes `""`. Every message for the same path is kept, in order.
+- Paths: `["items", 0, "name"]` becomes `"items.0.name"`. `{ key }` segments are unwrapped (`issuePath`, shared with the 0.5 422 of `@laratype/http`). A missing or empty path becomes `""`. Every message for the same path is kept, in order.
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).

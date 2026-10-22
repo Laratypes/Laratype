@@ -10,13 +10,16 @@ export type ValidationResult<O> =
   | { readonly ok: true; readonly value: O }
   | { readonly ok: false; readonly errors: ErrorBag; readonly issues: ReadonlyArray<StandardIssue> };
 
-const dotPath = (path: StandardIssue["path"]): string =>
-  (path ?? []).map((segment) => String(typeof segment === "object" ? segment.key : segment)).join(".");
+/** An issue's path as keys: `{ key }` segments unwrapped, `[]` without a path. `toErrorBag` joins it with dots. */
+export const issuePath = (issue: StandardIssue): PropertyKey[] =>
+  (issue.path ?? []).map((segment) => (typeof segment === "object" ? segment.key : segment));
+
+const dotPath = (issue: StandardIssue): string => issuePath(issue).map(String).join(".");
 
 export const toErrorBag = (issues: ReadonlyArray<StandardIssue>): ErrorBag => {
   // null prototype: keys come from user input, so "__proto__" must stay a plain key
   const bag: ErrorBag = Object.create(null);
-  for (const issue of issues) (bag[dotPath(issue.path)] ??= []).push(issue.message);
+  for (const issue of issues) (bag[dotPath(issue)] ??= []).push(issue.message);
   return bag;
 };
 

@@ -1,6 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import type { HonoRequest } from "hono/request";
-import { errors, toErrorBag, validate } from "@laratype/contract";
+import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 
 /**
@@ -47,8 +47,6 @@ export const readBody = async (request: HonoRequest): Promise<unknown> => {
 export const readQuery = (request: HonoRequest): Record<string, string | string[]> =>
   Object.fromEntries(Object.entries(request.queries()).map(([key, values]) => [key, values.length === 1 ? values[0]! : values]));
 
-type Segment = NonNullable<StandardIssue["path"]>[number];
-
 /** The fields of zod and valibot issues that hold submitted data. */
 type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
 
@@ -80,12 +78,9 @@ const issueMessage = (issue: LibraryIssue): string => {
   return at === -1 ? message : message.slice(0, at).replace(/(\s+but|[,:])?\s*$/i, "");
 };
 
-/**
- * What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`, with
- * `{ key }` path segments unwrapped.
- */
+/** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
 export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; message: string } => ({
-  path: (issue.path ?? []).map((segment: Segment) => (typeof segment === "object" ? segment.key : segment)),
+  path: issuePath(issue),
   message: issueMessage(issue),
 });
 

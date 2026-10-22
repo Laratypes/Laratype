@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as v from 'valibot'
 import * as z from 'zod/v4'
 import { z as z3 } from 'zod'
-import { toErrorBag, validate, validateSync } from '@laratype/contract'
+import { issuePath, toErrorBag, validate, validateSync } from '@laratype/contract'
 import type { StandardSchemaV1 } from '@laratype/contract'
 
 const isFree = async (email: string) => email !== 'taken@example.com'
@@ -110,6 +110,14 @@ describe('validate() with zod', () => {
   it('another vendor with a safeParseAsync method still runs ~standard.validate', async () => {
     const lookalike = { safeParseAsync: () => { throw new Error('not called') }, '~standard': { version: 1, vendor: 'other', validate: (value: unknown) => ({ value }) } } as const
     expect(await validate(lookalike, 1)).toEqual({ ok: true, value: 1 })
+  })
+})
+
+describe('issuePath', () => {
+  it('unwraps { key } segments and gives [] without a path', () => {
+    const sym = Symbol('s')
+    expect(issuePath({ message: 'x', path: ['items', 0, { key: 'name' }, sym] })).toEqual(['items', 0, 'name', sym])
+    expect(issuePath({ message: 'x' })).toEqual([])
   })
 })
 
