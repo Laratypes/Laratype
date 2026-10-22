@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { z } from 'zod'
 import { defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
 import { Controller, JsonResource, Route, redirect, response } from '../../src/index'
-import type { ContractRouteOptions, ControllerOf, Ctx, Result, RouteProof, VerifyController } from '../../src/index'
+import type { BaseCtx, ContractRouteOptions, ControllerOf, Ctx, Result, RouteProof, VerifyController } from '../../src/index'
 
 const Post = z.object({ id: z.number(), title: z.string() })
 const PostLocked = defineError(423, 'POST_LOCKED')
@@ -26,7 +26,8 @@ class PostPolicy { destroy() { return true } }
 
 class PostController extends Controller {
   index() { return [] as Post[] }
-  async show(ctx: Ctx<typeof posts.show>) { return { id: Number(ctx.endpoint.def.path.length), title: 't' } }
+  // Only the endpoint: a subclass's show may then require bound params
+  async show(ctx: Pick<Ctx<typeof posts.show>, 'endpoint'>) { return { id: Number(ctx.endpoint.def.path.length), title: 't' } }
   destroy() {}
 }
 
@@ -62,13 +63,36 @@ describe('a valid controller', () => {
     expectTypeOf<Proof<Throws>>().toEqualTypeOf<unknown>()
   })
 
-  test('a callable property counts as a handler (action() later); a handler typed with the request object passes', () => {
+  test('a callable property counts as a handler (action() later)', () => {
     class Props {
       index = (): Post[] => []
-      show(req: { param(key: string): string }) { return { id: Number(req.param('post')), title: '' } }
+      show(ctx: { params: { post: string } }) { return { id: Number(ctx.params.post), title: '' } }
       destroy() {}
     }
     expectTypeOf<Proof<Props>>().toEqualTypeOf<unknown>()
+  })
+
+  test('the route provides every path param as a string, folder params included, without bindings', () => {
+    type Folder = With<{ show(ctx: Ctx<typeof posts.show, { params: { user: string } }>): Post }>
+    expectTypeOf<Proof<Folder>>().toEqualTypeOf<unknown>()
+    type Empty = With<{ show(ctx: Ctx<typeof posts.show, { params: {} }>): Post }>
+    expectTypeOf<Proof<Empty>>().toEqualTypeOf<unknown>()
+  })
+
+  test('query and body are the output of their schemas', () => {
+    const forms = defineContract()({
+      search: endpoint.get('/').query(z.object({ page: z.coerce.number().default(1) })).response(z.array(Post)),
+      send: endpoint.post('/:form').body(z.object({ name: z.string() })),
+    })
+    class Forms {
+      search({ query }: Ctx<typeof forms.search>): Post[] { return query.page > 1 ? [] : [] }
+      send({ params, body }: Ctx<typeof forms.send>) { void [params.form, body.name] }
+    }
+    expectTypeOf<VerifyController<'forms', typeof forms, '/forms', Forms>>().toEqualTypeOf<unknown>()
+    type Wrong = { search(ctx: { query: { page: string } }): Post[]; send(): void }
+    expectTypeOf<VerifyController<'forms', typeof forms, '/forms', Wrong>>().toHaveProperty(
+      "forms.search: `query` of the ctx does not match the handler (it is the output of the endpoint's query schema)",
+    )
   })
 
   test('a response() / redirect() value or a 0.5 JsonResource passes: the runtime takes them as is', () => {
@@ -124,7 +148,10 @@ describe('failure modes, by their diagnosis', () => {
     class NeedsPost extends PostController {
       async show(ctx: Ctx<typeof posts.show, { params: { post: PostModel } }>) { return ctx.params.post }
     }
-    expectTypeOf<Proof<NeedsPost>>().toHaveProperty('users.posts.show: handler requires `params.post`, route does not provide it (add middleware / .bind())')
+    // the route provides the raw string: a model needs .bind()
+    expectTypeOf<Proof<NeedsPost>>().toHaveProperty('users.posts.show: `params.post` provided by the route does not match the handler (missing .bind()?)')
+    type NeedsComment = With<{ show(ctx: Ctx<typeof posts.show, { params: { comment: string } }>): Post }>
+    expectTypeOf<Proof<NeedsComment>>().toHaveProperty('users.posts.show: handler requires `params.comment`, route does not provide it (add middleware / .bind())')
     expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsUser, { policy: typeof PostPolicy }>>().toHaveProperty(
       'users.posts.destroy: handler requires `user`, route does not provide it (add middleware / .bind())',
     )
@@ -153,11 +180,9 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<Models>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
   })
 
-  test('without bindings the route provides no params: a required params object fails, even an empty or optional-key one', () => {
+  test('without bindings an optional model param still gets the raw string', () => {
     type Optional = With<{ show(ctx: Ctx<typeof posts.show, { params: { post?: PostModel } }>): Post }>
-    expectTypeOf<Proof<Optional>>().toHaveProperty('users.posts.show: handler requires `params`, route does not provide it (add middleware / .bind())')
-    type Empty = With<{ show(ctx: Ctx<typeof posts.show, { params: {} }>): Post }>
-    expectTypeOf<Proof<Empty>>().toHaveProperty('users.posts.show: handler requires `params`, route does not provide it (add middleware / .bind())')
+    expectTypeOf<Proof<Optional>>().toHaveProperty('users.posts.show: `params.post` provided by the route does not match the handler (missing .bind()?)')
   })
 
   test('an optional or rest second parameter typed as models', () => {
@@ -167,11 +192,14 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<Rest>>().toHaveProperty('users.posts.show: the second parameter gets the raw path params (strings), use .bind() and ctx')
   })
 
-  test('a request member of the wrong type points at request classes, not .bind()', () => {
-    type Rules = With<{ show(req: { endpoint: typeof posts.show; rules(): number }): Post }>
+  test('a handler typed with the 0.5 request object is told that Route.api passes the ctx', () => {
+    type Rules = With<{ show(req: { endpoint: typeof posts.show; rules(): unknown }): Post }>
     expectTypeOf<Proof<Rules>>().toHaveProperty(
-      'users.posts.show: `rules` of the request does not match the handler (Route.api passes the raw request; request classes are #106)',
+      'users.posts.show: handler takes the 0.5 request (`rules`), Route.api passes the ctx { endpoint, params, query, body }',
     )
+    // without rules() it is not the request object: a missing `ip` is a missing requirement (a middleware extension)
+    type Ip = With<{ show(ctx: Ctx<typeof posts.show, { ip: string }>): Post }>
+    expectTypeOf<Proof<Ip>>().toHaveProperty('users.posts.show: handler requires `ip`, route does not provide it (add middleware / .bind())')
   })
 
   test('an endpoint named after a base Controller member has no handler on a bare controller', () => {
@@ -230,13 +258,14 @@ describe('failure modes, by their diagnosis', () => {
 })
 
 describe('Ctx, Result and ControllerOf', () => {
-  test('Ctx is the endpoint plus Requires; params, query and body come with H3 #106', () => {
-    expectTypeOf<Ctx<typeof posts.show>>().toEqualTypeOf<{ readonly endpoint: typeof posts.show }>()
+  test('Ctx is BaseCtx (endpoint, params, query, body) plus Requires, params merged one level deep', () => {
+    expectTypeOf<Ctx<typeof posts.show>>().toEqualTypeOf<{ readonly endpoint: typeof posts.show; params: { post: string }; query: undefined; body: undefined }>()
+    expectTypeOf<Ctx<typeof posts.show>>().toEqualTypeOf<BaseCtx<typeof posts.show>>()
     expectTypeOf<Ctx<typeof posts.show, { user: User }>['user']>().toEqualTypeOf<User>()
-    // Honest until H3: the runtime passes no params object yet, so destructuring it does not compile. H3 flips this
-    // @ts-expect-error Property 'params' does not exist
-    const show = ({ params }: Ctx<typeof posts.show>) => params
-    void show
+    expectTypeOf<Ctx<typeof posts.show, { params: { post: PostModel; user: User } }>['params']>().toEqualTypeOf<{ post: PostModel; user: User }>()
+    // H3 flipped this: the runtime builds params, so destructuring it compiles
+    const show = ({ params }: Ctx<typeof posts.show>) => params.post
+    expectTypeOf(show).returns.toEqualTypeOf<string>()
   })
 
   test('Result is the response schema input, void without one', () => {
