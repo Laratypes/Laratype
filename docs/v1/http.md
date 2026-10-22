@@ -579,7 +579,7 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are not part of #139 and have no issue yet.
 
 ### Public API
-[`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts)
+[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/ApiRouter.ts)
 
 ```ts
 type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
