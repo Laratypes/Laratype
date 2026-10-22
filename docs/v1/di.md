@@ -590,7 +590,8 @@ export class Auth extends Facade { static readonly accessor: typeof AuthManager;
 - The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).
 - **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. It does nothing when the token was bound again after the swap. Restore functions run in reverse order.
-- **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor.
+- **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor. A fake lives in the container that was the facade application when it was made: fake after the app container is set.
+- A swap changes what the next `make()` returns. A singleton that resolved the token earlier, or while it was swapped, keeps the instance it got.
 - `Mail` has no implementation on master (`packages/mail` holds only `package.json`), so its facade comes with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170) on this base.
 
 ### Diagnostics
