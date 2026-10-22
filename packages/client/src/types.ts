@@ -149,7 +149,10 @@ export interface ClientOptions {
    * return a fresh auth token; it may be async.
    */
   headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
-  /** The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`). */
+  /**
+   * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
+   * Redirects are followed, so set `init.redirect = "error"` in `onRequest` if a redirect must not carry them elsewhere.
+   */
   credentials?: RequestCredentials;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
   onRequest?: (request: ClientRequest) => void | Promise<void>;
