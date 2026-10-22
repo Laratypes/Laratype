@@ -2,7 +2,7 @@
 area: config
 packages: ["@laratype/core", "@laratype/support"]
 issues: [152]
-verified-against: Laratype@24b46ab (+ PR feat/k1-typed-config-define-env @ a7fb452; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
+verified-against: Laratype@24b46ab (+ PR #300 @ a7fb452; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
 last-verified: 2026-10-22
 ---
 
@@ -18,15 +18,15 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR feat/k1-typed-config-define-env @ a7fb452 |
-| [Environment validation](#environment-validation) | proposed: PR feat/k1-typed-config-define-env @ a7fb452 |
+| [Config files and config()](#config-files-and-config) | proposed: PR #300 @ a7fb452 |
+| [Environment validation](#environment-validation) | proposed: PR #300 @ a7fb452 |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR feat/k1-typed-config-define-env @ a7fb452 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
+proposed: PR #300 @ a7fb452 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
 
 ### Public API
 [`core/src/config.ts` @ a7fb452](https://github.com/Laratypes/Laratype/blob/a7fb452ecf31b7bb3254727a8bc7d8a977ca37a4/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ a7fb452](https://github.com/Laratypes/Laratype/blob/a7fb452ecf31b7bb3254727a8bc7d8a977ca37a4/packages/support/src/config/ConfigLoadServiceProvider.ts)
@@ -80,7 +80,7 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR feat/k1-typed-config-define-env @ a7fb452 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
+proposed: PR #300 @ a7fb452 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
 
 ### Public API
 [`core/src/env.ts` @ a7fb452](https://github.com/Laratypes/Laratype/blob/a7fb452ecf31b7bb3254727a8bc7d8a977ca37a4/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ a7fb452](https://github.com/Laratypes/Laratype/blob/a7fb452ecf31b7bb3254727a8bc7d8a977ca37a4/packages/support/src/environ/validateEnv.ts)
