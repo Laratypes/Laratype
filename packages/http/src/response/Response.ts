@@ -173,7 +173,7 @@ export default class Response extends AppServiceProvider {
     this.apps.fetch = (...args) => {
       try {
         const response = fetch(...args);
-        return response instanceof Promise ? response.catch(serverError) : response;
+        return typeof (response as Partial<PromiseLike<unknown>>).then === "function" ? Promise.resolve(response).catch(serverError) : response;
       }
       catch (err) {
         return serverError(err);

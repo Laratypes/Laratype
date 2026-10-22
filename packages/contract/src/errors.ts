@@ -47,7 +47,7 @@ const hasBrand = (value: unknown): boolean =>
 /**
  * Whether `value` is a `ContractError` of any error def, by its brand (not `instanceof`), so one from another bundle
  * or package copy counts. The fields the wire format `{ code, ...body }` reads are checked too: a 400-599 `status`, a
- * string `code` and a non-array object `body` without its own `code`, so an error changed after it was created is not one.
+ * string `code` and a non-array object `body` without its own `code`, so an error changed after it was created to break them is not one.
  */
 export const isContractError = (value: unknown): value is ContractError<number, string, object> => {
   if (!hasBrand(value)) return false;
