@@ -19,12 +19,15 @@ export default class Request implements RequestInterface {
 
   protected requestCtx: HonoRequest
 
-  /** The Hono context of the request, when the kernel built this request: `ip()` reads the connection from it. */
-  protected honoCtx?: Context
+  /**
+   * The Hono context of the request, when the kernel built this request: `ip()` reads the connection from it. Private,
+   * so logging or serializing the request doesn't walk Node's socket.
+   */
+  readonly #honoCtx?: Context
 
   constructor(requestCtx: HonoRequest, honoCtx?: Context) {
     this.requestCtx = requestCtx
-    this.honoCtx = honoCtx
+    this.#honoCtx = honoCtx
   }
 
   protocol() {
@@ -101,7 +104,7 @@ export default class Request implements RequestInterface {
    * address.
    */
   ip(): string {
-    const ctx = this.honoCtx
+    const ctx = this.#honoCtx
     if(!ctx?.env) {
       return ""
     }

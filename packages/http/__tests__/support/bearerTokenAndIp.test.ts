@@ -106,6 +106,18 @@ describe('request.ip()', () => {
     expect(await response.json()).toEqual({ ip: '', token: '' })
   })
 
+  it('keeps the Hono context out of the request\'s own keys', async () => {
+    class Keys extends Controller {
+      index(request: LaratypeRequest) {
+        return { keys: Object.keys(request), ip: request.ip() }
+      }
+    }
+    const app = bootApp()
+    app.get('/keys', RequestKernel.handle({ method: 'get', path: '/keys', controller: [Keys, 'index'] }))
+    const requestIP = () => ({ address: '192.0.2.12', family: 'IPv4', port: 51234 })
+    expect(await (await app.request('/keys', {}, { requestIP })).json()).toEqual({ keys: ['requestCtx'], ip: '192.0.2.12' })
+  })
+
   it('returns "" for a request built without the Hono context', () => {
     expect(new LaratypeRequest(new HonoRequest(new Request('http://localhost/'))).ip()).toBe('')
   })
