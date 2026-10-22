@@ -137,7 +137,7 @@
       },
       "peerDependencies": {
         "@laratype/auth": "workspace:*",
-        "hono": "^4.6.18",
+        "hono": "^4.8.0",
         "zod": "^3.25.0",
       },
       "optionalPeers": [
@@ -162,7 +162,7 @@
       "peerDependencies": {
         "@laratype/auth": "workspace:*",
         "@laratype/http": "workspace:*",
-        "hono": "^4.6.18",
+        "hono": "^4.8.0",
       },
       "optionalPeers": [
         "@laratype/auth",
@@ -252,7 +252,7 @@
         "@laratype/http": "workspace:*",
         "@types/passport": "^1.0.17",
         "dayjs": "^1.11.13",
-        "hono": "^4.6.18",
+        "hono": "^4.8.0",
         "passport": "^0.7.0",
         "typeorm": "^0.3.20",
       },
@@ -281,7 +281,7 @@
     },
   },
   "catalog": {
-    "hono": "^4.6.18",
+    "hono": "^4.8.0",
     "vite": "^7.1.9",
     "zod": "^3.25",
   },
