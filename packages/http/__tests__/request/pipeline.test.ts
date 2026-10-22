@@ -156,6 +156,26 @@ describe('a contract route', () => {
     expect((await response.json()).errors).toEqual({ email: ['Invalid email'] })
   })
 
+  it.each([
+    // zod 3 style: a bare received value quoted by the message
+    [{ message: "Invalid enum value. Expected 'a', received 'İİİİİ'", received: 'İİİİİ' }, "Invalid enum value. Expected 'a'"],
+    // the value in another case than the issue's received
+    [{ message: 'Invalid email: Received "SECRET"', received: '"secret"' }, 'Invalid email'],
+    // nothing left once the value is cut
+    [{ message: 'Received "secret"', received: '"secret"' }, 'Invalid value'],
+    // "received" inside a word is not the tail
+    [{ message: 'Field unreceived 5', received: 5 }, 'Field unreceived 5'],
+  ])('cuts the received value of %o', async (issue, message) => {
+    quiet()
+    const schema = { '~standard': { version: 1, vendor: 'other', validate: () => ({ issues: [{ ...issue, path: ['email'] }] }) } } as const
+    const mails = defineContract()({ send: endpoint.post('/').body(schema) })
+    class Mails { send() {} }
+    const served = bootApp()
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    const response = await served.request('/mails', json({ email: 'x' }))
+    expect((await response.json()).errors).toEqual({ email: [message] })
+  })
+
   it('validates with any Standard Schema library', async () => {
     quiet()
     const forms = defineContract()({ send: endpoint.post('/').body(v.object({ age: v.pipe(v.string(), v.transform(Number)) })).response(z.unknown()) })

@@ -53,13 +53,15 @@ type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received
 const RECEIVED = "received ";
 
 /**
- * The index of `received <value>` at the end of a message, the value bare or quoted and as sent, the word in any
- * case. Indexed in the message itself: lowercasing can change a string's length (`İ` becomes two code units).
+ * The index of `received <value>` at the end of a message, as a word, the value bare or quoted, in any case. Taken
+ * in the message itself, comparing lowercased copies only: lowercasing can change a string's length (`İ` becomes
+ * two code units), so an index into the lowercased message would cut too early.
  */
 const receivedAt = (message: string, received: string): number => {
   for (const value of [received, `'${received}'`, `"${received}"`]) {
     const at = message.length - value.length - RECEIVED.length;
-    if (at >= 0 && message.endsWith(value) && message.slice(at, at + RECEIVED.length).toLowerCase() === RECEIVED) return at;
+    if (at < 0 || (at > 0 && /[\p{L}\p{N}]/u.test(message[at - 1]!))) continue;
+    if (message.slice(at).toLowerCase() === `${RECEIVED}${value}`.toLowerCase()) return at;
   }
   return -1;
 };
@@ -79,7 +81,8 @@ const issueMessage = (issue: LibraryIssue): string => {
   }
   if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
   const at = receivedAt(message, String(received));
-  return at === -1 ? message : message.slice(0, at).replace(/(\s+but|[,:])?\s*$/i, "");
+  // A message that is only `Received <value>` has nothing left: a generic one, never the value
+  return at === -1 ? message : message.slice(0, at).replace(/(\s+but|[,:])?\s*$/i, "") || "Invalid value";
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
