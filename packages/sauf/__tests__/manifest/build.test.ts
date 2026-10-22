@@ -50,7 +50,8 @@ afterAll(() => {
 });
 
 describe('writeDistManifest', () => {
-  it('the 0.5 build (include app/**, no rootDir: tsc roots at app/): dist/x.js, appDir ""', async () => {
+  it('the 0.5 build on TypeScript 5 (include app/**, no rootDir: tsc roots at app/): dist/x.js, appDir ""', async () => {
+    expect(Number(ts.versionMajorMinor.split('.')[0])).toBe(5);
     const dir = project('legacy', {});
     expect(existsSync(join(dir, 'dist/config/config.js'))).toBe(true);
     const { file, omitted } = writeDistManifest(ts, dir);
@@ -74,6 +75,13 @@ describe('writeDistManifest', () => {
     expect(appDir).toBe('app');
     expect(readFileSync(file, 'utf8')).toContain("path: 'app/config/config.ts', load: () => import('./app/config/config.js')");
     expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'demo' });
+  });
+
+  it('TypeScript 6 with an explicit rootDir keeps it: "rootDir": "app" is dist/x.js, appDir ""', async () => {
+    const dir = project('ts6-rootdir', { rootDir: 'app' });
+    const { file, appDir } = writeDistManifest({ ...ts, versionMajorMinor: '6.0' } as typeof ts, dir);
+    expect(appDir).toBe('');
+    expect(readFileSync(file, 'utf8')).toContain("load: () => import('./config/config.js')");
   });
 
   it('"rootDir": "." with database/** included: dist/app/x.js and dist/database/x.js, appDir "app"', async () => {
