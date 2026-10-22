@@ -46,33 +46,119 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "complexity": {
+        "noBannedTypes": "off",
+        "noExtraBooleanCast": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noStaticOnlyClass": "off",
+        "noThisInStatic": "off",
+        "noUselessConstructor": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noUselessEmptyExport": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noUselessEscapeInRegex": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noUselessTypeConstraint": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useArrowFunction": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useLiteralKeys": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useOptionalChain": {
+          "level": "on",
+          "fix": "none"
+        }
+      },
+      "correctness": {
+        "noUnusedFunctionParameters": "off",
+        "noUnusedImports": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noUnusedPrivateClassMembers": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noUnusedVariables": {
+          "level": "on",
+          "fix": "none"
+        },
+        "noVoidTypeReturn": "warn",
+        "useParseIntRadix": {
+          "level": "on",
+          "fix": "none"
+        }
+      },
       "style": {
         "noNonNullAssertion": "off",
+        "useConst": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useExportType": {
+          "level": "on",
+          "fix": "none"
+        },
         "useImportType": {
           "level": "warn",
+          "fix": "none"
+        },
+        "useNodejsImportProtocol": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useTemplate": {
+          "level": "on",
           "fix": "none"
         }
       },
       "suspicious": {
-        "noExplicitAny": "off",
         "noAssignInExpressions": "warn",
+        "noConfusingVoidType": {
+          "level": "on",
+          "fix": "none"
+        },
         "noControlCharactersInRegex": "warn",
-        "noDoubleEquals": "warn",
-        "noEmptyInterface": "warn",
+        "noDoubleEquals": {
+          "level": "warn",
+          "fix": "none"
+        },
+        "noEmptyInterface": {
+          "level": "warn",
+          "fix": "none"
+        },
+        "noExplicitAny": "off",
         "noImplicitAnyLet": "warn",
+        "noPrototypeBuiltins": {
+          "level": "on",
+          "fix": "none"
+        },
         "noRedeclare": "warn",
         "noShadowRestrictedNames": "warn",
         "noThenProperty": "warn",
+        "noTsIgnore": {
+          "level": "on",
+          "fix": "none"
+        },
+        "useIsArray": {
+          "level": "on",
+          "fix": "none"
+        },
         "useIterableCallbackReturn": "warn"
-      },
-      "complexity": {
-        "noBannedTypes": "off",
-        "noStaticOnlyClass": "off",
-        "noThisInStatic": "off"
-      },
-      "correctness": {
-        "noUnusedFunctionParameters": "off",
-        "noVoidTypeReturn": "warn"
       }
     }
   }
