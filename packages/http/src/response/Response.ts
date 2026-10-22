@@ -53,8 +53,8 @@ const scrubErrorHeaders = (headers: Headers) => {
  * (#272). An HTTP error's own response keeps them: they describe its own body
  */
 const BODY_HEADERS = [
-  "Content-Type", "Content-Length", "Content-Encoding", "Content-Range", "Content-Disposition", "Content-Language",
-  "Content-Location", "Location", "Transfer-Encoding",
+  "Content-Type", "Content-Length", "Content-Encoding", "Content-Range", "Content-Disposition", "Content-Location",
+  "Content-Digest", "Repr-Digest", "Digest", "Content-MD5", "Location", "Refresh", "Transfer-Encoding", "Trailer",
 ];
 
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */

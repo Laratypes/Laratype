@@ -245,8 +245,9 @@ describe('error response headers', () => {
       'Content-Length': '812',
       'Content-Range': 'bytes 0-811/812',
       'Content-Disposition': 'attachment; filename="report.csv"',
-      'Content-Language': 'fr',
       'Content-Location': '/reports/r.csv',
+      'Content-Digest': 'sha-256=:x:',
+      'Refresh': '0; url=/elsewhere',
       'Transfer-Encoding': 'chunked',
       'Access-Control-Allow-Origin': 'https://app.example.test',
     },
@@ -254,7 +255,7 @@ describe('error response headers', () => {
 
   /** Asserts the error response carries no header of the earlier body or redirect; `text` is the error's own body */
   const expectNoBodyHeaders = (response: Response, text: string) => {
-    for (const name of ['Location', 'Content-Encoding', 'Content-Range', 'Content-Disposition', 'Content-Language', 'Content-Location', 'Transfer-Encoding']) {
+    for (const name of ['Location', 'Refresh', 'Content-Encoding', 'Content-Range', 'Content-Disposition', 'Content-Location', 'Content-Digest', 'Transfer-Encoding']) {
       expect(response.headers.get(name), name).toBeNull()
     }
     expect(response.headers.get('Content-Type')).not.toBe('application/octet-stream')
@@ -298,6 +299,8 @@ describe('error response headers', () => {
       c.header('Content-Length', '812')
       c.header('Location', '/reports/r.csv')
       c.header('Access-Control-Allow-Origin', 'https://app.example.test')
+      // the request's locale, which the error's message is in too
+      c.header('Content-Language', 'fr')
       throw new Error('secret detail')
     })
     const response = await app.request('/export')
@@ -306,6 +309,7 @@ describe('error response headers', () => {
     expect(JSON.parse(text)).toEqual(GENERIC)
     expectNoBodyHeaders(response, text)
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    expect(response.headers.get('Content-Language')).toBe('fr')
   })
 
   it('a successful response keeps the headers middleware set', async () => {
