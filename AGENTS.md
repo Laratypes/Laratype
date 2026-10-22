@@ -88,4 +88,4 @@ Rebasing a pushed branch means a force-push, which needs the user (see the top).
 
 ### Automated review
 
-Kody (`kody-ai`) reviews PRs. Treat its comments like any reviewer's: verify a suggestion before applying it, and reply with the commit that fixes it. If it replaces a PR description with its own summary, restore the template body from the description's edit history.
+CodeRabbit (`coderabbitai`) and Kody (`kody-ai`) review PRs. Treat their comments like any reviewer's: verify a suggestion before applying it, and reply with the commit that fixes it, or say why you don't apply it. Handle CodeRabbit's comments on the current head before asking for a human or leader review. If a bot replaces a PR description with its own summary, restore the template body from the description's edit history.
