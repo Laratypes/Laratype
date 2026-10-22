@@ -50,12 +50,16 @@ export const readQuery = (request: HonoRequest): Record<string, string | string[
 /** The fields of zod and valibot issues that hold submitted data. */
 type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
 
-/** `received <value>` at the end of a message, the value bare or quoted, in any case. */
+const RECEIVED = "received ";
+
+/**
+ * The index of `received <value>` at the end of a message, the value bare or quoted and as sent, the word in any
+ * case. Indexed in the message itself: lowercasing can change a string's length (`İ` becomes two code units).
+ */
 const receivedAt = (message: string, received: string): number => {
-  const lower = message.toLowerCase();
   for (const value of [received, `'${received}'`, `"${received}"`]) {
-    const tail = `received ${value}`.toLowerCase();
-    if (lower.endsWith(tail)) return message.length - tail.length;
+    const at = message.length - value.length - RECEIVED.length;
+    if (at >= 0 && message.endsWith(value) && message.slice(at, at + RECEIVED.length).toLowerCase() === RECEIVED) return at;
   }
   return -1;
 };

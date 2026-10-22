@@ -142,6 +142,20 @@ describe('a contract route', () => {
     expect(text).not.toContain('s3cr3t')
   })
 
+  it('cuts a received value with non-ASCII characters at the right index', async () => {
+    quiet()
+    // `İ` lowercases to two code units: an index taken in the lowercased message would cut too early
+    const issues = [{ message: 'Invalid email: Received "İİİİİ"', path: ['email'], received: '"İİİİİ"' }]
+    const schema = { '~standard': { version: 1, vendor: 'other', validate: () => ({ issues }) } } as const
+    const mails = defineContract()({ send: endpoint.post('/').body(schema) })
+    class Mails { send() {} }
+    const served = bootApp()
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    const response = await served.request('/mails', json({ email: 'İİİİİ' }))
+    expect(response.status).toBe(422)
+    expect((await response.json()).errors).toEqual({ email: ['Invalid email'] })
+  })
+
   it('validates with any Standard Schema library', async () => {
     quiet()
     const forms = defineContract()({ send: endpoint.post('/').body(v.object({ age: v.pipe(v.string(), v.transform(Number)) })).response(z.unknown()) })
