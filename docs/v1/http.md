@@ -50,7 +50,7 @@ Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https:
 type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // BaseCtx<E> merged with Requires (params merged one level deep)
 // BaseCtx<E> = { readonly endpoint: E; params: PathParams<path>; query: InferOut<query>; body: InferOut<body> }
 type Result<E extends AnyEndpoint>;        // response schema INPUT (void if none)
-type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }; merged with | ResponseEscape (0.5 response()/JsonResource, until #123)
+type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }; merged with | ResponseEscape (0.5 response()/JsonResource, unchecked; v2 resources, #123, return checked data)
 ```
 
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)):
@@ -59,7 +59,7 @@ Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routi
 type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonly endpoint: E } & Requires;   // H3 adds BaseCtx
 type Result<E extends AnyEndpoint>;   // the response schema INPUT, void without one
 type ControllerOf<C>;                 // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]> | ResponseEscape> }, for a contract or its tree node
-type ResponseEscape;                  // ResponseSupport | JsonResource: 0.5 response() / redirect() and resources, until #123
+type ResponseEscape;                  // ResponseSupport | JsonResource: 0.5 response() / redirect() and 0.5 resources, unchecked (v2 resources return checked data, #123)
 ```
 
 Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property, so a handler reads `ctx.endpoint` and its `Requires`, or types its parameter as that request object. Destructuring `{ params }` from a `Ctx` does not compile yet.
@@ -148,7 +148,7 @@ interface ApiRouteBuilder<A> {
 - **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), `Provided` also holds the 0.5 request object, which the runtime passes, so a handler typed with it passes too, and it has no `params` without bindings: a handler that requires a `params` object (even `{}` or one with optional keys) fails.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
-- **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` (schema typing is H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) also pass, since the runtime takes them as is (`ResponseEscape`).
+- **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
 - **Second parameter:** until H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
 - **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
 - **Also checked at `r.contract()`:**
@@ -556,8 +556,7 @@ interface Resource<M, Out> {
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
 }
 
-function when<V>(condition: boolean, value: () => V): V | MissingValue;   // called only when the condition holds
-function when<V extends NotFunction>(condition: boolean, value: V): V | MissingValue;   // any value but a function or a class
+function when<V>(condition: boolean, value: V): V | MissingValue;   // the value as it is (a function too)
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -566,14 +565,14 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
 - **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required.
-- **when():** a false condition drops the key from `make`'s result; a true one keeps the value, and a function value is called only then. `when()` takes no function with parameters and no class (it would call them). Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it.
-- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array or a promise does not compile, and a class instance throws at `make` (a copy would lose its getters).
-- **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are. A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). With an `unknown` value, `V | MissingValue` is `unknown`, so the key stays required in the type. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
+- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
+- **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
 - `make` copies the result into a new object, and a `__proto__` key stays an own key. The resource object is frozen.
 
 ### Diagnostics
-- `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>`
-- `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>`
+- `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
+- `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example

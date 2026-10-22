@@ -25,13 +25,11 @@ describe('defineResource', () => {
     expect(Object.keys(UserResource.make(new User(1, 'ada')))).toEqual(['id', 'name'])
   })
 
-  it('when() calls a function value only when the condition holds', () => {
-    const secret = vi.fn(() => 's3cret')
-    const Secret = defineResource(User, (user) => ({ secret: when(user.isAdmin, secret) }))
-    expect(Secret.make(new User(1, 'ada'))).toEqual({})
-    expect(secret).not.toHaveBeenCalled()
-    expect(Secret.make(new User(1, 'ada', true))).toEqual({ secret: 's3cret' })
-    expect(secret).toHaveBeenCalledOnce()
+  it('when() keeps a function value as it is, never calls it', () => {
+    const format = vi.fn(() => 'x')
+    const Fn = defineResource(User, (user) => ({ format: when(user.isAdmin, format) }))
+    expect(Fn.make(new User(1, 'ada', true)).format).toBe(format)
+    expect(format).not.toHaveBeenCalled()
   })
 
   it('keeps null, undefined and false values: only when() drops a key', () => {
@@ -56,6 +54,9 @@ describe('defineResource', () => {
     class Dto { constructor(readonly id: number) {} }
     expect(() => defineResource(User, (user) => new Dto(user.id)).make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must return a plain object, got an instance of Dto',
+    )
+    expect(() => defineResource(User, () => null as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got null',
     )
   })
 

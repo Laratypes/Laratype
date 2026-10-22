@@ -33,17 +33,12 @@ describe('the inferred output', () => {
     expectTypeOf(UserResource.collection).returns.toEqualTypeOf<UserOut[]>()
   })
 
-  test('when() with a function value gives what it returns, and a function is called, never kept', () => {
-    expectTypeOf(when(true, () => 1)).toEqualTypeOf<number | MissingValue>()
-    expectTypeOf(when(true, 'a')).toEqualTypeOf<'a' | MissingValue>()
-    expectTypeOf(when(true, [1])).toEqualTypeOf<number[] | MissingValue>()
-    expectTypeOf(when(true, new Date())).toEqualTypeOf<Date | MissingValue>()
-    // @ts-expect-error a class is not a value when() can keep: it would be called
-    when(true, Post)
-    // @ts-expect-error a function value is called with no arguments
-    when(true, (id: number) => id)
-    const Lazy = defineResource(User, (user) => ({ secret: when(user.isAdmin, () => user.email) }))
-    expectTypeOf(Lazy.make).returns.toEqualTypeOf<{ secret?: string }>()
+  test('when() gives the value type, whatever it is: a function is kept, never called; an unknown key stays required', () => {
+    expectTypeOf(when(true, 'a')).toEqualTypeOf<string | MissingValue>()
+    expectTypeOf(when(true, {} as unknown)).toEqualTypeOf<unknown>()
+    const format = (id: number) => String(id)
+    const Fn = defineResource(User, (user) => ({ format: when(user.isAdmin, format), settings: when(user.isAdmin, {} as unknown) }))
+    expectTypeOf(Fn.make).returns.toEqualTypeOf<{ format?: (id: number) => string; settings: unknown }>()
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {
@@ -63,9 +58,11 @@ describe('the inferred output', () => {
     expectTypeOf(WithPosts.make).returns.toEqualTypeOf<{ id: number; posts: { id: number; title: string }[] }>()
   })
 
-  test('paginate maps data and keeps the meta fields of the page', () => {
+  test('paginate maps data and keeps the meta fields of the page, for each member of a union', () => {
     const page = UserResource.paginate({ data: [] as User[], total: 0, perPage: 15 })
     expectTypeOf(page).toEqualTypeOf<{ total: number; perPage: number; data: UserOut[] }>()
+    type Page = { data: User[]; total: number } | { data: User[]; cursor: string }
+    expectTypeOf(UserResource.paginate({} as Page)).toEqualTypeOf<{ total: number; data: UserOut[] } | { cursor: string; data: UserOut[] }>()
   })
 
   test('make, collection and paginate take the model, and fn returns an object', () => {
@@ -79,6 +76,8 @@ describe('the inferred output', () => {
     defineResource(User, (user) => [user.id])
     // @ts-expect-error fn is synchronous: load relations before make()
     defineResource(User, async (user) => ({ id: user.id }))
+    // @ts-expect-error a then key would make the data a thenable
+    defineResource(User, (user) => ({ then: user.createdAt }))
   })
 })
 
@@ -135,5 +134,6 @@ describe('checked against the contract response schema', () => {
     }
     // @ts-expect-error users.index: return type does not match the response schema
     Route.api(appApi, (r) => [r.contract(users, Wrong)])
+    expectTypeOf<keyof Proof<Wrong>>().toEqualTypeOf<'users.index: return type does not match the response schema'>()
   })
 })
