@@ -197,6 +197,9 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<Rules>>().toHaveProperty(
       'users.posts.show: handler takes the 0.5 request (`rules`), Route.api passes the ctx { endpoint, params, query, body }',
     )
+    // without rules() it is not the request object: a missing `ip` is a missing requirement (a middleware extension)
+    type Ip = With<{ show(ctx: Ctx<typeof posts.show, { ip: string }>): Post }>
+    expectTypeOf<Proof<Ip>>().toHaveProperty('users.posts.show: handler requires `ip`, route does not provide it (add middleware / .bind())')
   })
 
   test('an endpoint named after a base Controller member has no handler on a bare controller', () => {

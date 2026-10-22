@@ -52,13 +52,22 @@ type Segment = NonNullable<StandardIssue["path"]>[number];
 /** The fields of zod and valibot issues that hold submitted data. */
 type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
 
-const RECEIVED_TAILS = (received: string) => [`, received '${received}'`, `, received ${received}`, ` but received ${received}`];
+/** `received <value>` at the end of a message, the value bare or quoted, in any case. */
+const receivedAt = (message: string, received: string): number => {
+  const lower = message.toLowerCase();
+  for (const value of [received, `'${received}'`, `"${received}"`]) {
+    const tail = `received ${value}`.toLowerCase();
+    if (lower.endsWith(tail)) return message.length - tail.length;
+  }
+  return -1;
+};
 
 /**
  * An issue's message without the submitted data, which would reach proxy and client logs. Default messages put it
- * last: zod 3 and valibot end with the issue's `received` (`Invalid enum value. Expected 'a' | 'b', received 'c'`,
- * `Invalid type: Expected string but received 5`), zod's unrecognized keys follow the first `": "`. A zod
- * `invalid_type` keeps its `received`, a type name. Any other message is kept as it is.
+ * last: zod 3 and valibot end with `received` and the issue's `received` (`Invalid enum value. Expected 'a' | 'b',
+ * received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email: Received "a@b"`), cut with the
+ * separator before it; zod's unrecognized keys follow the first `": "`. A zod `invalid_type` keeps its `received`,
+ * a type name. Any other message is kept as it is.
  */
 const issueMessage = (issue: LibraryIssue): string => {
   const { message, code, received, keys } = issue;
@@ -67,8 +76,8 @@ const issueMessage = (issue: LibraryIssue): string => {
     if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return message.slice(0, at);
   }
   if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
-  const tail = RECEIVED_TAILS(String(received)).find((suffix) => message.endsWith(suffix));
-  return tail ? message.slice(0, -tail.length) : message;
+  const at = receivedAt(message, String(received));
+  return at === -1 ? message : message.slice(0, at).replace(/(\s+but|[,:])?\s*$/i, "");
 };
 
 /**
@@ -108,7 +117,9 @@ const validateSlot = async (schema: StandardSchemaV1 | undefined, value: unknown
  * 422: an error thrown inside a schema rejects, and ends as a generic 500.
  */
 export const validateInput = async (endpoint: AnyEndpoint, input: RawInput): Promise<{ query: unknown; body: unknown }> => {
-  const [query, body] = await Promise.all([validateSlot(endpoint.def.query, input.query), validateSlot(endpoint.def.body, input.body)]);
+  // In turn: a query schema that throws stops before the body schema's side effects (an async refinement's lookup)
+  const query = await validateSlot(endpoint.def.query, input.query);
+  const body = await validateSlot(endpoint.def.body, input.body);
   if (!query.ok || !body.ok) {
     throw unprocessable([...(query.ok ? [] : query.issues), ...(body.ok ? [] : body.issues)]);
   }

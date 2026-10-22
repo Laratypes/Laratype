@@ -129,6 +129,19 @@ describe('a contract route', () => {
     expect(errors).toHaveBeenCalledWith(failure)
   })
 
+  it('cuts a valibot "Received" value too', async () => {
+    quiet()
+    const mails = defineContract()({ send: endpoint.post('/').body(v.object({ email: v.pipe(v.string(), v.email()) })) })
+    class Mails { send() {} }
+    const served = bootApp()
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    const response = await served.request('/mails', json({ email: 'alice.s3cr3t' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ email: ['Invalid email'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
   it('validates with any Standard Schema library', async () => {
     quiet()
     const forms = defineContract()({ send: endpoint.post('/').body(v.object({ age: v.pipe(v.string(), v.transform(Number)) })).response(z.unknown()) })

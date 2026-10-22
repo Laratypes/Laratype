@@ -105,17 +105,22 @@ type MismatchedKeys<Pv, Rq> =
 
 type At<O, P extends string> = P extends `params.${infer K}` ? Sub<Sub<O, "params">, K> : Sub<O, P>;
 
-/** A member of the 0.5 request that the ctx doesn't have: a handler typed with the request object. */
+/** A member of the 0.5 request that the ctx doesn't have. */
 type RequestKey = Exclude<keyof RequestSupport, keyof BaseCtx<AnyEndpoint>> & string;
+
+/** A missing key; one of the 0.5 request when the handler is typed with that object (it has `rules()`). */
+type MissingLabel<N extends string, M extends string, Rq> = M extends RequestKey
+  ? Rq extends { rules(): unknown }
+    ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
+    : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`
+  : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`;
 
 /*
  * Readable errors: the diagnosis is in the PROPERTY NAMES of the error type, since tsc prints the names of missing
  * properties in full but truncates property types to `{ ...; }`. The values hold the details.
  */
 type RequirementIssues<N extends string, Pv, Rq> = {
-  [M in MissingKeys<Pv, Rq> as M extends RequestKey
-    ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
-    : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`]: {
+  [M in MissingKeys<Pv, Rq> as MissingLabel<N, M, Rq>]: {
     handler_requires: At<Rq, M>;
   };
 } & {

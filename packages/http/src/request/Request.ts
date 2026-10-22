@@ -287,8 +287,8 @@ export default class Request extends AppServiceProvider {
     return async (ctx: Context) => {
       const body = await readBody(ctx.req);
       const requestInstance = await this.processData(ctx.req, body);
-      // A contract route's raw input: Hono builds a new params object per call
-      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: readQuery(ctx.req), body } };
+      // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
+      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
