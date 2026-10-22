@@ -208,7 +208,7 @@ describe('MemoryThrottleStore', () => {
     expect([...windows.keys()]).toEqual(['c'])
   })
 
-  it('when full, drops the ended windows before a live one', () => {
+  it('when full, drops the window started first (here an ended one)', () => {
     const store = new MemoryThrottleStore(2)
     store.hit('a', 1000)
     store.hit('b', 10_000)

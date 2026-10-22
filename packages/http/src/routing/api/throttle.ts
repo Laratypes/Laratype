@@ -28,7 +28,7 @@ const MAX_WINDOWS = 100_000;
 
 /**
  * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Past
- * `maxWindows`, with no ended window to drop, the window started first is dropped, so its client starts a new one early.
+ * `maxWindows` the window started first is dropped, so its client starts a new one early if it was still live.
  */
 export class MemoryThrottleStore implements ThrottleStore {
   // In the order the windows started: a new window is re-inserted at the end
@@ -43,8 +43,8 @@ export class MemoryThrottleStore implements ThrottleStore {
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
       this.windows.delete(key);
-      // Full: drop the ended windows first, and a live one only when none has ended
-      if (this.windows.size >= this.maxWindows) this.sweep(now);
+      // Full: drop the window started first, the likeliest to have ended. No sweep here: at capacity with live
+      // windows, every new key would scan the whole map
       if (this.windows.size >= this.maxWindows) this.windows.delete(this.windows.keys().next().value!);
       window = { hits: 0, resetAt: now + windowMs };
       this.windows.set(key, window);
