@@ -47,6 +47,14 @@ const scrubErrorHeaders = (headers: Headers) => {
   headers.set("Cache-Control", "no-store");
 };
 
+/**
+ * Headers of a response finalized before the throw that describe its own body or redirect, not the error's: Hono merges
+ * them into the error response, where a stale Content-Length or Content-Encoding breaks the body (#272)
+ */
+const FINALIZED_RESPONSE_HEADERS = [
+  "Content-Length", "Content-Encoding", "Content-Range", "Content-Disposition", "Location", "Transfer-Encoding",
+];
+
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
 
@@ -141,9 +149,15 @@ export default class Response extends AppServiceProvider {
     // On the context, not only on the response built below: Hono merges the context's headers into the error response
     // (#272). The other headers set before the throw (CORS, Vary) stay. A context finalized before the throw holds a
     // response whose body may be read already, and whose headers may be immutable: the error starts from a copy of
-    // its headers only
+    // its headers only, without those of its own body or redirect. Hono's `res` setter merges the old response's
+    // headers into a new one, so the old one is cleared first
     if (c.finalized) {
-      c.res = new globalThis.Response(null, { headers: c.res.headers });
+      const headers = new Headers(c.res.headers);
+      for (const name of FINALIZED_RESPONSE_HEADERS) {
+        headers.delete(name);
+      }
+      c.res = undefined;
+      c.res = new globalThis.Response(null, { headers });
     }
     scrubErrorHeaders(c.res.headers);
 

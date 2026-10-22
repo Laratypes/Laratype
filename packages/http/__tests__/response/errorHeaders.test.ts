@@ -233,7 +233,56 @@ describe('error response headers', () => {
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual(GENERIC)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
+    // the 302's redirect is not the error's
+    expect(response.headers.get('Location')).toBeNull()
   })
+
+  /** A proxied, gzipped upstream response: its headers describe its own body, not the error's */
+  const proxied = () => new Response('compressed bytes', {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Encoding': 'gzip',
+      'Content-Length': '812',
+      'Content-Range': 'bytes 0-811/812',
+      'Content-Disposition': 'attachment; filename="report.csv"',
+      'Access-Control-Allow-Origin': 'https://app.example.test',
+    },
+  })
+
+  const expectNoRepresentationHeaders = (response: Response) => {
+    expect(response.headers.get('Location')).toBeNull()
+    expect(response.headers.get('Content-Encoding')).toBeNull()
+    expect(response.headers.get('Content-Range')).toBeNull()
+    expect(response.headers.get('Content-Disposition')).toBeNull()
+    // Content-Length, when present, is the error body's own
+    expect(response.headers.get('Content-Length')).not.toBe('812')
+  }
+
+  for (const [label, thrown, status] of [
+    ['an unknown error', () => new Error('secret detail'), 500],
+    ['a 4xx HTTPException', () => new HTTPException(401, { message: 'Unauthorized' }), 401],
+  ] as const) {
+    it(`${label} thrown after a proxied gzip response drops its body and redirect headers`, async () => {
+      quiet()
+      const app = bootApp()
+      app.use(async (_c, next) => {
+        await next()
+        throw thrown()
+      })
+      app.get('/download', (c) => {
+        c.res = proxied()
+        return c.res
+      })
+      const response = await app.request('/download')
+      expect(response.status).toBe(status)
+      const text = await response.text()
+      expect(text).not.toBe('compressed bytes')
+      expectNoRepresentationHeaders(response)
+      expect(response.headers.get('Cache-Control')).toBe('no-store')
+      // a header the error response may carry stays
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    })
+  }
 
   it('a successful response keeps the headers middleware set', async () => {
     class Fine extends Controller { index() { return { ok: true } } }
