@@ -10,7 +10,7 @@
     ],
     "catalog": {
       "vite": "^7.1.9",
-      "hono": "^4.6.18",
+      "hono": "^4.8.0",
       "zod": "^3.25"
     }
   },
@@ -23,6 +23,7 @@
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "check:dist": "node scripts/check-dist.mjs",
     "check:pkg": "node scripts/check-packages.mjs",
+    "check:lint": "biome ci --diagnostic-level=error",
     "iv": "node ./scripts/incrementalVersion.js",
     "test": "vitest",
     "test:di": "vitest run packages/sauf/__tests__/di"
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "2.5.15",
     "@types/node": "^20.11.24",
     "pkg-pr-new": "0.0.88",
     "publint": "^0.3.25",
