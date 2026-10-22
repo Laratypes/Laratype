@@ -54,6 +54,16 @@ export class Exception extends Error {
   }
 }
 
+/** Brand of an `Exception`, a `Symbol.for` key so the exception filter recognizes one from another copy of the package (#108). */
+const EXCEPTION: unique symbol = Symbol.for("laratype.exception");
+
+// On the prototype, so every subclass carries it without a constructor change
+Object.defineProperty(Exception.prototype, EXCEPTION, { value: true });
+
+/** Whether `value` is an `Exception`, by its brand (not `instanceof`), so one from another copy of the package counts. */
+export const isException = (value: unknown): value is Exception =>
+  typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[EXCEPTION] === true;
+
 export interface ExceptionConstructorParams {
   code?: string,
   message?: string,

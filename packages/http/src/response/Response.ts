@@ -1,9 +1,10 @@
 import type { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
-import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
+import { GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey, isException } from "@laratype/support";
+import type { Exception } from "@laratype/support";
 import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
-import { isBodylessStatus } from "@laratype/contract";
+import { isBodylessStatus, isContractError } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 
 /**
@@ -107,11 +108,23 @@ export default class Response extends AppServiceProvider {
 
   }
 
+  /**
+   * The exception filter (docs/v1/http.md › Exceptions). A contract error (`defineError`, the `errors` catalog) and a
+   * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
+   */
   public resolveException(err: Error | Exception, c: Context) {
-    const responsible = err instanceof Exception && err.canResponsible() ? err : undefined;
-    const httpError = responsible ? undefined : asHttpError(err);
-    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
-    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
+    const declared = isContractError(err) ? err : undefined;
+    const responsible = !declared && isException(err) && err.canResponsible() ? err : undefined;
+    const httpError = declared || responsible ? undefined : asHttpError(err);
+    // A contract error, a responsible Exception and an HTTP error keep their status; anything else is an unknown
+    // error, a 500
+    const status = declared ? declared.status as StatusCode : responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
+
+    // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
+    // controller's status. It is expected, so it is not logged (#108)
+    if (declared) {
+      return c.json({ code: declared.code, ...declared.body }, status as ContentfulStatusCode);
+    }
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
@@ -138,5 +151,23 @@ export default class Response extends AppServiceProvider {
     });
 
     this.apps.onError(this.resolveException)
+
+    // Hono's onError only sees an `Error`: a `throw "x"` or `throw {}` leaves `fetch`, and each adapter answers it its
+    // own way (Node an empty 500, Bun's dev error page). The app's fetch answers anything that leaves it with the
+    // generic 500 and logs it (#108). Wrapped here, not with a middleware: ResponseKernel boots after the routes, and
+    // the adapters read `fetch` once the app is booted
+    const fetch = this.apps.fetch;
+    this.apps.fetch = async (...args) => {
+      try {
+        return await fetch(...args);
+      }
+      catch (err) {
+        console.error(err);
+        return new globalThis.Response(JSON.stringify({ message: "Server Error" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+    };
   }
 }
