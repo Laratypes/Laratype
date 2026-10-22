@@ -42,11 +42,16 @@ const validateRules = async (rules: StandardSchemaV1 & { safeParseAsync?: unknow
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
 
+/** Set once the fallback warning printed: per process, as dev restarts and a second copy of the module create another. */
+const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
+
 /** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
 const createFallbackContainer = () => {
+  const store = globalThis as { [FALLBACK_WARNED]?: true };
   const prod = globalThis.__PROD__ || globalThis.process?.env?.NODE_ENV === "production";
-  if (!prod) {
-    console.warn("[@laratype/http] Controllers are resolved without RequestKernel, by an autowire-only container: app bindings don't apply, and singletons it autowires live for the whole process. Boot RequestKernel to resolve them from the app container.");
+  if (!prod && !store[FALLBACK_WARNED]) {
+    store[FALLBACK_WARNED] = true;
+    console.warn("[@laratype/http] Controllers are resolved outside a RequestKernel request, by an autowire-only container: app bindings don't apply, and singletons it autowires live for the whole process. Serve them through RequestKernel to resolve them from the app container.");
   }
   return new Container({ deps: depsRegistry });
 };
