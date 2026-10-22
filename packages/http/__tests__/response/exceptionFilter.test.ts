@@ -124,6 +124,14 @@ describe('domain errors', () => {
     expect(logged).toHaveBeenCalledTimes(2)
   })
 
+  it('a body JSON cannot hold answers the generic 500, and the error is logged with the failure', async () => {
+    quiet()
+    const error = defineError(409, 'HUGE', () => ({ size: 1n }))()
+    await expectBody(await throwing(() => error), 500, GENERIC)
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(logged).toHaveBeenCalledWith(error, expect.any(TypeError))
+  })
+
   it('keeps the headers middleware set (CORS)', async () => {
     quiet()
     class Users extends Controller { index() { throw EmailTaken('ada@example.com') } }

@@ -780,7 +780,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   readonly code: Code;
   is(error: unknown): error is ContractError<St, Code, Body>;   // a ContractError (brand) with this code and status
 }
-export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and an object body (#108)
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and an object body without its own code (#108)
 export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
 export type ErrorCode<E>;

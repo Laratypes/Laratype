@@ -113,18 +113,28 @@ export default class Response extends AppServiceProvider {
    * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
    */
   public resolveException(err: Error | Exception, c: Context) {
-    const declared = isContractError(err) ? err : undefined;
-    const responsible = !declared && isException(err) && err.canResponsible() ? err : undefined;
-    const httpError = declared || responsible ? undefined : asHttpError(err);
-    // A contract error, a responsible Exception and an HTTP error keep their status; anything else is an unknown
-    // error, a 500
-    const status = declared ? declared.status as StatusCode : responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
+    try {
+      return Response.filterException(err, c);
+    }
+    catch (failure) {
+      // The filter itself failed (a body JSON can't hold, a toJson() that throws): the error it was answering is logged
+      // with that failure, and the answer is the generic 500
+      console.error(err, failure);
+      return c.json({ message: "Server Error" }, 500);
+    }
+  }
 
+  protected static filterException(err: Error | Exception, c: Context) {
     // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
     // controller's status. It is expected, so it is not logged (#108)
-    if (declared) {
-      return c.json({ code: declared.code, ...declared.body }, status as ContentfulStatusCode);
+    if (isContractError(err)) {
+      return c.json({ code: err.code, ...err.body }, err.status as ContentfulStatusCode);
     }
+
+    const responsible = isException(err) && err.canResponsible() ? err : undefined;
+    const httpError = responsible ? undefined : asHttpError(err);
+    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
+    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
@@ -157,16 +167,21 @@ export default class Response extends AppServiceProvider {
     // generic 500 and logs it (#108). Wrapped here, not with a middleware: ResponseKernel boots after the routes, and
     // the adapters read `fetch` once the app is booted
     const fetch = this.apps.fetch;
-    this.apps.fetch = async (...args) => {
+    const serverError = (err: unknown) => {
+      console.error(err);
+      return new globalThis.Response(JSON.stringify({ message: "Server Error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    };
+    // Not async: a response Hono returns synchronously stays synchronous
+    this.apps.fetch = (...args) => {
       try {
-        return await fetch(...args);
+        const response = fetch(...args);
+        return response instanceof Promise ? response.catch(serverError) : response;
       }
       catch (err) {
-        console.error(err);
-        return new globalThis.Response(JSON.stringify({ message: "Server Error" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
+        return serverError(err);
       }
     };
   }

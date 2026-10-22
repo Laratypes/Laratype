@@ -43,13 +43,14 @@ export class ContractError<St extends number = number, Code extends string = str
 
 /**
  * Whether `value` is a `ContractError` of any error def, by its brand (not `instanceof`), so one from another bundle
- * or package copy counts. The fields the wire format reads are checked too: a 400-599 `status`, a string `code` and
- * a non-array object `body`, so an error whose fields were changed after it was created is not one.
+ * or package copy counts. The fields the wire format `{ code, ...body }` reads are checked too: a 400-599 `status`, a
+ * string `code` and a non-array object `body` without its own `code`, so an error changed after it was created is not one.
  */
 export const isContractError = (value: unknown): value is ContractError<number, string, object> => {
   if (typeof value !== "object" || value === null || (value as Record<symbol, unknown>)[CONTRACT_ERROR] !== true) return false;
   const { status, code, body } = value as { status?: unknown; code?: unknown; body?: unknown };
-  return isFailureStatus(status) && typeof code === "string" && typeof body === "object" && body !== null && !Array.isArray(body);
+  return isFailureStatus(status) && typeof code === "string" && typeof body === "object" && body !== null &&
+    !Array.isArray(body) && !Object.prototype.hasOwnProperty.call(body, "code");
 };
 
 /**
@@ -135,11 +136,7 @@ function make<St extends number, Code extends string, Body, Args extends unknown
   // a ContractError (by brand, not instanceof), with this code and status: errors are unique by both (a 410 NOT_FOUND
   // is not the catalog 404), and a plain object with the same fields (a client result) is not an error
   const is = (error: unknown): error is ContractError<St, Code, Body> =>
-    typeof error === "object" &&
-    error !== null &&
-    (error as Record<symbol, unknown>)[CONTRACT_ERROR] === true &&
-    (error as { code?: unknown }).code === code &&
-    (error as { status?: unknown }).status === status;
+    isContractError(error) && error.code === code && error.status === status;
   Object.defineProperties(factory, {
     status: { value: status, enumerable: true },
     code: { value: code, enumerable: true },

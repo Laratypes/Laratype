@@ -167,8 +167,11 @@ describe('isContractError', () => {
     ['a null body', { body: null }],
     ['an array body', { body: ['x'] }],
     ['a string body', { body: 'x' }],
+    ['a body with its own code', { body: { code: 'OTHER', message: 'x' } }],
   ])('is false for an error changed after it was created: %s', (_, change) => {
     expect(isContractError(Object.assign(errors.notFound(), change))).toBe(false)
+    // .is() applies the same checks
+    expect(errors.notFound.is(Object.assign(errors.notFound(), change))).toBe(false)
   })
 })
 

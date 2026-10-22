@@ -60,9 +60,15 @@ const EXCEPTION: unique symbol = Symbol.for("laratype.exception");
 // On the prototype, so every subclass carries it without a constructor change
 Object.defineProperty(Exception.prototype, EXCEPTION, { value: true });
 
-/** Whether `value` is an `Exception`, by its brand (not `instanceof`), so one from another copy of the package counts. */
-export const isException = (value: unknown): value is Exception =>
-  typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[EXCEPTION] === true;
+/**
+ * Whether `value` is an `Exception`, by its brand (not `instanceof`), so one from another copy of the package counts.
+ * The methods the exception filter calls are checked too.
+ */
+export const isException = (value: unknown): value is Exception => {
+  if (typeof value !== "object" || value === null || (value as Record<symbol, unknown>)[EXCEPTION] !== true) return false;
+  const { canResponsible, getHttpCode, toJson } = value as Partial<Record<"canResponsible" | "getHttpCode" | "toJson", unknown>>;
+  return typeof canResponsible === "function" && typeof getHttpCode === "function" && typeof toJson === "function";
+};
 
 export interface ExceptionConstructorParams {
   code?: string,

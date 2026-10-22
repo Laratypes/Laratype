@@ -10,7 +10,11 @@ describe('isException', () => {
   })
 
   it('checks the Symbol.for brand, not instanceof, so an Exception of another package copy counts', () => {
-    class Foreign extends Error {}
+    class Foreign extends Error {
+      canResponsible() { return true }
+      getHttpCode() { return 404 }
+      toJson() { return {} }
+    }
     Object.defineProperty(Foreign.prototype, Symbol.for('laratype.exception'), { value: true })
     expect(isException(new Foreign())).toBe(true)
   })
@@ -19,6 +23,8 @@ describe('isException', () => {
     expect(isException(new Error('x'))).toBe(false)
     expect(isException({ code: 'NOT_FOUND', canResponsible: () => true })).toBe(false)
     expect(isException(null)).toBe(false)
+    // a brand without the methods the exception filter calls
+    expect(isException(Object.defineProperty(new Error('x'), Symbol.for('laratype.exception'), { value: true }))).toBe(false)
     expect(isException('x')).toBe(false)
   })
 })
