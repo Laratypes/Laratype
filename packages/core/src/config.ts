@@ -14,8 +14,8 @@ export type AppConfigs = Register extends { config: infer C } ? C : Record<strin
 
 type Key = string | number
 
-/** Paths stop at arrays and functions, and after 8 levels so big option types stay cheap to check. */
-type Stop = readonly unknown[] | ((...args: never[]) => unknown)
+/** Paths stop at arrays, functions and classes, and after 8 levels so big option types stay cheap to check. */
+type Stop = readonly unknown[] | ((...args: never[]) => unknown) | (abstract new (...args: never[]) => unknown)
 
 /**
  * Every dot path of `T`: `"database" | "database.default" | ...`. A key that contains a dot ends a path: the lookup

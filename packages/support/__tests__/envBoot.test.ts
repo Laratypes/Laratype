@@ -22,7 +22,7 @@ const manifest = (configs: ManifestEntry[]): AppManifest => ({
 const boot = () => bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider, ConfigLoadServiceProvider])
 
 describe('env validation at boot (K1 #152)', () => {
-  const store = globalThis as { __laratype_manifest?: unknown; __laratype_configs?: unknown }
+  const store = globalThis as { __laratype_manifest?: unknown; __laratype_configs?: unknown; __laratype_config?: unknown }
   let saved: Record<string, string | undefined>
 
   beforeEach(() => {
@@ -36,6 +36,7 @@ describe('env validation at boot (K1 #152)', () => {
     }
     delete store.__laratype_manifest
     delete store.__laratype_configs
+    delete store.__laratype_config
     vi.restoreAllMocks()
   })
 

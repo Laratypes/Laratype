@@ -22,6 +22,12 @@ interface Mail {
   readonly from: Record<string, string>
   readonly mailers: Record<string, { readonly host: string }>
   readonly transport: () => void
+  readonly model: typeof Model
+}
+
+class Model {
+  static table = 'users'
+  email = ''
 }
 
 // The app's registration: what `declare module` in app code looks like (Q16). It applies to the whole `types`
@@ -65,6 +71,9 @@ describe('config() (K1 #152)', () => {
     config('mail.hosts.0')
     // @ts-expect-error no path into a function
     config('mail.transport.length')
+    expectTypeOf(config('mail.model')).toEqualTypeOf<typeof Model>()
+    // @ts-expect-error no path into a class
+    config('mail.model.table')
   })
 
   test('unknown paths are errors', () => {

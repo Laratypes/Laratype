@@ -105,6 +105,22 @@ describe('validateEnv', () => {
     expect(error.issues).toEqual([{ name: 'KEY', message: 'bad key ***' }])
   })
 
+  it('redacts a short value quoted at the root', async () => {
+    const definition = defineEnv(z.object({ DB_USER: z.string(), DB_PASSWORD: z.string() })
+      .refine(env => env.DB_PASSWORD !== env.DB_USER, { message: 'the password must not be the user name' })
+      .superRefine((env, ctx) => ctx.addIssue({ code: 'custom', message: `password ${env.DB_PASSWORD} is weak` })))
+    const error = await validateEnv(definition, { DB_USER: 'app', DB_PASSWORD: 'hunter2' }).catch((e: unknown) => e) as EnvValidationError
+    expect(error.message).not.toContain('hunter2')
+    expect(error.issues).toEqual([{ name: '(environment)', message: 'password *** is weak' }])
+  })
+
+  it('withholds an error the schema throws, which may quote a value', async () => {
+    const definition = defineEnv(z.object({ DB_URL: z.string().transform(url => JSON.parse(url) as unknown) }))
+    const error = await validateEnv(definition, { DB_URL: `{${SECRET}` }).catch((e: unknown) => e) as Error
+    expect(error.message).toBe('[@laratype/support] the schema of app/config/env.ts threw (SyntaxError) while validating the environment; its message is withheld since it may hold a value')
+    expect([error.message, error.stack, String(error.cause)].join('\n')).not.toContain(SECRET)
+  })
+
   it('awaits an async schema', async () => {
     const definition = defineEnv(z.object({ A: z.string().refine(async a => a === 'ok', 'not ok') }))
     await expect(validateEnv(definition, { A: 'ok' })).resolves.toBeUndefined()
