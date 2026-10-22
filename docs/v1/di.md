@@ -553,7 +553,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts`](../../packages/core/src/facade.ts) · [`container.ts`](../../packages/core/src/container.ts) · [`Hash.ts`](../../packages/support/src/security/Hash.ts) · [`Log.ts`](../../packages/log/src/support/Log.ts) · [`Auth.ts`](../../packages/auth/src/support/Auth.ts)
+[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/auth/src/support/Auth.ts)
 
 ```ts
 // @laratype/core
@@ -575,11 +575,30 @@ export class Hasher { make(value: string): string }                 // sha256, a
 export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
 
 // @laratype/log
-export class LogManager { getLogger(); format(); info(message); error(message); warn(message); debug(message); emergency(message); alert(message); critical(message) }
+export class LogManager {
+  getLogger(): Logger;                                               // the 0.5 winston-backed Logger
+  format(): any;
+  info(message: any): void;
+  error(message: any): void;
+  warn(message: any): void;
+  debug(message: any): void;
+  emergency(message: any): void;
+  alert(message: any): void;
+  critical(message: any): void;
+}
 export class Log extends Facade { static readonly accessor: typeof LogManager; /* the same methods, static */ }
 
 // @laratype/auth
-export class AuthManager { attempt(user); user<T>(); id<A>(); isAuthenticated(); check(); login(user); guard<T>(guardName); logout() }
+export class AuthManager {
+  attempt<T extends Model>(user: T): Promise<false | Authenticated<T>>;
+  user<T extends Model>(): Authenticated<T> | null;
+  id<A>(): A;                                                        // throws "Method not implemented." as in 0.5
+  isAuthenticated(): boolean;                                        // idem
+  check(): boolean;                                                  // idem
+  login<T extends Model>(user: T): Authenticated<T>;
+  guard<T extends Model>(guardName: string): Authenticate<T>;
+  logout(): Promise<void>;                                           // idem
+}
 export class Auth extends Facade { static readonly accessor: typeof AuthManager; /* the same methods, static; attempt() stays an instance method as in 0.5 */ }
 ```
 
