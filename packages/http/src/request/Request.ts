@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
-import RequestSupport from "../supports/Request"
+import RequestSupport, { HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
@@ -289,6 +289,8 @@ export default class Request extends AppServiceProvider {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      // For request.ip() (A5 #288). Non-enumerable, so logging or serializing the request doesn't walk Node's socket
+      Object.defineProperty(transformedRequest, HONO_CONTEXT, { value: ctx, writable: false, enumerable: false, configurable: true });
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
       const res = routeOption.modelBinding === false

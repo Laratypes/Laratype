@@ -1,8 +1,25 @@
+import type { Context } from "hono";
 import { HonoRequest } from "hono/request";
+import { getConnInfo as getNodeConnInfo } from "@hono/node-server/conninfo";
 import { z, ZodType } from "zod";
 import type { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
 import { has } from "es-toolkit/compat"
+
+/**
+ * `Authorization: Bearer <token>` (RFC 6750 §2.1): the scheme ignores case (RFC 9110 §11.1), the token is a b64token,
+ * the same grammar as Hono's `bearerAuth`.
+ */
+const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
+
+/** What `ip()` reads of the adapter's env: Node's `incoming` request, or Bun's `Server.requestIP`. */
+type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globalThis.Request) => { address: string } | null }
+
+/**
+ * The key of the Hono context `RequestKernel.handle` attaches to the request after building it: `ip()` reads the
+ * connection from it. A symbol, so a request class's own fields and constructor can't clash with it or drop it.
+ */
+export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
 
 export default class Request implements RequestInterface {
 
@@ -47,8 +64,9 @@ export default class Request implements RequestInterface {
     }
   }
 
+  /** The token of an `Authorization: Bearer` header, or `""` when there is none or it is malformed. */
   bearerToken(): string {
-    return ""
+    return BEARER.exec(this.requestCtx.header("Authorization") ?? "")?.[1] ?? ""
   }
 
   except(keys: string[]): Record<string, any> {
@@ -79,7 +97,27 @@ export default class Request implements RequestInterface {
     return this.requestCtx.header()
   }
 
+  /**
+   * The client address of the connection on the Node and Bun adapters, or `""` when there is no socket to read (an
+   * in-process `app.request()`, another runtime). It never reads `X-Forwarded-For`: behind a proxy, this is the proxy's
+   * address.
+   */
   ip(): string {
+    const ctx = (this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT]
+    if(!ctx?.env) {
+      return ""
+    }
+    // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
+    const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
+    const bindings = env.server || env
+    // Node passes `{ incoming, outgoing }`, its IncomingMessage carries the socket
+    if(bindings.incoming?.socket) {
+      return getNodeConnInfo(ctx).remote.address ?? ""
+    }
+    // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
+    if(typeof bindings.requestIP === "function") {
+      return bindings.requestIP(ctx.req.raw)?.address ?? ""
+    }
     return ""
   }
 

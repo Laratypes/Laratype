@@ -526,7 +526,7 @@ planned → [#229](https://github.com/Laratypes/Laratype/issues/229) (H17, M2). 
 ### Design (non-binding)
 - **Declared in the contract:** `.throttle({ limit, per })` on a scope, a contract or an endpoint. The nearest level wins, and `.throttle(false)` opts out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Applied when routes are registered,** with no route middleware.
-- **Key:** the user id, or the IP when no user is signed in.
+- **Key:** the user id, or the IP when no user is signed in. The IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): the socket address (`getConnInfo` of `@hono/node-server` on Node, the server's `requestIP()` on Bun), never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists.
 - **Response:** 429 with the contract's error body, plus `Retry-After`.
 - **Store:** counters go through the cache ([#166](https://github.com/Laratypes/Laratype/issues/166)), with a memory fallback.
 
