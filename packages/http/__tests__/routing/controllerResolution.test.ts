@@ -378,13 +378,32 @@ describe('r.contract() options', () => {
     expect(mounted.options).not.toBe(options)
     expect(mounted.options.endpoints).not.toBe(endpoints)
     expect(Object.isFrozen(mounted.options) && Object.isFrozen(mounted.options.endpoints)).toBe(true)
-    expect(Object.getPrototypeOf(mounted.options)).toBe(Object.prototype)
+    // a null prototype: nothing inherited is read later
+    expect(Object.getPrototypeOf(mounted.options)).toBe(null)
   })
 
-  it('a non-enumerable own key stays non-enumerable in the copy: a brand on options is not an option', () => {
-    const options = Object.defineProperty({ policy: PostPolicy }, '__meta', { value: 1 })
-    const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, options)]))
-    expect(entries.map((e) => e.policy)).toEqual([PostPolicy, PostPolicy])
+  it('a non-enumerable own option key is checked like any other', () => {
+    const options = Object.defineProperty({}, 'endpoint', { value: { destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) } })
+    expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, options as never)])).toThrow(
+      'contract "posts": r.contract() options must be { policy?, endpoints? }, not options.endpoint',
+    )
+  })
+
+  it('a non-enumerable key on Object.prototype is never read as an option', () => {
+    class Hidden {}
+    Object.defineProperty(Object.prototype, 'policy', { value: Hidden, configurable: true, writable: true })
+    try {
+      const { entries } = mount(Route.api(postsApi, (r) => [r.contract(posts, PostController, {})]))
+      expect(entries.map((e) => e.policy)).toEqual([undefined, undefined])
+    } finally {
+      delete (Object.prototype as { policy?: unknown }).policy
+    }
+  })
+
+  it('an item built without r.contract() is checked and copied too', () => {
+    const endpoints = Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) })
+    const item = { kind: 'contract', contract: posts, controller: PostController, middleware: [], options: { endpoints } }
+    expect(() => Route.api(postsApi, (() => [item]) as never)).toThrow('contract "posts": endpoints.destroy is inherited')
   })
 
   it('a non-enumerable own callback is copied, checked and applied', () => {
@@ -402,6 +421,15 @@ describe('r.contract() options', () => {
     expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, options as never)])).toThrow(
       '[@laratype/http] Route.api: contract "posts": r.contract() options must be { policy?, endpoints? }, not options.endpoint',
     )
+  })
+
+  it('a method shorthand named class* is a callback', () => {
+    const classy = defineContract()({ classes: endpoint.get('/').response(anything) })
+    const classyApi = defineApi({ classy: { contract: classy, path: '/classy', scopes: [], dirs: [] } })
+    class Classy extends Controller { classes() { return {} } }
+    const { entries } = mount(Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r.middleware(Audit) } } })]))
+    expect(entries[0]!.middleware).toEqual([Audit])
+    expect(() => Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r } } })])).not.toThrow()
   })
 
   it('a class is not a callback; a callback that throws throws its own error', () => {

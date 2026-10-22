@@ -2,6 +2,7 @@ import type { Context, Hono, Next } from "hono";
 import { API_NODE, apiRoutes, contractEndpoints, isEndpoint } from "@laratype/contract";
 import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
+import { isPlainObject } from "es-toolkit";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
@@ -33,9 +34,12 @@ class RouteBuilder {
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
-    // A copy: mutating the options (or their endpoints map) after r.contract() must not change the routes
-    const copy = snapshot(options, "endpoints") as ContractRouteOptions<object> | undefined;
-    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options: copy });
+    // A copy: mutating the options (or their endpoints map) after r.contract() must not change the routes. Whether the
+    // originals are plain is decided now, and reported by Route.api, which knows the contract's tree name
+    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copyOptions(options) });
+    const issue = plainIssue(options);
+    if (issue !== undefined) plainIssues.set(mounted, issue);
+    return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
@@ -44,22 +48,44 @@ class RouteBuilder {
   }
 }
 
+const isObject = (value: unknown): value is object => typeof value === "object" && value !== null;
+
 /**
- * A frozen copy of an object's own string keys, on the same prototype so `checkOptions` still sees a prototype that is
- * not plain and its inherited keys (it throws on them). A non-enumerable own key stays non-enumerable, so an endpoint
- * callback under one is applied as before instead of dropped. `nested` names a key whose object value is copied too.
+ * A frozen copy of every own string key on a `null` prototype, so nothing inherited is read later (not even from a
+ * polluted `Object.prototype`) and a non-enumerable key is checked like any other. `nested` names a key whose object
+ * value is copied too.
  */
-const snapshot = (value: unknown, nested?: string): unknown => {
-  if (typeof value !== "object" || value === null) return value;
-  const copy: object = Object.create(Object.getPrototypeOf(value));
+const frozenCopy = (value: object, nested?: string): object => {
+  const copy: object = Object.create(null);
   // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
   for (const key of Object.getOwnPropertyNames(value)) {
     const item = (value as Record<string, unknown>)[key];
-    const enumerable = Object.prototype.propertyIsEnumerable.call(value, key);
-    Object.defineProperty(copy, key, { value: key === nested ? snapshot(item) : item, enumerable });
+    Object.defineProperty(copy, key, { value: key === nested && isObject(item) ? frozenCopy(item) : item, enumerable: true });
   }
   return Object.freeze(copy);
 };
+
+/** `r.contract()` options and their `endpoints` map as frozen copies; anything else as is, for `checkOptions` to report. */
+const copyOptions = (options: unknown) =>
+  (isObject(options) ? frozenCopy(options, "endpoints") : options) as ContractRouteOptions<object> | undefined;
+
+/**
+ * Why `options` or its `endpoints` map is not plain: an inherited enumerable key, whose option or callback would be
+ * dropped (which fails open for auth middleware), or a prototype that is not a plain object's.
+ */
+const plainIssue = (options: unknown): string | undefined => {
+  const issue = (label: string, value: object) => {
+    for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: pass ${label} as an object literal`;
+    if (!isPlainObject(value)) return `${label} must be an object literal, not an instance or an Object.create() object`;
+    return undefined;
+  };
+  if (!isObject(options)) return undefined;
+  const endpoints = Object.hasOwn(options, "endpoints") ? (options as { endpoints?: unknown }).endpoints : undefined;
+  return issue("options", options) ?? (isObject(endpoints) ? issue("endpoints", endpoints) : undefined);
+};
+
+/** The `plainIssue` of each `r.contract()` item, taken from the originals before they were copied. */
+const plainIssues = new WeakMap<object, string>();
 
 interface TreeEntry {
   readonly name: string;
@@ -141,10 +167,12 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       if (typeof item.controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
       }
-      checkOptions(names, matched[0]!.entry.contract, item.options);
+      // An item built without r.contract() (untyped callers) is checked and copied here
+      const options = copyOptions(item.options);
+      checkOptions(names, matched[0]!.entry.contract, options, plainIssues.get(item) ?? plainIssue(item.options));
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      for (const name of names) contracts.set(name, item);
+      for (const name of names) contracts.set(name, { ...item, options });
     } else {
       fail("the routes callback must return r.contract() and r.scope() items");
     }
@@ -189,25 +217,13 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
 };
 
 /**
- * `options` and `endpoints` are plain objects: an option or an endpoint callback under an inherited key would be
- * dropped (`Object.entries` and `Object.hasOwn` read own keys), which fails open for auth middleware.
+ * The options of `r.contract(c, Ctrl, { policy, endpoints })`, as copied by `copyOptions`: plain objects (`issue`),
+ * `policy` is a class, and every `endpoints` key is an endpoint of the contract with a callback.
  */
-const checkPlain = (at: string, label: string, value: object) => {
-  for (const key in value) {
-    if (!Object.hasOwn(value, key)) fail(`${at}: ${label}.${key} is inherited: pass ${label} as an object literal`);
-  }
-  const proto: unknown = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) fail(`${at}: ${label} must be an object literal, not an instance or an Object.create() object`);
-};
-
-/**
- * The options of `r.contract(c, Ctrl, { policy, endpoints })`: plain objects, `policy` is a class, and every
- * `endpoints` key is an endpoint of the contract with a callback.
- */
-const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined) => {
+const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined, issue: string | undefined) => {
   const at = `contract "${names.join('", "')}"`;
   if (options !== undefined && (typeof options !== "object" || options === null)) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
-  if (options !== undefined) checkPlain(at, "options", options);
+  if (issue !== undefined) fail(`${at}: ${issue}`);
   // A misspelled key (`endpoint`) would drop its middleware silently, as an inherited one would
   const unknown = options === undefined ? undefined : Object.keys(options).find((key) => key !== "policy" && key !== "endpoints");
   if (unknown !== undefined) fail(`${at}: r.contract() options must be { policy?, endpoints? }, not options.${unknown}`);
@@ -224,17 +240,19 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   const endpoints: Record<string, unknown> | undefined = options.endpoints;
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
-  checkPlain(at, "endpoints", endpoints!);
   const keys = new Set(contractKeys.map(([key]) => key));
-  // Every own key, as endpointStack reads them: a non-enumerable callback is applied, so it is checked too
-  for (const key of Object.getOwnPropertyNames(endpoints)) {
+  for (const key of Object.keys(endpoints!)) {
     if (!keys.has(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${[...keys].map((k) => `"${k}"`).join(", ")})`);
     if (!isCallback(endpoints![key])) fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
   }
 };
 
-/** A function that can be called: not a class (a middleware class compiles under a key typed `Function`, such as hasOwnProperty). */
-const isCallback = (value: unknown) => typeof value === "function" && !Function.prototype.toString.call(value).startsWith("class");
+/**
+ * A function that can be called: not a class (a middleware class compiles under a key typed `Function`, such as
+ * hasOwnProperty). The `class` keyword only, so a method shorthand `classes(r) {}` passes. A bound class or a Proxy of
+ * one prints `[native code]` and gets past this check: calling it then throws its own TypeError.
+ */
+const isCallback = (value: unknown) => typeof value === "function" && !/^class[\s{]/.test(Function.prototype.toString.call(value));
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
 const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
