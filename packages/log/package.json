@@ -31,6 +31,7 @@
     "./*": "./*"
   },
   "dependencies": {
+    "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",
     "winston": "^3.17.0"
   },
