@@ -169,6 +169,9 @@ describe('a contract route', () => {
     [{ message: 'e\u0301received 5', received: 5 }, 'e\u0301received 5'],
     // every separator before the tail goes
     [{ message: 'Invalid: but received "x"', received: '"x"' }, 'Invalid'],
+    [{ message: 'Expected x,  but  :, received 5', received: 5 }, 'Expected x'],
+    // "but" only as a word
+    [{ message: 'Expected abut received 5', received: 5 }, 'Expected abut'],
     // unrecognized keys with nothing before them
     [{ message: ': a', keys: ['a'] }, 'Invalid value'],
   ])('cuts the received value of %o', async (issue, message) => {
@@ -180,6 +183,20 @@ describe('a contract route', () => {
     Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
     const response = await served.request('/mails', json({ email: 'x' }))
     expect((await response.json()).errors).toEqual({ email: [message] })
+  })
+
+  it('a message of many separators is cut in linear time (no regex backtracking)', async () => {
+    quiet()
+    const message = `x${'  but'.repeat(20_000)}, received 5`
+    const schema = { '~standard': { version: 1, vendor: 'other', validate: () => ({ issues: [{ message, received: 5, path: ['n'] }] }) } } as const
+    const slow = defineContract()({ send: endpoint.post('/').body(schema) })
+    class Slow { send() {} }
+    const served = bootApp()
+    Route.api(defineApi({ slow: { contract: slow, path: '/slow', scopes: [], dirs: [] } }), (r) => [r.contract(slow, Slow)]).mount(served)
+    const started = performance.now()
+    const response = await served.request('/slow', json({ n: 1 }))
+    expect((await response.json()).errors).toEqual({ n: ['x'] })
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 
   it('validates with any Standard Schema library', async () => {

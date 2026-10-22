@@ -55,8 +55,20 @@ const RECEIVED = "received ";
 /** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
 const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
 
-/** The separators left before a cut tail: `, `, `: `, ` but `, in any mix. */
-const TRAILING_SEPARATORS = /(?:\s+but|[,:]|\s)+$/i;
+const SEPARATOR = /[\s,:]/;
+
+/**
+ * `text` without the separators left before a cut tail: `, `, `: `, ` but `, in any mix. A loop over the end of the
+ * string, not a regex: the message holds submitted data, and a pattern with overlapping alternatives backtracks.
+ */
+const trimSeparators = (text: string): string => {
+  let end = text.length;
+  for (;;) {
+    while (end > 0 && SEPARATOR.test(text[end - 1]!)) end--;
+    if (end < 4 || !/\s/.test(text[end - 4]!) || text.slice(end - 3, end).toLowerCase() !== "but") return text.slice(0, end);
+    end -= 3;
+  }
+};
 
 /**
  * The index of `received <value>` at the end of a message, as a word, the value bare or quoted, in any case. Taken
@@ -88,7 +100,7 @@ const issueMessage = (issue: LibraryIssue): string => {
   }
   if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
   const at = receivedAt(message, String(received));
-  return at === -1 ? message : message.slice(0, at).replace(TRAILING_SEPARATORS, "");
+  return at === -1 ? message : trimSeparators(message.slice(0, at));
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
