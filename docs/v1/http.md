@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 5edb156 (#108) |
+| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 59675ee (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
@@ -420,10 +420,10 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-proposed: PR #307 @ 5edb156 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR #307 @ 59675ee (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Public API
-[`Response.ts` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/http/src/response/Response.ts) · [`isContractError` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/contract/src/errors.ts) · [`isException` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/support/src/exception/Exception.ts)
+[`Response.ts` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/http/src/response/Response.ts) · [`isContractError` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/contract/src/errors.ts) · [`isException` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/support/src/exception/Exception.ts)
 
 ```ts
 // @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
