@@ -134,6 +134,22 @@ describe('domain errors', () => {
     expect(logged).toHaveBeenCalledWith(error, expect.any(TypeError))
   })
 
+  it('drops the cookie and cache headers set before the throw, as every error response does (#272)', async () => {
+    quiet()
+    class Users extends Controller { index() { throw EmailTaken('ada@example.com') } }
+    const { app, boot } = bootApp((app) => app.use(async (c, next) => {
+      c.header('Set-Cookie', 'session=abc')
+      c.header('Cache-Control', 'public, max-age=60')
+      await next()
+    }))
+    app.get('/cookie', RequestKernel.handle({ method: 'get', path: '/cookie', controller: [Users, 'index'] }))
+    boot()
+    const response = await app.request('/cookie')
+    expect(response.status).toBe(409)
+    expect(response.headers.get('Set-Cookie')).toBeNull()
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
   it('keeps the headers middleware set (CORS)', async () => {
     quiet()
     class Users extends Controller { index() { throw EmailTaken('ada@example.com') } }

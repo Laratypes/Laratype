@@ -18,6 +18,7 @@ jobs:
 
       # Installs bun and runs `bun install`
       - name: Setup bun
+        id: setup
         uses: ./.github/setup-bun
 
       - name: Build
@@ -35,3 +36,9 @@ jobs:
       # After Build: some tests load the built dist.
       - name: Test
         run: bunx vitest run
+
+      # B22 (#277): Biome lint-only (no formatting) until the repo-wide format lands.
+      # Last, so a lint error does not hide the build and test results; runs even when they fail.
+      - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bun run check:lint
