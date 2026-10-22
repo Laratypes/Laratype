@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | proposed: PR #PRNUM @ PRSHA (#108) |
+| [Exceptions](#exceptions) | proposed: PR #307 @ 5edb156 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
@@ -420,10 +420,10 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-proposed: PR #PRNUM @ PRSHA (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The unknown-error handling of H20 [#267](https://github.com/Laratypes/Laratype/issues/267) is merged; this PR keeps it.
+proposed: PR #307 @ 5edb156 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The unknown-error handling of H20 [#267](https://github.com/Laratypes/Laratype/issues/267) is merged; this PR keeps it.
 
 ### Public API
-[`Response.ts` @ PRSHA](https://github.com/Laratypes/Laratype/blob/PRSHA/packages/http/src/response/Response.ts) · [`isContractError` @ PRSHA](https://github.com/Laratypes/Laratype/blob/PRSHA/packages/contract/src/errors.ts) · [`isException` @ PRSHA](https://github.com/Laratypes/Laratype/blob/PRSHA/packages/support/src/exception/Exception.ts)
+[`Response.ts` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/http/src/response/Response.ts) · [`isContractError` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/contract/src/errors.ts) · [`isException` @ 5edb156](https://github.com/Laratypes/Laratype/blob/5edb156/packages/support/src/exception/Exception.ts)
 
 ```ts
 // @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
