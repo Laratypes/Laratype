@@ -280,10 +280,10 @@ Type-only (`types/errors.types.ts`): an unknown built-in (`errors.conflict`), wr
 ## Validation adapter
 
 ### Status
-merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ e62e2ff (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 
 ### Public API
-[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50)
+[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ e62e2ff](https://github.com/Laratypes/Laratype/blob/e62e2ffede67d6aaca20e1ce2f8333257ea0bf3a/packages/contract/src/validate.ts)
 
 ```ts
 export type ErrorBag = Record<string, string[]>;   // dot path -> messages; "" for issues without a path

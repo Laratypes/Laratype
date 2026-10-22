@@ -40,7 +40,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 ## Controller typing: Ctx and ControllerOf
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Merged: `Ctx<E, Requires>`, `Result<E>` and `ControllerOf<C>` (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)). `BaseCtx` with `params`, `query` and `body` is merged (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)): the runtime builds it for every `Route.api` route, and `Ctx` and the route's `Provided` share it. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
+Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Merged: `Ctx<E, Requires>`, `Result<E>` and `ControllerOf<C>` (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)). `BaseCtx` with `params`, `query` and `body`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ e62e2ff (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)): the runtime builds it for every `Route.api` route, and `Ctx` and the route's `Provided` share it. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
 
 ### Public API
 Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/ctx.ts)). This is not package code, and H2 may refine the names of the helper types:
@@ -379,7 +379,7 @@ Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../pa
 ## Request pipeline
 
 ### Status
-Parsing, validation and the handler ctx are merged (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard, throttle and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229).
+Parsing, validation and the handler ctx: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ e62e2ff (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard, throttle and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229).
 
 ### Design (non-binding)
 Fixed order, combining Nest and Laravel:
