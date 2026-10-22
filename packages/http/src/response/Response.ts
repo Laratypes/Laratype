@@ -155,7 +155,7 @@ export default class Response extends AppServiceProvider {
     if (c.finalized) {
       c.res = new globalThis.Response(null, { headers: c.res.headers });
     }
-    // Through c.header() too: before 4.9, Hono keeps the c.header() values apart from c.res and reapplies them
+    // Through c.header() too: before 4.8, Hono keeps the c.header() values apart from c.res and reapplies them
     for (const name of [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS]) {
       c.header(name, undefined);
       c.res.headers.delete(name);
