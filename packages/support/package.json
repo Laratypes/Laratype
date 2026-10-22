@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@laratype/console": "workspace:*",
+    "@laratype/contract": "workspace:*",
     "@laratype/core": "workspace:*",
     "dotenv": "^16.4.5",
     "glob": "^11.0.0",
