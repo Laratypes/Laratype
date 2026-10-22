@@ -10,7 +10,7 @@ last-verified: 2026-10-09
 
 The v1 HTTP layer binds contracts to controllers on a Hono router. It runs a typed pipeline (middleware, binding, policies, validation, interceptors) and turns handler results and exceptions into the responses the contract declares.
 
-**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) and controller resolution (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) are the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are resolved with `app.make()` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and the status is guessed from the method name (`ControllerMethodHttpStatusCode`). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
+**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) and controller resolution (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) are the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are resolved with `app.make()` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and a 0.5 route's status is guessed from the method name (`ControllerMethodHttpStatusCode`); a `Route.api` route's comes from its endpoint ([Response from the contract](#response-from-the-contract)). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
 
 Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DECISIONS-S1-S2.md §S1](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s1-84-decision).
 
@@ -21,7 +21,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
-| [Response from the contract](#response-from-the-contract) | planned → #107 |
+| [Response from the contract](#response-from-the-contract) | proposed: PR #PR_N @ PR_SHA |
 | [Exceptions](#exceptions) | planned → #108 |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
@@ -401,13 +401,28 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 ## Response from the contract
 
 ### Status
-planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
+proposed: PR #PR_N @ PR_SHA (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)). `Jsonify` is in [contract.md › API type projection](./contract.md#api-type-projection).
 
-### Design (non-binding)
-- **Status:** taken from the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)). The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202).
-- **Body:** JSON serialization, with optional dev-mode output validation.
-- **Replaces:** the method-name guess in `ControllerMethodHttpStatusCode`.
-- **Done when:** runtime tests for 200, 201 and 204.
+### Public API
+No new API: a `Route.api` route answers through `resolveContractResponse` ([`packages/http/src/response/contractResponse.ts`](../../packages/http/src/response/contractResponse.ts)), which `RequestKernel.handle` calls for a route with an endpoint.
+
+### Invariants
+- **Status:** the endpoint's, decided by the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)): `204` when there is no response schema, `200` for `.response(schema)`, the given 2xx for `.response(schema, status)` and `.status(status)`. The method name (`store`, `destroy`) and the 0.5 status decorator play no part; [Router v2](#router-v2) rejects a decorator that disagrees when the routes are mounted.
+- **No body:** an endpoint without a response schema, or with a 204 or 205, answers with no body, whatever the handler returns. `.status(202)` answers 202 with no body.
+- **Body:** the handler's value, a `JsonResource` unwrapped, serialized with `JSON.stringify` (Hono's `c.json`) as `application/json`: a string is a JSON string, never HTML, and a `Date` is its ISO string, so the frontend reads `Jsonify<output>`. `undefined` is sent as `null`. A value `JSON.stringify` throws on (a `bigint`, a cycle) is an unknown error, a 500.
+- **0.5 `Response`:** a handler may return it for its headers and content. Its status, when set, must be the endpoint's, else the request ends in a 500. A `Content-Type` header is replaced by `application/json`. A redirect is sent as it is.
+- **Dev-mode output validation:** unless `__PROD__` is true (or, without it, `NODE_ENV` is `production`), the handler's value is validated with the response schema before it is sent. The schema validates the value as its input, so a schema that transforms changes nothing on the wire: the handler's value is sent, never the parsed one, in dev and in production alike. A mismatch is the server's bug, so it answers the generic 500 of [Exceptions](#exceptions) and logs the issues, never a 422. Production skips the check.
+- **0.5 routes** (`Route.group`) keep their 0.5 response: an explicit `Response` status, then the status decorator, then the method-name guess (`ControllerMethodHttpStatusCode`), then 200.
+
+### Diagnostics
+- `[@laratype/http] <route>: the handler answered status <n>, but the endpoint declares <status>: declare it on the endpoint (.response(schema, <n>) or .status(<n>))` (logged, 500)
+- `[@laratype/http] <route>: the handler's value does not match the endpoint's response schema (<path>: <messages>; ...)` (dev and test only; logged, 500). `(root)` names an issue without a path.
+
+### Example
+Tests: [`packages/http/__tests__/response/contractResponse.test.ts`](../../packages/http/__tests__/response/contractResponse.test.ts) (200, 201, 202, 204, 205, JSON, output validation).
+
+### Non-goals
+- Resources v2 (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) and interceptors (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) wrap this step later; error responses are [Exceptions](#exceptions).
 
 ### Open questions
 - Resolved: the frontend sees the response as `Jsonify<output>` (`Date` → `string`) ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
