@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { createServer, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { getRequestListener, type HttpBindings } from "@hono/node-server";
@@ -107,6 +108,13 @@ describe("guardStreamErrors (Node adapter)", () => {
       },
     }));
   });
+  // Plain-object headers, kept as is by the adapter's lightweight Response (no default Content-Type)
+  app.get("/plain-headers", () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode("file;"));
+      controller.close();
+    },
+  }), { headers: { "x-file": "a" } }));
   // One chunk, then nothing until the client goes away
   app.get("/slow", (c) => c.body(new ReadableStream({
     start(controller) {
@@ -136,6 +144,32 @@ describe("guardStreamErrors (Node adapter)", () => {
     report.mockClear();
     consoleError.mockClear();
     consoleInfo.mockClear();
+  });
+
+  it("adds no Content-Type to a streamed response with plain headers", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/plain-headers`);
+
+    expect(res.headers.get("x-file")).toBe("a");
+    expect(res.headers.get("content-type")).toBeNull();
+    expect(await res.text()).toBe("file;");
+  });
+
+  it("cancels the source when the response closes before the adapter reads it", async () => {
+    const canceled = vi.fn();
+    const outgoing = Object.assign(new EventEmitter(), { destroyed: false, destroy: vi.fn() });
+    const fetchCallback = guardStreamErrors((_request: Request, _env: unknown) => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("first-chunk;"));
+      },
+      cancel: canceled,
+    })));
+
+    const res = fetchCallback(new Request("http://localhost/"), { outgoing } as never);
+    expect(res).toBeInstanceOf(Response);
+    outgoing.emit("close");
+
+    await vi.waitFor(() => expect(canceled).toHaveBeenCalledTimes(1));
+    expect(report).not.toHaveBeenCalled();
   });
 
   it("returns the response as is without Node bindings", () => {
@@ -203,7 +237,7 @@ describe("guardStreamErrors (Node adapter)", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it("does not report a client abort", async () => {
+  it("does not report a client abort, and cancels the source", async () => {
     const socket = connect(port, "127.0.0.1", () => {
       socket.write("GET /slow HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     });

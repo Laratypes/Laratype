@@ -7,15 +7,15 @@ type Fetch = (request: Request, env: HttpBindings | Http2Bindings, ...rest: neve
  * its `body` getter builds a full Response, which would take a string body off the adapter's fast path.
  * The lightweight Response keeps `[status, body, headers]` under a symbol described "cache".
  */
-const peekBody = (res: Response): { body: unknown, cached: boolean } => {
+const peekBody = (res: Response): { body: unknown, cache?: [number, unknown, HeadersInit] } => {
   for (const key of Object.getOwnPropertySymbols(res)) {
     const value = (res as unknown as Record<symbol, unknown>)[key];
     if (key.description === "cache" && Array.isArray(value) && value.length === 3) {
-      return { body: value[1], cached: true };
+      return { body: value[1], cache: value as [number, unknown, HeadersInit] };
     }
   }
   // A native Response, or a lightweight one already materialized (or a future layout: slower, still correct)
-  return { body: res.body, cached: false };
+  return { body: res.body };
 }
 
 /**
@@ -68,6 +68,11 @@ const guardBody = (
   }
   // Also when no read is pending (the adapter waits for `drain`): the response is aborted at once
   reader.closed.catch(fail);
+  // The source is canceled when the response closes, even if the adapter never read or canceled the guarded stream
+  // (the client left before the adapter started writing): else `outgoing` lives as long as the source (an SSE stream)
+  outgoing.once("close", () => {
+    reader.cancel().catch(() => {});
+  });
 
   return new ReadableStream<Uint8Array>({
     start(c) {
@@ -109,15 +114,17 @@ export const guardStreamErrors = <F extends Fetch>(
     if (!env?.outgoing || typeof res !== "object" || res === null || !("body" in res && "headers" in res && "status" in res)) {
       return res;
     }
-    const { body, cached } = peekBody(res as Response);
+    const { body, cache } = peekBody(res as Response);
     if (typeof (body as ReadableStream | null)?.getReader !== "function") {
       return res;
     }
     const guarded = guardBody(body as ReadableStream<Uint8Array>, env.outgoing, report);
     // Status and headers only: the adapter never writes a statusText, and reading it would materialize the Response.
-    // The same kind of Response as before, so the adapter takes the same path (and sets Content-Length the same way)
-    const { status, headers } = res as Response;
-    return new (responseClass(res as Response, cached))(guarded, { status, headers });
+    // The same kind of Response as before, so the adapter takes the same path (and sets Content-Length the same way).
+    // A cached one keeps its tuple's status and headers as they are: the `headers` getter turns plain headers into
+    // a Headers, and the adapter then adds a default Content-Type the response never had
+    const { status, headers } = cache ? { status: cache[0], headers: cache[2] } : res as Response;
+    return new (responseClass(res as Response, cache !== undefined))(guarded, { status, headers });
   }
 
   return ((request: Request, env: HttpBindings | Http2Bindings, ...rest: never[]) => {
