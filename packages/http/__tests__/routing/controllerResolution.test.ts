@@ -340,14 +340,14 @@ describe('r.contract() options', () => {
     const audited = { destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) }
     // Middleware under an inherited key would be dropped silently: fail open for auth middleware
     expect(api({ endpoints: Object.create(audited) })).toThrow(
-      '[@laratype/http] Route.api: contract "posts": endpoints.destroy is inherited: pass endpoints as an object literal',
+      '[@laratype/http] Route.api: contract "posts": endpoints.destroy is inherited: endpoints must have own keys only',
     )
-    expect(api(Object.create({ endpoints: audited }))).toThrow('contract "posts": options.endpoints is inherited: pass options as an object literal')
-    expect(api(Object.create({ policy: PostPolicy }))).toThrow('contract "posts": options.policy is inherited: pass options as an object literal')
+    expect(api(Object.create({ endpoints: audited }))).toThrow('contract "posts": options.endpoints is inherited: options must have own keys only')
+    expect(api(Object.create({ policy: PostPolicy }))).toThrow('contract "posts": options.policy is inherited: options must have own keys only')
     class Options { endpoints = audited }
-    expect(api(new Options())).toThrow('contract "posts": options must be an object literal, not an instance or an Object.create() object')
-    expect(api({ endpoints: Object.create({}) })).toThrow('contract "posts": endpoints must be an object literal, not an instance or an Object.create() object')
-    expect(api({ endpoints: [] })).toThrow('contract "posts": endpoints must be an object literal')
+    expect(api(new Options())).toThrow('contract "posts": options must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object')
+    expect(api({ endpoints: Object.create({}) })).toThrow('contract "posts": endpoints must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object')
+    expect(api({ endpoints: [] })).toThrow('contract "posts": endpoints must have Object.prototype or null as its prototype')
     // An enumerable key added to Object.prototype is inherited too
     Object.defineProperty(Object.prototype, 'polluted', { value: 1, enumerable: true, configurable: true, writable: true })
     try {
@@ -403,7 +403,7 @@ describe('r.contract() options', () => {
   it('a prototype chain deeper than one null prototype is not plain, even when nothing in it is enumerable', () => {
     const hidden = Object.create(Object.create(null, { destroy: { value: (r: EndpointRouteBuilder) => r.middleware(Audit) } }))
     expect(() => Route.api(postsApi, (r) => [r.contract(posts, PostController, { endpoints: hidden } as never)])).toThrow(
-      'contract "posts": endpoints must be an object literal, not an instance or an Object.create() object',
+      'contract "posts": endpoints must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object',
     )
   })
 

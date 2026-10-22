@@ -78,9 +78,9 @@ const frozenCopy = (value: object, map: (key: string, item: unknown) => unknown 
  * chain could hide a non-enumerable inherited callback).
  */
 const plainIssue = (label: string, value: object): string | undefined => {
-  for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: pass ${label} as an object literal`;
+  for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: ${label} must have own keys only`;
   const proto: unknown = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) return `${label} must be an object literal, not an instance or an Object.create() object`;
+  if (proto !== Object.prototype && proto !== null) return `${label} must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object`;
   return undefined;
 };
 
