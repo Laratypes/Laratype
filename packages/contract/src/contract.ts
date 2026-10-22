@@ -247,7 +247,9 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
   for (const [name, entry] of Object.entries(entries as ApiDef)) {
     if (name.split(".").some((s) => s === "")) fail(`defineApi: invalid tree name "${name}"`);
     if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes, dirs }`);
-    if (typeof entry.path !== "string" || !entry.path.startsWith("/")) fail(`defineApi: "${name}" path must start with "/"`);
+    // one leading "/" and no trailing one, like the scan's base: "/" + "/users" would be "//users", another host
+    if (typeof entry.path !== "string" || !/^\/(?![/\\])/.test(entry.path)) fail(`defineApi: "${name}" path must start with one "/"`);
+    if (entry.path.endsWith("/")) fail(`defineApi: "${name}" path must not end with "/"`);
     if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
     if (entry.dirs === undefined) fail(`defineApi: "${name}" needs dirs: the folder of each scope ("" for the root)`);
     if (!Array.isArray(entry.dirs) || !entry.dirs.every(isDir)) fail(`defineApi: "${name}" dirs must be root-relative folders ("" for the root)`);

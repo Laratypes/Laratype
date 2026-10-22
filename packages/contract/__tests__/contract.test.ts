@@ -8,6 +8,7 @@ import {
   apiEndpoint,
   apiPaths,
   apiRoutes,
+  buildUrl,
   endpointErrors,
   routeErrors,
   contractEndpoints,
@@ -142,7 +143,20 @@ describe('defineApi', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [], dirs: [] } } as never)).toThrow(/invalid tree name "a..b"/)
     expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes, dirs \}/)
-    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/path must start with "\/"/)
+    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/path must start with one "\/"/)
+    expect(() => defineApi({ a: { contract: c, path: '', scopes: [], dirs: [] } } as never)).toThrow(/"a" path must start with one "\/"/)
+    expect(() => defineApi({ a: { contract: c, path: '//api', scopes: [], dirs: [] } } as never)).toThrow(
+      new TypeError('[@laratype/contract] defineApi: "a" path must start with one "/"'),
+    )
+    // like the scan's base: no trailing "/", which joinPath would double ("/" + "/users" is "//users", another host)
+    for (const path of ['/', '/api/']) {
+      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(
+        new TypeError('[@laratype/contract] defineApi: "a" path must not end with "/"'),
+      )
+    }
+    // a valid entry path still builds same-host URLs
+    const ok = defineApi({ a: { contract: defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') }), path: '/api', scopes: [], dirs: [] } })
+    expect(apiPaths(ok).map((r) => buildUrl(r.path, { params: { id: 7 } }))).toEqual(['/api', '/api/7'])
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ auth: true }], dirs: [''] } } as never)).toThrow(/use defineScope/)
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [], dirs: [] }, 'a.show': { contract: c, path: '/a/show', scopes: [], dirs: [] } } as never)).toThrow(
       /"a.show" is both an endpoint and a contract/,
