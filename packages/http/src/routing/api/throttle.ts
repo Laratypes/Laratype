@@ -72,16 +72,18 @@ const hextets = (ip: string): number[] => {
 
 /**
  * The client's bucket from `request.ip()` (the socket peer, never `X-Forwarded-For`), or `undefined` when there is no
- * address: a shared `""` bucket would let one client throttle every other client without one. An IPv4-mapped IPv6
- * address (`::ffff:203.0.113.5`, a dual-stack listener) is its IPv4 address, and an IPv6 client is its /64, the
- * block one client can rotate addresses in.
+ * address: a shared `""` bucket would let one client throttle every other client without one. An IPv4 address carried
+ * in IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) is
+ * that IPv4 address, and any other IPv6 client is its /64, the block one client can rotate addresses in.
  */
 export const ipBucket = (ip: string): string | undefined => {
   if (ip === "") return undefined;
   const address = ip.split("%")[0]!;
   if (isIP(address) !== 6) return address;
   const groups = hextets(address);
-  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+  const mapped = groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
+  const translated = groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0);
+  if (mapped || translated) {
     return [groups[6]! >> 8, groups[6]! & 0xff, groups[7]! >> 8, groups[7]! & 0xff].join(".");
   }
   return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`;
@@ -110,20 +112,29 @@ const tooManyRequests = (resetAt: number) => {
 
 type RouteHandler = (c: Context, next: Next) => Promise<Response | void>;
 
+/** The route a counter belongs to: method, host and path, so same-named routes of two groups or domains never share one. */
+export interface ThrottledRoute {
+  readonly name: string;
+  readonly method: string;
+  readonly path: string;
+  readonly domain: string | undefined;
+}
+
 /**
  * Applies a route's resolved `throttle` before its handler (docs/v1/http.md › Rate limiting): each route counts its own
  * hits per client, and the hit past `limit` in a window of `per` answers 429. Requests with no client address are
  * not limited.
  */
-export const throttled = (name: string, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore = memoryStore): RouteHandler => {
+export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore = memoryStore): RouteHandler => {
+  const scope = `${route.method.toUpperCase()} ${route.domain ?? "*"} ${route.path}`;
   const windowMs = durationMs(options.per);
   return async (c, next) => {
     const bucket = ipBucket(clientIp(c));
     if (bucket === undefined) {
-      warnNoAddress(name);
+      warnNoAddress(route.name);
       return handle(c, next);
     }
-    const { hits, resetAt } = await store.hit(`${name}|${bucket}`, windowMs);
+    const { hits, resetAt } = await store.hit(`${scope} ${bucket}`, windowMs);
     if (hits > options.limit) throw tooManyRequests(resetAt);
     return handle(c, next);
   };

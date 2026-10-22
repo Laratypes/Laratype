@@ -148,6 +148,15 @@ describe('rate limit from the contract', () => {
     expect(await (await onHost.request('http://other.test/api/posts/1', {}, from('203.0.113.10'))).text()).toBe('fallback')
   })
 
+  it('same-named routes of two domains count separately', async () => {
+    const both = new Hono()
+    routes().domain('a.example.test').mount(both)
+    routes().domain('b.example.test').mount(both)
+    expect((await both.request('http://a.example.test/api/posts/1', {}, from('203.0.113.11'))).status).toBe(200)
+    expect((await both.request('http://b.example.test/api/posts/1', {}, from('203.0.113.11'))).status).toBe(200)
+    expect((await both.request('http://a.example.test/api/posts/1', {}, from('203.0.113.11'))).status).toBe(429)
+  })
+
   it('throttled routes are no longer listed as unenforced', () => {
     const entries = routes().routes
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
@@ -167,7 +176,8 @@ describe('ipBucket', () => {
     expect(ipBucket('2001:0DB8:0000:0000:ffff:1:2:3')).toBe('2001:db8:0:0::/64')
     expect(ipBucket('fe80::1%eth0')).toBe('fe80:0:0:0::/64')
     expect(ipBucket('::1')).toBe('0:0:0:0::/64')
-    expect(ipBucket('64:ff9b::203.0.113.1')).toBe('64:ff9b:0:0::/64')
+    expect(ipBucket('64:ff9b::203.0.113.1')).toBe('203.0.113.1')
+    expect(ipBucket('64:ff9b:1::203.0.113.1')).toBe('64:ff9b:1:0::/64')
   })
 })
 

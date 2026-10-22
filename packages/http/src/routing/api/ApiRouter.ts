@@ -344,7 +344,7 @@ export class ApiRoutes {
         middleware: [...route.middleware],
       });
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229)
-      const handle = route.throttle ? throttled(route.name, route.throttle, kernel) : kernel;
+      const handle = route.throttle ? throttled(route, route.throttle, kernel) : kernel;
       const domain = route.domain;
       app.on(
         route.method.toUpperCase(),
