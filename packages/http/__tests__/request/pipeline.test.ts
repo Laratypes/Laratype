@@ -163,8 +163,14 @@ describe('a contract route', () => {
     [{ message: 'Invalid email: Received "SECRET"', received: '"secret"' }, 'Invalid email'],
     // nothing left once the value is cut
     [{ message: 'Received "secret"', received: '"secret"' }, 'Invalid value'],
-    // "received" inside a word is not the tail
+    // "received" inside a word is not the tail, whole code points and combining marks included
     [{ message: 'Field unreceived 5', received: 5 }, 'Field unreceived 5'],
+    [{ message: '𝐱received 5', received: 5 }, '𝐱received 5'],
+    [{ message: 'e\u0301received 5', received: 5 }, 'e\u0301received 5'],
+    // every separator before the tail goes
+    [{ message: 'Invalid: but received "x"', received: '"x"' }, 'Invalid'],
+    // unrecognized keys with nothing before them
+    [{ message: ': a', keys: ['a'] }, 'Invalid value'],
   ])('cuts the received value of %o', async (issue, message) => {
     quiet()
     const schema = { '~standard': { version: 1, vendor: 'other', validate: () => ({ issues: [{ ...issue, path: ['email'] }] }) } } as const

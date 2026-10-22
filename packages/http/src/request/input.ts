@@ -52,6 +52,12 @@ type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received
 
 const RECEIVED = "received ";
 
+/** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
+const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
+
+/** The separators left before a cut tail: `, `, `: `, ` but `, in any mix. */
+const TRAILING_SEPARATORS = /(?:\s+but|[,:]|\s)+$/i;
+
 /**
  * The index of `received <value>` at the end of a message, as a word, the value bare or quoted, in any case. Taken
  * in the message itself, comparing lowercased copies only: lowercasing can change a string's length (`İ` becomes
@@ -60,7 +66,7 @@ const RECEIVED = "received ";
 const receivedAt = (message: string, received: string): number => {
   for (const value of [received, `'${received}'`, `"${received}"`]) {
     const at = message.length - value.length - RECEIVED.length;
-    if (at < 0 || (at > 0 && /[\p{L}\p{N}]/u.test(message[at - 1]!))) continue;
+    if (at < 0 || ENDS_IN_WORD.test(message.slice(0, at))) continue;
     if (message.slice(at).toLowerCase() === `${RECEIVED}${value}`.toLowerCase()) return at;
   }
   return -1;
@@ -68,10 +74,11 @@ const receivedAt = (message: string, received: string): number => {
 
 /**
  * An issue's message without the submitted data, which would reach proxy and client logs. Default messages put it
- * last: zod 3 and valibot end with `received` and the issue's `received` (`Invalid enum value. Expected 'a' | 'b',
- * received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email: Received "a@b"`), cut with the
- * separator before it; zod's unrecognized keys follow the first `": "`. A zod `invalid_type` keeps its `received`,
- * a type name. Any other message is kept as it is.
+ * last: zod 3 and valibot end with the word `received` and the issue's `received`, in any case (`Invalid enum
+ * value. Expected 'a' | 'b', received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email:
+ * Received "a@b"`), cut with the separators before it; zod's unrecognized keys follow the first `": "`. A zod
+ * `invalid_type` keeps its `received`, a type name. Any other message is kept as it is. `publicIssue` turns a
+ * message with nothing left into `Invalid value`.
  */
 const issueMessage = (issue: LibraryIssue): string => {
   const { message, code, received, keys } = issue;
@@ -81,14 +88,14 @@ const issueMessage = (issue: LibraryIssue): string => {
   }
   if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
   const at = receivedAt(message, String(received));
-  // A message that is only `Received <value>` has nothing left: a generic one, never the value
-  return at === -1 ? message : message.slice(0, at).replace(/(\s+but|[,:])?\s*$/i, "") || "Invalid value";
+  return at === -1 ? message : message.slice(0, at).replace(TRAILING_SEPARATORS, "");
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
 export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; message: string } => ({
   path: issuePath(issue),
-  message: issueMessage(issue),
+  // A message that was only the submitted data (`Received "x"`, `: a`) has nothing left: a generic one, never the data
+  message: issueMessage(issue) || "Invalid value",
 });
 
 /**
