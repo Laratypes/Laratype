@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
 import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
-import type { RouteParams } from "../contracts";
+import type { KernelRouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 
@@ -71,7 +71,7 @@ export default class Response extends AppServiceProvider {
     return (name: string, value: string) => ctx.header(name, value)
   }
 
-  protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: RouteParams): ContentfulStatusCode & 204 {
+  protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: KernelRouteParams): ContentfulStatusCode & 204 {
     let contentFullStatusCode = response.getHttpStatus();
 
     // A contract route's status comes from its endpoint (`.response(schema, status)`), never from the method name
@@ -99,7 +99,7 @@ export default class Response extends AppServiceProvider {
     return contentFullStatusCode as ContentfulStatusCode & 204;
   }
 
-  public static resolveResponse(ctx: Context, response?: any, routeOption?: RouteParams) {
+  public static resolveResponse(ctx: Context, response?: any, routeOption?: KernelRouteParams) {
     let responseObj
     if(response instanceof ResponseSupport) {
       responseObj = response;

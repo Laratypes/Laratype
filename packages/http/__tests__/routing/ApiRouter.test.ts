@@ -221,7 +221,8 @@ describe('Route.api', () => {
       ['users.posts.index', 'get', '/api/users/:user/posts'],
       ['users.posts.store', 'post', '/api/users/:user/posts'],
     ])
-    const store = entries[3]!
+    // routes.routes holds the contract routes only, typed as RouteEntry
+    const store = routes.routes[3]!
     expect(store.endpoint).toBe(posts.store)
     expect(store.contract).toBe(posts)
     expect(store.controller).toEqual([PostController, 'store'])
@@ -231,9 +232,9 @@ describe('Route.api', () => {
     expect(store.authorize).toBe(true)
     expect(store.domain).toBeUndefined()
     expect(store.unenforced).toEqual(['auth', 'authorize'])
-    expect(entries[0]!.unenforced).toEqual(['auth'])
-    expect(entries[0]!.policies).toEqual([])
-    expect(entries[0]!.middleware).toEqual([])
+    expect(routes.routes[0]!.unenforced).toEqual(['auth'])
+    expect(routes.routes[0]!.policies).toEqual([])
+    expect(routes.routes[0]!.middleware).toEqual([])
     expect(routes.routes).toEqual(entries)
   })
 
@@ -373,8 +374,9 @@ describe('auth and authorize are not enforced yet', () => {
       slow: endpoint.get('/slow').throttle({ limit: 1, per: 60 }),
     })
     class Forms extends Controller { list() {} send() {} head() {} ping() {} slow() {} }
-    const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
-    expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
+    const formRoutes = Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)])
+    mount(formRoutes)
+    expect(formRoutes.routes.map((e) => [e.name, e.unenforced])).toEqual([
       ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
     ])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation), forms.slow (throttle)'))

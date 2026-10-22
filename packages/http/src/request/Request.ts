@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport, { HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
-import type { PolicyFactory, RouteParams } from "../contracts/Route";
+import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
@@ -110,7 +110,7 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static transformRequest(request: HonoRequest, routeOption: RouteParams) {
+  public static transformRequest(request: HonoRequest, routeOption: KernelRouteParams) {
     if(routeOption.request) {
       return new routeOption.request(request);
     }
@@ -199,7 +199,7 @@ export default class Request extends AppServiceProvider {
     return request;
   }
 
-  public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: RouteParams, res: Response) {
+  public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: KernelRouteParams, res: Response) {
     if(pipelines.length) {
       const pipeline = async () => {
         let index = 0;
@@ -219,6 +219,11 @@ export default class Request extends AppServiceProvider {
             else if(currentPipelineType === 'controller') {
               if(routeOption.controller) {
                 return await this.controllerKernel(routeOption.controller)(requestInstance)
+              }
+              // An ad-hoc route (`r.get('/health', () => 'ok')`, H12 #139) runs its handler as a controller method
+              if('handler' in routeOption) {
+                const { handler } = routeOption;
+                return await handler(requestInstance, ContextApi.getModelBindings())
               }
               return await next(arg);
             }
@@ -264,7 +269,7 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
+  public static async processValidation(requestInstance: RequestSupport, routeOption: KernelRouteParams) {
     // A request class that doesn't override rules() has nothing to validate: validated() keeps its default `{}`
     if(routeOption.request && requestInstance.rules !== RequestSupport.prototype.rules) {
       // Only invalid input is a 422, with its field errors (#275). Anything thrown, by rules() or inside the schema (an
@@ -285,7 +290,7 @@ export default class Request extends AppServiceProvider {
     return requestInstance
   }
   
-  public static handle (routeOption: RouteParams) {
+  public static handle (routeOption: KernelRouteParams) {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
       const transformedRequest = this.transformRequest(requestInstance, routeOption);

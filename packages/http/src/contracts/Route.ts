@@ -51,3 +51,12 @@ export type RouteParams = {
   name?: string,
   meta?: any,
 }
+
+/** An ad-hoc `Route.api` route (`r.get('/health', () => 'ok')`, H12 #139): it runs `handler` instead of a controller. */
+export type AdHocRouteParams = Omit<RouteParams, "controller"> & {
+  controller?: undefined,
+  handler: (req: Request, params: Record<string, string>) => unknown,
+}
+
+/** What `RequestKernel` serves: a controller route, or an ad-hoc route. */
+export type KernelRouteParams = RouteParams | AdHocRouteParams
