@@ -24,7 +24,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)) |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
@@ -477,7 +477,7 @@ None of its own. The transform never throws on user code, and resolve-time failu
 ## Resolution errors with fix hints
 
 ### Status
-merged ([#100](https://github.com/Laratypes/Laratype/issues/100)).
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Public API
 None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
