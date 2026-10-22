@@ -13,7 +13,7 @@ v1 validates requests against the contract's Standard Schema slots: query and bo
 | Section | Status |
 |---|---|
 | [Standard Schema adapter](#standard-schema-adapter) | merged @ 883a8e2 |
-| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 32fb0d1 |
+| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 6899661 |
 | [FormRequest v2](#formrequest-v2) | planned → #137 |
 
 ---
@@ -51,7 +51,7 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 ## Pipeline validation and 422
 
 ### Status
-proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 32fb0d1 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
+proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 6899661 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Public API
 No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`packages/http/src/request/input.ts`](../../packages/http/src/request/input.ts).
