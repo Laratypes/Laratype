@@ -6,10 +6,7 @@ import { AuthVerification } from "../verifications";
 export default class AuthGuard extends Middleware {
 
   getToken(request: Request) {
-    const authHeader = request.header('Authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.split('Bearer ')[1].trim();
-    }
+    return request.bearerToken() || undefined;
   }
 
   async handle(request: Request, res: Response, next: NextHandler) {

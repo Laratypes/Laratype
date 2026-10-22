@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
-import RequestSupport from "../supports/Request"
+import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
@@ -9,7 +9,6 @@ import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
-import { DEFAULT_RULES } from "../supports/Request";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 
@@ -289,6 +288,8 @@ export default class Request extends AppServiceProvider {
       // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
       const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      // For request.ip() (A5 #288). Non-enumerable, so logging or serializing the request doesn't walk Node's socket
+      Object.defineProperty(transformedRequest, HONO_CONTEXT, { value: ctx, writable: false, enumerable: false, configurable: true });
       // The endpoint (#105) is also a read-only, non-enumerable field of the request, for middleware. A contract route
       // takes no request class, so the request has no own `endpoint` to clash with
       if(endpoint) {
