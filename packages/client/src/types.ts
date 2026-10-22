@@ -37,6 +37,28 @@ export type Jsonify<T> = unknown extends T
             ? { -readonly [K in keyof T]: JsonItem<T[K]> }
             : JsonObject<T>;
 
+/**
+ * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
+ * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string.
+ * `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols become `never`, so a
+ * schema input JSON can't carry is a type error at the call. The server validates the parsed JSON, so a field typed
+ * `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
+ */
+type JsonInput<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? T | JsonInput<J>
+    : T extends string | number | boolean | null | undefined
+      ? T
+      : T extends NotJson | bigint | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+        ? never
+        : { [K in keyof T]: JsonInput<T[K]> };
+
+/** A query value as a call passes it: `buildUrl` sends a `Date` as its ISO string, so the string is accepted too. */
+type QueryValue<T> = T extends Date ? T | string : T extends readonly unknown[] ? { [K in keyof T]: QueryValue<T[K]> } : T;
+
+type QueryInput<T> = unknown extends T ? T : { [K in keyof T]: QueryValue<T[K]> };
+
 /** Headers a call can send; a `headers` schema types its keys on top. */
 export type HeaderValues = Record<string, string>;
 
@@ -45,11 +67,29 @@ type Part<K extends string, T> = [T] extends [undefined] ? {} : {} extends T ? {
 
 type ParamsPart<P> = [keyof P] extends [never] ? {} : Part<"params", { [K in keyof P]: string | number }>;
 
-type HeadersPart<H> = [H] extends [undefined] ? { headers?: HeaderValues } : {} extends H ? { headers?: H & HeaderValues } : { headers: H & HeaderValues };
+/** Whether header `K` is one of the names `P` (header names are case-insensitive). */
+type Provides<K, P extends string> = Lowercase<K & string> extends Lowercase<P> ? true : false;
 
-/** The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. */
-export type CallInput<E extends EndpointShape> = Prettify<
-  ParamsPart<E["params"]> & Part<"query", E["query"]> & Part<"body", E["body"]> & HeadersPart<E["headers"]> & { signal?: AbortSignal }
+/** The schema headers, with those `options.headers` provides (`P`) optional. */
+type WithProvided<H, P extends string> = [P] extends [never]
+  ? H
+  : Prettify<{ [K in keyof H as Provides<K, P> extends true ? never : K]: H[K] } & { [K in keyof H as Provides<K, P> extends true ? K : never]?: H[K] }>;
+
+type HeadersPart<H, P extends string> = [H] extends [undefined]
+  ? { headers?: HeaderValues }
+  : {} extends WithProvided<H, P>
+    ? { headers?: WithProvided<H, P> & HeaderValues }
+    : { headers: WithProvided<H, P> & HeaderValues };
+
+/**
+ * The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. `P` names the
+ * headers `options.headers` sends for the whole client, which a call may then leave out.
+ */
+export type CallInput<E extends EndpointShape, P extends string = never> = Prettify<
+  ParamsPart<E["params"]> &
+    Part<"query", QueryInput<E["query"]>> &
+    Part<"body", JsonInput<E["body"]>> &
+    HeadersPart<E["headers"], P> & { signal?: AbortSignal }
 >;
 
 /**
@@ -108,15 +148,23 @@ export interface UnexpectedResult {
 export type ClientResult<E extends EndpointShape> = ClientSuccess<E> | ClientFailure<E> | UnexpectedResult;
 
 /** One endpoint call. The argument is optional when nothing in it is required. */
-export type EndpointCall<E extends EndpointShape> = {} extends CallInput<E>
-  ? (input?: CallInput<E>) => Promise<ClientResult<E>>
-  : (input: CallInput<E>) => Promise<ClientResult<E>>;
+export type EndpointCall<E extends EndpointShape, P extends string = never> = {} extends CallInput<E, P>
+  ? (input?: CallInput<E, P>) => Promise<ClientResult<E>>
+  : (input: CallInput<E, P>) => Promise<ClientResult<E>>;
 
-/** The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per endpoint. */
-export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
+/**
+ * The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per
+ * endpoint. `P` names the headers `options.headers` provides.
+ */
+export type Client<T, P extends string = never> = {
+  readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K], P> : Client<T[K], P>;
+};
 
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
-export type ClientOf<A> = Client<ApiTypes<A>>;
+export type ClientOf<A, P extends string = never> = Client<ApiTypes<A>, P>;
+
+/** The header names an `options.headers` object literal provides; none for a `Headers`, an array or a `Record<string, string>`. */
+export type ProvidedHeaders<H extends string> = string extends H ? never : H;
 
 /** One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, error codes. */
 export interface ManifestRoute {
@@ -130,11 +178,14 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-export interface ClientOptions {
+export interface ClientOptions<H extends string = string> {
   /** Origin the contract paths are appended to. Default `""`: same origin, since contract paths are full (`/api/...`). */
   baseUrl?: string;
   /** The fetch to call. Default: the global `fetch`, read at call time. */
   fetch?: FetchLike;
-  /** Headers sent with every call; a call's own `headers` override them. */
-  headers?: HeadersInit;
+  /**
+   * Headers sent with every call; a call's own `headers` override them. Given as an object, its names (`H`, inferred
+   * by `createClient`) are optional in each call's `headers`, even when the endpoint's headers schema requires them.
+   */
+  headers?: HeadersInit | { readonly [K in H]: string };
 }

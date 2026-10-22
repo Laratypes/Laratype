@@ -1,7 +1,7 @@
 ---
 area: contract
 packages: ["@laratype/contract"]
-issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228]
+issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228, 255]
 verified-against: Laratype@e2eac4b
 last-verified: 2026-10-14
 ---
@@ -301,6 +301,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
+- **Dates on the wire** (#255, proposed: PR #PRNUM @ PRSHA): the server validates the parsed JSON body and the query's string values, and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date()` (zod 3), `z.coerce.date<Date>()` (zod 4) or `z.iso.datetime()` piped to a date. A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
 - `TypeError: validateSync: the <vendor> schema is async, use validate() instead` (for example `the zod schema`).
@@ -534,7 +535,7 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and s
 [`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
 
 ### Non-goals
-- The projection keeps the schema output (`Date` stays `Date`). The client applies `Jsonify<>` to it ([#110](https://github.com/Laratypes/Laratype/issues/110)).
+- The projection keeps the schema input and output (`Date` stays `Date`). The client applies `Jsonify<>` to the response ([#110](https://github.com/Laratypes/Laratype/issues/110)), and types the body as its JSON-safe input and a `Date` query value as `Date | string` ([client.md › createClient](./client.md#json-safe-request-input), [#255](https://github.com/Laratypes/Laratype/issues/255)).
 
 ### Open questions
 - Resolved: the response wire type is `Jsonify<output>` ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
