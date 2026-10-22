@@ -154,22 +154,29 @@ describe("guardStreamErrors (Node adapter)", () => {
     expect(await res.text()).toBe("file;");
   });
 
-  it("cancels the source when the response closes before the adapter reads it", async () => {
+  it.each([
+    ["closes before the adapter reads it", false],
+    ["was already destroyed when an async handler resolved", true],
+  ])("cancels the source when the response %s", async (_case, destroyed) => {
     const canceled = vi.fn();
-    const outgoing = Object.assign(new EventEmitter(), { destroyed: false, destroy: vi.fn() });
-    const fetchCallback = guardStreamErrors((_request: Request, _env: unknown) => new Response(new ReadableStream({
+    const outgoing = Object.assign(new EventEmitter(), { destroyed, destroy: vi.fn() });
+    const fetchCallback = guardStreamErrors(async (_request: Request, _env: unknown) => new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(encoder.encode("first-chunk;"));
       },
       cancel: canceled,
-    })));
+    })), report);
 
-    const res = fetchCallback(new Request("http://localhost/"), { outgoing } as never);
+    const res = await fetchCallback(new Request("http://localhost/"), { outgoing } as never);
     expect(res).toBeInstanceOf(Response);
-    outgoing.emit("close");
+    if (!destroyed) {
+      expect(canceled).not.toHaveBeenCalled();
+      outgoing.emit("close");
+    }
 
     await vi.waitFor(() => expect(canceled).toHaveBeenCalledTimes(1));
     expect(report).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("returns the response as is without Node bindings", () => {

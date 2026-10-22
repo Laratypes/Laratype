@@ -69,10 +69,17 @@ const guardBody = (
   // Also when no read is pending (the adapter waits for `drain`): the response is aborted at once
   reader.closed.catch(fail);
   // The source is canceled when the response closes, even if the adapter never read or canceled the guarded stream
-  // (the client left before the adapter started writing): else `outgoing` lives as long as the source (an SSE stream)
-  outgoing.once("close", () => {
+  // (the client left before the adapter started writing): else `outgoing` lives as long as the source (an SSE stream).
+  // Already destroyed (an async handler resolved after the client left): the adapter never reads it, cancel at once
+  const cancelSource = () => {
     reader.cancel().catch(() => {});
-  });
+  }
+  if (outgoing.destroyed) {
+    cancelSource();
+  }
+  else {
+    outgoing.once("close", cancelSource);
+  }
 
   return new ReadableStream<Uint8Array>({
     start(c) {
