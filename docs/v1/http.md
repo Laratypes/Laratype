@@ -547,7 +547,7 @@ proposed: PR [#PRNUM](https://github.com/Laratypes/Laratype/pull/PRNUM) @ PRSHA 
 [`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
 
 ```ts
-function defineResource<M extends abstract new (...args: any) => any, R extends Record<string, unknown>>(
+function defineResource<M extends abstract new (...args: any) => any, R extends ResourceData>(   // an object, not an array or a promise
   model: M, fn: (model: InstanceType<M>) => R): Resource<M, ResourceOutput<R>>;
 
 interface Resource<M, Out> {
@@ -556,7 +556,8 @@ interface Resource<M, Out> {
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
 }
 
-function when<V>(condition: boolean, value: V | (() => V)): V | MissingValue;   // two overloads: a function value is called
+function when<V>(condition: boolean, value: () => V): V | MissingValue;   // called only when the condition holds
+function when<V extends NotFunction>(condition: boolean, value: V): V | MissingValue;   // any value but a function or a class
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -564,11 +565,16 @@ interface MissingValue;   // branded: what when() gives for a false condition
 ### Invariants
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
-- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any` stays required.
-- **when():** a false condition drops the key from `make`'s result; a true one keeps the value, and a function value is called only then. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it, and it is left out of the JSON at runtime.
-- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns an object (an array or a promise does not compile).
-- **paginate** takes any page with `data`, maps `data` and copies the page's other own enumerable fields as they are, so it fits the paginator the ORM gives (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)).
-- `make` copies the result into a new object with `Object.fromEntries`, so a `__proto__` key stays an own key. The resource object is frozen.
+- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value, and a function value is called only then. `when()` takes no function with parameters and no class (it would call them). Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it.
+- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array or a promise does not compile, and a class instance throws at `make` (a copy would lose its getters).
+- **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are. A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
+- `make` copies the result into a new object, and a `__proto__` key stays an own key. The resource object is frozen.
+
+### Diagnostics
+- `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>`
+- `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>`
+- A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example
 Illustrative (`params` needs H3 [#106](https://github.com/Laratypes/Laratype/issues/106) and H7 [#118](https://github.com/Laratypes/Laratype/issues/118)):

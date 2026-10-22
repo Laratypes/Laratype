@@ -52,11 +52,35 @@ describe('defineResource', () => {
     expect(page.data[0]).toBeInstanceOf(User)
   })
 
+  it('make refuses a class instance from fn, whose getters a copy would lose', () => {
+    class Dto { constructor(readonly id: number) {} }
+    expect(() => defineResource(User, (user) => new Dto(user.id)).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got an instance of Dto',
+    )
+  })
+
+  it('paginate refuses a paginator instance, whose getters a copy would lose', () => {
+    class Paginator {
+      constructor(readonly data: User[], private readonly count: number) {}
+      get total() { return this.count }
+    }
+    expect(() => UserResource.paginate(new Paginator([], 0))).toThrow(
+      '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got an instance of Paginator',
+    )
+    expect(UserResource.paginate(Object.assign(Object.create(null), { data: [] }))).toEqual({ data: [] })
+  })
+
   it('a __proto__ key stays an own key, not the prototype', () => {
     const Proto = defineResource(User, () => JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>)
     const out = Proto.make(new User(1, 'ada'))
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
     expect(Object.keys(out)).toEqual(['__proto__'])
+  })
+
+  it('drops a missing value made by another copy of the module (src and dist)', () => {
+    const foreign = Object.freeze({ [Symbol.for('laratype.resource.missing')]: true, toJSON: () => undefined })
+    const Foreign = defineResource(User, () => ({ id: 1, gone: foreign }))
+    expect(Foreign.make(new User(1, 'ada'))).toStrictEqual({ id: 1 })
   })
 
   it('a nested when() stays off the wire', () => {

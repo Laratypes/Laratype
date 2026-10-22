@@ -35,14 +35,27 @@ describe('the inferred output', () => {
 
   test('when() with a function value gives what it returns, and a function is called, never kept', () => {
     expectTypeOf(when(true, () => 1)).toEqualTypeOf<number | MissingValue>()
-    expectTypeOf(when(true, 'a' as const)).toEqualTypeOf<'a' | MissingValue>()
+    expectTypeOf(when(true, 'a')).toEqualTypeOf<'a' | MissingValue>()
+    expectTypeOf(when(true, [1])).toEqualTypeOf<number[] | MissingValue>()
+    expectTypeOf(when(true, new Date())).toEqualTypeOf<Date | MissingValue>()
+    // @ts-expect-error a class is not a value when() can keep: it would be called
+    when(true, Post)
+    // @ts-expect-error a function value is called with no arguments
+    when(true, (id: number) => id)
     const Lazy = defineResource(User, (user) => ({ secret: when(user.isAdmin, () => user.email) }))
     expectTypeOf(Lazy.make).returns.toEqualTypeOf<{ secret?: string }>()
   })
 
-  test('readonly keys stay readonly; an any key stays required', () => {
-    const R = defineResource(User, (user) => ({ id: user.id, raw: user as any }) as { readonly id: number; raw: any })
-    expectTypeOf(R.make).returns.toEqualTypeOf<{ readonly id: number; raw: any }>()
+  test('readonly keys stay readonly; any, unknown and object keys stay required', () => {
+    const R = defineResource(User, (user) => ({ id: user.id, raw: user as any, meta: {} as unknown, tags: {} as object }) as {
+      readonly id: number; raw: any; meta: unknown; tags: object
+    })
+    expectTypeOf(R.make).returns.toEqualTypeOf<{ readonly id: number; raw: any; meta: unknown; tags: object }>()
+  })
+
+  test('fn may be typed with an interface', () => {
+    interface UserDto { id: number }
+    expectTypeOf(defineResource(User, (user): UserDto => ({ id: user.id })).make).returns.toEqualTypeOf<{ id: number }>()
   })
 
   test('a nested resource gives its own output', () => {

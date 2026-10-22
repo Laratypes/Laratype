@@ -11,8 +11,17 @@ export interface MissingValue {
   readonly [missing]: true;
 }
 
-/** A top-level key the resource leaves out. Its `toJSON` also keeps it off the wire if one ends up nested. */
-const MISSING = Object.freeze({ toJSON: () => undefined }) as unknown as MissingValue;
+// A registered symbol, so that two copies of this module (src and dist, two bundles) agree on what is missing
+const MISSING_KEY = Symbol.for("laratype.resource.missing");
+
+/** A top-level key the resource leaves out. Its `toJSON` also keeps it out of a nested object's JSON. */
+const MISSING = Object.freeze({ [MISSING_KEY]: true, toJSON: () => undefined }) as unknown as MissingValue;
+
+const isMissing = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && (value as { [MISSING_KEY]?: unknown })[MISSING_KEY] === true;
+
+/** Any value but a function or a class: `when()` calls a function value, so it must take no arguments. */
+type NotFunction = string | number | boolean | bigint | symbol | null | undefined | (object & { readonly call?: never });
 
 /**
  * The value, or no key at all when `condition` is false. A function value is called only when the condition holds.
@@ -22,7 +31,7 @@ const MISSING = Object.freeze({ toJSON: () => undefined }) as unknown as Missing
  *   secret: when(canSee, () => user.secret),
  */
 export function when<V>(condition: boolean, value: () => V): V | MissingValue;
-export function when<V>(condition: boolean, value: V): V | MissingValue;
+export function when<V extends NotFunction>(condition: boolean, value: V): V | MissingValue;
 export function when<V>(condition: boolean, value: V | (() => V)): V | MissingValue {
   if (!condition) return MISSING;
   return typeof value === "function" ? (value as () => V)() : value;
@@ -30,7 +39,7 @@ export function when<V>(condition: boolean, value: V | (() => V)): V | MissingVa
 
 type ModelClass = abstract new (...args: any) => any;
 type IsAny<X> = 0 extends 1 & X ? true : false;
-type MayBeMissing<V> = IsAny<V> extends true ? false : MissingValue extends V ? true : false;
+type MayBeMissing<V> = IsAny<V> extends true ? false : [Extract<V, MissingValue>] extends [never] ? false : true;
 
 /** The data `fn` returns, with each `when()` key optional and without `MissingValue`. */
 export type ResourceOutput<R> = {
@@ -39,7 +48,10 @@ export type ResourceOutput<R> = {
   [K in keyof R as MayBeMissing<R[K]> extends true ? K : never]?: Exclude<R[K], MissingValue>;
 } extends infer O ? { [K in keyof O]: O[K] } : never;
 
-/** A page of models (`{ data, ...meta }`): `paginate` maps `data` and copies the page's other own fields as they are. */
+/** What `fn` returns: a plain object (checked at runtime), never an array or a promise (load relations before `make`). */
+type ResourceData = object & { readonly then?: never; readonly [Symbol.iterator]?: never };
+
+/** A plain page of models (`{ data, ...meta }`): `paginate` maps `data` and copies the page's other fields as they are. */
 export type ResourcePage<P, Out> = Omit<P, "data"> & { data: Out[] } extends infer O ? { [K in keyof O]: O[K] } : never;
 
 export interface Resource<M extends ModelClass, Out> {
@@ -47,9 +59,29 @@ export interface Resource<M extends ModelClass, Out> {
   make(model: InstanceType<M>): Out;
   /** The data of each model, in order. */
   collection(models: Iterable<InstanceType<M>>): Out[];
-  /** A page whose `data` holds the models: `{ data: Out[], ...meta }`. */
+  /** A plain page object whose `data` holds the models: `{ data: Out[], ...meta }`. */
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;
 }
+
+const isPlainObject = (value: object): boolean => {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+const nameOf = (value: object): string => (value.constructor as { name?: string } | undefined)?.name || "an unnamed class";
+
+/** The own enumerable fields of `data` without the missing ones, in a new object. */
+const present = (data: object): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(data)) {
+    const value = (data as Record<string, unknown>)[key];
+    if (isMissing(value)) continue;
+    // An assignment to `__proto__` would set the prototype: define it as an own key instead
+    if (key === "__proto__") Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
+    else out[key] = value;
+  }
+  return out;
+};
 
 /**
  * A resource for `Model`: `fn` maps one instance to plain data, and its return type is the output type.
@@ -61,19 +93,28 @@ export interface Resource<M extends ModelClass, Out> {
  *   }));
  *   UserResource.make(user);   // { id: number; email?: string }
  */
-export function defineResource<M extends ModelClass, R extends Record<string, unknown>>(
+export function defineResource<M extends ModelClass, R extends ResourceData>(
   model: M,
   fn: (model: InstanceType<M>) => R,
 ): Resource<M, ResourceOutput<R>> {
   type Out = ResourceOutput<R>;
-  // fromEntries defines own properties, so a `__proto__` key stays a key
-  const make = (instance: InstanceType<M>): Out =>
-    Object.fromEntries(Object.entries(fn(instance)).filter(([, value]) => value !== MISSING)) as Out;
+  const make = (instance: InstanceType<M>): Out => {
+    const data = fn(instance);
+    // A copy keeps own fields only: a class instance would lose its getters and send its private fields
+    if (!isPlainObject(data)) {
+      throw new TypeError(`[@laratype/http] ${model.name}: the resource function must return a plain object, got an instance of ${nameOf(data)}`);
+    }
+    return present(data) as Out;
+  };
 
   return Object.freeze({
     make,
-    collection: (models: Iterable<InstanceType<M>>) => Array.from(models, (instance) => make(instance)),
-    paginate: <P extends { readonly data: Iterable<InstanceType<M>> }>(page: P) =>
-      ({ ...page, data: Array.from(page.data, (instance) => make(instance)) }) as unknown as ResourcePage<P, Out>,
+    collection: (models: Iterable<InstanceType<M>>) => Array.from(models, make),
+    paginate: <P extends { readonly data: Iterable<InstanceType<M>> }>(page: P) => {
+      if (!isPlainObject(page)) {
+        throw new TypeError(`[@laratype/http] ${model.name}: paginate() takes a plain page object ({ data, ...meta }), got an instance of ${nameOf(page)}`);
+      }
+      return { ...page, data: Array.from(page.data, make) } as unknown as ResourcePage<P, Out>;
+    },
   });
 }
