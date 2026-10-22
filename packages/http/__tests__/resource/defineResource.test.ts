@@ -58,6 +58,9 @@ describe('defineResource', () => {
     expect(() => defineResource(User, () => null as any).make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must return a plain object, got null',
     )
+    expect(() => defineResource(User, () => (() => 1) as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got a function',
+    )
   })
 
   it('paginate refuses a paginator instance, whose getters a copy would lose', () => {
@@ -69,6 +72,9 @@ describe('defineResource', () => {
       '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got an instance of Paginator',
     )
     expect(UserResource.paginate(Object.assign(Object.create(null), { data: [] }))).toEqual({ data: [] })
+    expect(() => UserResource.paginate({ items: [] } as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a page whose data holds the models, got data undefined',
+    )
   })
 
   it('a __proto__ key stays an own key, not the prototype', () => {
@@ -98,6 +104,7 @@ describe('a resource through Route.api', () => {
   const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
   const users = defineContract()({
     index: endpoint.get('/').response(anything),
+    list: endpoint.get('/list').response(anything),
     show: endpoint.get('/:id').response(anything),
     legacy: endpoint.get('/legacy').response(anything),
     legacyCollection: endpoint.get('/legacy-collection').response(anything),
@@ -106,6 +113,7 @@ describe('a resource through Route.api', () => {
 
   class UserController extends Controller {
     index() { return UserResource.paginate({ data: [new User(1, 'ada'), new User(2, 'bob', true)], total: 2 }) }
+    list() { return UserResource.collection([new User(1, 'ada')]) }
     show(req: { param(key: string): string }) { return UserResource.make(new User(Number(req.param('id')), 'ada')) }
     legacy() { return new JsonResource({ id: 1 }) }
     legacyCollection() { return new ResourceCollection([{ id: 1 }]) }
@@ -123,6 +131,9 @@ describe('a resource through Route.api', () => {
     const show = await app.request('/api/users/7')
     expect(show.status).toBe(200)
     expect(await show.json()).toEqual({ id: 7, name: 'ada' })
+    const list = await app.request('/api/users/list')
+    expect(list.headers.get('content-type')).toMatch(/^application\/json/)
+    expect(await list.json()).toEqual([{ id: 1, name: 'ada' }])
     expect(await (await app.request('/api/users')).json()).toEqual({
       data: [{ id: 1, name: 'ada' }, { id: 2, name: 'bob', email: 'bob@example.com' }],
       total: 2,

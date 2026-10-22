@@ -20,19 +20,23 @@ const MISSING: MissingValue = Object.freeze({ [MISSING_KEY]: true as const, toJS
 const isMissing = (value: unknown): boolean =>
   typeof value === "object" && value !== null && (value as Partial<MissingValue>)[MISSING_KEY] === true;
 
+type IsAny<X> = 0 extends 1 & X ? true : false;
+
+/** `never` for an `any` or `unknown` value: `V | MissingValue` would collapse to it, and the key would look required. */
+type KnownValue<V> = IsAny<V> extends true ? never : unknown extends V ? never : unknown;
+
 /**
  * The value, or no key at all when `condition` is false. The value is kept as it is (a function too): use a
  * conditional expression to compute it only when needed. Only the top-level keys of a resource are dropped: a nested
- * `when()` keeps `MissingValue` in the type.
+ * `when()` keeps `MissingValue` in the type. An `any` or `unknown` value does not compile: give it its type.
  *
  *   email: when(user.isAdmin, user.email),
  */
-export function when<V>(condition: boolean, value: V): V | MissingValue {
+export function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue {
   return condition ? value : MISSING;
 }
 
 type ModelClass = abstract new (...args: any) => any;
-type IsAny<X> = 0 extends 1 & X ? true : false;
 type MayBeMissing<V> = IsAny<V> extends true ? false : [Extract<V, MissingValue>] extends [never] ? false : true;
 
 /** The data `fn` returns, with each `when()` key optional and without `MissingValue`. */
@@ -63,9 +67,14 @@ export interface Resource<M extends ModelClass, Out> {
 }
 
 const describe = (value: unknown): string =>
-  typeof value !== "object" || value === null
-    ? String(value)
-    : `an instance of ${(value.constructor as { name?: string } | undefined)?.name || "an unnamed class"}`;
+  typeof value === "function"
+    ? "a function"
+    : typeof value !== "object" || value === null
+      ? String(value)
+      : `an instance of ${(value.constructor as { name?: string } | undefined)?.name || "an unnamed class"}`;
+
+const isIterable = (value: unknown): value is Iterable<unknown> =>
+  value != null && typeof (value as Iterable<unknown>)[Symbol.iterator] === "function";
 
 /**
  * A resource for `Model`: `fn` maps one instance to plain data, and its return type is the output type.
@@ -98,6 +107,9 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     paginate: <P extends { readonly data: Iterable<InstanceType<M>> }>(page: P) => {
       if (!isPlainObject(page)) {
         throw new TypeError(`[@laratype/http] ${model.name}: paginate() takes a plain page object ({ data, ...meta }), got ${describe(page)}`);
+      }
+      if (!isIterable(page.data)) {
+        throw new TypeError(`[@laratype/http] ${model.name}: paginate() takes a page whose data holds the models, got data ${describe(page.data)}`);
       }
       return { ...page, data: Array.from(page.data, make) } as unknown as ResourcePage<P, Out>;
     },

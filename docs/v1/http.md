@@ -556,7 +556,7 @@ interface Resource<M, Out> {
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
 }
 
-function when<V>(condition: boolean, value: V): V | MissingValue;   // the value as it is (a function too)
+function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue;   // the value as it is (a function too); KnownValue refuses any and unknown
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -565,7 +565,7 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
 - **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required.
-- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). With an `unknown` value, `V | MissingValue` is `unknown`, so the key stays required in the type. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
 - `make` copies the result into a new object, and a `__proto__` key stays an own key. The resource object is frozen.
@@ -576,7 +576,7 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example
-Illustrative (`params` needs H3 [#106](https://github.com/Laratypes/Laratype/issues/106) and H7 [#118](https://github.com/Laratypes/Laratype/issues/118)):
+Compiled: [`docs/v1/examples/http/proposed/resources.ts`](./examples/http/proposed/resources.ts), with the contract mismatch at `r.contract()`. In the decided style (`params` needs H3 [#106](https://github.com/Laratypes/Laratype/issues/106) and H7 [#118](https://github.com/Laratypes/Laratype/issues/118)):
 ```ts
 const UserResource = defineResource(User, (user) => ({
   id: user.id,

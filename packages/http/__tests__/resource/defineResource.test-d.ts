@@ -25,6 +25,8 @@ const UserResource = defineResource(User, (user) => ({
   createdAt: user.createdAt,
 }))
 
+const user = () => ({}) as User
+
 type UserOut = { id: number; name: string; email?: string; createdAt: Date }
 
 describe('the inferred output', () => {
@@ -33,12 +35,18 @@ describe('the inferred output', () => {
     expectTypeOf(UserResource.collection).returns.toEqualTypeOf<UserOut[]>()
   })
 
-  test('when() gives the value type, whatever it is: a function is kept, never called; an unknown key stays required', () => {
-    expectTypeOf(when(true, 'a')).toEqualTypeOf<string | MissingValue>()
-    expectTypeOf(when(true, {} as unknown)).toEqualTypeOf<unknown>()
+  test('when() gives the value type: a function is kept, never called', () => {
+    expectTypeOf(when(true, user().email)).toEqualTypeOf<string | MissingValue>()
     const format = (id: number) => String(id)
-    const Fn = defineResource(User, (user) => ({ format: when(user.isAdmin, format), settings: when(user.isAdmin, {} as unknown) }))
-    expectTypeOf(Fn.make).returns.toEqualTypeOf<{ format?: (id: number) => string; settings: unknown }>()
+    const Fn = defineResource(User, (user) => ({ format: when(user.isAdmin, format) }))
+    expectTypeOf(Fn.make).returns.toEqualTypeOf<{ format?: (id: number) => string }>()
+  })
+
+  test('when() refuses an any or unknown value, whose key would look required', () => {
+    // @ts-expect-error V | MissingValue would be any
+    when(true, {} as any)
+    // @ts-expect-error V | MissingValue would be unknown
+    when(true, {} as unknown)
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {
