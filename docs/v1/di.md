@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR #PRNUM |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
 | [Bun build plugin](#bun-build-plugin) | planned → #116 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -547,7 +547,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
-- Facades: proposed: PR #PRNUM @ PRSHA (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)).
+- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)).
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
