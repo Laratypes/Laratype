@@ -17,24 +17,30 @@ type Key = string | number
 /** Paths stop at arrays and functions, and after 8 levels so big option types stay cheap to check. */
 type Stop = readonly unknown[] | ((...args: never[]) => unknown)
 
-/** Every dot path of `T`: `"database" | "database.default" | ...`. */
+/**
+ * Every dot path of `T`: `"database" | "database.default" | ...`. A key that contains a dot ends a path: the lookup
+ * reads it as the whole rest of the path.
+ */
 export type ConfigPath<T = AppConfigs, Depth extends unknown[] = []> = Depth['length'] extends 8
   ? never
   : T extends Stop
     ? never
     : T extends object
       ? {
-          [K in keyof T & Key]-?: `${K}` | `${K}.${ConfigPath<NonNullable<T[K]>, [...Depth, unknown]>}`
+          [K in keyof T & Key]-?: `${K}` | (`${K}` extends `${string}.${string}` ? never : `${K}.${ConfigPath<NonNullable<T[K]>, [...Depth, unknown]>}`)
         }[keyof T & Key]
       : never
 
-/** The value at dot path `P` of `T`; `| undefined` when a key on the path is optional. */
+/** A key read through an index signature (`Record<string, X>`) may be missing. */
+type Missing<T> = string extends keyof T ? undefined : number extends keyof T ? undefined : never
+
+/** The value at dot path `P` of `T`; `| undefined` when a key on the path is optional or an index signature. */
 export type ConfigValue<P extends string, T = AppConfigs> = T extends null | undefined
   ? undefined
   : P extends keyof T
-    ? T[P]
+    ? T[P] | Missing<T>
     : P extends `${infer N extends number}`
-      ? N extends keyof T ? T[N] : undefined
+      ? N extends keyof T ? T[N] | Missing<T> : undefined
       : P extends `${infer Head}.${infer Rest}`
         ? ConfigValue<Rest, ConfigValue<Head, T>>
         : undefined
@@ -53,8 +59,16 @@ export const setConfigs = (configs: Readonly<Record<string, unknown>>): void => 
   store.__laratype_configs = configs
 }
 
-const own = (target: unknown, key: string): target is Record<string, unknown> =>
-  (typeof target === 'object' || typeof target === 'function') && target !== null && Object.hasOwn(target, key)
+/**
+ * Own keys of a plain object; on a class instance (a `URL`, a client), its members too, as `ConfigPath` types them.
+ * Never `Object.prototype` members (`constructor`, `__proto__`, `toString`).
+ */
+const has = (target: unknown, key: string): target is Record<string, unknown> => {
+  if (typeof target !== 'object' || target === null) return false
+  if (Object.hasOwn(target, key)) return true
+  const proto = Object.getPrototypeOf(target)
+  return proto !== null && proto !== Object.prototype && !Object.hasOwn(Object.prototype, key) && key in target
+}
 
 /**
  * Reads a config value by dot path, typed from the registered configs: `config('database.default')`.
@@ -69,11 +83,11 @@ export function config(path: string): unknown {
   let rest = path
   // Same lookup as ConfigValue: the whole rest as a key first, then the segment before the first dot
   for (;;) {
-    if (own(target, rest)) return target[rest]
+    if (has(target, rest)) return target[rest]
     const dot = rest.indexOf('.')
     if (dot === -1) return undefined
     const head = rest.slice(0, dot)
-    if (!own(target, head)) return undefined
+    if (!has(target, head)) return undefined
     target = target[head]
     rest = rest.slice(dot + 1)
   }

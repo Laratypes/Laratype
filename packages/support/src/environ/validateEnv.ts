@@ -22,17 +22,29 @@ export class EnvValidationError extends Error {
 
 const REDACTED = "***";
 
-/** Schema messages may quote the input (valibot: `received "..."`), so the value is cut out of them. */
-const redact = (message: string, value: unknown): string => {
-  if (typeof value !== "string" || value === "") return message;
-  let out = message;
-  for (const form of new Set([value, JSON.stringify(value).slice(1, -1)])) out = out.split(form).join(REDACTED);
-  return out;
+/** Values this long are cut out of every message, wherever they appear: a secret quoted under another name. */
+const ANYWHERE = 8;
+/** Shorter values of a failing variable are cut out only where they stand alone, so `0` leaves `>=1024` readable. */
+const SUBSTRING = 4;
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The value as it may appear in a message: raw, and JSON-escaped (valibot quotes it: `received "..."`). */
+const forms = (value: string) => [...new Set([value, JSON.stringify(value).slice(1, -1)])].map(escape);
+
+/** One pattern for the values to cut out of a message, longest first so a value never leaves part of a longer one. */
+const redaction = (values: ReadonlyArray<string>): RegExp | undefined => {
+  const patterns = [...new Set(values)]
+    .filter((value) => value !== "")
+    .sort((a, b) => b.length - a.length)
+    .flatMap((value) => forms(value).map((form) => (value.length < SUBSTRING ? `(?<![\\w])${form}(?![\\w])` : form)));
+  return patterns.length ? new RegExp(patterns.join("|"), "g") : undefined;
 };
 
 /**
  * Validates `source` (`process.env` at boot) with the env file's definition, and throws one `EnvValidationError`
- * that lists every failing variable. The vendor issues are not kept: some carry the input.
+ * that lists every failing variable. The vendor issues are not kept: some carry the input. Each message has the
+ * failing variable's value cut out, and every env value of 8+ characters (a secret a refinement quotes).
  */
 export const validateEnv = async (definition: EnvDefinition, source: Readonly<Record<string, string | undefined>>): Promise<void> => {
   if (typeof definition?.schema?.["~standard"]?.validate !== "function") {
@@ -42,10 +54,15 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
   const env = { ...source };
   const result = await validate(definition.schema, env);
   if (result.ok) return;
-  const issues = Object.entries(result.errors).flatMap(([path, messages]) => {
-    const name = path.split(".")[0];
-    const value = Object.hasOwn(env, path) ? env[path] : Object.hasOwn(env, name) ? env[name] : undefined;
-    return messages.map((message) => ({ name: path === "" ? "(environment)" : path, message: redact(message, value) }));
+  const failing = Object.entries(result.errors).map(([path, messages]) => ({ path, name: path.split(".")[0], messages }));
+  const longValues = Object.values(env).filter((value): value is string => typeof value === "string" && value.length >= ANYWHERE);
+  const issues = failing.flatMap(({ path, name, messages }) => {
+    const own = Object.hasOwn(env, name) ? env[name] : undefined;
+    const pattern = redaction(typeof own === "string" ? [own, ...longValues] : longValues);
+    return messages.map((message) => ({
+      name: path === "" ? "(environment)" : path,
+      message: pattern ? message.replace(pattern, REDACTED) : message,
+    }));
   });
   throw new EnvValidationError(issues);
 };

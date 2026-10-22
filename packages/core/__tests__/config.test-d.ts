@@ -16,12 +16,15 @@ const database = defineConfig({
 interface Mail {
   readonly mailer: 'smtp' | 'log'
   readonly smtp?: { readonly host: string }
+  readonly 'reply.to': { readonly address: string }
+  readonly url: URL
   readonly hosts: string[]
   readonly from: Record<string, string>
   readonly transport: () => void
 }
 
-// The app's registration: what `declare module` in app code looks like (Q16)
+// The app's registration: what `declare module` in app code looks like (Q16). It applies to the whole `types`
+// program, so this is the only type test that registers configs.
 declare module '@laratype/core' {
   interface Register {
     config: { database: typeof database; mail: Mail }
@@ -34,7 +37,17 @@ describe('config() (K1 #152)', () => {
     expectTypeOf(config('database.connections.mysql.port')).toEqualTypeOf<3306>()
     expectTypeOf(config('database.connections')).toEqualTypeOf<{ readonly mysql: { readonly host: 'localhost'; readonly port: 3306 } }>()
     expectTypeOf(config('mail.mailer')).toEqualTypeOf<'smtp' | 'log'>()
-    expectTypeOf(config('mail.from.sender')).toEqualTypeOf<string>()
+    expectTypeOf(config('mail.url.host')).toEqualTypeOf<string>()
+  })
+
+  test('a key read through an index signature may be missing', () => {
+    expectTypeOf(config('mail.from.sender')).toEqualTypeOf<string | undefined>()
+  })
+
+  test('a key that contains a dot ends the path', () => {
+    expectTypeOf(config('mail.reply.to')).toEqualTypeOf<{ readonly address: string }>()
+    // @ts-expect-error no path through a key that contains a dot
+    config('mail.reply.to.address')
   })
 
   test('an optional key on the path adds undefined', () => {

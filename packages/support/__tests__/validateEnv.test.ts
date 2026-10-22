@@ -70,6 +70,28 @@ describe('validateEnv', () => {
     expect(error.issues).toEqual([{ name: 'PASS', message: 'bad "***"' }])
   })
 
+  it('redacts a long value that a message quotes under another name, or with no path', async () => {
+    const definition = defineEnv(z.object({ DB_URL: z.string(), DB_HOST: z.string() }).superRefine((env, ctx) => {
+      ctx.addIssue({ code: 'custom', message: `DB_URL ${env.DB_URL} must use ${env.DB_HOST}`, path: ['DB_HOST'] })
+      ctx.addIssue({ code: 'custom', message: `bad ${env.DB_URL}` })
+    }))
+    const DB_URL = `postgres://app:${SECRET}@db.local/app`
+    const error = await validateEnv(definition, { DB_URL, DB_HOST: 'db.local' }).catch((e: unknown) => e) as EnvValidationError
+    expect(error.issues).toEqual([
+      { name: 'DB_HOST', message: 'DB_URL *** must use ***' },
+      { name: '(environment)', message: 'bad ***' },
+    ])
+  })
+
+  it('cuts a short value only where it stands alone, so the message stays readable', async () => {
+    const definition = defineEnv(v.object({ PORT: v.pipe(v.string(), v.transform(Number), v.minValue(1024)), MODE: v.picklist(['dev', 'prod']) }))
+    const error = await validateEnv(definition, { PORT: '0', MODE: 'e' }).catch((e: unknown) => e) as EnvValidationError
+    expect(error.issues).toEqual([
+      { name: 'PORT', message: 'Invalid value: Expected >=1024 but received ***' },
+      { name: 'MODE', message: 'Invalid type: Expected ("dev" | "prod") but received "***"' },
+    ])
+  })
+
   it('awaits an async schema', async () => {
     const definition = defineEnv(z.object({ A: z.string().refine(async a => a === 'ok', 'not ok') }))
     await expect(validateEnv(definition, { A: 'ok' })).resolves.toBeUndefined()

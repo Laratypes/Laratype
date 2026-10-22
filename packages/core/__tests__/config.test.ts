@@ -34,6 +34,23 @@ describe('config() (K1 #152)', () => {
     expect(config('app.__proto__')).toBeUndefined()
   })
 
+  it('reads the members of a class instance, but not Object.prototype ones', () => {
+    class Client {
+      readonly host = 'redis.local'
+      get port() {
+        return 6379
+      }
+    }
+    setConfigs({ app: { url: new URL('https://app.test/x'), client: new Client(), plain: Object.create(null) } })
+    expect(config('app.url.host')).toBe('app.test')
+    expect(config('app.client.host')).toBe('redis.local')
+    expect(config('app.client.port')).toBe(6379)
+    expect(config('app.client.constructor')).toBeUndefined()
+    expect(config('app.client.toString')).toBeUndefined()
+    expect(config('app.client.hasOwnProperty')).toBeUndefined()
+    expect(config('app.plain.toString')).toBeUndefined()
+  })
+
   it('reads a key that contains a dot', () => {
     setConfigs({ mail: { 'smtp.host': 'mail.local', smtp: { port: 25 } } })
     expect(config('mail.smtp.host')).toBe('mail.local')

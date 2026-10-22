@@ -18,7 +18,7 @@ This file holds what every area shares: principles, the package graph, the proje
 |---|---|---|---|
 | Contract | [contract.md](./contract.md) | `@laratype/contract` | C1–C6 (#89–#94) |
 | DI | [di.md](./di.md) | `@laratype/core`, `sauf` (transform), `@laratype/support` (ServiceProvider) | D1–D8 (#96–#100, #112–#115), T1–T5 (#101–#103, #116, #158), K2 (#153) |
-| Config | [config.md](./config.md) | `@laratype/core` | K1 (#152) |
+| Config | [config.md](./config.md) | `@laratype/core`, `@laratype/support` (boot) | K1 (#152) |
 | Client | [client.md](./client.md) | `@laratype/client` | CL1–CL6 (#109, #110, #124, #140, #141, #159) |
 | Validation | [validation.md](./validation.md) | `@laratype/validation` | H3 (#106), H10 (#137) |
 | HTTP | [http.md](./http.md) | `@laratype/http` | H1–H16, X3 (#157) |

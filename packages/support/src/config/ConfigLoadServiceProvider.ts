@@ -6,7 +6,8 @@ import Config from "./Config";
 
 export default class ConfigLoadServiceProvider extends ServiceProvider {
   public async boot() {
-    // Every app/config/*.ts but providers.ts and the env file, by file name: what `config('<file>.<path>')` reads
+    // Every app/config/*.ts but providers.ts and the env file, by file name: what `config('<file>.<path>')` reads.
+    // config() is sync, so they all load here, one after the other; a config file can't call config() at load time.
     const entries = appManifest().configs.filter((entry) => entry.name !== ENV_CONFIG_NAME);
     const configs: Record<string, unknown> = Object.create(null);
     for (const entry of entries) {
