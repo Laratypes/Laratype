@@ -89,8 +89,8 @@ export default class Response extends AppServiceProvider {
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
 
-    // 204 and 205 never carry a body (a contract endpoint may declare either with .status(n))
-    if(isBodylessStatus(contentFullStatusCode)) {
+    // 204, 205 and 304 never carry a body
+    if(isBodylessStatus(contentFullStatusCode) || contentFullStatusCode === 304) {
       return ctx.body(null, contentFullStatusCode as 204);
     }
 

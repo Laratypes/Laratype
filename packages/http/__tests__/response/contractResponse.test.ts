@@ -130,6 +130,23 @@ describe('status from the contract', () => {
     expect(await response.json()).toEqual({ message: 'Too Many Requests' })
   })
 
+  it('a middleware\'s 0.5 Response with no content, or a 304, keeps its status', async () => {
+    let answer = new LaratypeResponse(null, 401, { 'WWW-Authenticate': 'Bearer' })
+    class Guard extends Middleware {
+      async handle() { return answer }
+    }
+    const app = new Hono()
+    Route.api(usersApi, (r) => [r.middleware(Guard).contract(users, UserController)]).mount(app)
+    const denied = await app.request('/api/users/1')
+    expect(denied.status).toBe(401)
+    expect(denied.headers.get('www-authenticate')).toBe('Bearer')
+    answer = new LaratypeResponse({}, 304, { ETag: '"v1"' })
+    const cached = await app.request('/api/users/1')
+    expect(cached.status).toBe(304)
+    expect(cached.headers.get('etag')).toBe('"v1"')
+    expect(await cached.text()).toBe('')
+  })
+
   it('a bodyless answer drops the handler\'s Content-Type', async () => {
     const jobs = defineContract()({ queue: endpoint.post('/').status(202) })
     class Jobs extends Controller { queue() { return new LaratypeResponse('queued', undefined, { 'Content-Type': 'text/html', 'X-Job': '7' }) } }
@@ -216,7 +233,6 @@ describe('dev-mode output validation', () => {
   })
 
   it('is skipped in production (__PROD__, or NODE_ENV=production without it)', async () => {
-    result = { id: '1' }
     vi.stubGlobal('__PROD__', true)
     result = { id: '1', passwordHash: 'h' }
     const prod = await bootApp().request('/api/users/1')
