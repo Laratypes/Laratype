@@ -312,7 +312,8 @@ describe('error response headers', () => {
     expect(response.headers.get('Content-Language')).toBe('fr')
   })
 
-  // Security review of #281: before Hono 4.8 a second header store put these back. Pins the behavior on the peer floor
+  // Security review of #281: before Hono 4.8 a second header store put these back. CI runs the lockfile's hono; this
+  // case also passes on 4.8.0, the peer floor, and fails on 4.7
   for (const [label, thrown, status] of [
     ['an unknown error', () => new Error('secret detail'), 500],
     ['a 4xx HTTPException', () => new HTTPException(401, { message: 'Unauthorized' }), 401],
@@ -325,7 +326,11 @@ describe('error response headers', () => {
             'Set-Cookie': 'sid=secret; HttpOnly',
             'ETag': '"v1"',
             'Last-Modified': 'Wed, 21 Oct 2026 07:28:00 GMT',
+            'Expires': 'Wed, 21 Oct 2026 08:28:00 GMT',
             'Cache-Control': 'public, max-age=60',
+            'CDN-Cache-Control': 'max-age=600',
+            'Surrogate-Control': 'max-age=600',
+            'Access-Control-Allow-Origin': 'https://app.example.test',
             'Location': '/next',
           })
         }
@@ -338,11 +343,11 @@ describe('error response headers', () => {
       route(app, '/session', Session)
       const response = await app.request('/session')
       expect(response.status).toBe(status)
-      expect(response.headers.getSetCookie()).toEqual([])
-      expect(response.headers.get('ETag')).toBeNull()
-      expect(response.headers.get('Last-Modified')).toBeNull()
+      const text = await response.text()
+      if (status >= 500) expect(JSON.parse(text)).toEqual(GENERIC)
+      expect(text).not.toContain('"ok"')
+      expectScrubbed(response)
       expect(response.headers.get('Location')).toBeNull()
-      expect(response.headers.get('Cache-Control')).toBe('no-store')
     })
   }
 
