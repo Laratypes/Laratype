@@ -2,7 +2,7 @@
 import { expectTypeOf } from 'vitest'
 import { z } from 'zod'
 import { defineError, endpoint } from '@laratype/contract'
-import type { AnyEndpoint, DefaultCaps, Endpoint, InferIn, InferOut, PathParams, StandardSchemaV1 } from '@laratype/contract'
+import type { AnyEndpoint, DefaultCaps, Endpoint, InferIn, InferOut, Method, PathParams, StandardSchemaV1 } from '@laratype/contract'
 
 const notFound = defineError(404, 'POST_NOT_FOUND')
 const forbidden = defineError(403, 'NOT_OWNER')
@@ -65,7 +65,7 @@ expectTypeOf(full).toMatchTypeOf<AnyEndpoint>()
 const reordered = endpoint.post('/teams/:team/users').throws(notFound).response(response, 201).body(body)
 expectTypeOf(reordered.__types.response).toEqualTypeOf<typeof response>()
 expectTypeOf(reordered.__types.throws).toEqualTypeOf<typeof notFound>()
-expectTypeOf(endpoint.get('/').body(body).body(response).__types.body).toEqualTypeOf<typeof response>()
+expectTypeOf(endpoint.post('/').body(body).body(response).__types.body).toEqualTypeOf<typeof response>()
 
 // --- response status: default 200, literal otherwise
 expectTypeOf(endpoint.get('/').response(response).__types.status).toEqualTypeOf<200>()
@@ -85,6 +85,16 @@ expectTypeOf(endpoint.get('/').throttle(false).__types.caps.throttle).toEqualTyp
 expectTypeOf(endpoint.get('/').public().auth().throttle(false).authorize().__types.caps).toEqualTypeOf<{ auth: true; authorize: true; throttle: false }>()
 expectTypeOf(endpoint.get('/').throttle({ limit: 5, per: 30 }).public().__types.caps.throttle).toEqualTypeOf<true>()
 
+// --- body: every method but GET; a wide method can't say, so it is left to the runtime check
+expectTypeOf(endpoint.post('/').body(body).__types.body).toEqualTypeOf<typeof body>()
+expectTypeOf(endpoint.put('/').body(body).__types.body).toEqualTypeOf<typeof body>()
+expectTypeOf(endpoint.patch('/').body(body).__types.body).toEqualTypeOf<typeof body>()
+expectTypeOf(endpoint.delete('/').body(body).__types.body).toEqualTypeOf<typeof body>()
+declare const wideMethod: Endpoint<Method, '/'>
+expectTypeOf(wideMethod.body(body).__types.body).toEqualTypeOf<typeof body>()
+declare const anyEndpoint: AnyEndpoint
+expectTypeOf(anyEndpoint.body(body)).toMatchTypeOf<AnyEndpoint>()
+
 // --- runtime def is untyped (consumers read generics from __types)
 expectTypeOf(full.def.query).toEqualTypeOf<StandardSchemaV1 | undefined>()
 
@@ -96,7 +106,7 @@ endpoint.get(1)
 // @ts-expect-error schemas must implement Standard Schema
 endpoint.get('/').query({ page: 1 })
 // @ts-expect-error schemas must implement Standard Schema
-endpoint.get('/').body('nope')
+endpoint.post('/').body('nope')
 // @ts-expect-error schemas must implement Standard Schema
 endpoint.get('/').headers(null)
 // @ts-expect-error status must be a number
@@ -119,6 +129,16 @@ bare.def = full.def
 bare.def.path = '/x'
 // @ts-expect-error unknown path param
 bare.__types.params.post
+// @ts-expect-error body(): a GET endpoint cannot have a body (fetch refuses one)
+endpoint.get('/x').body(body)
+// @ts-expect-error body(): a GET endpoint cannot have a body, in any position of the chain
+endpoint.get('/x').query(query).auth().body(body)
+// @ts-expect-error the path must start with "/"
+endpoint.get('x')
+// @ts-expect-error the path must start with "/": a param first could extend the client's host
+endpoint.post(':tenant/x')
+// @ts-expect-error the path must start with "/", "" included
+endpoint.delete('')
 expectTypeOf(bare.__types.params).not.toEqualTypeOf<{ user: string; extra: string }>()
 
 // --- regression: in a contextually typed position (e.g. defineContract), the AnyEndpoint

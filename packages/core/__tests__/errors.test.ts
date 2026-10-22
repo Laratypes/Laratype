@@ -52,6 +52,27 @@ describe('missing binding', () => {
   })
 })
 
+describe('no dependency metadata', () => {
+  it('for a named class', () => {
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+  })
+
+  it('for an anonymous class', () => {
+    const Anonymous = (() => class {
+      constructor(readonly mailer: unknown) {}
+    })()
+    expect(messageOf(() => new Container().make(Anonymous))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+  })
+
+  it('for a class a constructor param needs', () => {
+    class App {
+      constructor(readonly notifier: Notifier) {}
+    }
+    const deps = depsOf([[App, { slots: [() => Notifier], meta: { params: ['notifier'] } }]])
+    expect(messageOf(() => new Container({ deps }).make(App))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+  })
+})
+
 describe('unresolved param', () => {
   it('with a param name', () => {
     class Greeter {

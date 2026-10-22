@@ -151,7 +151,7 @@ describe('controller resolution', () => {
     expect(errors[0]).toMatchObject({
       name: 'DiError',
       message: 'Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. ' +
-        'Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider `register()` (an app binding, so it needs RequestKernel).',
+        'Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.',
     })
   })
 })
@@ -203,6 +203,21 @@ describe('ctx.endpoint', () => {
     const app = new Hono()
     Route.api(greetingsApi, (r) => [r.contract(greetings, Spread)]).mount(app)
     expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
+  })
+
+  it('middleware reads the endpoint on the request, read-only and non-enumerable', async () => {
+    const seen: unknown[] = []
+    class Reads extends Middleware {
+      async handle(request: any, res: Response, next: (request: any) => unknown) {
+        seen.push(request.endpoint, Reflect.set(request, 'endpoint', 'x'), Object.keys(request).includes('endpoint'))
+        return next(request)
+      }
+    }
+    class Plain extends Controller { index() { return {} } show() { return {} } }
+    const app = new Hono()
+    Route.api(greetingsApi, (r) => [r.middleware(Reads).contract(greetings, Plain)]).mount(app)
+    await app.request('/api/greetings')
+    expect(seen).toEqual([greetings.index, false, false])
   })
 
   it('a contract route takes no request class: its rules() would be skipped, so registering it throws', () => {

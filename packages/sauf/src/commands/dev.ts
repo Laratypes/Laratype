@@ -5,6 +5,7 @@ import { green, blue } from "kolorist";
 import path from "path";
 import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
+import { guardStreamErrors } from "../adapters/node/streamErrors";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
 import { contractTreePlugin } from "../typegen/plugin";
@@ -127,7 +128,7 @@ export default class LaratypeDevCommand extends Command {
     //   next(context);
     // });
 
-    const requestListener = getRequestListener(app.fetch);
+    const requestListener = getRequestListener(guardStreamErrors(app.fetch));
 
     requestListener(req, res);
 

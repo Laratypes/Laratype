@@ -6,7 +6,7 @@ import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
-import { Container, DiError, depsRegistry } from "@laratype/core";
+import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { DEFAULT_RULES } from "../supports/Request";
@@ -18,6 +18,20 @@ const CONTAINER = "laratype.container";
 
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
+
+/** Set once the fallback warning printed: per process, as dev restarts and a second copy of the module create another. */
+const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
+
+/** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
+const createFallbackContainer = () => {
+  const store = globalThis as { [FALLBACK_WARNED]?: true };
+  const prod = globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
+  if (!prod && !store[FALLBACK_WARNED]) {
+    store[FALLBACK_WARNED] = true;
+    console.warn("[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.");
+  }
+  return new Container({ deps: depsRegistry });
+};
 
 type PipeLineType = {
   type: 'middleware',
@@ -56,22 +70,7 @@ export default class Request extends AppServiceProvider {
    * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
    */
   public static container(): Container {
-    return ContextApi.getContainer() ?? (fallbackContainer ??= new Container({ deps: depsRegistry }));
-  }
-
-  /** `app.make(Controller)`, with a fix hint when the controller itself has constructor params but no DI metadata. */
-  private static makeController(controller: Function) {
-    try {
-      return Request.container().make(controller as new (...args: any[]) => unknown);
-    } catch (error) {
-      if (error instanceof DiError && error.message.startsWith(`Cannot autowire ${controller.name}:`)) {
-        throw new DiError(
-          `${error.message} Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider \`register()\` (an app binding, so it needs RequestKernel).`,
-          { cause: error },
-        );
-      }
-      throw error;
-    }
+    return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
   }
 
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
@@ -79,7 +78,7 @@ export default class Request extends AppServiceProvider {
     return (arg: unknown) => {
 
       // Constructor DI (H2 #105): an unbound controller is autowired, a new instance per request as with `new`
-      const controller = Request.makeController(c[0]) as any;
+      const controller = Request.container().make(c[0]) as any;
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
@@ -290,6 +289,11 @@ export default class Request extends AppServiceProvider {
       // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
       const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      // The endpoint (#105) is also a read-only, non-enumerable field of the request, for middleware. A contract route
+      // takes no request class, so the request has no own `endpoint` to clash with
+      if(endpoint) {
+        Object.defineProperty(transformedRequest, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
+      }
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
       const res = routeOption.modelBinding === false

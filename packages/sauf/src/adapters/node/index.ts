@@ -3,6 +3,7 @@ import { Config, getLaratypeVersion, getRootPackageInfo, importModule, resolveSy
 import { useAppManifest } from "../../manifest/load";
 import { blue, green } from "kolorist";
 import { serve } from "@hono/node-server";
+import { guardStreamErrors } from "./streamErrors";
 import path from "path";
 
 globalThis.__PROD__ = true;
@@ -23,7 +24,7 @@ export const start = async () => {
   const version = await getLaratypeVersion();
   const rootInfo = await getRootPackageInfo();
   let envFileName = '';
-  serve(app, (info) => {
+  serve({ fetch: guardStreamErrors(app.fetch) }, (info) => {
     const endTime = performance.now();
     if (globalThis.__laratype_env_file) {
       envFileName = path.basename(globalThis.__laratype_env_file);
