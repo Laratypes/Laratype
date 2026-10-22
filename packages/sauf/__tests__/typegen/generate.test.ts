@@ -252,6 +252,8 @@ describe('sauf types:generate', () => {
     try {
       expect(() => generateApiFile(ts, options)).toThrow(ApiGenerationError);
       expect(() => generateApiFile(ts, options)).toThrow(`AppApi in ${indexFile} must be the type of the appApi from defineApi`);
+      writeFileSync(indexFile, 'export type AppApi = any\n');
+      expect(() => generateApiFile(ts, options)).toThrow(`AppApi in ${indexFile} must be the type of the appApi from defineApi`);
     } finally {
       rmSync(indexFile);
     }

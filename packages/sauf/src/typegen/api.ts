@@ -131,13 +131,13 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   const entryFile = resolve(dirname(options.indexFile), ENTRY_NAME);
   const indexSpecifier = `./${options.indexFile.slice(dirname(options.indexFile).length + 1).replace(/\.ts$/, "")}`;
   // `Kind` marks each member as `ApiTypes` reads it: `true` for an endpoint, else a node's members. It is `never` when
-  // `AppApi` is not a `defineApi` root, told by its brand as `isApiRoot` does at runtime.
+  // `AppApi` is not a `defineApi` root, told by its brand as `isApiRoot` does at runtime (`any` included).
   const entrySource = lines([
     "import type { API_ROOT, AnyEndpoint, ApiTypes } from '@laratype/contract'",
     `import type { AppApi } from '${indexSpecifier}'`,
     "export type Flat = ApiTypes<AppApi>",
     "type Kinds<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? true : Kinds<A[K]> }",
-    "export type Kind = AppApi extends { readonly [API_ROOT]: true } ? Kinds<AppApi> : never",
+    "export type Kind = 0 extends 1 & AppApi ? never : AppApi extends { readonly [API_ROOT]: true } ? Kinds<AppApi> : never",
   ]);
 
   const compilerOpts = compilerOptions(ts, options);

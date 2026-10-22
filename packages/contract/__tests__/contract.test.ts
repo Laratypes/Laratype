@@ -204,6 +204,8 @@ describe('defineApi', () => {
   })
 
   it('apiPaths and apiRoutes take the root, a node or a contract only (C10 #258)', () => {
+    const forged = { [API_NODE]: { name: 'x' }, show: users.show }
+    expect(() => apiPaths(forged as never)).toThrow(new TypeError('[@laratype/contract] apiPaths: expected the appApi from defineApi, an API node or a contract'))
     // a node's routes share one frozen scope list, taken from its { scope, dir } chain
     const [index, store] = apiRoutes(appApi.users.posts)
     expect(index!.scopes).toEqual([usersUser])

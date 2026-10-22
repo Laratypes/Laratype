@@ -348,7 +348,9 @@ function walkRoutes(api: unknown, label: string, visit: (name: string, endpoint:
         walk(value as TreeNode);
         continue;
       }
-      visit(`${info!.name}.${key}`, value, info!.entry!.contract, ctx!);
+      // a forged node: an endpoint under a node with no entry
+      if (!ctx) return fail(`${label}: expected the appApi from defineApi, an API node or a contract`);
+      visit(`${info!.name}.${key}`, value, info!.entry!.contract, ctx);
     }
   };
   walk(api as TreeNode);
