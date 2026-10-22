@@ -78,7 +78,7 @@ export interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends str
 export type ApiRouteItem = MountedContract<object> | MountedScope | MountedRoute;
 
 /** `r.get(path, handler)`, and the other methods: the path starts with `/` and is served as written. */
-type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
+export type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
   path: P,
   handler: (req: Request, params: PathParams<P>) => R | Promise<R>,
 ) => MountedRoute<M, P, R>;

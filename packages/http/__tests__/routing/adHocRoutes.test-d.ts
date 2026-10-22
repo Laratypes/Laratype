@@ -4,8 +4,8 @@
 /// <reference path="../../src/overload.d.ts" />
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
-import { Controller, Middleware, Request, Route } from '../../src/index'
-import type { AdHocRouteEntry, MountedRoute, RouteEntry } from '../../src/index'
+import { Controller, Middleware, Route } from '../../src/index'
+import type { AdHocRouteEntry, MountedRoute, Request, RouteEntry } from '../../src/index'
 import type { Hono } from 'hono'
 
 const users = defineContract()({ index: endpoint.get('/') })

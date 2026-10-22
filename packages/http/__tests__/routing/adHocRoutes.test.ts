@@ -124,9 +124,20 @@ describe('ad-hoc routes', () => {
     )
   })
 
+  it('rejects an ad-hoc route that repeats a contract route or another ad-hoc route', () => {
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:id', () => 'shadowed')])).toThrow(
+      "[@laratype/http] Route.api: r.get('/api/users/:id') is the same route as users.show",
+    )
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/health', () => 'a'), r.get('/health', () => 'b')])).toThrow(
+      "[@laratype/http] Route.api: r.get('/health') is the same route as another r.get('/health')",
+    )
+    // Another method on the same path is another route
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/health', () => 'a'), r.post('/health', () => 'b')])).not.toThrow()
+  })
+
   it('rejects a path without a leading "/" and a missing handler', () => {
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('health' as '/health', () => 'ok')])).toThrow(
-      '[@laratype/http] Route.api: r.get("health"): the path must start with "/"',
+      "[@laratype/http] Route.api: r.get('health'): the path must start with \"/\"",
     )
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.post('/echo', undefined as never)])).toThrow(
       "[@laratype/http] Route.api: r.post('/echo') needs a handler function",

@@ -4,7 +4,7 @@ import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratyp
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
-import type { RouteParams } from "../../contracts/Route";
+import type { KernelRouteParams, RouteParams } from "../../contracts/Route";
 import type {
   AdHocMethod,
   AdHocRouteEntry,
@@ -52,7 +52,7 @@ class RouteBuilder {
 
   /** An ad-hoc route (H12 #139): served at `path` as written, with no contract. */
   private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"]): MountedRoute {
-    if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}(${JSON.stringify(path)}): the path must start with "/"`);
+    if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}('${String(path)}'): the path must start with "/"`);
     if (typeof handler !== "function") fail(`r.${method}('${path}') needs a handler function`);
     return Object.freeze({ kind: "route", method, path, handler, middleware: this.stack });
   }
@@ -186,7 +186,22 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): { routes: RouteEntr
       domain: undefined,
     });
   });
+  checkAdHocPaths(routes, adHoc);
   return { routes, adHoc };
+};
+
+/**
+ * Hono answers with the first of two routes with the same method and path, so a second one would never run: an
+ * ad-hoc route may not repeat a contract route or another ad-hoc route of the group (paths compared as written).
+ */
+const checkAdHocPaths = (routes: readonly RouteEntry[], adHoc: readonly AdHocRouteEntry[]) => {
+  const served = new Map(routes.map((route) => [`${route.method} ${route.path}`, route.name]));
+  for (const route of adHoc) {
+    const key = `${route.method} ${route.path}`;
+    const other = served.get(key);
+    if (other !== undefined) fail(`r.${route.method}('${route.path}') is the same route as ${other}`);
+    served.set(key, `another r.${route.method}('${route.path}')`);
+  }
 };
 
 /** The registry entry of `r.get(path, handler)`: no name, contract or controller, and no capabilities to enforce. */
@@ -344,7 +359,7 @@ const registrationOrder = <T extends { readonly path: string }>(routes: readonly
 };
 
 /** What `RequestKernel` runs for a route: its controller method, or the handler of an ad-hoc route. */
-const routeParams = (route: RouteEntry | AdHocRouteEntry): RouteParams => {
+const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => {
   if (route.controller === undefined) {
     return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...route.middleware] };
   }
@@ -368,7 +383,7 @@ export class ApiRoutes {
   public readonly adHoc: readonly AdHocRouteEntry[];
 
   /** Built by `Route.api()` only: `@laratype/http` exports the type, not the constructor. */
-  constructor(routes: readonly RouteEntry[], adHoc: readonly AdHocRouteEntry[] = []) {
+  constructor(routes: readonly RouteEntry[], adHoc: readonly AdHocRouteEntry[]) {
     this.routes = Object.freeze([...routes]);
     this.adHoc = Object.freeze([...adHoc]);
   }
