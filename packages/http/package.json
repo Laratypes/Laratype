@@ -28,6 +28,7 @@
     "./*": "./*"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.6",
     "@laratype/contract": "workspace:*",
     "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",

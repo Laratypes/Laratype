@@ -111,11 +111,11 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static transformRequest(request: HonoRequest, routeOption: RouteParams) {
+  public static transformRequest(request: HonoRequest, routeOption: RouteParams, ctx?: Context) {
     if(routeOption.request) {
-      return new routeOption.request(request);
+      return new routeOption.request(request, ctx);
     }
-    return new RequestSupport(request)
+    return new RequestSupport(request, ctx)
   }
 
   public static explicitModelBinding(request: RequestSupport) {
@@ -289,7 +289,7 @@ export default class Request extends AppServiceProvider {
   public static handle (routeOption: RouteParams) {
     return async (ctx: Context) => {
       const requestInstance = await this.processData(ctx.req);
-      const transformedRequest = this.transformRequest(requestInstance, routeOption);
+      const transformedRequest = this.transformRequest(requestInstance, routeOption, ctx);
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
       const res = routeOption.modelBinding === false
