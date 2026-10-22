@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
+import type { Client, ClientOf, ClientOptions, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -387,7 +387,7 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
  */
 export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
   manifest: Manifest,
-  options: ClientOptions<Hd> & { headers: Hd },
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): Client<T, ProvidedHeaders<Hd>>;
 /**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths

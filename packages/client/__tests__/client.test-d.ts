@@ -266,6 +266,8 @@ describe('headers that options.headers provides (#255)', () => {
     expectTypeOf<ProvidedHeaders<{ 'x-tenant'?: string; authorization: string }>>().toEqualTypeOf<{ authorization: string }>()
     expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { authorization: string }>>().toEqualTypeOf<{}>()
     expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { 'x-tenant': string; authorization: string }>>().toEqualTypeOf<{ 'x-tenant': string }>()
+    // an index signature next to literal keys keeps them
+    expectTypeOf<ProvidedHeaders<{ [k: string]: string; 'x-tenant': string }>>().toEqualTypeOf<{ 'x-tenant': string }>()
     const either = (headers: { 'x-tenant': string } | { authorization: string }) => createClient(appApi, { headers })
     expectTypeOf(either).returns.toEqualTypeOf(api)
     expectTypeOf(createClient(appApi, { headers: new Headers({ 'x-tenant': 't1' }) })).toEqualTypeOf(api)
@@ -283,6 +285,8 @@ describe('headers that options.headers provides (#255)', () => {
     void keyed.keys.store()
     // @ts-expect-error the headers must send what the type argument names
     void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { authorization: 'a' } })
+    // other headers may be sent too
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k', 'accept-language': 'en' } }).keys.store()
     // @ts-expect-error and they are required
     void createClient<Generated, { 'x-api-key': string }>(manifest)
     // @ts-expect-error even with other options

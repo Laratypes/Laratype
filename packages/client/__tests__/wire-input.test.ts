@@ -16,9 +16,10 @@ const events = defineContract()({
 })
 
 /**
- * The server side of the request pipeline as validation.md specifies it (#106): the body is the parsed JSON and the
- * query the URL's values, each validated with the contract's `validate()`; a failure is the 422 `errors.validation`
- * body, sent as `{ code, ...body }`. The handler gets the validated output.
+ * The server side of the request pipeline as validation.md specifies it (#106) and H3 (PR #301) implements it: the
+ * body is the parsed JSON and the query the URL's string values, each validated with the contract's `validate()`
+ * (converting a value is the schema's job); a failure is the 422 `errors.validation` body, sent as
+ * `{ code, ...body }`. The handler gets the validated output. Swap in the H3 pipeline once it is merged.
  */
 const server = () => {
   const app = new Hono()

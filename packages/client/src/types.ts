@@ -93,11 +93,11 @@ type WithProvided<H, P> = [keyof P] extends [never]
       }
     >;
 
-type HeadersPart<H, P> = [H] extends [undefined]
+type HeadersPart<H, P, W = WithProvided<H, P>> = [H] extends [undefined]
   ? { headers?: HeaderValues }
-  : {} extends WithProvided<H, P>
-    ? { headers?: WithProvided<H, P> & HeaderValues }
-    : { headers: WithProvided<H, P> & HeaderValues };
+  : {} extends W
+    ? { headers?: W & HeaderValues }
+    : { headers: W & HeaderValues };
 
 /**
  * The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. `P` holds the
@@ -184,9 +184,12 @@ export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
 /** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
 type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;
 
+/** The literal keys of every member of `Hd`: an index signature next to them is left out, not the keys. */
+type LiteralKeys<Hd> = keyof { [K in keyof Hd as LiteralKey<K>]: 0 };
+
 /** The literal keys an `options.headers` object always sends: required in every member of a union. */
 type ProvidedKeys<Hd> = [Hd] extends [Record<string, string>]
-  ? { [K in keyof Hd & string]: undefined extends Hd[K] ? never : LiteralKey<K> }[keyof Hd & string]
+  ? { [K in LiteralKeys<Hd>]: undefined extends Hd[K & keyof Hd] ? never : K }[LiteralKeys<Hd>]
   : never;
 
 /**
