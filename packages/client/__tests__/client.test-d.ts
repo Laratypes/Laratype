@@ -208,8 +208,9 @@ describe('JSON-safe request input (#255)', () => {
   })
 
   test('body: a value JSON cannot carry is never, so the call is a type error', () => {
-    type Body = CallInput<Shape<{ big: bigint; map: Map<string, string>; set: Set<string>; fn: () => void; maybe?: bigint }>>['body']
-    expectTypeOf<Body>().toEqualTypeOf<{ big: never; map: never; set: never; fn: never; maybe?: undefined }>()
+    type Body = CallInput<Shape<{ big: bigint; map: Map<string, string>; set: Set<string>; fn: () => void; maybe?: bigint; items: (string | undefined)[] }>>['body']
+    // an undefined array item is sent as null
+    expectTypeOf<Body>().toEqualTypeOf<{ big: never; map: never; set: never; fn: never; maybe?: undefined; items: string[] }>()
   })
 
   test('query: a Date is passed as itself or its ISO string, as buildUrl sends it; the rest is the schema input', () => {
@@ -262,9 +263,9 @@ describe('headers that options.headers provides (#255)', () => {
     const pattern: Record<`x-${string}`, string> = {}
     expectTypeOf(createClient(appApi, { headers: pattern })).toEqualTypeOf(api)
     // a key that may be missing: optional, or in only one member of a union
-    expectTypeOf<ProvidedHeaders<{ 'x-tenant'?: string; authorization: string }>>().toEqualTypeOf<'authorization'>()
-    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { authorization: string }>>().toEqualTypeOf<never>()
-    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { 'x-tenant': string; authorization: string }>>().toEqualTypeOf<'x-tenant'>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant'?: string; authorization: string }>>().toEqualTypeOf<{ authorization: string }>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { authorization: string }>>().toEqualTypeOf<{}>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { 'x-tenant': string; authorization: string }>>().toEqualTypeOf<{ 'x-tenant': string }>()
     const either = (headers: { 'x-tenant': string } | { authorization: string }) => createClient(appApi, { headers })
     expectTypeOf(either).returns.toEqualTypeOf(api)
     expectTypeOf(createClient(appApi, { headers: new Headers({ 'x-tenant': 't1' }) })).toEqualTypeOf(api)
@@ -282,8 +283,21 @@ describe('headers that options.headers provides (#255)', () => {
     void keyed.keys.store()
     // @ts-expect-error the headers must send what the type argument names
     void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { authorization: 'a' } })
+    // @ts-expect-error and they are required
+    void createClient<Generated, { 'x-api-key': string }>(manifest)
+    // @ts-expect-error even with other options
+    void createClient<Generated, { 'x-api-key': string }>(manifest, {})
     // @ts-expect-error without it the header stays required
     void createClient<Generated>(manifest, { headers: { 'x-api-key': 'k' } }).keys.store()
+  })
+
+  test('a provided value the schema rejects leaves the header required', () => {
+    const versioned = defineContract()({ v: endpoint.get('/api/v').headers(z.object({ 'x-version': z.literal('2') })) })
+    void createClient(versioned, { headers: { 'x-version': '2' as const } }).v()
+    // @ts-expect-error '1' is not the '2' the schema accepts
+    void createClient(versioned, { headers: { 'x-version': '1' as const } }).v()
+    // @ts-expect-error nor is any string
+    void createClient(versioned, { headers: { 'x-version': String(2) } }).v()
   })
 
   test('options are still checked', () => {

@@ -378,12 +378,16 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
  * `createClient<AppApi>(manifest)`. The `AppApi` type argument types the calls (without it the client is `never`).
  * The manifest holds each route's method and full path, so the FE loads no contract file of the app and no schema library.
- * With an explicit `AppApi`, the type of `options.headers` is not inferred: give it as the second type argument
- * (`createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`).
  */
-export function createClient<T extends ApiShape<T> = never, Hd extends HeadersInit = HeadersInit>(
+export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;
+/**
+ * The manifest client with the type of `options.headers` as the second type argument, since it is not inferred next
+ * to an explicit `AppApi`: `createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`.
+ * `options.headers` is then required, so the headers it names are sent.
+ */
+export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
   manifest: Manifest,
-  options?: ClientOptions<Hd>,
+  options: ClientOptions<Hd> & { headers: Hd },
 ): Client<T, ProvidedHeaders<Hd>>;
 /**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths

@@ -41,8 +41,8 @@ export type Jsonify<T> = unknown extends T
  * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
  * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string.
  * `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols become `never`, so a
- * schema input JSON can't carry is a type error at the call. The server validates the parsed JSON, so a field typed
- * `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
+ * schema input JSON can't carry is a type error at the call; so is an `undefined` array item, which is sent as `null`.
+ * The server validates the parsed JSON, so a field typed `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
  */
 type JsonInput<T> = unknown extends T
   ? T
@@ -52,7 +52,9 @@ type JsonInput<T> = unknown extends T
       ? T
       : T extends NotJson | bigint | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
         ? never
-        : { [K in keyof T]: JsonInput<T[K]> };
+        : T extends readonly unknown[]
+          ? { [K in keyof T]: Exclude<JsonInput<T[K]>, undefined> }
+          : { [K in keyof T]: JsonInput<T[K]> };
 
 /** A query value as a call passes it: `buildUrl` sends a `Date` as its ISO string, so the string is accepted too. */
 type QueryValue<T> = T extends Date ? T | string : T extends readonly unknown[] ? { [K in keyof T]: QueryValue<T[K]> } : T;
@@ -76,25 +78,32 @@ type Part<K extends string, T> = [T] extends [never]
 
 type ParamsPart<P> = [keyof P] extends [never] ? {} : Part<"params", { [K in keyof P]: string | number }>;
 
-/** Whether header `K` is one of the names `P` (header names are case-insensitive). */
-type Provides<K, P extends string> = Lowercase<K & string> extends Lowercase<P> ? true : false;
+/** The value `P` sends for header `K` (header names are case-insensitive), or `never`. */
+type ProvidedValue<P, K> = { [PK in keyof P]: Lowercase<PK & string> extends Lowercase<K & string> ? P[PK] : never }[keyof P];
+
+/** Whether `P` sends header `K` with a value the schema accepts (`V`). */
+type Provides<P, K, V> = [ProvidedValue<P, K>] extends [never] ? false : [ProvidedValue<P, K>] extends [V] ? true : false;
 
 /** The schema headers, with those `options.headers` provides (`P`) optional. */
-type WithProvided<H, P extends string> = [P] extends [never]
+type WithProvided<H, P> = [keyof P] extends [never]
   ? H
-  : Prettify<{ [K in keyof H as Provides<K, P> extends true ? never : K]: H[K] } & { [K in keyof H as Provides<K, P> extends true ? K : never]?: H[K] }>;
+  : Prettify<
+      { [K in keyof H as Provides<P, K, H[K]> extends true ? never : K]: H[K] } & {
+        [K in keyof H as Provides<P, K, H[K]> extends true ? K : never]?: H[K];
+      }
+    >;
 
-type HeadersPart<H, P extends string> = [H] extends [undefined]
+type HeadersPart<H, P> = [H] extends [undefined]
   ? { headers?: HeaderValues }
   : {} extends WithProvided<H, P>
     ? { headers?: WithProvided<H, P> & HeaderValues }
     : { headers: WithProvided<H, P> & HeaderValues };
 
 /**
- * The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. `P` names the
- * headers `options.headers` sends for the whole client, which a call may then leave out.
+ * The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. `P` holds the
+ * headers `options.headers` sends for the whole client (`ProvidedHeaders`), which a call may then leave out.
  */
-export type CallInput<E extends EndpointShape, P extends string = never> = Prettify<
+export type CallInput<E extends EndpointShape, P = {}> = Prettify<
   ParamsPart<E["params"]> &
     Part<"query", QueryInput<E["query"]>> &
     Part<"body", JsonInput<E["body"]>> &
@@ -157,31 +166,34 @@ export interface UnexpectedResult {
 export type ClientResult<E extends EndpointShape> = ClientSuccess<E> | ClientFailure<E> | UnexpectedResult;
 
 /** One endpoint call. The argument is optional when nothing in it is required. */
-export type EndpointCall<E extends EndpointShape, P extends string = never> = {} extends CallInput<E, P>
+export type EndpointCall<E extends EndpointShape, P = {}> = {} extends CallInput<E, P>
   ? (input?: CallInput<E, P>) => Promise<ClientResult<E>>
   : (input: CallInput<E, P>) => Promise<ClientResult<E>>;
 
 /**
  * The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per
- * endpoint. `P` names the headers `options.headers` provides.
+ * endpoint. `P` holds the headers `options.headers` provides.
  */
-export type Client<T, P extends string = never> = {
+export type Client<T, P = {}> = {
   readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K], P> : Client<T[K], P>;
 };
 
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
-export type ClientOf<A, P extends string = never> = Client<ApiTypes<A>, P>;
+export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
 
 /** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
 type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;
 
-/**
- * The header names an `options.headers` object always sends: its literal keys that every member of a union requires.
- * None for a `Headers`, an array of pairs or a `Record<string, string>`.
- */
-export type ProvidedHeaders<Hd> = [Hd] extends [Record<string, string>]
+/** The literal keys an `options.headers` object always sends: required in every member of a union. */
+type ProvidedKeys<Hd> = [Hd] extends [Record<string, string>]
   ? { [K in keyof Hd & string]: undefined extends Hd[K] ? never : LiteralKey<K> }[keyof Hd & string]
   : never;
+
+/**
+ * The headers an `options.headers` object always sends, with their value types: `{}` for a `Headers`, an array of
+ * pairs or a `Record<string, string>`. A schema header is optional in a call when this sends a value it accepts.
+ */
+export type ProvidedHeaders<Hd> = { [K in ProvidedKeys<Hd>]: Hd[K & keyof Hd] };
 
 /** One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, error codes. */
 export interface ManifestRoute {
