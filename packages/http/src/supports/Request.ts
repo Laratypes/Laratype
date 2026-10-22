@@ -1,8 +1,14 @@
 import { HonoRequest } from "hono/request";
-import { z, ZodType } from "zod";
+import type { InferOut, StandardSchemaV1 } from "@laratype/contract";
 import type { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
 import { has } from "es-toolkit/compat"
+
+/**
+ * The brand of the default `rules()`: the kernel skips validation for a request class that doesn't override it. A
+ * `Symbol.for` key, so it holds across two copies of @laratype/http (CJS and ESM), where prototype identity fails.
+ */
+export const DEFAULT_RULES: unique symbol = Symbol.for("laratype.http.defaultRules");
 
 export default class Request implements RequestInterface {
 
@@ -110,8 +116,11 @@ export default class Request implements RequestInterface {
     return this.requestCtx.method;
   }
 
-  validated(): z.infer<ReturnType<typeof this['rules']> extends ZodType ? ReturnType<typeof this['rules']>: ZodType> {
-    return {}
+  /** The output of the `rules()` schema, any Standard Schema (zod, valibot, ...): coerced and defaulted values. */
+  validated(): ReturnType<this['rules']> extends StandardSchemaV1 ? InferOut<ReturnType<this['rules']>> : any {
+    return {} as never
   }
 
 }
+
+Object.defineProperty(Request.prototype.rules, DEFAULT_RULES, { value: true });

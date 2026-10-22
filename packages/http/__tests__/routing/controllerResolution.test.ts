@@ -205,24 +205,16 @@ describe('ctx.endpoint', () => {
     expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
   })
 
-  it('a request class with its own endpoint field is an error, never a writable endpoint', async () => {
+  it('ctx.endpoint is on the ctx, not the request: a request class with its own endpoint field changes nothing', async () => {
     class WithEndpoint extends LaratypeRequest {
       endpoint = 'mine'
     }
-    class Handler extends Controller { index() { return {} } }
+    class Handler extends Controller { index(ctx: Ctx<typeof greetings.index>) { return { same: ctx.endpoint === greetings.index } } }
     const app = new Hono()
-    const errors: unknown[] = []
-    app.onError((error, c) => {
-      errors.push(error)
-      return c.text('error', 500)
-    })
     app.get('/own', RequestKernel.handle({
       method: 'get', path: '/own', name: 'own', request: WithEndpoint, endpoint: greetings.index, controller: [Handler, 'index'],
     }))
-    expect((await app.request('/own')).status).toBe(500)
-    expect((errors[0] as Error).message).toContain(
-      'own: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of WithEndpoint',
-    )
+    expect(await (await app.request('/own')).json()).toEqual({ same: true })
   })
 
   it('a 0.5 route has no endpoint', async () => {

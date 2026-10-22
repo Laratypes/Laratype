@@ -25,11 +25,11 @@ const appApi = defineApi({
 
 class UserController extends Controller {
   index() { return { users: ['ada'] } }
-  show(req: { param(key: string): string }) { return { id: req.param('id') } }
+  show(ctx: { params: { id: string } }) { return { id: ctx.params.id } }
 }
 
 class PostController extends Controller {
-  index(req: { param(key: string): string }) { return { user: req.param('user'), posts: [] } }
+  index(ctx: { params: { user: string } }) { return { user: ctx.params.user, posts: [] } }
   store() { return { created: true } }
 }
 
@@ -48,7 +48,7 @@ afterEach(() => {
 })
 
 beforeAll(() => {
-  // RequestKernel.boot() sets this in an app; the router runs the 0.5 kernel until H2/H3
+  // RequestKernel.boot() sets this in an app
   globalThis.__laratype_route_model_bindings = {}
 })
 
@@ -354,15 +354,15 @@ describe('auth and authorize are not enforced yet', () => {
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
-    expect(UNENFORCED_NOTICE).toBe('auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106)')
+    expect(UNENFORCED_NOTICE).toBe('auth, authorize, throttle and headers schema validation are not enforced yet (planned → #105, #121, #229)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
-      '[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: ' +
+      '[@laratype/http] Route.api: auth, authorize, throttle and headers schema validation are not enforced yet (planned → #105, #121, #229), so these routes skip those checks: ' +
         'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
     )
   })
 
-  it('lists routes whose body, query or headers schema is not validated yet (#106)', () => {
+  it('lists routes whose headers schema is not validated yet: query and body are (#106)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const schema = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
     const forms = defineContract()({
@@ -375,9 +375,9 @@ describe('auth and authorize are not enforced yet', () => {
     class Forms extends Controller { list() {} send() {} head() {} ping() {} slow() {} }
     const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
-      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
+      ['forms.list', []], ['forms.send', []], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
     ])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation), forms.slow (throttle)'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.head (validation), forms.slow (throttle)'))
   })
 
   it('no warning without auth or authorize', () => {

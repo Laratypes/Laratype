@@ -37,7 +37,24 @@ const toResult = <O>(result: StandardResult<unknown>): ValidationResult<O> =>
  * const result = await validate(Query, { page: "2" }); // result.ok ? result.value.page : result.errors.page
  */
 export const validate = async <S extends StandardSchemaV1>(schema: S, value: unknown): Promise<ValidationResult<InferOut<S>>> =>
-  toResult(await schema["~standard"].validate(value));
+  toResult(isZod(schema) ? await zodResult(schema, value) : await schema["~standard"].validate(value));
+
+/** zod 3.25+ and 4, told by their Standard Schema vendor, not by duck-typing a method name. */
+type Zod = StandardSchemaV1 & {
+  safeParseAsync(value: unknown): Promise<{ success: true; data: unknown } | { success: false; error: { issues: StandardIssue[] } }>;
+};
+
+const isZod = (schema: StandardSchemaV1): schema is Zod =>
+  schema["~standard"].vendor === "zod" && typeof (schema as Partial<Zod>).safeParseAsync === "function";
+
+/**
+ * zod's `~standard.validate` runs the schema sync, then again async when a refinement or a transform is async or
+ * throws, so its side effects would run twice. `safeParseAsync` runs it once; its issues are the ones `validate` gives.
+ */
+const zodResult = async (schema: Zod, value: unknown): Promise<StandardResult<unknown>> => {
+  const parsed = await schema.safeParseAsync(value);
+  return parsed.success ? { value: parsed.data } : { issues: parsed.error.issues };
+};
 
 /** Same as `validate` without the Promise; throws a TypeError when the schema is async. */
 export const validateSync = <S extends StandardSchemaV1>(schema: S, value: unknown): ValidationResult<InferOut<S>> => {

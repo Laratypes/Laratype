@@ -296,6 +296,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
+- A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives. `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 
 ### Diagnostics
 - `TypeError: validateSync: the <vendor> schema is async, use validate() instead` (for example `the zod schema`).
@@ -306,7 +307,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 
 ### Non-goals
 - No FormRequest, messages or async DB rules here. That is H10 [#137](https://github.com/Laratypes/Laratype/issues/137) in `@laratype/validation`.
-- No pipeline wiring. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) calls `validate()` on query, body and headers.
+- No pipeline wiring here. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) calls `validate()` on the query and the body ([validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)).
 
 ### Open questions
 - Zod 4: `z.coerce.number()` has input type `unknown`. Contracts and docs use `z.coerce.number<number>()` (S2 finding, [#85](https://github.com/Laratypes/Laratype/issues/85)).

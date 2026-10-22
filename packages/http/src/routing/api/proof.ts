@@ -1,4 +1,4 @@
-import type { AnyEndpoint, EndpointTypes, InferIn } from "@laratype/contract";
+import type { AnyEndpoint, EndpointTypes, InferIn, InferOut, PathParams } from "@laratype/contract";
 import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
@@ -8,20 +8,41 @@ import type Controller from "../../controller/Controller";
  * Controller typing (docs/v1/http.md › Controller typing: Ctx and ControllerOf) and the route proof that
  * `r.contract()` runs on it (› Route proof at r.contract()).
  *
- * The proof is honest about what the runtime passes: until H3 #106 a handler gets the 0.5 request object with the
- * read-only `endpoint`, so that is what the route provides. H3 swaps in `params`, `query` and `body` on both sides.
+ * Both sides share `BaseCtx`, what the runtime builds for a contract route (H3 #106): the endpoint, the raw path
+ * params and the validated query and body.
  */
 
 type T<E extends AnyEndpoint> = E["__types"];
 type MaybePromise<X> = X | Promise<X>;
+type Flat<O> = { [K in keyof O]: O[K] } & {};
 
 /**
- * A handler's context: the endpoint, plus what the handler requires from the route (middleware extensions and
- * `.bind()`-resolved params). `params`, `query` and `body` come with H3 #106.
- *
- *   async destroy(ctx: Ctx<typeof posts.destroy, { audit: AuditLog }>)
+ * What the runtime passes to the handler of endpoint `E` with path params `P`: the endpoint (read-only), the path
+ * params as raw strings, and the query and body as the output of their schemas (`undefined` without one).
  */
-export type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonly endpoint: E } & Requires;
+export type BaseCtx<E extends AnyEndpoint, P = PathParams<T<E>["path"]>> = {
+  readonly endpoint: E;
+  params: P;
+  query: InferOut<T<E>["query"]>;
+  body: InferOut<T<E>["body"]>;
+};
+
+/** `Base` with `Extra` on top, `params` merged one level deep (a bound param replaces its string). */
+type Merge<Base, Extra> = Flat<
+  Omit<Base, keyof Extra> &
+    Omit<Extra, "params"> &
+    ("params" extends keyof Extra ? { params: Flat<Omit<Sub<Base, "params">, keyof Extra["params"]> & Extra["params"]> } : {})
+>;
+
+/**
+ * A handler's context: `BaseCtx` plus what the handler requires from the route (middleware extensions and
+ * `.bind()`-resolved params). `Ctx` knows the endpoint's own path params; a folder param (`user` of
+ * `users/[user]/posts`) is listed in `Requires`.
+ *
+ *   async index({ query }: Ctx<typeof posts.index>)
+ *   async destroy({ params }: Ctx<typeof posts.destroy, { params: { post: Post } }>)
+ */
+export type Ctx<E extends AnyEndpoint, Requires extends object = {}> = Merge<BaseCtx<E>, Requires>;
 
 /** What a handler returns: the response schema input (the serializer runs afterwards), or nothing without one. */
 export type Result<E extends AnyEndpoint> = T<E>["response"] extends undefined ? void : InferIn<T<E>["response"]>;
@@ -60,12 +81,11 @@ type BoundParams<P, B> = { [K in keyof B & keyof P]: Bound<B[K]> };
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
 
 /**
- * What the route passes to the handler of endpoint `E` under `Path`: the request object with `endpoint` (H2a), the
- * middleware extensions `X` and the bound params `B`. Without bindings there is no `params` at all: the runtime
- * builds none before H3 #106 / H7 #118.
+ * What the route passes to the handler of endpoint `E` under `Path`: `BaseCtx` with every path param of the full
+ * path (folder params included), the middleware extensions `X` and the bound params `B` in place of their strings.
  */
 export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}> =
-  RequestSupport & { readonly endpoint: E } & X & ([keyof B] extends [never] ? {} : { params: BoundParams<FullParams<E, Path>, B> });
+  Merge<BaseCtx<E, FullParams<E, Path>>, X & { params: BoundParams<FullParams<E, Path>, B> }>;
 
 // ---- the check --------------------------------------------------------------
 
@@ -73,7 +93,6 @@ type RequiredKeys<O> = { [K in keyof O]-?: {} extends Pick<O, K> ? never : K }[k
 type Missing<Pv, Rq> = Exclude<RequiredKeys<Rq>, keyof Pv> & string;
 type Mismatched<Pv, Rq> = { [K in keyof Rq & keyof Pv]-?: [Pv[K]] extends [Rq[K]] ? never : K }[keyof Rq & keyof Pv] & string;
 type Sub<O, K extends string> = K extends keyof O ? O[K] : {};
-type Flat<O> = { [K in keyof O]: O[K] } & {};
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */
@@ -86,19 +105,24 @@ type MismatchedKeys<Pv, Rq> =
 
 type At<O, P extends string> = P extends `params.${infer K}` ? Sub<Sub<O, "params">, K> : Sub<O, P>;
 
+/** A member of the 0.5 request that the ctx doesn't have: a handler typed with the request object. */
+type RequestKey = Exclude<keyof RequestSupport, keyof BaseCtx<AnyEndpoint>> & string;
+
 /*
  * Readable errors: the diagnosis is in the PROPERTY NAMES of the error type, since tsc prints the names of missing
  * properties in full but truncates property types to `{ ...; }`. The values hold the details.
  */
 type RequirementIssues<N extends string, Pv, Rq> = {
-  [M in MissingKeys<Pv, Rq> as `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`]: {
+  [M in MissingKeys<Pv, Rq> as M extends RequestKey
+    ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
+    : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`]: {
     handler_requires: At<Rq, M>;
   };
 } & {
   [M in MismatchedKeys<Pv, Rq> as M extends "endpoint"
     ? `${N}: handler ctx is typed for a different endpoint`
-    : M extends keyof RequestSupport
-      ? `${N}: \`${M}\` of the request does not match the handler (Route.api passes the raw request; request classes are #106)`
+    : M extends "query" | "body"
+      ? `${N}: \`${M}\` of the ctx does not match the handler (it is the output of the endpoint's ${M} schema)`
       : `${N}: \`${M}\` provided by the route does not match the handler (missing .bind()?)`]: {
     route_provides: At<Pv, M>;
     handler_requires: At<Rq, M>;
@@ -119,8 +143,8 @@ type Unexplained<N extends string, Pv, Rq, Issues> = keyof Issues extends never
   : Issues;
 
 /**
- * Until H3 #106, the runtime passes the raw path params (strings) as the second argument: a handler that types it
- * as bound models would read strings.
+ * The runtime passes the raw path params (strings) as the second argument: a handler that types it as bound models
+ * would read strings.
  */
 type SecondIssues<N extends string, Rest extends unknown[], Raw> = Rest["length"] extends 0
   ? {}
