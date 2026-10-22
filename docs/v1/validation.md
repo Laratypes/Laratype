@@ -8,12 +8,12 @@ last-verified: 2026-10-12
 
 # Validation
 
-v1 validates requests against the contract's Standard Schema slots (query, body, headers). The schema-agnostic primitive lives in `@laratype/contract`. Running it in the request pipeline belongs to `@laratype/http` (H3), and Laravel-style request classes belong to `@laratype/validation` (H10). `@laratype/validation` on master is still the 0.5 package.
+v1 validates requests against the contract's Standard Schema slots: query and body (a headers schema is not enforced yet). The schema-agnostic primitive lives in `@laratype/contract`. Running it in the request pipeline belongs to `@laratype/http` (H3), and Laravel-style request classes belong to `@laratype/validation` (H10). `@laratype/validation` on master is still the 0.5 package.
 
 | Section | Status |
 |---|---|
 | [Standard Schema adapter](#standard-schema-adapter) | merged @ 883a8e2 |
-| [Pipeline validation and 422](#pipeline-validation-and-422) | merged (#106, #287) |
+| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4aea50c |
 | [FormRequest v2](#formrequest-v2) | planned → #137 |
 
 ---
@@ -51,7 +51,7 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 ## Pipeline validation and 422
 
 ### Status
-proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ e62e2ff (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
+proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4aea50c (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Public API
 No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`packages/http/src/request/input.ts`](../../packages/http/src/request/input.ts).
@@ -68,7 +68,7 @@ No new export: `RequestKernel.handle` runs it for every `Route.api` route, and t
 - **Context:** the handler context is built from the validated **output** types (`InferOut`), so handlers see coerced and defaulted values.
 
 ### Diagnostics
-None at runtime beyond the 400 and 422 bodies above. The route proof reports a handler whose `query` or `body` type doesn't match the schema output ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
+Runtime, besides the 400 and 422 bodies above: `RequestKernel.handle` throws a `TypeError` when a contract route also gets a request class, ``<route name>: a contract route validates its endpoint's query and body schemas, so it takes no request class (<Request>)``. The route proof reports a handler whose `query` or `body` type doesn't match the schema output ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
 
 ### Example
 Runtime tests: [`packages/http/__tests__/request/pipeline.test.ts`](../../packages/http/__tests__/request/pipeline.test.ts).
@@ -82,7 +82,7 @@ Runtime tests: [`packages/http/__tests__/request/pipeline.test.ts`](../../packag
 - None recorded.
 
 ### Acceptance
-[#106 Done when](https://github.com/Laratypes/Laratype/issues/106)
+[#106 Done when](https://github.com/Laratypes/Laratype/issues/106) · [#287 Done when](https://github.com/Laratypes/Laratype/issues/287)
 
 ---
 

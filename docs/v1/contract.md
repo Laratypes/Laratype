@@ -280,10 +280,10 @@ Type-only (`types/errors.types.ts`): an unknown built-in (`errors.conflict`), wr
 ## Validation adapter
 
 ### Status
-merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ e62e2ff (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4aea50c (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 
 ### Public API
-[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ e62e2ff](https://github.com/Laratypes/Laratype/blob/e62e2ffede67d6aaca20e1ce2f8333257ea0bf3a/packages/contract/src/validate.ts)
+[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ 4aea50c](https://github.com/Laratypes/Laratype/blob/4aea50cf5fed55615db99972b3981320b49fc0dd/packages/contract/src/validate.ts)
 
 ```ts
 export type ErrorBag = Record<string, string[]>;   // dot path -> messages; "" for issues without a path
@@ -319,7 +319,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - Zod 4: `z.coerce.number()` has input type `unknown`. Contracts and docs use `z.coerce.number<number>()` (S2 finding, [#85](https://github.com/Laratypes/Laratype/issues/85)).
 
 ### Acceptance
-[#91 Done when](https://github.com/Laratypes/Laratype/issues/91)
+[#91 Done when](https://github.com/Laratypes/Laratype/issues/91) · [#106 Done when](https://github.com/Laratypes/Laratype/issues/106)
 
 ---
 
