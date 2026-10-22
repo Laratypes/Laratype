@@ -413,9 +413,18 @@ describe('r.contract() options', () => {
     expect(entries.find((e) => e.name === 'posts.destroy')!.middleware).toEqual([Audit])
   })
 
-  it('the verdict travels with the copy: a spread item is still rejected', () => {
+  it('r.contract() throws on its own, so a spread of its item or of its options cannot lose the error', () => {
     const endpoints = Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) })
-    expect(() => Route.api(postsApi, ((r: any) => [{ ...r.contract(posts, PostController, { endpoints }) }]) as never)).toThrow(
+    let reached = false
+    const spread = (r: any) => {
+      const item = r.contract(posts, PostController, { endpoints })
+      reached = true
+      return [{ ...item, options: { ...item.options } }]
+    }
+    expect(() => Route.api(postsApi, spread as never)).toThrow('[@laratype/http] Route.api: contract "posts": endpoints.destroy is inherited')
+    expect(reached).toBe(false)
+    // r.middleware() keeps the tree, so its r.contract() names the contract too
+    expect(() => Route.api(postsApi, ((r: any) => [r.middleware(Audit).contract(posts, PostController, { endpoints })]) as never)).toThrow(
       'contract "posts": endpoints.destroy is inherited',
     )
   })
@@ -457,6 +466,14 @@ describe('r.contract() options', () => {
     const { entries } = mount(Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r.middleware(Audit) } } })]))
     expect(entries[0]!.middleware).toEqual([Audit])
     expect(() => Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes(r) { return r } } })])).not.toThrow()
+    for (const endpoints of [{ class$(r: EndpointRouteBuilder) { return r } }, { classé(r: EndpointRouteBuilder) { return r } }, { class /* c */ (r: EndpointRouteBuilder) { return r } }]) {
+      const [key, callback] = Object.entries(endpoints)[0]!
+      const odd = defineContract()({ [key]: endpoint.get('/').response(anything) } as Record<string, ReturnType<typeof endpoint.get>>)
+      const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } } as never)
+      class Odd extends Controller {}
+      Object.defineProperty(Odd.prototype, key, { value: () => ({}) })
+      expect(() => Route.api(oddApi as any, ((r: any) => [r.contract(odd, Odd, { endpoints: { [key]: callback } })]) as never)).not.toThrow()
+    }
     // a class with a comment after the keyword is still a class
     expect(() => Route.api(classyApi, (r) => [r.contract(classy, Classy, { endpoints: { classes: class/* mw */ Mw {} } as never })])).toThrow(
       'contract "classy": endpoints.classes must be a callback',
