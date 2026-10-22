@@ -26,19 +26,22 @@ const SWEEP_MS = 60_000;
 /** The most windows the memory store keeps: past it the oldest are dropped, so many clients can't exhaust the heap. */
 const MAX_WINDOWS = 100_000;
 
-/** How often a full memory store may sweep before it drops a live window: not on every new key at capacity. */
-const FULL_SWEEP_MS = 1_000;
+interface Window {
+  hits: number;
+  resetAt: number;
+  windowMs: number;
+}
 
 /**
  * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. A full store
- * drops its ended windows first (sweeping at most once a second), then the window started first, so that client
- * starts a new one early.
+ * drops the window that ends first: an ended one if there is one, else the live one nearest its end, whose client
+ * starts a new window early.
  */
 export class MemoryThrottleStore implements ThrottleStore {
-  // In the order the windows started: a new window is re-inserted at the end
-  private readonly windows = new Map<string, { hits: number; resetAt: number }>();
+  private readonly windows = new Map<string, Window>();
+  // The keys of each window length in start order: within one length, the window started first ends first
+  private readonly byLength = new Map<number, Set<string>>();
   private nextSweep = 0;
-  private nextFullSweep = 0;
 
   constructor(private readonly maxWindows = MAX_WINDOWS) {}
 
@@ -47,23 +50,38 @@ export class MemoryThrottleStore implements ThrottleStore {
     if (now >= this.nextSweep) this.sweep(now);
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
-      this.windows.delete(key);
-      // Full: drop the ended windows, then the window started first. The sweep is rate-limited: at capacity with live
-      // windows, every new key would scan the whole map
-      if (this.windows.size >= this.maxWindows && now >= this.nextFullSweep) {
-        this.sweep(now);
-        this.nextFullSweep = now + FULL_SWEEP_MS;
-      }
-      if (this.windows.size >= this.maxWindows) this.windows.delete(this.windows.keys().next().value!);
-      window = { hits: 0, resetAt: now + windowMs };
+      if (window !== undefined) this.drop(key, window);
+      if (this.windows.size >= this.maxWindows) this.evict();
+      window = { hits: 0, resetAt: now + windowMs, windowMs };
       this.windows.set(key, window);
+      let keys = this.byLength.get(windowMs);
+      if (keys === undefined) this.byLength.set(windowMs, (keys = new Set()));
+      keys.add(key);
     }
     window.hits++;
     return { hits: window.hits, resetAt: window.resetAt };
   }
 
+  /** Drops the window that ends first, found among the oldest window of each length: no scan of the whole store. */
+  private evict() {
+    let first: [string, Window] | undefined;
+    for (const keys of this.byLength.values()) {
+      const key = keys.values().next().value!;
+      const window = this.windows.get(key)!;
+      if (first === undefined || window.resetAt < first[1].resetAt) first = [key, window];
+    }
+    if (first !== undefined) this.drop(...first);
+  }
+
+  private drop(key: string, window: Window) {
+    this.windows.delete(key);
+    const keys = this.byLength.get(window.windowMs)!;
+    keys.delete(key);
+    if (keys.size === 0) this.byLength.delete(window.windowMs);
+  }
+
   private sweep(now: number) {
-    for (const [key, window] of this.windows) if (window.resetAt <= now) this.windows.delete(key);
+    for (const [key, window] of this.windows) if (window.resetAt <= now) this.drop(key, window);
     this.nextSweep = now + SWEEP_MS;
   }
 }
