@@ -115,9 +115,9 @@ export type ApiRootShape<A>;                         // each key K is an API nod
 export interface ClientOptions {
   baseUrl?: string;                 // an absolute URL (https://…) or a path starting with /; default "" (same origin)
   fetch?: FetchLike;                // default: the global fetch
-  headers?: HeadersInit;            // sent with every call
-  // all three are read from this object at each call
-  // CL3 (#124) adds credentials, onRequest, onResponse and a headers function: see Options and hooks
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);   // sent with every call
+  credentials?: RequestCredentials; onRequest?: …; onResponse?: …      // see Options and hooks (CL3)
+  // every option is read from this object at each call
 }
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -152,7 +152,7 @@ if (result.ok) result.data.title                     // see Result union
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
 - **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.
 - **Global `fetch` vs injected `fetch`:** both get `(url, init)`, and `fetch` resolves a relative URL itself (against the document's base URL in a browser). The client checks only what would otherwise look like a network failure: a GET with a body rejects with `[@laratype/client] a GET request cannot have a body: "<path>"`, and with the global `fetch` a relative URL outside a browser (no `document` or `location`, as in Node SSR or Deno without `--location`, or a page base that doesn't resolve the URL to http(s), such as `about:blank`, `about:srcdoc`, the jsdom default, `blob:` or `data:`) rejects; set `baseUrl` to an absolute URL, or pass `fetch`. An injected `fetch` is not guarded, since it may resolve relative URLs itself. A synchronous throw from `fetch`, global or injected, rejects the call; only a rejected promise is the status-0 result.
-- **Options are live:** `baseUrl`, `headers` and `fetch` are read from the options object at each call, so changing them later (a refreshed token) applies to the next call.
+- **Options are live:** every option (`baseUrl`, `headers`, `fetch`, and those of [Options and hooks](#options-and-hooks)) is read from the options object at each call, so changing one later (a refreshed token) applies to the next call.
 - **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema, or with a declared 204 or 205, gives `undefined`. The `Jsonify` helper is internal for now.
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
 - The FE program loads 0 server files and 0 hono files: `packages/client/__tests__/fe.test.ts` compiles `fixtures/fe/main.ts` with its own tsconfig (`types: []`, DOM lib, not extending the repo tsconfig) and checks the program of one `tsc --listFiles` run.
@@ -275,14 +275,17 @@ export interface ClientRequest {
 - **`credentials`:** set on every call's `RequestInit` when given; absent otherwise, so `fetch` keeps its default (`same-origin`).
 - **`AbortSignal`:** per call, `signal` in the call input ([createClient](#createclient) › Call input). There is no client-wide signal; `onRequest` can set `request.init.signal`.
 - **Custom `fetch`:** `options.fetch` ([createClient](#createclient) › Global `fetch` vs injected `fetch`).
-- **Order of a call:** build the URL, headers and body → the checks that reject before sending (a missing param, a GET with a body, no `fetch`, a relative URL outside a browser) → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So `onRequest` is not called for a request that is never sent.
-- **`onRequest`** gets the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL is read-only.
-- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; read a `response.clone()` to see the body. It is not called when `fetch` rejects (the status-0 result).
-- **Failures:** a `headers` function or a hook that throws or rejects rejects the call, like the other configuration errors ([createClient](#createclient) › Result); it is never turned into a result. A failing `headers` function or `onRequest` means `fetch` is not called.
+- **Order of a call:** build the URL and the JSON body → the checks that reject before sending (a missing param, a GET with a body, a body JSON cannot hold, no `fetch`, a relative URL outside a browser) → the `headers` function → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So neither the `headers` function nor `onRequest` is called for a request that is never sent.
+- **`onRequest`** gets a frozen `{ url, init }`: the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL and the `init` object itself can't be replaced. A body it puts on a GET or HEAD rejects the call with `a <METHOD> request cannot have a body`.
+- **Abort before `fetch`:** a call whose `signal` is aborted while the `headers` function or `onRequest` runs resolves as the status-0 unexpected result, with the signal's reason, without calling `fetch`. Aborting does not interrupt a pending `headers` function or hook.
+- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; it must read a `response.clone()`, since the client reads the body itself, and one that reads `response` rejects the call. It is not called when `fetch` rejects (the status-0 result).
+- **Failures:** a `headers` function or a hook that throws or rejects rejects the call, like the other configuration errors ([createClient](#createclient) › Result); it is never turned into a result. A failing `headers` function or `onRequest` means `fetch` is not called; a failing `onResponse` cancels the unread body, so it doesn't hold a connection open.
 - **Runtime:** browser-pure, as the rest of the client: no Node API.
 
 ### Diagnostics
-- None of its own: the error a `headers` function or a hook throws rejects the call as it is.
+- The error a `headers` function or a hook throws rejects the call as it is.
+- `[@laratype/client] a <METHOD> request cannot have a body: "<path>"` (the call rejects: `onRequest` put a body on a GET or HEAD)
+- `[@laratype/client] onResponse read the response body: read a response.clone() instead` (the call rejects)
 - Type-level (`packages/client/__tests__/client.test-d.ts`): a `headers` function that doesn't return `HeadersInit`, a `credentials` that isn't a `RequestCredentials`, and assigning `request.url` are type errors.
 
 ### Example

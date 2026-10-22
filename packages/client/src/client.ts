@@ -180,7 +180,8 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
  * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
  * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
- * either rejects the call.
+ * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
+ * aborted before `fetch` (while the headers function or `onRequest` ran) is a `FetchFailed`, as fetch would reject.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
@@ -196,20 +197,9 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
   if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
   const url = origin + pathname + (q < 0 ? "" : built.slice(q));
-  const defaults = options.headers;
-  const headers = new Headers(typeof defaults === "function" ? await defaults() : defaults);
-  for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) headers.set(key, value);
-  }
-  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
-  if (options.credentials !== undefined) init.credentials = options.credentials;
-  if (input.body !== undefined) {
-    // fetch would refuse it, and that must not look like a network failure
-    if (method === "get") fail(`a GET request cannot have a body: "${path}"`);
-    init.body = JSON.stringify(input.body);
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
-  }
-  if (input.signal) init.signal = input.signal;
+  // fetch would refuse it, and that must not look like a network failure
+  if (method === "get" && input.body !== undefined) fail(`a GET request cannot have a body: "${path}"`);
+  const body = input.body === undefined ? undefined : JSON.stringify(input.body);
   let fetchFn: FetchLike;
   const injected = options.fetch;
   if (injected) {
@@ -224,8 +214,28 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
     }
     fetchFn = globalFetch;
   }
-  const request: ClientRequest = { url, init };
-  await options.onRequest?.(request);
+  // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
+  const defaults = options.headers;
+  const headers = new Headers(typeof defaults === "function" ? await defaults() : defaults);
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value !== undefined) headers.set(key, value);
+  }
+  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
+  if (options.credentials !== undefined) init.credentials = options.credentials;
+  if (body !== undefined) {
+    init.body = body;
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  }
+  if (input.signal) init.signal = input.signal;
+  const request: ClientRequest = Object.freeze({ url, init });
+  const { onRequest, onResponse } = options;
+  if (onRequest) {
+    await onRequest(request);
+    // onRequest may have set a body or changed the method: still a programming error, not a network failure
+    if (init.body != null && /^(GET|HEAD)$/i.test(init.method ?? "")) fail(`a ${init.method!.toUpperCase()} request cannot have a body: "${path}"`);
+  }
+  // aborted while the headers function or onRequest ran: the same status-0 result fetch would give
+  if (init.signal?.aborted) throw new FetchFailed(init.signal.reason);
   // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
   const pending = fetchFn(url, init);
   let response: Response;
@@ -234,7 +244,16 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   } catch (error) {
     throw new FetchFailed(error);
   }
-  await options.onResponse?.(response, request);
+  if (onResponse) {
+    try {
+      await onResponse(response, request);
+    } catch (error) {
+      // the call rejects and nobody reads the body: release it
+      cancelBody(response);
+      throw error;
+    }
+    if (response.bodyUsed) fail("onResponse read the response body: read a response.clone() instead");
+  }
   return response;
 };
 

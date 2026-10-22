@@ -553,6 +553,62 @@ describe('options and hooks', () => {
     await expect(api.users.index()).rejects.toBe(failure)
   })
 
+  it('a request that fails its checks never calls the headers function', async () => {
+    const headers = vi.fn(() => ({ authorization: 'Bearer t' }))
+    vi.stubGlobal('fetch', vi.fn())
+    try {
+      await expect(createClient(appApi, { headers }).users.index()).rejects.toThrow(/relative URL "\/api\/users"/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    // @ts-expect-error runtime check
+    await expect(createClient(appApi, { fetch: fakeFetch().fetch, headers }).users.index({ body: { x: 1 } })).rejects.toThrow(/a GET request cannot have a body/)
+    expect(headers).not.toHaveBeenCalled()
+  })
+
+  it('a body that onRequest puts on a GET rejects the call, and is not taken for a network failure', async () => {
+    const { fetch } = fakeFetch()
+    const api = createClient(appApi, { fetch, onRequest: ({ init }) => void (init.body = 'x') })
+    await expect(api.users.index()).rejects.toThrow('[@laratype/client] a GET request cannot have a body: "/api/users"')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('the request is frozen: onRequest changes the init, not the url or the init object', async () => {
+    const { fetch } = fakeFetch()
+    const api = createClient(appApi, {
+      fetch,
+      onRequest: (request) => {
+        expect(Object.isFrozen(request)).toBe(true)
+        expect(() => Object.assign(request, { url: '/other' })).toThrow(TypeError)
+      },
+    })
+    await api.users.index()
+    expect(fetch.mock.calls[0]![0]).toBe('/api/users')
+  })
+
+  it('a call aborted while the headers function runs resolves as status 0 without calling fetch', async () => {
+    const { fetch } = fakeFetch()
+    const controller = new AbortController()
+    const headers = async () => {
+      controller.abort()
+      return {}
+    }
+    const result = await createClient(appApi, { fetch, headers }).users.index({ signal: controller.signal })
+    expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: controller.signal.reason, response: undefined })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('a throw from onResponse cancels the unread body; an onResponse that reads the body rejects the call', async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream({ cancel })
+    const failure = new Error('hook failed')
+    const api = createClient(appApi, { fetch: async () => new Response(body, { status: 500 }), onResponse: () => { throw failure } })
+    await expect(api.users.index()).rejects.toBe(failure)
+    expect(cancel).toHaveBeenCalled()
+    const reading = createClient(appApi, { fetch: fakeFetch([]).fetch, onResponse: async (response) => void (await response.text()) })
+    await expect(reading.users.index()).rejects.toThrow('[@laratype/client] onResponse read the response body: read a response.clone() instead')
+  })
+
   it('reads credentials and the hooks from the options at each call', async () => {
     const { fetch } = fakeFetch([])
     const options: ClientOptions = { fetch }
