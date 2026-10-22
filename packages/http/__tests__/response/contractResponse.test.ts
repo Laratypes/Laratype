@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
-import { Controller, JsonResource, Request as LaratypeRequest, RequestKernel, Response as LaratypeResponse, ResponseKernel, Route } from '../../src/index'
+import { Controller, JsonResource, Middleware, Request as LaratypeRequest, RequestKernel, Response as LaratypeResponse, ResponseKernel, Route } from '../../src/index'
 
 const User = z.object({ id: z.number(), name: z.string() })
 const users = defineContract()({
@@ -117,6 +117,29 @@ describe('status from the contract', () => {
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/login')
   })
+
+  it('a middleware answering a non-2xx 0.5 Response without calling next keeps it', async () => {
+    class Throttle extends Middleware {
+      async handle() { return new LaratypeResponse({ message: 'Too Many Requests' }, 429, { 'Retry-After': '60' }) }
+    }
+    const app = new Hono()
+    Route.api(usersApi, (r) => [r.middleware(Throttle).contract(users, UserController)]).mount(app)
+    const response = await app.request('/api/users/1')
+    expect(response.status).toBe(429)
+    expect(response.headers.get('retry-after')).toBe('60')
+    expect(await response.json()).toEqual({ message: 'Too Many Requests' })
+  })
+
+  it('a bodyless answer drops the handler\'s Content-Type', async () => {
+    const jobs = defineContract()({ queue: endpoint.post('/').status(202) })
+    class Jobs extends Controller { queue() { return new LaratypeResponse('queued', undefined, { 'Content-Type': 'text/html', 'X-Job': '7' }) } }
+    const app = new Hono()
+    Route.api(defineApi({ jobs: { contract: jobs, path: '/api/jobs', scopes: [], dirs: [] } }), (r) => [r.contract(jobs, Jobs)]).mount(app)
+    const response = await app.request('/api/jobs', { method: 'POST' })
+    expect(response.status).toBe(202)
+    expect(response.headers.get('content-type')).toBeNull()
+    expect(response.headers.get('x-job')).toBe('7')
+  })
 })
 
 describe('JSON serialization', () => {
@@ -154,22 +177,51 @@ describe('dev-mode output validation', () => {
     }))
   })
 
+  it('the 500 of a failed check carries none of the handler\'s headers', async () => {
+    result = new LaratypeResponse({ id: 'x' }, undefined, { 'Set-Cookie': 'a=b', 'Cache-Control': 'public, max-age=3600' })
+    const response = await bootApp().request('/api/users/1')
+    expect(response.status).toBe(500)
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(response.headers.get('cache-control')).toBeNull()
+  })
+
   it('a missing value fails the check (an empty answer would be null)', async () => {
     result = undefined
     expect((await bootApp().request('/api/users/1')).status).toBe(500)
   })
 
-  it('sends the handler\'s value, not the schema\'s parsed one', async () => {
-    result = { id: 1, name: 'Ada', extra: true }
-    expect(await (await bootApp().request('/api/users/1')).json()).toEqual({ id: 1, name: 'Ada', extra: true })
+  it('a key the schema strips fails the check: it would be sent, but the client type leaves it out', async () => {
+    result = { id: 1, name: 'Ada', passwordHash: 'secret' }
+    const response = await bootApp().request('/api/users/1')
+    expect(response.status).toBe(500)
+    expect(await response.text()).not.toContain('secret')
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({
+      message: "[@laratype/http] users.show: the endpoint's response schema changes the handler's value (a transform, or a key it strips), so the client's type would not match what is sent: return the schema's output",
+    }))
+  })
+
+  it('a transforming schema fails the check; key order and Dates do not', async () => {
+    const ids = defineContract()({
+      show: endpoint.get('/:id').response(z.object({ id: z.number().transform(String) })),
+      index: endpoint.get('/').response(z.object({ a: z.number(), at: z.date() })),
+    })
+    class Ids extends Controller {
+      show() { return { id: 1 } }
+      index() { return { at: new Date(0), a: 1 } }
+    }
+    const app = new Hono()
+    Route.api(defineApi({ ids: { contract: ids, path: '/api/ids', scopes: [], dirs: [] } }), (r) => [r.contract(ids, Ids)]).mount(app)
+    expect((await app.request('/api/ids/1')).status).toBe(500)
+    expect(await (await app.request('/api/ids')).json()).toEqual({ at: '1970-01-01T00:00:00.000Z', a: 1 })
   })
 
   it('is skipped in production (__PROD__, or NODE_ENV=production without it)', async () => {
     result = { id: '1' }
     vi.stubGlobal('__PROD__', true)
+    result = { id: '1', passwordHash: 'h' }
     const prod = await bootApp().request('/api/users/1')
     expect(prod.status).toBe(200)
-    expect(await prod.json()).toEqual({ id: '1' })
+    expect(await prod.json()).toEqual({ id: '1', passwordHash: 'h' })
 
     vi.stubGlobal('__PROD__', undefined)
     vi.stubEnv('NODE_ENV', 'production')
