@@ -30,7 +30,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Rate limiting](#rate-limiting) | planned → #229 |
 | [Resources](#resources) | planned → #123 |
 | [Interceptors](#interceptors) | planned → #138 |
-| [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
+| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #PRNUM @ PRSHA; `Route.prefix(...)` and `group(...)` not planned yet; `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
 | [CORS](#cors) | planned → #164 |
 | [Undeclared-error check](#undeclared-error-check) | planned → #157 |
@@ -222,6 +222,11 @@ interface ApiRouteBuilder<A> {
     contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
     options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;               // a contract or its tree node; Route proof
   scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
+  get: AdHocRouteMethod<"get">;                                                         // ad-hoc routes, see Ad-hoc routes
+  post: AdHocRouteMethod<"post">;
+  put: AdHocRouteMethod<"put">;
+  patch: AdHocRouteMethod<"patch">;
+  delete: AdHocRouteMethod<"delete">;
 }
 
 interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
@@ -234,9 +239,10 @@ interface EndpointRouteBuilder {
 }
 
 class ApiRoutes {                                // exported as a type: only Route.api() builds one
-  readonly routes: readonly RouteEntry[];        // the registry entries, depth-first in tree order
+  readonly routes: readonly RouteEntry[];        // the contract routes' registry entries, depth-first in tree order
+  readonly adHoc: readonly AdHocRouteEntry[];    // the ad-hoc routes' entries, in callback order (see Ad-hoc routes)
   domain(domain: string): ApiRoutes;             // the same checked routes, served on that hostname only
-  mount(app: Hono): RouteEntry[];                // registers every route on Hono (by specificity), returns the entries
+  mount(app: Hono): (RouteEntry | AdHocRouteEntry)[];   // registers every route on Hono (by specificity), returns routes then adHoc
 }
 
 interface RouteEntry extends ApiRoute {          // name, method, path, endpoint, contract, scopes + resolved capabilities
@@ -262,11 +268,11 @@ const UNENFORCED_NOTICE: "auth, authorize, throttle and input schema validation 
 The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it.
 
 ### Invariants
-- **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items. A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
+- **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items, and any ad-hoc routes (`r.get()`, ...; [Ad-hoc routes](#ad-hoc-routes)). A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
 - **Contract or tree node.** `r.contract()` takes the contract or its tree node (`r.contract(appApi.users.posts, PostController)`). At compile time a contract is matched by its exact type and a tree node by its tree name; at runtime both are matched by value. Two contracts of the tree with identical types (`posts.ts` and `comments.ts` in one folder, both `{ index: endpoint.get('/').response(Dto) }`) can't be told apart by type, so mounting either by its contract is a compile error that asks for the tree node; mounted by their nodes, a missing or duplicate one is a compile error again.
 - **Registration order.** Hono matches in registration order, so `mount()` registers the routes by specificity, not in tree order: comparing the path segments left to right, a static segment comes before a param constrained to one segment (`:id{[0-9]+}`), that one before a plain param (`:slug`), a plain param before a regex param that can match `/` (`:path{.+}`: an unescaped `.`, a `/`, a negated class `[^...]`, or `\S`, `\W`, `\D`), and that one before a wildcard (a stable sort, so equal routes keep their tree order). A parent's param route therefore never shadows a child's static one: with `users.ts` `{ show: '/:user' }` and `users/me.ts` `{ index: '/' }`, `GET /api/users/me` reaches `users.me.index`. With `files.ts` `{ show: '/:path{.+}' }` and `files/[id]/raw.ts`, `GET /api/files/42/raw` reaches the raw route; with `/:slug` and `/:id{[0-9]+}` at the same position, `GET /api/posts/42` reaches the id route and `/api/posts/abc` the slug one. `routes` and the returned entries keep the tree order.
   - Known limitation: the sort is per `Route.api`. Other `Route.api` groups and 0.5 `defineRouteGroup` routes register in the order the providers mount them, so a param route of one group can still shadow a static route of another: mount order matters across groups.
-- **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes keep `Route.prefix(...)` and `group(...)` ([Ad-hoc routes](#ad-hoc-routes)), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
+- **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes take their path as written ([Ad-hoc routes](#ad-hoc-routes); `Route.prefix(...)` and `group(...)` for them have no issue yet), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
 - **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods of the controller or of a class between it and the base `Controller`: an arrow-function class field, `constructor`, an `Object.prototype` method or a base `Controller` method is not a handler, and is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is the [Route proof at r.contract()](#route-proof-at-rcontract) (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as in the entry `dirs` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
@@ -310,7 +316,8 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `contract "<tree name>": r.contract() got <value> as its controller (a circular import?)`
 - `<route name>: <Controller>.<key> has status <n> from its status decorator, but the endpoint declares <m>: declare .response(schema, <n>) on the endpoint, or drop the decorator`
 - `expected the appApi tree built with defineApi`
-- `the routes callback must return r.contract() and r.scope() items`
+- `the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)`
+- `the routes callback must return r.contract(), r.scope() and ad-hoc route (r.get(), ...) items`
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
 - `<route name>: endpoint has .authorize() but r.contract() has no { policy }`
 - `contract "<tree name>": r.contract() options must be { policy?, endpoints? }`
@@ -569,10 +576,73 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-planned → [#139](https://github.com/Laratypes/Laratype/issues/139) (H12, M3).
+proposed: PR [#PRNUM](https://github.com/Laratypes/Laratype/pull/PRNUM) @ PRSHA ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are not part of #139 and have no issue yet.
 
-### Design (non-binding)
-`r.get('/health', () => 'ok')` without a contract keeps the Laravel feel. Types are inferred, but the route has no schema and is **excluded from OpenAPI**. Ad-hoc routes keep `Route.prefix(...)`, `group(...)` and explicit names (`.name()`), unlike contract routes.
+### Public API
+[`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts)
+
+```ts
+type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
+
+// r.get / r.post / r.put / r.patch / r.delete of ApiRouteBuilder<A>
+type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
+  path: P, handler: (req: Request, params: PathParams<P>) => R | Promise<R>) => MountedRoute<M, P, R>;
+
+interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = string, R = unknown> {
+  readonly kind: "route";
+  readonly method: M;
+  readonly path: P;
+  handler(req: Request, params: PathParams<P>): R | Promise<R>;
+  readonly middleware: readonly MiddlewareClass[];
+}
+
+interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the registry
+  readonly method: AdHocMethod;
+  readonly path: string;
+  readonly name: undefined;                      // .name() is #162
+  readonly controller: undefined;
+  readonly handler: MountedRoute["handler"];
+  readonly middleware: readonly MiddlewareClass[];
+  readonly domain: string | undefined;
+}
+```
+
+`Request` is the 0.5 request class a controller method gets, and `PathParams` is the contract's path param type ([contract.md](./contract.md)).
+
+### Invariants
+- **In `Route.api`.** An ad-hoc route is an item of the `Route.api(appApi, (r) => [...])` callback, next to the contract routes: `r.get('/health', () => 'ok')`. The group still mounts every contract of the tree. `r.middleware(...)` before `.get()` applies to that route (duplicates removed).
+- **Path as written.** The path starts with `/` (a type error and a runtime error otherwise) and is served as written, in Hono's route syntax: it takes no folder or prefix.
+- **Inferred types.** `params` comes from the path (`'/hello/:name'` gives `{ name: string }`, `:id?` an optional key, `:id{[0-9]+}` the key `id`), and `R` from what the handler returns (an async handler's `Promise<R>` gives `R`). `R` types nothing at runtime: the response is not validated.
+- **Served like a controller method.** The handler runs through the same `RequestKernel` pipeline as a controller method (route middleware, then the handler with the request and the raw path params; no 0.5 model binding), and its result is turned into the response the same way: a string as HTML, an object as JSON, status 200 unless it returns a `Response` (`@laratype/http`) with its own status.
+- **Not a contract route.** An ad-hoc route has no contract, endpoint, schema, capabilities, policies or name. It is in `ApiRoutes.adHoc`, never in `ApiRoutes.routes` or `apiRoutes(appApi)`, so it is **excluded from OpenAPI and from the generated types** ([typegen.md](./typegen.md)), and never in the not-enforced warning.
+- **Registration order.** `mount()` sorts the ad-hoc and the contract routes of a group together, by specificity ([Router v2](#router-v2)): `r.get('/api/users/me', ...)` is reached before a contract's `/api/users/:id`.
+- **Domain and registry.** `.domain()` applies to the ad-hoc routes too. `mount()` returns the contract entries, then the ad-hoc ones; `sauf route:list` shows an ad-hoc route with the controller `Closure`.
+
+### Diagnostics
+Type errors: a path without a leading `/` is an argument type error; a param name not in the path is a property error on `params`.
+
+Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
+- `r.<method>("<path>"): the path must start with "/"`
+- `r.<method>('<path>') needs a handler function`
+
+### Example
+```ts
+export const apiRoutes = Route.api(appApi, (r) => [
+  r.contract(users, UserController),
+  r.get('/health', () => 'ok'),
+  r.middleware(Audit).get('/hello/:name', (req, { name }) => ({ hello: name })),
+])
+```
+
+Tests: [`packages/http/__tests__/routing/adHocRoutes.test.ts`](../../packages/http/__tests__/routing/adHocRoutes.test.ts) and [`adHocRoutes.test-d.ts`](../../packages/http/__tests__/routing/adHocRoutes.test-d.ts).
+
+### Non-goals
+- No names (`.name()`): H13 [#162](https://github.com/Laratypes/Laratype/issues/162).
+- No `Route.prefix(...)` or `group(...)`: not in #139.
+- No response or input validation: an ad-hoc route has no schema.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#139 Done when](https://github.com/Laratypes/Laratype/issues/139)

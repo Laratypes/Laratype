@@ -45,13 +45,15 @@ const notEnforcedColumn = (route: Record<string, any>) =>
 
 /**
  * One row of the table. Reads both registry shapes: the v2 entries of `Route.api` (name, method, path, endpoint,
- * controller, middleware, scope policies, the contract policy, domain; docs/v1/http.md › Router v2) and the 0.5 `RouteParams`.
+ * controller, middleware, scope policies, the contract policy, domain; docs/v1/http.md › Router v2, and its ad-hoc
+ * routes) and the 0.5 `RouteParams`.
  */
 export const routeRow = (route: Record<string, any>) => ({
   Method: route.method,
   path: route.path,
   Name: route.name ?? '-',
-  Controller: `${route.controller[0].name}::${route.controller[1]}`,
+  // An ad-hoc Route.api route (`r.get('/health', () => 'ok')`) has a handler, not a controller
+  Controller: route.controller ? `${route.controller[0].name}::${route.controller[1]}` : 'Closure',
   Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
   Policies: Array.isArray(route.policies)
     ? [

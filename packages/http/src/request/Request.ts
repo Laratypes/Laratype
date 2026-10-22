@@ -217,6 +217,10 @@ export default class Request extends AppServiceProvider {
               return await next(arg);
             }
             else if(currentPipelineType === 'controller') {
+              // An ad-hoc route (`r.get('/health', () => 'ok')`, H12 #139) runs its handler as a controller method
+              if(routeOption.handler) {
+                return await routeOption.handler(requestInstance, ContextApi.getModelBindings())
+              }
               if(routeOption.controller) {
                 return await this.controllerKernel(routeOption.controller)(requestInstance)
               }

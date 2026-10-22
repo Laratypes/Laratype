@@ -6,6 +6,8 @@ import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { RouteParams } from "../../contracts/Route";
 import type {
+  AdHocMethod,
+  AdHocRouteEntry,
   ApiRouteBuilder,
   ContractRouteOptions,
   ApiRouteItem,
@@ -13,6 +15,7 @@ import type {
   ControllerClass,
   MiddlewareClass,
   MountedContract,
+  MountedRoute,
   MountedScope,
   RouteEntry,
   ScopeRouteOptions,
@@ -39,6 +42,19 @@ class RouteBuilder {
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
     return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack });
+  }
+
+  get(path: string, handler: MountedRoute["handler"]) { return this.route("get", path, handler); }
+  post(path: string, handler: MountedRoute["handler"]) { return this.route("post", path, handler); }
+  put(path: string, handler: MountedRoute["handler"]) { return this.route("put", path, handler); }
+  patch(path: string, handler: MountedRoute["handler"]) { return this.route("patch", path, handler); }
+  delete(path: string, handler: MountedRoute["handler"]) { return this.route("delete", path, handler); }
+
+  /** An ad-hoc route (H12 #139): served at `path` as written, with no contract. */
+  private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"]): MountedRoute {
+    if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}(${JSON.stringify(path)}): the path must start with "/"`);
+    if (typeof handler !== "function") fail(`r.${method}('${path}') needs a handler function`);
+    return Object.freeze({ kind: "route", method, path, handler, middleware: this.stack });
   }
 }
 
@@ -98,11 +114,11 @@ const hostname = (c: Context) => {
 /**
  * Builds the routes of `Route.api(appApi, (r) => [...])` and checks them at runtime as the types do:
  * every contract of the tree is mounted once, every `r.scope()` names a scope folder, and every scope with
- * `authorize` has a policy.
+ * `authorize` has a policy. Ad-hoc routes (`r.get()`, ...) are kept apart from the contract routes.
  */
-const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
+const plan = (api: unknown, items: readonly ApiRouteItem[]): { routes: RouteEntry[]; adHoc: AdHocRouteEntry[] } => {
   const entries = treeEntries(api);
-  if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract() and r.scope()");
+  if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)");
 
   const scopeDirs = new Map<string, boolean>();
   for (const { entry } of entries) entry.scopes.forEach((scope, i) => scopeDirs.set(entry.dirs[i]!, scope.authorize === true || scopeDirs.get(entry.dirs[i]!) === true));
@@ -110,6 +126,7 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   const scopes = new Map<string, MountedScope>();
   // Keyed by tree name: a tree node names one contract, a contract value every entry that holds it
   const contracts = new Map<string, MountedContract<object>>();
+  const adHoc: AdHocRouteEntry[] = [];
   for (const item of items) {
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
@@ -126,8 +143,10 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       for (const name of names) contracts.set(name, item);
+    } else if (item?.kind === "route") {
+      adHoc.push(adHocEntry(item));
     } else {
-      fail("the routes callback must return r.contract() and r.scope() items");
+      fail("the routes callback must return r.contract(), r.scope() and ad-hoc route (r.get(), ...) items");
     }
   }
 
@@ -138,7 +157,7 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   }
 
   const byName = new Map(entries.map((e) => [e.name, e.entry]));
-  return (apiRoutes(api as Api) as ApiRoute[]).map((route): RouteEntry => {
+  const routes = (apiRoutes(api as Api) as ApiRoute[]).map((route): RouteEntry => {
     const key = route.name.slice(route.name.lastIndexOf(".") + 1);
     const name = route.name.slice(0, route.name.lastIndexOf("."));
     const entry = byName.get(name)!;
@@ -167,7 +186,20 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       domain: undefined,
     });
   });
+  return { routes, adHoc };
 };
+
+/** The registry entry of `r.get(path, handler)`: no name, contract or controller, and no capabilities to enforce. */
+const adHocEntry = (item: MountedRoute): AdHocRouteEntry =>
+  Object.freeze({
+    method: item.method,
+    path: item.path,
+    name: undefined,
+    controller: undefined,
+    handler: item.handler,
+    middleware: Object.freeze([...new Set(item.middleware)]),
+    domain: undefined,
+  });
 
 /**
  * The options of `r.contract(c, Ctrl, { policy, endpoints })`: `policy` is a class, and every `endpoints` key is an
@@ -301,7 +333,7 @@ const segments = (path: string): string[] => {
  * shadow a child's static one: `users.show` (`/api/users/:user`) registered first answers `GET /api/users/me` of
  * `users.me.index`.
  */
-const registrationOrder = (routes: readonly RouteEntry[]): RouteEntry[] => {
+const registrationOrder = <T extends { readonly path: string }>(routes: readonly T[]): T[] => {
   const ranks = new Map(routes.map((route) => [route, segments(route.path).map(segmentRank)]));
   return [...routes].sort((a, b) => {
     const ra = ranks.get(a)!;
@@ -311,39 +343,53 @@ const registrationOrder = (routes: readonly RouteEntry[]): RouteEntry[] => {
   });
 };
 
+/** What `RequestKernel` runs for a route: its controller method, or the handler of an ad-hoc route. */
+const routeParams = (route: RouteEntry | AdHocRouteEntry): RouteParams => {
+  if (route.controller === undefined) {
+    return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...route.middleware] };
+  }
+  return {
+    method: route.method,
+    path: route.path,
+    name: route.name,
+    status: route.endpoint.def.status,
+    modelBinding: false,
+    endpoint: route.endpoint,
+    controller: route.controller as unknown as RouteParams["controller"],
+    middleware: [...route.middleware],
+  };
+};
+
 /** The routes of one `Route.api(...)`, checked and ready to mount. */
 export class ApiRoutes {
-  /** One entry per route, depth-first in tree order. */
+  /** One entry per contract route, depth-first in tree order. */
   public readonly routes: readonly RouteEntry[];
+  /** The ad-hoc routes (`r.get()`, ...), in callback order. They have no contract, so they are not in `routes`. */
+  public readonly adHoc: readonly AdHocRouteEntry[];
 
   /** Built by `Route.api()` only: `@laratype/http` exports the type, not the constructor. */
-  constructor(routes: readonly RouteEntry[]) {
+  constructor(routes: readonly RouteEntry[], adHoc: readonly AdHocRouteEntry[] = []) {
     this.routes = Object.freeze([...routes]);
+    this.adHoc = Object.freeze([...adHoc]);
   }
 
   /** Serves these routes on `domain` only (the request port is ignored). Other hosts fall through to the next route. */
   domain(domain: string): ApiRoutes {
     const host = checkDomain(domain);
-    return new ApiRoutes(this.routes.map((route) => Object.freeze({ ...route, domain: host })));
+    return new ApiRoutes(
+      this.routes.map((route) => Object.freeze({ ...route, domain: host })),
+      this.adHoc.map((route) => Object.freeze({ ...route, domain: host })),
+    );
   }
 
   /**
-   * Registers every route on Hono and returns the registry entries. Hono matches in registration order, so routes
-   * are registered by specificity (`registrationOrder`), not in tree order.
+   * Registers every route on Hono and returns the registry entries: the contract routes, then the ad-hoc ones. Hono
+   * matches in registration order, so routes are registered by specificity (`registrationOrder`), not in tree order.
    */
-  mount(app: Hono): RouteEntry[] {
+  mount(app: Hono): (RouteEntry | AdHocRouteEntry)[] {
     warnUnenforced(this.routes);
-    for (const route of registrationOrder(this.routes)) {
-      const handle = RequestKernel.handle({
-        method: route.method,
-        path: route.path,
-        name: route.name,
-        status: route.endpoint.def.status,
-        modelBinding: false,
-        endpoint: route.endpoint,
-        controller: route.controller as unknown as RouteParams["controller"],
-        middleware: [...route.middleware],
-      });
+    for (const route of registrationOrder<RouteEntry | AdHocRouteEntry>([...this.routes, ...this.adHoc])) {
+      const handle = RequestKernel.handle(routeParams(route));
       const domain = route.domain;
       app.on(
         route.method.toUpperCase(),
@@ -351,7 +397,7 @@ export class ApiRoutes {
         domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c) : next()),
       );
     }
-    return [...this.routes];
+    return [...this.routes, ...this.adHoc];
   }
 }
 
@@ -365,5 +411,6 @@ export function api<A extends object, const M extends readonly ApiRouteItem[]>(
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {
   if (typeof routes !== "function") fail("expected a routes callback: Route.api(appApi, (r) => [...])");
-  return new ApiRoutes(plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>)));
+  const { routes: entries, adHoc } = plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>));
+  return new ApiRoutes(entries, adHoc);
 }

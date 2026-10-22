@@ -45,7 +45,10 @@ export type RouteParams = {
   endpoint?: AnyEndpoint,
   request?: typeof Request,
   can?: PolicyFactory[],
-  controller: [typeof Controller, string]
+  /** `undefined` for an ad-hoc route, which runs its `handler` instead. */
+  controller?: [typeof Controller, string]
+  /** The handler of an ad-hoc `Route.api` route (`r.get('/health', () => 'ok')`, H12 #139): `(req, params)`. */
+  handler?: (req: Request, params: Record<string, string>) => unknown,
   middleware?: Array<typeof Middleware>,
   withoutMiddleware?: Array<typeof Middleware>,
   name?: string,
