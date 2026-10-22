@@ -17,9 +17,13 @@ class MemoryLog extends LogManager {
 describe('Log facade', () => {
   afterEach(() => Facade.setFacadeApplication(undefined))
 
-  it('resolves one LogManager per container: it is an autowired singleton', () => {
-    const app = new Container()
-    expect(app.make(LogManager)).toBe(app.make(LogManager))
+  it('works detached from the class', () => {
+    const memory = new MemoryLog()
+    const restore = Log.fake(memory)
+    const info = Log.info
+    info('detached')
+    expect(memory.lines).toEqual(['info: detached'])
+    restore()
   })
 
   it('app.swap() replaces the implementation', () => {

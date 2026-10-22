@@ -13,6 +13,10 @@ describe('Hash facade', () => {
     expect(new Hasher().make('secret')).toBe(SHA256_SECRET)
   })
 
+  it('works detached from the class, as in 0.5', () => {
+    expect(['secret'].map(Hash.make)).toEqual([SHA256_SECRET])
+  })
+
   it('resolves the Hasher bound in the facade application', () => {
     class Upper extends Hasher {
       override make(value: string) {

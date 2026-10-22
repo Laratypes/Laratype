@@ -64,7 +64,7 @@ export default class Serve {
   }
 
   public static down() {
-    if(this.container) Facade.setFacadeApplication(undefined);
+    if(this.container && Facade.getFacadeApplication() === this.container) Facade.setFacadeApplication(undefined);
     this.instance = null;
     this.container = null;
   }

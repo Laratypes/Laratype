@@ -575,7 +575,6 @@ export class Hasher { make(value: string): string }                 // sha256, a
 export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
 
 // @laratype/log
-@Injectable({ scope: 'singleton' })
 export class LogManager { getLogger(); format(); info(message); error(message); warn(message); debug(message); emergency(message); alert(message); critical(message) }
 export class Log extends Facade { static readonly accessor: typeof LogManager; /* the same methods, static */ }
 
@@ -586,10 +585,11 @@ export class Auth extends Facade { static readonly accessor: typeof AuthManager;
 
 ### Invariants
 - A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
-- The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`).
-- The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` is `@Injectable({ scope: 'singleton' })`: one logger per container, like the 0.5 static cache.
+- Facade methods call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
+- The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
+- The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).
-- **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. Restore functions run in reverse order.
+- **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. It does nothing when the token was bound again after the swap. Restore functions run in reverse order.
 - **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor.
 - `Mail` has no implementation on master (`packages/mail` holds only `package.json`), so its facade comes with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170) on this base.
 

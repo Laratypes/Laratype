@@ -1,5 +1,5 @@
 import { Config } from "@laratype/support";
-import { Facade, Injectable } from "@laratype/core";
+import { Facade } from "@laratype/core";
 import { format } from "winston";
 
 import Logger from "../Logger";
@@ -7,27 +7,26 @@ import DriverNotImplement from "../exceptions/DriverNotImplement";
 
 const { combine, timestamp, label, printf } = format;
 
-/** The implementation behind the `Log` facade: one logger per container, created on first use. */
-@Injectable({ scope: 'singleton' })
+/** The implementation behind the `Log` facade. The logger is created on first use and shared, as in 0.5. */
 export class LogManager {
 
-  protected logger: Logger | null = null;
+  protected static logger: Logger | null = null;
   public getLogger() {
     const driver = Config.get(['logging', 'default'] as const);
     if(!driver) {
       throw new DriverNotImplement();
     }
-    if(this.logger == null) {
-      this.logger = new Logger(driver, "./storage/logs/laratype.log")
+    if(LogManager.logger == null) {
+      LogManager.logger = new Logger(driver, "./storage/logs/laratype.log")
 
-      this.logger.getLogStream()!.format = combine(
+      LogManager.logger.getLogStream()!.format = combine(
         label({ label: Config.get(['env'] as const) }),
         timestamp(),
         this.format()
       )
     }
 
-    return this.logger;
+    return LogManager.logger;
   }
 
   public format(): any {
@@ -64,33 +63,33 @@ export default class Log extends Facade {
   static override readonly accessor = LogManager;
 
   public static getLogger() {
-    return this.root().getLogger();
+    return Log.root().getLogger();
   }
 
   public static format(): any {
-    return this.root().format();
+    return Log.root().format();
   }
 
   public static info(message: any): void {
-    this.root().info(message);
+    Log.root().info(message);
   }
   public static error(message: any): void {
-    this.root().error(message);
+    Log.root().error(message);
   }
   public static warn(message: any): void {
-    this.root().warn(message);
+    Log.root().warn(message);
   }
   public static debug(message: any): void {
-    this.root().debug(message);
+    Log.root().debug(message);
   }
   public static emergency(message: any): void {
-    this.root().emergency(message);
+    Log.root().emergency(message);
   }
   public static alert(message: any): void {
-    this.root().alert(message);
+    Log.root().alert(message);
   }
   public static critical(message: any): void {
-    this.root().critical(message);
+    Log.root().critical(message);
   }
 
 }

@@ -123,12 +123,14 @@ export class Container {
 
   /**
    * Bind `token` to `value` in this container, for tests. Returns a function that puts back this container's own
-   * previous binding of `token` (or none); call the restore functions in reverse order.
+   * previous binding of `token` (or none), unless `token` was bound again since; call the restore functions in reverse order.
    */
   swap<T>(token: Token<T>, value: NoInfer<T>): () => void {
     const previous = this.bindings.get(token)
     this.instance(token, value)
+    const swapped = this.bindings.get(token)
     return () => {
+      if (this.bindings.get(token) !== swapped) return
       if (previous) this.bindings.set(token, previous)
       else this.bindings.delete(token)
     }

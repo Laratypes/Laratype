@@ -114,31 +114,31 @@ export default class Auth extends Facade {
   }
 
   static user<T extends Model>() {
-    return this.root().user<T>();
+    return Auth.root().user<T>();
   }
 
   static id<A>(): A {
-    return this.root().id<A>();
+    return Auth.root().id<A>();
   }
 
   static isAuthenticated(): boolean {
-    return this.root().isAuthenticated();
+    return Auth.root().isAuthenticated();
   }
 
   static check(): boolean {
-    return this.root().check();
+    return Auth.root().check();
   }
 
   static login<T extends Model>(user: T) {
-    return this.root().login(user);
+    return Auth.root().login(user);
   }
 
   static guard<T extends Model>(guardName: string) {
-    return this.root().guard<T>(guardName);
+    return Auth.root().guard<T>(guardName);
   }
 
   static logout(): Promise<void> {
-    return this.root().logout();
+    return Auth.root().logout();
   }
   
 }

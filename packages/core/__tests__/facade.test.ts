@@ -80,6 +80,14 @@ describe('Container.swap', () => {
     expect(child.make(Greeter)).toBeInstanceOf(Hello)
   })
 
+  it('restore leaves a binding made after the swap in place', () => {
+    const c = new Container()
+    const restore = c.swap(Greeter, fake('fake'))
+    c.bind(Greeter, Hello)
+    restore()
+    expect(c.make(Greeter)).toBeInstanceOf(Hello)
+  })
+
   it('swaps a token', () => {
     const c = new Container().instance(NAME, { value: 'real' })
     const restore = c.swap(NAME, { value: 'fake' })
@@ -139,6 +147,14 @@ describe('Facade', () => {
     const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
     expect(Count.next()).toBe(10)
     restore()
+    expect(Count.next()).toBe(1)
+  })
+
+  it('setFacadeApplication() drops the fallback container and its fakes', () => {
+    const fallback = Facade.getFacadeApplication()
+    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    Facade.setFacadeApplication(undefined)
+    expect(Facade.getFacadeApplication()).not.toBe(fallback)
     expect(Count.next()).toBe(1)
   })
 

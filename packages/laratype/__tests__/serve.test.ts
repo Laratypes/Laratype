@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { __laratype_deps, Facade } from "@laratype/core";
+import { __laratype_deps, Container, Facade } from "@laratype/core";
 import { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
 
@@ -25,6 +25,15 @@ describe("Serve.getContainer", () => {
     expect(Facade.getFacadeApplication()).toBe(container);
     Serve.down();
     expect(Facade.getFacadeApplication()).not.toBe(container);
+  });
+
+  it("down() leaves a facade application set by someone else", () => {
+    Serve.getContainer();
+    const other = new Container();
+    Facade.setFacadeApplication(other);
+    Serve.down();
+    expect(Facade.getFacadeApplication()).toBe(other);
+    Facade.setFacadeApplication(undefined);
   });
 });
 

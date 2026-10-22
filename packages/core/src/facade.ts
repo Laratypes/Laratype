@@ -2,6 +2,16 @@ import { Container, DiError } from './container'
 import type { Token } from './container'
 import { depsRegistry } from './registry'
 
+/** Facade application state, on `globalThis` under `Symbol.for` like the deps registry, so two copies of `@laratype/core` agree. */
+const STATE = Symbol.for('laratype.di.facade')
+
+interface FacadeState {
+  app?: Container
+  fallback?: Container
+}
+
+const state = (): FacadeState => ((globalThis as { [STATE]?: FacadeState })[STATE] ??= {})
+
 /** What `Facade`'s static helpers need from a facade class: the binding it forwards to. */
 export interface FacadeClass<T> {
   readonly accessor: Token<T>
@@ -15,17 +25,20 @@ export abstract class Facade {
   /** The binding the facade forwards to: a class (autowired when unbound) or a token bound by a provider. */
   declare static readonly accessor: Token<object>
 
-  private static app: Container | undefined
-  private static fallback: Container | undefined
-
-  /** Set the container facades resolve from (the kernel sets the app container); `undefined` unsets it. */
+  /**
+   * Set the container facades resolve from (the kernel sets the app container); `undefined` unsets it.
+   * Either way the fallback container is dropped, so its fakes and instances do not outlive the app.
+   */
   static setFacadeApplication(app: Container | undefined): void {
-    Facade.app = app
+    const current = state()
+    current.app = app
+    current.fallback = undefined
   }
 
   /** The container set by `setFacadeApplication()`, else one autowire-only container shared by every facade. */
   static getFacadeApplication(): Container {
-    return Facade.app ?? (Facade.fallback ??= new Container({ deps: depsRegistry }))
+    const current = state()
+    return current.app ?? (current.fallback ??= new Container({ deps: depsRegistry }))
   }
 
   /** Swap the facade's binding for `fake` in the facade application. Returns a function that restores it. */

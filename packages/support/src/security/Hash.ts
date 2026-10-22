@@ -12,7 +12,7 @@ export default class Hash extends Facade {
   static override readonly accessor = Hasher;
 
   public static make(value: string): string {
-    return this.root().make(value);
+    return Hash.root().make(value);
   }
 
 }
