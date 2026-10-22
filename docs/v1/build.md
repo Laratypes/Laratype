@@ -87,7 +87,7 @@ Package manifests, build configuration and scripts:
   ```
   `bun run build:type` (`rollup.dts.config.js`) writes `dist/index.d.cts` next to `dist/index.d.ts`.
 - **Peer dependencies:**
-  - `hono` (`^4.6.18`) for http, support and laratype;
+  - `hono` (`^4.8.0`) for http, support and laratype;
   - `zod` (`^3.25.0`) for http and validation, whose `.d.ts` import zod.
   - Optional workspace peers for imports that are type-only or loaded on demand: support → http; http → auth; laratype → http, auth; sauf → laratype, database.
   - support also has `passport` and `@types/passport` as optional peers (the auth config type).
@@ -107,7 +107,7 @@ Package manifests, build configuration and scripts:
 - **Every runtime import of a third-party package is in `dependencies` or `peerDependencies`.** bun.build.js keeps those external. A runtime import declared only in devDependencies is bundled into the dist, which ships a second copy (hono's `HTTPException` / `instanceof`). `check:dist` fails on it.
 - **A package that exposes another package's types or instances is a peer of it** (hono, zod, typeorm, dayjs). Packages that are only used internally are `dependencies`.
 - **Packages the public `.d.ts` imports are declared too**, as a dependency or a peer (an optional peer when the import is type-only and the edge would be circular). Types-only packages the `.d.ts` needs (`@types/*`, `ts-toolbelt`) are `dependencies`, unless the matching runtime package is an optional peer (support's `@types/passport`).
-- **Peer ranges are explicit** (`^4.6.18`), never `catalog:`. The workspace keeps the `catalog:` devDependency for its own install.
+- **Peer ranges are explicit** (`^4.8.0`), never `catalog:`. The workspace keeps the `catalog:` devDependency for its own install.
 - **Each `exports` condition has its own `types`:** `.d.ts` for `import`, `.d.cts` for `require`. In a `"type": "module"` package, one `.d.ts` for both is read as ESM types for the CJS build (attw "Masquerading as ESM").
 - **The public `.d.ts` resolve for a consumer** under `moduleResolution: NodeNext`, ESM and CJS, with `skipLibCheck: false`. They do not refer to the repo-only globals in `packages/global.d.ts`. Deep imports use the target's `exports` keys (`typeorm/driver/.../XConnectionOptions.js`).
 - **Named imports from CommonJS packages are not used once the package is external** (`import Handlebars from "handlebars"`, not `import { compile }`). Node's ESM loader cannot always detect CJS named exports. `check:dist` loads every ESM chunk to catch this.

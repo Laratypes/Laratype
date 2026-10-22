@@ -8,7 +8,7 @@ import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, NotFoundException } from '@laratype/support'
-import { Controller, RequestKernel, ResponseKernel } from '../../src/index'
+import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel } from '../../src/index'
 
 /** An app booted like `sauf dev`: RequestKernel puts the container on each request, ResponseKernel handles errors. */
 const bootApp = () => {
@@ -311,6 +311,40 @@ describe('error response headers', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
     expect(response.headers.get('Content-Language')).toBe('fr')
   })
+
+  // Security review of #281: before Hono 4.8 a second header store put these back. Pins the behavior on the peer floor
+  for (const [label, thrown, status] of [
+    ['an unknown error', () => new Error('secret detail'), 500],
+    ['a 4xx HTTPException', () => new HTTPException(401, { message: 'Unauthorized' }), 401],
+  ] as const) {
+    it(`${label} thrown after await next(), once the route answered through resolveResponse, drops its cookie, validators and Location`, async () => {
+      quiet()
+      class Session extends Controller {
+        index() {
+          return new ResponseSupport({ ok: true }, 200, {
+            'Set-Cookie': 'sid=secret; HttpOnly',
+            'ETag': '"v1"',
+            'Last-Modified': 'Wed, 21 Oct 2026 07:28:00 GMT',
+            'Cache-Control': 'public, max-age=60',
+            'Location': '/next',
+          })
+        }
+      }
+      const app = bootApp()
+      app.use(async (_c, next) => {
+        await next()
+        throw thrown()
+      })
+      route(app, '/session', Session)
+      const response = await app.request('/session')
+      expect(response.status).toBe(status)
+      expect(response.headers.getSetCookie()).toEqual([])
+      expect(response.headers.get('ETag')).toBeNull()
+      expect(response.headers.get('Last-Modified')).toBeNull()
+      expect(response.headers.get('Location')).toBeNull()
+      expect(response.headers.get('Cache-Control')).toBe('no-store')
+    })
+  }
 
   it('a successful response keeps the headers middleware set', async () => {
     class Fine extends Controller { index() { return { ok: true } } }

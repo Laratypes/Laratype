@@ -155,12 +155,11 @@ export default class Response extends AppServiceProvider {
     if (c.finalized) {
       c.res = new globalThis.Response(null, { headers: c.res.headers });
     }
-    // Through c.header() too: before 4.8, Hono keeps the c.header() values apart from c.res and reapplies them
-    for (const name of [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS]) {
-      c.header(name, undefined);
+    // c.res.headers is the context's only header store from Hono 4.8 on, the peer floor: before 4.8, a second store
+    // put back the headers deleted here (#281 security review)
+    for (const name of BODY_HEADERS) {
       c.res.headers.delete(name);
     }
-    c.header("Cache-Control", "no-store");
     scrubErrorHeaders(c.res.headers);
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
