@@ -28,7 +28,7 @@ const MAX_WINDOWS = 100_000;
 
 /**
  * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Past
- * `maxWindows` the windows started first are dropped, so their clients start a new window early.
+ * `maxWindows`, with no ended window to drop, the window started first is dropped, so its client starts a new one early.
  */
 export class MemoryThrottleStore implements ThrottleStore {
   // In the order the windows started: a new window is re-inserted at the end
@@ -43,6 +43,8 @@ export class MemoryThrottleStore implements ThrottleStore {
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
       this.windows.delete(key);
+      // Full: drop the ended windows first, and a live one only when none has ended
+      if (this.windows.size >= this.maxWindows) this.sweep(now);
       if (this.windows.size >= this.maxWindows) this.windows.delete(this.windows.keys().next().value!);
       window = { hits: 0, resetAt: now + windowMs };
       this.windows.set(key, window);
@@ -143,9 +145,9 @@ export interface ThrottledRoute {
  */
 export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore = memoryStore): RouteHandler => {
   const windowMs = durationMs(options.per);
-  // At most MAX_SAFE_INTEGER ms, so the window ends and Retry-After is written as plain digits
-  if (!(windowMs > 0 && windowMs <= Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`[@laratype/http] Route.api: ${route.name}: throttle per must be a positive duration of at most ${Number.MAX_SAFE_INTEGER} ms, got ${String(options.per)}`);
+  // The contract's range (checkThrottle): a shorter window never limits, a longer one never ends
+  if (!(windowMs >= 1000 && windowMs <= Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`[@laratype/http] Route.api: ${route.name}: throttle per must be from 1 second to ${Number.MAX_SAFE_INTEGER} ms, got ${String(options.per)}`);
   }
   // The limit and window are part of the key: a dev restart that changes them doesn't keep the old window
   const scope = `${route.method.toUpperCase()} ${route.domain ?? "*"} ${route.path} ${options.limit}/${windowMs}`;

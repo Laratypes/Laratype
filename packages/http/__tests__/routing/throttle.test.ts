@@ -208,6 +208,16 @@ describe('MemoryThrottleStore', () => {
     expect([...windows.keys()]).toEqual(['c'])
   })
 
+  it('when full, drops the ended windows before a live one', () => {
+    const store = new MemoryThrottleStore(2)
+    store.hit('a', 1000)
+    store.hit('b', 10_000)
+    vi.advanceTimersByTime(1000)
+    store.hit('c', 10_000)
+    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
+    expect([...windows.keys()]).toEqual(['b', 'c'])
+  })
+
   it('keeps at most maxWindows, dropping the window started first', () => {
     const store = new MemoryThrottleStore(2)
     store.hit('a', 10_000)
@@ -225,8 +235,9 @@ describe('throttled', () => {
     const route = { name: 'posts.index', method: 'get', path: '/posts', domain: undefined }
     const handle = async () => new Response()
     expect(() => throttled(route, { limit: 1, per: 1e300 }, handle)).toThrow(
-      '[@laratype/http] Route.api: posts.index: throttle per must be a positive duration of at most 9007199254740991 ms, got 1e+300',
+      '[@laratype/http] Route.api: posts.index: throttle per must be from 1 second to 9007199254740991 ms, got 1e+300',
     )
+    expect(() => throttled(route, { limit: 1, per: 0.5 }, handle)).toThrow(/from 1 second/)
     expect(() => throttled(route, { limit: 1, per: 60 }, handle)).not.toThrow()
   })
 })

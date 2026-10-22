@@ -332,7 +332,8 @@ export class ApiRoutes {
    */
   mount(app: Hono): RouteEntry[] {
     warnUnenforced(this.routes);
-    for (const route of registrationOrder(this.routes)) {
+    // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
+    const handlers = registrationOrder(this.routes).map((route) => {
       const kernel = RequestKernel.handle({
         method: route.method,
         path: route.path,
@@ -346,12 +347,9 @@ export class ApiRoutes {
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229)
       const handle = route.throttle ? throttled(route, route.throttle, kernel) : kernel;
       const domain = route.domain;
-      app.on(
-        route.method.toUpperCase(),
-        route.path,
-        domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next()),
-      );
-    }
+      return [route, domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next())] as const;
+    });
+    for (const [route, handle] of handlers) app.on(route.method.toUpperCase(), route.path, handle);
     return [...this.routes];
   }
 }

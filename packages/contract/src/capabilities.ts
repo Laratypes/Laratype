@@ -234,16 +234,20 @@ export const isErrorDef = (value: unknown): value is AnyErrorDef =>
   typeof (value as AnyErrorDef).is === "function";
 
 const DURATION = /^\d+(?:\.\d+)?[smhd]$/;
+const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const;
 
 export const checkThrottle = (value: unknown, label: string): ThrottleOptions => {
   const t = value as ThrottleOptions | null;
   const per = t?.per;
-  // a finite window longer than 0: "0s" or Infinity would never limit, or never reset
-  const amount = typeof per === "number" ? per : typeof per === "string" && DURATION.test(per) ? Number.parseFloat(per) : Number.NaN;
+  const seconds =
+    typeof per === "number" ? per
+    : typeof per === "string" && DURATION.test(per) ? Number.parseFloat(per) * UNIT_SECONDS[per.slice(-1) as keyof typeof UNIT_SECONDS]
+    : Number.NaN;
+  // From 1 second to MAX_SAFE_INTEGER ms: a shorter window never limits ("0s"), a longer one never ends (Infinity)
   if (
     typeof t !== "object" || t === null ||
     !Number.isInteger(t.limit) || t.limit <= 0 ||
-    !(Number.isFinite(amount) && amount > 0)
+    !(seconds >= 1 && seconds * 1000 <= Number.MAX_SAFE_INTEGER)
   ) {
     fail(`${label}: throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`);
   }
