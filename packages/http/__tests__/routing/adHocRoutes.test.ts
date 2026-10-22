@@ -131,7 +131,13 @@ describe('ad-hoc routes', () => {
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/health', () => 'a'), r.get('/health', () => 'b')])).toThrow(
       "[@laratype/http] Route.api: r.get('/health') is the same route as another r.get('/health')",
     )
-    // Another method on the same path is another route
+    // A param name does not change what a path matches
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:user', () => 'shadowed')])).toThrow(
+      "[@laratype/http] Route.api: r.get('/api/users/:user') is the same route as users.show",
+    )
+    // Another method, pattern or trailing slash on the same path is another route
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/api/users/:id{[0-9]+}', () => 'a')])).not.toThrow()
+    expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/items', () => 'a'), r.get('/items/', () => 'b')])).not.toThrow()
     expect(() => Route.api(appApi, (r) => [r.contract(users, UserController), r.get('/health', () => 'a'), r.post('/health', () => 'b')])).not.toThrow()
   })
 
