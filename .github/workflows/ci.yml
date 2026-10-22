@@ -37,6 +37,7 @@ jobs:
         run: bunx vitest run
 
       # B22 (#277): Biome lint-only (no formatting) until the repo-wide format lands.
-      # Last, so a lint error does not hide the build and test results
+      # Last, so a lint error does not hide the build and test results; runs even when they fail
       - name: Lint
+        if: ${{ !cancelled() }}
         run: bun run check:lint
