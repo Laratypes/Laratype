@@ -94,6 +94,8 @@ describe('request.ip()', () => {
     expect(await (await bootApp().request('/whoami', {}, { server: { requestIP } })).json()).toEqual({ ip: '192.0.2.11', token: '' })
     // env.server without bindings wins over env's own, so there is nothing to read, and no error
     expect(await (await bootApp().request('/whoami', {}, { incoming, server: {} })).json()).toEqual({ ip: '', token: '' })
+    // an env binding named `incoming` that is no Node request
+    expect(await (await bootApp().request('/whoami', {}, { incoming: {} })).json()).toEqual({ ip: '', token: '' })
   })
 
   it('returns "" when the Bun server has no address for the request (a unix socket)', async () => {

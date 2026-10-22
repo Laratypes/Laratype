@@ -13,21 +13,19 @@ import { has } from "es-toolkit/compat"
 const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
 
 /** What `ip()` reads of the adapter's env: Node's `incoming` request, or Bun's `Server.requestIP`. */
-type AdapterEnv = { incoming?: unknown, requestIP?: (request: globalThis.Request) => { address: string } | null }
+type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globalThis.Request) => { address: string } | null }
 
 export default class Request implements RequestInterface {
 
   protected requestCtx: HonoRequest
 
-  /**
-   * The Hono context of the request, when the kernel built this request: `ip()` reads the connection from it. Private,
-   * so logging or serializing the request doesn't walk Node's socket.
-   */
-  readonly #honoCtx?: Context
+  /** The Hono context of the request, when the kernel built this request: `ip()` reads the connection from it. */
+  declare protected readonly honoCtx?: Context
 
   constructor(requestCtx: HonoRequest, honoCtx?: Context) {
     this.requestCtx = requestCtx
-    this.#honoCtx = honoCtx
+    // Non-enumerable, so logging or serializing the request doesn't walk Node's socket
+    Object.defineProperty(this, "honoCtx", { value: honoCtx, writable: false, enumerable: false, configurable: false })
   }
 
   protocol() {
@@ -104,15 +102,15 @@ export default class Request implements RequestInterface {
    * address.
    */
   ip(): string {
-    const ctx = this.#honoCtx
+    const ctx = this.honoCtx
     if(!ctx?.env) {
       return ""
     }
     // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
     const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
-    const bindings = env.server ?? env
-    // Node passes `{ incoming, outgoing }`
-    if(bindings.incoming) {
+    const bindings = env.server || env
+    // Node passes `{ incoming, outgoing }`, its IncomingMessage carries the socket
+    if(bindings.incoming?.socket) {
       return getNodeConnInfo(ctx).remote.address ?? ""
     }
     // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
