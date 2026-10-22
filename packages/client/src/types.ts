@@ -130,11 +130,32 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/**
+ * The request a call is about to send, as `fetch` gets it: `fetch(url, init)`. `init.headers` is a `Headers`, already
+ * merged (`options.headers`, the call's `headers`, the JSON `content-type`).
+ */
+export interface ClientRequest {
+  readonly url: string;
+  readonly init: RequestInit & { headers: Headers };
+}
+
 export interface ClientOptions {
   /** Origin the contract paths are appended to. Default `""`: same origin, since contract paths are full (`/api/...`). */
   baseUrl?: string;
   /** The fetch to call. Default: the global `fetch`, read at call time. */
   fetch?: FetchLike;
-  /** Headers sent with every call; a call's own `headers` override them. */
-  headers?: HeadersInit;
+  /**
+   * Headers sent with every call; a call's own `headers` override them. A function is called at each call, so it can
+   * return a fresh auth token; it may be async.
+   */
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  /** The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`). */
+  credentials?: RequestCredentials;
+  /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
+  onRequest?: (request: ClientRequest) => void | Promise<void>;
+  /**
+   * Called with every response, before the client reads its body (read a `response.clone()` to see it); not called
+   * when `fetch` rejects. A throw rejects the call.
+   */
+  onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
 }

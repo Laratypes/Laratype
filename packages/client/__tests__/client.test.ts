@@ -449,6 +449,125 @@ describe('createClient', () => {
   })
 })
 
+describe('options and hooks', () => {
+  it('headers can be a function, sync or async, called at each call; the call headers still override it', async () => {
+    const { fetch, calls } = fakeFetch()
+    let token = 'a'
+    const headers = vi.fn(() => ({ authorization: `Bearer ${token}`, 'x-tenant': 'default' }))
+    const api = createClient(appApi, { fetch, headers })
+    await api.users.index()
+    token = 'b'
+    await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't1' } })
+    await createClient(appApi, { fetch, headers: async () => new Headers({ authorization: 'Bearer c' }) }).users.index()
+    expect(headers).toHaveBeenCalledTimes(2)
+    expect(calls.map((c) => c.headers)).toEqual([
+      { authorization: 'Bearer a', 'x-tenant': 'default' },
+      { authorization: 'Bearer b', 'content-type': 'application/json', 'x-tenant': 't1' },
+      { authorization: 'Bearer c' },
+    ])
+  })
+
+  it('a headers function that throws or rejects rejects the call, before fetch', async () => {
+    const { fetch } = fakeFetch()
+    const failure = new Error('no token')
+    await expect(createClient(appApi, { fetch, headers: () => { throw failure } }).users.index()).rejects.toBe(failure)
+    await expect(createClient(appApi, { fetch, headers: () => Promise.reject(failure) }).users.index()).rejects.toBe(failure)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('sets credentials on every call when given, and leaves fetch\'s default otherwise', async () => {
+    const { fetch } = fakeFetch()
+    const options: ClientOptions = { fetch, credentials: 'include' }
+    const api = createClient(appApi, options)
+    await api.users.index()
+    options.credentials = undefined
+    await api.users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.credentials)).toEqual(['include', undefined])
+    expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
+  })
+
+  it('onRequest gets the url and the merged init just before fetch, and may change the init', async () => {
+    const { fetch, calls } = fakeFetch()
+    const controller = new AbortController()
+    const seen: Array<[string, Record<string, string>]> = []
+    const api = createClient(appApi, {
+      fetch,
+      baseUrl: 'https://example.com',
+      headers: { 'x-tenant': 'default' },
+      onRequest: async ({ url, init }) => {
+        seen.push([url, Object.fromEntries(init.headers)])
+        await Promise.resolve()
+        init.headers.set('x-signature', 'sig')
+        init.signal = controller.signal
+      },
+    })
+    await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't1' } })
+    expect(seen).toEqual([['https://example.com/api/users', { 'content-type': 'application/json', 'x-tenant': 't1' }]])
+    expect(calls[0]!.url).toBe('https://example.com/api/users')
+    expect(calls[0]!.headers).toEqual({ 'content-type': 'application/json', 'x-signature': 'sig', 'x-tenant': 't1' })
+    expect(calls[0]!.signal).toBe(controller.signal)
+  })
+
+  it('onRequest is not called for a request that fails before it is sent; a throw from it rejects the call', async () => {
+    const { fetch } = fakeFetch()
+    const onRequest = vi.fn()
+    // @ts-expect-error runtime check
+    await expect(createClient(appApi, { fetch, onRequest }).users.show({ params: {} })).rejects.toThrow(/missing param "user"/)
+    expect(onRequest).not.toHaveBeenCalled()
+    const failure = new Error('hook failed')
+    await expect(createClient(appApi, { fetch, onRequest: () => { throw failure } }).users.index()).rejects.toBe(failure)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('onResponse gets every response with its request, before the client reads the body', async () => {
+    const order: string[] = []
+    const fetch = vi.fn<FetchLike>(async () => {
+      order.push('fetch')
+      return new Response(JSON.stringify({ code: 'NOT_FOUND', message: 'gone' }), { status: 404 })
+    })
+    const bodies: unknown[] = []
+    const api = createClient(appApi, {
+      fetch,
+      onRequest: () => void order.push('onRequest'),
+      onResponse: async (response, request) => {
+        order.push('onResponse')
+        expect(response.bodyUsed).toBe(false)
+        expect(request.url).toBe('/api/users/1')
+        bodies.push(await response.clone().json())
+      },
+    })
+    const result = await api.users.show({ params: { user: 1 } })
+    expect(order).toEqual(['onRequest', 'fetch', 'onResponse'])
+    expect(bodies).toEqual([{ code: 'NOT_FOUND', message: 'gone' }])
+    expect(result).toMatchObject({ ok: false, status: 404, code: 'NOT_FOUND', error: { message: 'gone' } })
+  })
+
+  it('onResponse is not called when fetch rejects; a throw from it rejects the call', async () => {
+    const offline = new TypeError('Failed to fetch')
+    const onResponse = vi.fn()
+    const result = await createClient(appApi, { fetch: () => Promise.reject(offline), onResponse }).users.index()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, error: offline })
+    expect(onResponse).not.toHaveBeenCalled()
+    const failure = new Error('hook failed')
+    const api = createClient(appApi, { fetch: fakeFetch([]).fetch, onResponse: () => Promise.reject(failure) })
+    await expect(api.users.index()).rejects.toBe(failure)
+  })
+
+  it('reads credentials and the hooks from the options at each call', async () => {
+    const { fetch } = fakeFetch([])
+    const options: ClientOptions = { fetch }
+    const api = createClient(appApi, options)
+    await api.users.index()
+    const onRequest = vi.fn()
+    const onResponse = vi.fn()
+    Object.assign(options, { credentials: 'omit', onRequest, onResponse })
+    await api.users.index()
+    expect(onRequest).toHaveBeenCalledTimes(1)
+    expect(onResponse).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[1]![1].credentials).toBe('omit')
+  })
+})
+
 /** A fetch answering with a raw body, for the result union. */
 const respond = (body: BodyInit | null, status = 200) => vi.fn<FetchLike>(async () => new Response(body, { status }))
 const json = (value: unknown, status = 200) => respond(JSON.stringify(value), status)

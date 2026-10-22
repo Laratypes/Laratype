@@ -18,7 +18,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
-| [Options and hooks](#options-and-hooks) | planned → #124 |
+| [Options and hooks](#options-and-hooks) | proposed: PR #PRNUM @ HEADSHA ([#124](https://github.com/Laratypes/Laratype/issues/124)) |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
@@ -117,6 +117,7 @@ export interface ClientOptions {
   fetch?: FetchLike;                // default: the global fetch
   headers?: HeadersInit;            // sent with every call
   // all three are read from this object at each call
+  // CL3 (#124) adds credentials, onRequest, onResponse and a headers function: see Options and hooks
 }
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -170,7 +171,7 @@ if (result.ok) result.data.title                     // see Result union
 
 ### Non-goals
 - No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
-- No dynamic headers, hooks or `credentials`: CL3 [#124](https://github.com/Laratypes/Laratype/issues/124).
+- Dynamic headers, hooks and `credentials` are in [Options and hooks](#options-and-hooks) (CL3 [#124](https://github.com/Laratypes/Laratype/issues/124)).
 
 ### Open questions
 - None recorded.
@@ -248,10 +249,51 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 ## Options and hooks
 
 ### Status
-planned → [#124](https://github.com/Laratypes/Laratype/issues/124) (CL3).
+proposed: PR #PRNUM @ HEADSHA ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3). Extends the `ClientOptions` of [createClient](#createclient).
 
-### Design (non-binding)
-Per #124: `baseUrl`, dynamic headers (a function, for example for an auth token), `onRequest` / `onResponse` hooks, `credentials`, `AbortSignal` and a custom `fetch`.
+### Public API
+[`packages/client/src/types.ts` @ HEADSHA](https://github.com/Laratypes/Laratype/blob/HEADSHA/packages/client/src/types.ts)
+
+```ts
+export interface ClientOptions {
+  baseUrl?: string;                                              // as in createClient
+  fetch?: FetchLike;                                             // as in createClient
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  credentials?: RequestCredentials;
+  onRequest?: (request: ClientRequest) => void | Promise<void>;
+  onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
+}
+export interface ClientRequest {
+  readonly url: string;
+  readonly init: RequestInit & { headers: Headers };
+}
+```
+
+### Invariants
+- **Live options:** every option is read from the options object at each call, as `baseUrl`, `headers` and `fetch` already are.
+- **Dynamic headers:** a `headers` function is called, and awaited, at each call (a fresh auth token). Its headers are the defaults: the call's own `headers` override them, then `content-type: application/json` is added for a body when neither sets one ([createClient](#createclient) › Call input).
+- **`credentials`:** set on every call's `RequestInit` when given; absent otherwise, so `fetch` keeps its default (`same-origin`).
+- **`AbortSignal`:** per call, `signal` in the call input ([createClient](#createclient) › Call input). There is no client-wide signal; `onRequest` can set `request.init.signal`.
+- **Custom `fetch`:** `options.fetch` ([createClient](#createclient) › Global `fetch` vs injected `fetch`).
+- **Order of a call:** build the URL, headers and body → the checks that reject before sending (a missing param, a GET with a body, no `fetch`, a relative URL outside a browser) → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So `onRequest` is not called for a request that is never sent.
+- **`onRequest`** gets the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL is read-only.
+- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; read a `response.clone()` to see the body. It is not called when `fetch` rejects (the status-0 result).
+- **Failures:** a `headers` function or a hook that throws or rejects rejects the call, like the other configuration errors ([createClient](#createclient) › Result); it is never turned into a result. A failing `headers` function or `onRequest` means `fetch` is not called.
+- **Runtime:** browser-pure, as the rest of the client: no Node API.
+
+### Diagnostics
+- None of its own: the error a `headers` function or a hook throws rejects the call as it is.
+- Type-level (`packages/client/__tests__/client.test-d.ts`): a `headers` function that doesn't return `HeadersInit`, a `credentials` that isn't a `RequestCredentials`, and assigning `request.url` are type errors.
+
+### Example
+[`examples/client/proposed/options-and-hooks.ts`](./examples/client/proposed/options-and-hooks.ts)
+
+### Non-goals
+- No retries, no replacing the response from `onResponse` (wrap `fetch` for that), and no hook on a network failure.
+- No client-wide `AbortSignal` or timeout.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#124 Done when](https://github.com/Laratypes/Laratype/issues/124)
