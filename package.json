@@ -23,7 +23,7 @@
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "check:dist": "node scripts/check-dist.mjs",
     "check:pkg": "node scripts/check-packages.mjs",
-    "check:lint": "biome ci --formatter-enabled=false",
+    "check:lint": "biome ci --diagnostic-level=error",
     "iv": "node ./scripts/incrementalVersion.js",
     "test": "vitest",
     "test:di": "vitest run packages/sauf/__tests__/di"
