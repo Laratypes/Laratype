@@ -28,7 +28,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | planned → #229 |
-| [Resources](#resources) | proposed: PR #PRNUM |
+| [Resources](#resources) | proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
@@ -541,7 +541,7 @@ planned → [#229](https://github.com/Laratypes/Laratype/issues/229) (H17, M2). 
 ## Resources
 
 ### Status
-proposed: PR [#PRNUM](https://github.com/Laratypes/Laratype/pull/PRNUM) @ PRSHA (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
+proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
 ### Public API
 [`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
