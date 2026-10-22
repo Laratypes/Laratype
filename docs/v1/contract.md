@@ -16,17 +16,17 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 |---|---|
 | [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2 |
 | [Path params](#path-params) | merged @ d70daa7 |
-| [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6 |
+| [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
-| [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6 |
-| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) |
+| [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
+| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6; `route()` planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -132,7 +132,7 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6.
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/endpoint.ts`](../../packages/contract/src/endpoint.ts)
@@ -324,7 +324,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 ## defineContract
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). It replaces the named `defineContract(name, endpoints)` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). A contract's name and URL prefix now come from the [contract folder tree](#contract-folder-tree). The path and GET-body re-checks of each endpoint (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6.
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). It replaces the named `defineContract(name, endpoints)` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). A contract's name and URL prefix now come from the [contract folder tree](#contract-folder-tree). The path and GET-body re-checks of each endpoint (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
@@ -386,7 +386,7 @@ Type-level: a plain record of endpoints is not assignable to `Contract`. An endp
 ## defineApi and route names
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The entry path shape check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) is proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
@@ -840,7 +840,7 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6; the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)

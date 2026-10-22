@@ -16,7 +16,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6 |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
 | [Path-style calls](#path-style-calls) | planned → #140 |
@@ -99,7 +99,7 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ 9fb6af6.
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
