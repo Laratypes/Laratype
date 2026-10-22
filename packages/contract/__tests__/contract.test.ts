@@ -173,7 +173,7 @@ describe('defineApi', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     const scope = defineScope()({ auth: true })
     // a bare scope, a null item, a hole in a sparse array
-    for (const scopes of [scope, [scope], [null], [, { scope, dir: '' }]]) {
+    for (const scopes of [scope, [scope], [null], Object.assign(new Array(2), { 1: { scope, dir: '' } })]) {
       expect(() => defineApi({ a: { contract: c, path: '/a', scopes } } as never)).toThrow(
         new TypeError('[@laratype/contract] defineApi: "a" scopes must be [{ scope, dir }], outer to inner'),
       )
