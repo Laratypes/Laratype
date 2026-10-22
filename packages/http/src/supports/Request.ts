@@ -12,8 +12,8 @@ import { has } from "es-toolkit/compat"
  */
 const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
 
-/** The part of Bun's `Server` that `ip()` reads. */
-type BunEnv = { requestIP?: (request: globalThis.Request) => { address: string } | null }
+/** What `ip()` reads of the adapter's env: Node's `incoming` request, or Bun's `Server.requestIP`. */
+type AdapterEnv = { incoming?: unknown, requestIP?: (request: globalThis.Request) => { address: string } | null }
 
 export default class Request implements RequestInterface {
 
@@ -64,7 +64,7 @@ export default class Request implements RequestInterface {
 
   /** The token of an `Authorization: Bearer` header, or `""` when there is none or it is malformed. */
   bearerToken(): string {
-    return BEARER.exec(this.requestCtx.header('Authorization') ?? '')?.[1] ?? ""
+    return BEARER.exec(this.requestCtx.header("Authorization") ?? "")?.[1] ?? ""
   }
 
   except(keys: string[]): Record<string, any> {
@@ -96,23 +96,25 @@ export default class Request implements RequestInterface {
   }
 
   /**
-   * The client address of the connection, or `""` when the request came from no socket (an in-process `app.request()`).
-   * It never reads `X-Forwarded-For`: behind a proxy, this is the proxy's address.
+   * The client address of the connection on the Node and Bun adapters, or `""` when there is no socket to read (an
+   * in-process `app.request()`, another runtime). It never reads `X-Forwarded-For`: behind a proxy, this is the proxy's
+   * address.
    */
   ip(): string {
     const ctx = this.honoCtx
     if(!ctx?.env) {
       return ""
     }
-    // The Node adapter passes `{ incoming, outgoing }` as env, `server` wraps it when the app is mounted by another one
-    const env = ctx.env as BunEnv & { incoming?: unknown, server?: BunEnv & { incoming?: unknown } }
-    if(env.incoming || env.server?.incoming) {
+    // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
+    const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
+    const bindings = env.server ?? env
+    // Node passes `{ incoming, outgoing }`
+    if(bindings.incoming) {
       return getNodeConnInfo(ctx).remote.address ?? ""
     }
-    // Bun passes its server as env. `hono/bun`'s getConnInfo does the same call, but `hono/bun` reads `Bun` on import
-    const server = env.server ?? env
-    if(typeof server.requestIP === "function") {
-      return server.requestIP(ctx.req.raw)?.address ?? ""
+    // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
+    if(typeof bindings.requestIP === "function") {
+      return bindings.requestIP(ctx.req.raw)?.address ?? ""
     }
     return ""
   }

@@ -87,6 +87,20 @@ describe('request.ip()', () => {
     expect(requestIP).toHaveBeenCalledTimes(1)
   })
 
+  it('reads the bindings from env.server when the env wraps them, as getConnInfo does', async () => {
+    const incoming = { socket: { remoteAddress: '198.51.100.4', remotePort: 51234, remoteFamily: 'IPv4' } }
+    expect(await (await bootApp().request('/whoami', {}, { server: { incoming } })).json()).toEqual({ ip: '198.51.100.4', token: '' })
+    const requestIP = () => ({ address: '192.0.2.11', family: 'IPv4', port: 51234 })
+    expect(await (await bootApp().request('/whoami', {}, { server: { requestIP } })).json()).toEqual({ ip: '192.0.2.11', token: '' })
+    // env.server without bindings wins over env's own, so there is nothing to read, and no error
+    expect(await (await bootApp().request('/whoami', {}, { incoming, server: {} })).json()).toEqual({ ip: '', token: '' })
+  })
+
+  it('returns "" when the Bun server has no address for the request (a unix socket)', async () => {
+    const response = await bootApp().request('/whoami', {}, { requestIP: () => null })
+    expect(await response.json()).toEqual({ ip: '', token: '' })
+  })
+
   it('returns "" for a request that came from no socket', async () => {
     const response = await bootApp().request('/whoami', { headers: { 'X-Forwarded-For': '203.0.113.7' } })
     expect(await response.json()).toEqual({ ip: '', token: '' })
