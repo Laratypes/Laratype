@@ -159,12 +159,13 @@ const nearest = <T>(values: ReadonlyArray<T | undefined>): T | undefined => {
 export const hasPathParams = (path: string): boolean => /(?:^|\/):[^/{?]/.test(path);
 
 /**
- * Puts exactly one "/" between the two: a path without one (`".evil.com/x"`) must not extend the prefix or a host before
- * it, and a prefix ending with "/" must not make `"//x"`, another host.
+ * Puts one "/" between the two: a path without one (`".evil.com/x"`) must not extend the prefix or a host before it, and
+ * one trailing "/" of the prefix is dropped (`"/"` + `"/x"` is `"/x"`, not `"//x"`). It doesn't validate either side:
+ * `defineApi` and the endpoint builder check the paths, `buildUrl` and the client the result.
  */
 export const joinPath = (prefix: string, path: string): string => {
-  if (path === "" || path === "/") return prefix || "/";
   const head = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  if (path === "" || path === "/") return head || "/";
   return path.startsWith("/") ? `${head}${path}` : `${head}/${path}`;
 };
 

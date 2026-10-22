@@ -151,7 +151,7 @@ describe('defineApi', () => {
     // like the scan's base: no trailing "/" (or "\\"), which would double the join ("/" + "/users" is "//users", another host)
     for (const path of ['/', '/api/', '/api\\']) {
       expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(
-        new TypeError(`[@laratype/contract] defineApi: "a": the path must not end with "/", got ${JSON.stringify(path)}`),
+        new TypeError(`[@laratype/contract] defineApi: "a": the path must not end with "/" or "\\", got ${JSON.stringify(path)}`),
       )
     }
     // a valid entry path still builds same-host URLs
@@ -289,6 +289,7 @@ describe('joinPath', () => {
     // nor makes "//x" from a prefix ending with "/"
     expect(joinPath('/', '/users')).toBe('/users')
     expect(joinPath('/api/', '/users')).toBe('/api/users')
+    expect(joinPath('/api/', '/')).toBe('/api')
   })
 })
 

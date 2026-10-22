@@ -249,7 +249,7 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
     if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes, dirs }`);
     // an endpoint path's rule, plus no trailing "/" like the scan's base: "/" + "/users" would be "//users", another host
     checkPath(entry.path, `defineApi: "${name}"`);
-    if (/[/\\]$/.test(entry.path)) fail(`defineApi: "${name}": the path must not end with "/", got ${JSON.stringify(entry.path)}`);
+    if (/[/\\]$/.test(entry.path)) fail(`defineApi: "${name}": the path must not end with "/" or "\\", got ${JSON.stringify(entry.path)}`);
     if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
     if (entry.dirs === undefined) fail(`defineApi: "${name}" needs dirs: the folder of each scope ("" for the root)`);
     if (!Array.isArray(entry.dirs) || !entry.dirs.every(isDir)) fail(`defineApi: "${name}" dirs must be root-relative folders ("" for the root)`);
