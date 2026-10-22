@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as z from 'zod'
 import {
   API_NODE,
+  API_ROOT,
   CONTRACT,
   ENDPOINT,
   SCOPE,
@@ -18,6 +19,8 @@ import {
   defineScope,
   endpoint,
   errors,
+  isApiNode,
+  isApiRoot,
   isContract,
   isEndpoint,
   isScope,
@@ -116,10 +119,10 @@ describe('defineApi', () => {
   })
 
   it('brands each node with its tree name and entry, and freezes the tree', () => {
-    expect(appApi.users[API_NODE]).toEqual({ name: 'users', entry: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
-    expect(appApi.users.posts[API_NODE].entry.dirs).toEqual(['users/[user]'])
+    expect(appApi.users[API_NODE]).toEqual({ name: 'users', entry: { contract: users, path: '/api/users', scopes: [] } })
     expect(appApi.users.posts[API_NODE].name).toBe('users.posts')
-    expect(appApi.users.posts[API_NODE].entry.scopes).toEqual([usersUser])
+    expect(appApi.users.posts[API_NODE].entry.scopes).toEqual([{ scope: usersUser, dir: 'users/[user]' }])
+    expect(Object.isFrozen(appApi.users.posts[API_NODE].entry.scopes[0])).toBe(true)
     expect(Object.keys(appApi.users.posts)).toEqual(['index', 'store', 'search'])
     expect(Object.isFrozen(appApi)).toBe(true)
     expect(Object.isFrozen(appApi.users.posts)).toBe(true)
@@ -129,8 +132,8 @@ describe('defineApi', () => {
   it('creates pure folder nodes, whatever the entry order', () => {
     const health = defineContract()({ check: endpoint.get('/') })
     const api = defineApi({
-      'v1.health.deep': { contract: health, path: '/api/v1/health/deep', scopes: [], dirs: [] },
-      'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] },
+      'v1.health.deep': { contract: health, path: '/api/v1/health/deep', scopes: [] },
+      'v1.health': { contract: health, path: '/api/v1/health', scopes: [] },
     })
     expect(api.v1[API_NODE]).toEqual({ name: 'v1', entry: undefined })
     expect(apiRoutes(api).map((r) => [r.name, r.path])).toEqual([
@@ -141,60 +144,84 @@ describe('defineApi', () => {
 
   it('rejects bad names, entries and endpoint/child name clashes', () => {
     const c = defineContract()({ show: endpoint.get('/') })
-    expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [], dirs: [] } } as never)).toThrow(/invalid tree name "a..b"/)
-    expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes, dirs \}/)
-    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/the path must start with one "\/"/)
+    expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [] } } as never)).toThrow(/invalid tree name "a..b"/)
+    expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes: \[\{ scope, dir \}\] \}/)
+    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [] } })).toThrow(/the path must start with one "\/"/)
     // the endpoint path rule: one leading "/", no control characters (URL parsing drops tab, LF and CR)
     for (const path of ['', '//api', '/\\api', '/\t/evil.com', '/\n/evil.com']) {
-      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(/defineApi: "a": the path must (start with one "\/"|not contain control characters)/)
+      expect(() => defineApi({ a: { contract: c, path, scopes: [] } } as never)).toThrow(/defineApi: "a": the path must (start with one "\/"|not contain control characters)/)
     }
     // like the scan's base: no trailing "/" (or "\\"), which would double the join ("/" + "/users" is "//users", another host)
     for (const path of ['/', '/api/', '/api\\']) {
-      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(
+      expect(() => defineApi({ a: { contract: c, path, scopes: [] } } as never)).toThrow(
         new TypeError(`[@laratype/contract] defineApi: "a": the path must not end with "/" or "\\", got ${JSON.stringify(path)}`),
       )
     }
     // a valid entry path still builds same-host URLs
-    const ok = defineApi({ a: { contract: defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') }), path: '/api', scopes: [], dirs: [] } })
+    const ok = defineApi({ a: { contract: defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') }), path: '/api', scopes: [] } })
     expect(apiPaths(ok).map((r) => buildUrl(r.path, { params: { id: 7 } }))).toEqual(['/api', '/api/7'])
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ auth: true }], dirs: [''] } } as never)).toThrow(/use defineScope/)
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [], dirs: [] }, 'a.show': { contract: c, path: '/a/show', scopes: [], dirs: [] } } as never)).toThrow(
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ scope: { auth: true }, dir: '' }] } } as never)).toThrow(/use defineScope/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [] }, 'a.show': { contract: c, path: '/a/show', scopes: [] } } as never)).toThrow(
       /"a.show" is both an endpoint and a contract/,
     )
-    expect(() => defineApi({ 'a.show': { contract: c, path: '/a/show', scopes: [], dirs: [] }, a: { contract: c, path: '/a', scopes: [], dirs: [] } } as never)).toThrow(
+    expect(() => defineApi({ 'a.show': { contract: c, path: '/a/show', scopes: [] }, a: { contract: c, path: '/a', scopes: [] } } as never)).toThrow(
       /"a.show" is both an endpoint and a contract/,
     )
   })
 
-  it('needs dirs: one root-relative folder per scope (H1 #104)', () => {
+  it('takes each scope with its root-relative folder: scopes: [{ scope, dir }] (H1 #104, C10 #258)', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     const scope = defineScope()({ auth: true })
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope] } } as never)).toThrow(
-      /"a" needs dirs: the folder of each scope \("" for the root\)/,
-    )
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: [] } } as never)).toThrow(
-      /"a" dirs must hold one folder per scope \(1 scopes, 0 dirs\)/,
-    )
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [], dirs: [''] } } as never)).toThrow(/"a" dirs must hold one folder per scope/)
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: ['/a'] } })).toThrow(/"a" dirs must be root-relative folders/)
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope, scope], dirs: ['', ''] } })).toThrow('[@laratype/contract] defineApi: "a" dirs must not repeat a folder ("")')
-    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: [1] } } as never)).toThrow(/"a" dirs must be root-relative folders/)
-    expect(defineApi({ a: { contract: c, path: '/a', scopes: [scope], dirs: [''] } }).a[API_NODE].entry.dirs).toEqual([''])
+    for (const scopes of [scope, [scope], [null]]) {
+      expect(() => defineApi({ a: { contract: c, path: '/a', scopes } } as never)).toThrow(
+        new TypeError('[@laratype/contract] defineApi: "a" scopes must be [{ scope, dir }], outer to inner'),
+      )
+    }
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ scope, dir: '/a' }] } })).toThrow(/"a" scope dirs must be root-relative folders/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ scope }] } } as never)).toThrow(/"a" scope dirs must be root-relative folders/)
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ scope, dir: '' }, { scope, dir: '' }] } })).toThrow('[@laratype/contract] defineApi: "a" scope dirs must not repeat a folder ("")')
+    expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ scope, dir: 1 }] } } as never)).toThrow(/"a" scope dirs must be root-relative folders/)
+    expect(defineApi({ a: { contract: c, path: '/a', scopes: [{ scope, dir: '' }] } }).a[API_NODE].entry.scopes).toEqual([{ scope, dir: '' }])
+  })
+
+  it('brands the root: isApiRoot, isApiNode and isContract tell the root, its nodes and contracts apart (C10 #258)', () => {
+    expect(isApiRoot(appApi)).toBe(true)
+    expect((appApi as Record<symbol, unknown>)[API_ROOT]).toBe(true)
+    expect(Object.getOwnPropertySymbols(appApi)).toEqual([API_ROOT])
+    expect(Object.keys(appApi)).toEqual(['users'])
+    expect(isApiRoot(defineApi({}))).toBe(true)
+    expect(isApiNode(appApi)).toBe(false)
+    expect(isApiNode(appApi.users)).toBe(true)
+    expect(isApiNode(appApi.users.posts)).toBe(true)
+    expect(isContract(users)).toBe(true)
+    // hand-made objects are not the root, whatever they hold
+    for (const fake of [{}, { users: appApi.users }, { ...appApi }, users, appApi.users]) expect(isApiRoot(fake)).toBe(false)
+    for (const value of [null, undefined, 1, 'users', users, users.show, { [API_NODE]: null }]) {
+      expect(isApiRoot(value)).toBe(false)
+      expect(isApiNode(value)).toBe(false)
+    }
+  })
+
+  it('apiPaths and apiRoutes take the root, a node or a contract only (C10 #258)', () => {
+    for (const fake of [{}, { users: appApi.users }, users.show, null]) {
+      expect(() => apiPaths(fake as never)).toThrow(new TypeError('[@laratype/contract] apiPaths: expected the appApi from defineApi, an API node or a contract'))
+      expect(() => apiRoutes(fake as never)).toThrow(new TypeError('[@laratype/contract] apiRoutes: expected the appApi from defineApi, an API node or a contract'))
+    }
   })
 
   it('re-checks the capability rules against the real scope chain', () => {
     const open = defineContract()({ stats: endpoint.get('/stats').public() })
     const authorize = defineScope()({ auth: true, authorize: true })
-    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [authorize], dirs: [''] } })).toThrow(
+    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [{ scope: authorize, dir: '' }] } })).toThrow(
       /x.stats: .public\(\) under a scope with authorize: add .authorize\(false\)/,
     )
-    expect(() => defineApi({ x: { contract: defineContract()({ d: endpoint.delete('/').authorize() }), path: '/x', scopes: [], dirs: [] } })).toThrow(
+    expect(() => defineApi({ x: { contract: defineContract()({ d: endpoint.delete('/').authorize() }), path: '/x', scopes: [] } })).toThrow(
       /x.d: .authorize\(\) needs auth on the endpoint, its contract or a scope/,
     )
     const bare = defineScope()({ authorize: true } as never)
-    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [bare], dirs: [''] } })).toThrow(/scope 0 has authorize but no auth/)
+    expect(() => defineApi({ x: { contract: open, path: '/x', scopes: [{ scope: bare, dir: '' }] } })).toThrow(/scope 0 has authorize but no auth/)
     const allowed = defineContract()({ stats: endpoint.get('/stats').public().authorize(false) })
-    expect(() => defineApi({ x: { contract: allowed, path: '/x', scopes: [authorize], dirs: [''] } })).not.toThrow()
+    expect(() => defineApi({ x: { contract: allowed, path: '/x', scopes: [{ scope: authorize, dir: '' }] } })).not.toThrow()
   })
 })
 
@@ -266,7 +293,7 @@ describe('apiRoutes', () => {
 
   it('treats "/" as the contract prefix itself and keeps optional params', () => {
     const c = defineContract()({ root: endpoint.get('/'), opt: endpoint.get('/:id?') })
-    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [], dirs: [] } })
+    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
     expect(apiRoutes(api).map((r) => [r.path, r.errors.map((e) => e.code)])).toEqual([
       ['/api/things', []],
       ['/api/things/:id?', ['NOT_FOUND']],
@@ -351,7 +378,7 @@ describe('ENDPOINT brand', () => {
 
   it('accepts an endpoint from another package copy in defineContract, defineApi and apiRoutes', () => {
     const c = defineContract()({ x: foreign() as never })
-    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [], dirs: [] } })
+    const api = defineApi({ things: { contract: c, path: '/api/things', scopes: [] } })
     expect(apiRoutes(api).map((r) => [r.name, r.path])).toEqual([['things.x', '/api/things/x']])
     expect(apiEndpoint(api, 'things.x')).toBe(c.x)
   })
@@ -380,7 +407,7 @@ describe('apiEndpoint', () => {
   })
 
   it('works with an inline contract and schema', () => {
-    const api = defineApi({ health: { contract: defineContract()({ check: endpoint.get('/').response(z.object({ ok: z.boolean() })) }), path: '/health', scopes: [], dirs: [] } })
+    const api = defineApi({ health: { contract: defineContract()({ check: endpoint.get('/').response(z.object({ ok: z.boolean() })) }), path: '/health', scopes: [] } })
     expect(apiEndpoint(api, 'health.check').def.status).toBe(200)
     expect(defineError(409, 'X').code).toBe('X')
   })

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ScanError, TypeScriptMissingError, generateTypes, loadTypeScript } from '../../src/typegen';
+import { ApiGenerationError, ScanError, TypeScriptMissingError, generateApiFile, generateTypes, loadTypeScript } from '../../src/typegen';
 import type { GenerateResult } from '../../src/typegen';
 
 /**
@@ -230,6 +230,29 @@ describe('sauf types:generate', () => {
       'the contract tree root "nope/api" does not exist (set it with --root or config api.root)',
     );
   });
+
+  it('tells endpoints from nodes by brand, so endpoint keys like "method" stay endpoints (C10 #258)', async () => {
+    const copy = join(tmp, 'verbs');
+    cpSync(join(fixtures, 'project'), copy, { recursive: true });
+    writeFileSync(join(copy, 'tsconfig.json'), JSON.stringify(appTsconfig));
+    writeFileSync(
+      join(copy, 'app', 'api', 'verbs.ts'),
+      "import { defineContract, endpoint } from '@laratype/contract'\nexport default defineContract()({ method: endpoint.get('/method'), path: endpoint.post('/path') })\n",
+    );
+    await generateTypes({ projectDir: copy }, ts);
+    const api = readFileSync(join(copy, '.laratype', 'api.ts'), 'utf8');
+    expect(api).toContain("'verbs.method': { method: 'get', path: '/api/verbs/method', errors: [");
+    expect(api).toContain("'verbs.path': { method: 'post', path: '/api/verbs/path', errors: [");
+  }, 60_000);
+
+  it('rejects an AppApi that is not the defineApi root (C10 #258)', () => {
+    const indexFile = join(project, '.laratype', 'api', 'fake.ts');
+    writeFileSync(indexFile, "import { appApi } from './index.gen'\nconst fake = { users: appApi.users }\nexport type AppApi = typeof fake\n");
+    const options = { projectDir: project, tsconfig: join(project, 'tsconfig.json'), indexFile, typesDir: join(project, '.laratype', 'types'), outFile: 'fake-api.ts' };
+    expect(() => generateApiFile(ts, options)).toThrow(ApiGenerationError);
+    expect(() => generateApiFile(ts, options)).toThrow(`AppApi in ${indexFile} must be the type of the appApi from defineApi`);
+    rmSync(indexFile);
+  }, 60_000);
 
   it('reports contract type errors with their location', async () => {
     const copy = join(tmp, 'broken');

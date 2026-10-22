@@ -12,7 +12,7 @@ last-verified: 2026-10-13
 
 | Section | Status |
 |---|---|
-| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) |
+| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed ([#258](https://github.com/Laratypes/Laratype/issues/258)) |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
@@ -56,7 +56,7 @@ Output, for the default options:
 | File | Content |
 |---|---|
 | `.laratype/types/<root>/<folder>/$types.d.ts` | `Prefix` and `ScopePrefix` for one folder of the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)) |
-| `.laratype/api/index.gen.ts` | `export const appApi = defineApi({ 'users.posts': { contract, path, scopes, dirs }, ... })` and `export type AppApi = typeof appApi`, imported as `$api` |
+| `.laratype/api/index.gen.ts` | `export const appApi = defineApi({ 'users.posts': { contract, path, scopes: [{ scope, dir }] }, ... })` and `export type AppApi = typeof appApi`, imported as `$api` |
 | `.laratype/api.ts` | the separate-repo file: `export type AppApi = {...}` (flattened `ApiTypes<AppApi>`) and `export const manifest = {...} as const` |
 
 The app's tsconfig needs:
@@ -76,7 +76,7 @@ The app's tsconfig needs:
 - **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. The root may be the project itself (`--root .` or `api.root: '.'`); the output folder is then inside the root, and the scan and the dev watcher skip it. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
-- **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. No contract module is executed. A type error in the tree fails the command.
+- **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. It tells endpoints from nodes by the `API_NODE` brand at the type level, as `isApiNode` does at runtime, so an endpoint key such as `method` stays an endpoint, and an `AppApi` without the `API_ROOT` brand fails ([#258](https://github.com/Laratypes/Laratype/issues/258)). No contract module is executed. A type error in the tree fails the command.
 - **`api.ts` is self-contained:** it has no import, no contract library and no schema library. Named types are inlined structurally, for example a user interface or the contract's `MessageBody`. Types from the TypeScript default lib keep their names (`Date`, `Record<string, boolean>`). A type met again while it is being printed (a recursive type) prints `unknown`. Optional members print as `x?: T | undefined`.
 - **Manifest:** a flat map keyed by route name, `'users.posts.update': { method, path, errors }`. `path` is the full path, and `errors` is the endpoint's derived and declared error codes, sorted. `createClient<AppApi>(manifest)` types it for the client, merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); see [client.md › Separate-repo FE](./client.md#separate-repo-fe-generated-manifest).
 - **Generated types** are a `type` alias. They satisfy the client's `ApiShape<A>` self-constraint, and they are mutually assignable with `ApiTypes<AppApi>` (tested).
@@ -98,6 +98,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 - `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"`, `could not load app/config/config.ts (see the error above)`, `app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): <error>` (the config, or a module it imports, failed to import, for example through a path alias). For these import failures (and `must not import $api`), `sauf types:generate` prints a warning instead, `[sauf types:generate] <message>; using --root / --base and the defaults (app/api, /api) instead of config api`, and goes on
 - `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
+- `AppApi in <index file> must be the type of the appApi from defineApi`
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`
 
 ### Example

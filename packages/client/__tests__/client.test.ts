@@ -364,7 +364,7 @@ describe('createClient', () => {
   it('accepts endpoints from another package copy (Symbol.for brand, not instanceof)', async () => {
     const foreign = { def: endpoint.get('/:id').def }
     Object.defineProperty(foreign, Symbol.for('laratype.endpoint'), { value: true })
-    const api = defineApi({ things: { contract: defineContract()({ show: foreign as never }), path: '/api/things', scopes: [], dirs: [] } })
+    const api = defineApi({ things: { contract: defineContract()({ show: foreign as never }), path: '/api/things', scopes: [] } })
     const { fetch, calls } = fakeFetch()
     await (createClient(api, { fetch }) as { things: { show: (i: object) => Promise<Response> } }).things.show({ params: { id: 3 } })
     expect(calls.map((c) => [c.method, c.url])).toEqual([['GET', '/api/things/3']])
@@ -422,7 +422,7 @@ describe('createClient', () => {
     await expect(api.users.index()).rejects.toThrow(/must not have a query or a hash/)
   })
 
-  it('rejects a hand-made object: only the appApi root, whose keys are the names of its nodes, is accepted', () => {
+  it('rejects a hand-made object: only the root that defineApi brands is the appApi (C10 #258)', () => {
     const error = new TypeError('[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest')
     // @ts-expect-error a node under another key
     expect(() => createClient({ posts: appApi.users.posts })).toThrow(error)
@@ -430,8 +430,10 @@ describe('createClient', () => {
     expect(() => createClient({ users })).toThrow(error)
     // @ts-expect-error a mix
     expect(() => createClient({ users: appApi.users, other: users })).toThrow(error)
-    // the root's own nodes, in any subset, are still the root shape
-    expect(Object.keys(createClient({ users: appApi.users }, { fetch: fakeFetch().fetch }))).toEqual(['users'])
+    // @ts-expect-error the root's own nodes under their own names, or a copy of the root, carry no root brand
+    expect(() => createClient({ users: appApi.users })).toThrow(error)
+    // @ts-expect-error a spread drops the non-enumerable brand
+    expect(() => createClient({ ...appApi })).toThrow(error)
   })
 
   it('rejects a single endpoint with a clear error, not as a bad manifest', () => {

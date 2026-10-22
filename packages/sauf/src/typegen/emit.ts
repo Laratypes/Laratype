@@ -57,7 +57,7 @@ export function emitTypesFile(folder: ScannedFolder, options: EmitOptions): Gene
 /** `<outDir>/api/index.gen.ts`: the aggregated `appApi`, imported as `$api`. */
 export function emitApiIndex(tree: ContractTree, options: EmitOptions): GeneratedFile {
   const outDir = posix.join(options.outDir, "api");
-  // Each scope file's import id, and its folder (`""` for the root): the `dirs` entry of `defineApi`
+  // Each scope file's import id, and its folder (`""` for the root): the `{ scope, dir }` items of a `defineApi` entry
   const scopeIds = new Map<string, string>();
   const scopeDirs = new Map<string, string>();
   for (const folder of tree.folders) {
@@ -71,7 +71,7 @@ export function emitApiIndex(tree: ContractTree, options: EmitOptions): Generate
   ];
   const entries = tree.contracts.map(
     (c, i) =>
-      `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => scopeIds.get(s)).join(", ")}], dirs: [${c.scopes.map((s) => quote(scopeDirs.get(s)!)).join(", ")}] },`,
+      `  ${quote(c.name)}: { contract: c${i}, path: ${quote(c.path)}, scopes: [${c.scopes.map((s) => `{ scope: ${scopeIds.get(s)}, dir: ${quote(scopeDirs.get(s)!)} }`).join(", ")}] },`,
   );
   const content =
     BANNER +
