@@ -2,7 +2,7 @@
 area: config
 packages: ["@laratype/core", "@laratype/support"]
 issues: [152]
-verified-against: Laratype@24b46ab (+ PR #__PR__ @ __SHORT__; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
+verified-against: Laratype@24b46ab (+ PR feat/k1-typed-config-define-env @ 318315c; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
 last-verified: 2026-10-22
 ---
 
@@ -18,18 +18,18 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR #__PR__ @ __SHORT__ |
-| [Environment validation](#environment-validation) | proposed: PR #__PR__ @ __SHORT__ |
+| [Config files and config()](#config-files-and-config) | proposed: PR feat/k1-typed-config-define-env @ 318315c |
+| [Environment validation](#environment-validation) | proposed: PR feat/k1-typed-config-define-env @ 318315c |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR #__PR__ @ __SHORT__ (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
+proposed: PR feat/k1-typed-config-define-env @ 318315c (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
 
 ### Public API
-[`core/src/config.ts` @ __SHORT__](https://github.com/Laratypes/Laratype/blob/__SHA__/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ __SHORT__](https://github.com/Laratypes/Laratype/blob/__SHA__/packages/support/src/config/ConfigLoadServiceProvider.ts)
+[`core/src/config.ts` @ 318315c](https://github.com/Laratypes/Laratype/blob/318315c7f709423032c5fbd0a6f2272b647b4a09/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 318315c](https://github.com/Laratypes/Laratype/blob/318315c7f709423032c5fbd0a6f2272b647b4a09/packages/support/src/config/ConfigLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -54,7 +54,7 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 - **Paths:** the first segment is the file name: `config('database.default')` reads `default` of `app/config/database.ts`. 0.5's single file reads as `config('config.<key>')`.
 - **Typing:** `defineConfig` keeps literal values (`'mysql'`, `3306`), so driver names are typed. A path stops at arrays and functions and after 8 levels. An optional key, or a key read through an index signature, adds `| undefined`. A key that contains a dot ends a path.
 - **Lookup:** at each level, the whole rest of the path as a key first, then the segment before the first dot. Own keys of plain objects; on a class instance (a `URL`, a client) its members too; never `Object.prototype` members. A key missing at run time gives `undefined`.
-- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports every config file, one after the other, then fills the store. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. `app/config/config.ts` stays required, and also fills 0.5's `Config.get()`.
+- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports every config file, one after the other, then fills the store. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. `app/config/config.ts` stays required and loads first: it fills 0.5's `Config.get()` before the other files load.
 - The store is kept on `globalThis` (`__laratype_configs`), like `HTTP_APP`, until the `@laratype` packages are real externals ([#188](https://github.com/Laratypes/Laratype/issues/188)).
 
 ### Diagnostics
@@ -80,10 +80,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR #__PR__ @ __SHORT__ (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
+proposed: PR feat/k1-typed-config-define-env @ 318315c (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
 
 ### Public API
-[`core/src/env.ts` @ __SHORT__](https://github.com/Laratypes/Laratype/blob/__SHA__/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ __SHORT__](https://github.com/Laratypes/Laratype/blob/__SHA__/packages/support/src/environ/validateEnv.ts)
+[`core/src/env.ts` @ 318315c](https://github.com/Laratypes/Laratype/blob/318315c7f709423032c5fbd0a6f2272b647b4a09/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 318315c](https://github.com/Laratypes/Laratype/blob/318315c7f709423032c5fbd0a6f2272b647b4a09/packages/support/src/environ/validateEnv.ts)
 
 ```ts
 // @laratype/core
@@ -104,7 +104,7 @@ export class EnvValidationError extends Error {
 - **File (Q18):** `app/config/env.ts` default-exports `defineEnv(schema)`. The manifest already collects it with the configs; no build change.
 - **Boot:** `EnvLoadServiceProvider` loads the env file (`.env`, ...), then validates a copy of `process.env` with the schema, before any config file loads. An app without `env.ts` is not validated. The schema's output is not written back: `process.env` keeps its strings.
 - **Error (Q19):** an invalid env throws one `EnvValidationError` listing every failing variable (name + the schema's message), and boot fails. The vendor issues are not kept.
-- **Values are never printed:** each message has the failing variable's value cut out (where it stands alone when shorter than 4 characters, everywhere otherwise, raw and JSON-escaped), and every env value of 8+ characters anywhere (a secret a refinement quotes under another name). An issue with no path is named `(environment)`.
+- **Values are never printed:** each message has `***` in place of the failing variable's value and of every env value of 8+ characters (a secret that a refinement quotes under another name or at the root), raw, trimmed and JSON-escaped. A value shorter than 8 characters is cut only where it stands alone (`prod` leaves `"production"`), and a short value of another variable is not cut. Schema text equal to a long env value shows as `***`. An issue with no path is named `(environment)`.
 
 ### Diagnostics
 - Runtime, invalid env:
