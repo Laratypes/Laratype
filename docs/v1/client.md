@@ -16,7 +16,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; input detection by the `defineApi` root brand proposed ([#258](https://github.com/Laratypes/Laratype/issues/258)) |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
 | [Options and hooks](#options-and-hooks) | planned → #124 |
 | [Path-style calls](#path-style-calls) | planned → #140 |

@@ -12,7 +12,7 @@ last-verified: 2026-10-13
 
 | Section | Status |
 |---|---|
-| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed ([#258](https://github.com/Laratypes/Laratype/issues/258)) |
+| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |

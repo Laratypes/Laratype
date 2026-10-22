@@ -18,7 +18,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `params`, `query`, `body` planned → #106 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
-| [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed ([#258](https://github.com/Laratypes/Laratype/issues/258)); registry storage planned → #114 |
+| [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
