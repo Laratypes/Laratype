@@ -23,16 +23,27 @@ export interface ThrottleStore {
 /** How often the memory store drops ended windows, so keys seen once don't stay forever. */
 const SWEEP_MS = 60_000;
 
-/** The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. */
+/** The most windows the memory store keeps: past it the oldest are dropped, so many clients can't exhaust the heap. */
+const MAX_WINDOWS = 100_000;
+
+/**
+ * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Past
+ * `maxWindows` the windows started first are dropped, so their clients start a new window early.
+ */
 export class MemoryThrottleStore implements ThrottleStore {
+  // In the order the windows started: a new window is re-inserted at the end
   private readonly windows = new Map<string, { hits: number; resetAt: number }>();
   private nextSweep = 0;
+
+  constructor(private readonly maxWindows = MAX_WINDOWS) {}
 
   hit(key: string, windowMs: number): ThrottleHit {
     const now = Date.now();
     if (now >= this.nextSweep) this.sweep(now);
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
+      this.windows.delete(key);
+      if (this.windows.size >= this.maxWindows) this.windows.delete(this.windows.keys().next().value!);
       window = { hits: 0, resetAt: now + windowMs };
       this.windows.set(key, window);
     }
@@ -99,15 +110,20 @@ const warnNoAddress = (name: string) => {
   console.warn(`[@laratype/http] Route.api: a request has no client address (another runtime, or an in-process app.request()), so rate-limited routes serve such requests without a limit (first: ${name})`);
 };
 
-/** The catalog 429 (`{ code, ...body }`, http.md › Exceptions) with `Retry-After`, as a Hono `HTTPException`. */
-const tooManyRequests = (resetAt: number) => {
+/** The catalog 429 on the wire (`{ code, ...body }`, http.md › Exceptions), built once: it never changes. */
+const TOO_MANY_REQUESTS = (() => {
   const error = errors.tooManyRequests();
+  return { status: error.status, message: error.message, body: JSON.stringify({ code: error.code, ...error.body }) };
+})();
+
+/** The catalog 429 with `Retry-After`, as a Hono `HTTPException`. */
+const tooManyRequests = (resetAt: number) => {
   const retryAfter = Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));
-  const res = new Response(JSON.stringify({ code: error.code, ...error.body }), {
-    status: error.status,
+  const res = new Response(TOO_MANY_REQUESTS.body, {
+    status: TOO_MANY_REQUESTS.status,
     headers: { "Content-Type": "application/json", "Retry-After": String(retryAfter) },
   });
-  return new HTTPException(error.status, { res, message: error.message });
+  return new HTTPException(TOO_MANY_REQUESTS.status, { res, message: TOO_MANY_REQUESTS.message });
 };
 
 type RouteHandler = (c: Context, next: Next) => Promise<Response | void>;
@@ -126,8 +142,13 @@ export interface ThrottledRoute {
  * not limited.
  */
 export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore = memoryStore): RouteHandler => {
-  const scope = `${route.method.toUpperCase()} ${route.domain ?? "*"} ${route.path}`;
   const windowMs = durationMs(options.per);
+  // At most MAX_SAFE_INTEGER ms, so the window ends and Retry-After is written as plain digits
+  if (!(windowMs > 0 && windowMs <= Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`[@laratype/http] Route.api: ${route.name}: throttle per must be a positive duration of at most ${Number.MAX_SAFE_INTEGER} ms, got ${String(options.per)}`);
+  }
+  // The limit and window are part of the key: a dev restart that changes them doesn't keep the old window
+  const scope = `${route.method.toUpperCase()} ${route.domain ?? "*"} ${route.path} ${options.limit}/${windowMs}`;
   return async (c, next) => {
     const bucket = ipBucket(clientIp(c));
     if (bucket === undefined) {

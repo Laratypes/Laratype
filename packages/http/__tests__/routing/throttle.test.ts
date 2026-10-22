@@ -8,7 +8,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, RequestKernel, ResponseKernel, Route } from '../../src/index'
-import { MemoryThrottleStore, durationMs, ipBucket } from '../../src/routing/api/throttle'
+import { MemoryThrottleStore, durationMs, ipBucket, throttled } from '../../src/routing/api/throttle'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -206,5 +206,27 @@ describe('MemoryThrottleStore', () => {
     vi.advanceTimersByTime(60_000)
     store.hit('c', 1000)
     expect([...windows.keys()]).toEqual(['c'])
+  })
+
+  it('keeps at most maxWindows, dropping the window started first', () => {
+    const store = new MemoryThrottleStore(2)
+    store.hit('a', 10_000)
+    store.hit('b', 10_000)
+    store.hit('a', 10_000)
+    store.hit('c', 10_000)
+    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
+    expect([...windows.keys()]).toEqual(['b', 'c'])
+    expect(store.hit('a', 10_000).hits).toBe(1)
+  })
+})
+
+describe('throttled', () => {
+  it('rejects a window that never ends at mount', () => {
+    const route = { name: 'posts.index', method: 'get', path: '/posts', domain: undefined }
+    const handle = async () => new Response()
+    expect(() => throttled(route, { limit: 1, per: 1e300 }, handle)).toThrow(
+      '[@laratype/http] Route.api: posts.index: throttle per must be a positive duration of at most 9007199254740991 ms, got 1e+300',
+    )
+    expect(() => throttled(route, { limit: 1, per: 60 }, handle)).not.toThrow()
   })
 })
