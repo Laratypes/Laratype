@@ -30,7 +30,8 @@ const includeOf = (parsed: TS.ParsedCommandLine) => {
 
 /**
  * The folder tsc mirrors under `outDir`, as `getOutputFileNames` takes it from `rootDir`: `rootDir`, else the config's
- * folder for a composite project, else the common folder of the files tsc emits. Those are the files of the program,
+ * folder for a composite project or from TypeScript 6 (its default, with TS5011 when the sources are all in a
+ * subfolder), else the common folder of the files tsc emits. Those are the files of the program,
  * not of the config: they include what the sources import from outside `include` (`$api` from `.laratype/`), so the
  * program is built (parsed, not type-checked) to list them. `undefined` without `outDir` (outputs next to sources).
  */
@@ -38,7 +39,7 @@ function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: strin
   const { outDir, rootDir, composite } = parsed.options;
   if (!outDir) return undefined;
   if (rootDir !== undefined) return resolve(rootDir);
-  if (composite) return dirname(configFile);
+  if (composite || Number(ts.versionMajorMinor.split(".")[0]) >= 6) return dirname(configFile);
   // Without the default lib and @types: declaration files never count, and parsing them is most of the cost
   const options = { ...parsed.options, noLib: true, types: [] };
   const program = ts.createProgram({ rootNames: parsed.fileNames, options, projectReferences: parsed.projectReferences });

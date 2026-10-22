@@ -63,6 +63,19 @@ describe('writeDistManifest', () => {
     expect(manifest.appDir).toBe('');
   });
 
+  it('TypeScript 6 without rootDir roots at the config folder, not at app/: dist/app/x.js, appDir "app"', async () => {
+    // Emitted as TypeScript 6 does (rootDir defaults to the config folder), then rootDir removed from the config
+    const dir = project('ts6', { rootDir: '.' });
+    const config = JSON.parse(readFileSync(join(dir, 'tsconfig.build.json'), 'utf8'));
+    delete config.compilerOptions.rootDir;
+    write(dir, 'tsconfig.build.json', JSON.stringify(config));
+    write(dir, 'dist/config/config.js', 'export default { name: "stale" };\n');   // the 5.x layout: never picked
+    const { file, appDir } = writeDistManifest({ ...ts, versionMajorMinor: '6.0' } as typeof ts, dir);
+    expect(appDir).toBe('app');
+    expect(readFileSync(file, 'utf8')).toContain("path: 'app/config/config.ts', load: () => import('./app/config/config.js')");
+    expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'demo' });
+  });
+
   it('"rootDir": "." with database/** included: dist/app/x.js and dist/database/x.js, appDir "app"', async () => {
     const dir = project('tree', { rootDir: '.' }, { include: ['app/**/*', 'database/**/*'] });
     const { file, omitted } = writeDistManifest(ts, dir);
