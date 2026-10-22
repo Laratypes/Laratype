@@ -26,14 +26,19 @@ const SWEEP_MS = 60_000;
 /** The most windows the memory store keeps: past it the oldest are dropped, so many clients can't exhaust the heap. */
 const MAX_WINDOWS = 100_000;
 
+/** How often a full memory store may sweep before it drops a live window: not on every new key at capacity. */
+const FULL_SWEEP_MS = 1_000;
+
 /**
- * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Past
- * `maxWindows` the window started first is dropped, so its client starts a new one early if it was still live.
+ * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. A full store
+ * drops its ended windows first (sweeping at most once a second), then the window started first, so that client
+ * starts a new one early.
  */
 export class MemoryThrottleStore implements ThrottleStore {
   // In the order the windows started: a new window is re-inserted at the end
   private readonly windows = new Map<string, { hits: number; resetAt: number }>();
   private nextSweep = 0;
+  private nextFullSweep = 0;
 
   constructor(private readonly maxWindows = MAX_WINDOWS) {}
 
@@ -43,8 +48,12 @@ export class MemoryThrottleStore implements ThrottleStore {
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
       this.windows.delete(key);
-      // Full: drop the window started first, the likeliest to have ended. No sweep here: at capacity with live
+      // Full: drop the ended windows, then the window started first. The sweep is rate-limited: at capacity with live
       // windows, every new key would scan the whole map
+      if (this.windows.size >= this.maxWindows && now >= this.nextFullSweep) {
+        this.sweep(now);
+        this.nextFullSweep = now + FULL_SWEEP_MS;
+      }
       if (this.windows.size >= this.maxWindows) this.windows.delete(this.windows.keys().next().value!);
       window = { hits: 0, resetAt: now + windowMs };
       this.windows.set(key, window);

@@ -208,7 +208,7 @@ describe('MemoryThrottleStore', () => {
     expect([...windows.keys()]).toEqual(['c'])
   })
 
-  it('when full, drops the window started first (here an ended one)', () => {
+  it('when full, drops the ended windows before a live one', () => {
     const store = new MemoryThrottleStore(2)
     store.hit('a', 1000)
     store.hit('b', 10_000)
@@ -216,6 +216,28 @@ describe('MemoryThrottleStore', () => {
     store.hit('c', 10_000)
     const windows = (store as unknown as { windows: Map<string, unknown> }).windows
     expect([...windows.keys()]).toEqual(['b', 'c'])
+  })
+
+  it('when full, drops a newer ended window before an older live one', () => {
+    const store = new MemoryThrottleStore(2)
+    store.hit('a', 60_000)
+    store.hit('b', 1000)
+    vi.advanceTimersByTime(1000)
+    store.hit('c', 60_000)
+    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
+    expect([...windows.keys()]).toEqual(['a', 'c'])
+  })
+
+  it('a full store of live windows sweeps at most once a second', () => {
+    const store = new MemoryThrottleStore(2)
+    store.hit('a', 60_000)
+    store.hit('b', 60_000)
+    const sweep = vi.spyOn(store as unknown as { sweep(now: number): void }, 'sweep')
+    for (const key of ['c', 'd', 'e']) store.hit(key, 60_000)
+    expect(sweep).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(1000)
+    store.hit('f', 60_000)
+    expect(sweep).toHaveBeenCalledTimes(2)
   })
 
   it('keeps at most maxWindows, dropping the window started first', () => {
