@@ -296,6 +296,13 @@ describe('createClient', () => {
     }
   })
 
+  it('rejects a GET with a null body too, which would be sent as "null"', async () => {
+    const { fetch } = fakeFetch()
+    // @ts-expect-error runtime check
+    await expect(createClient(appApi, { fetch }).users.index({ body: null })).rejects.toThrow(/a GET request cannot have a body/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('rejects a GET with a body before calling fetch, global or injected', async () => {
     const { fetch } = fakeFetch()
     // @ts-expect-error runtime check
@@ -630,6 +637,21 @@ describe('options and hooks', () => {
     }
     const result = await createClient(appApi, { fetch, onResponse: () => {} }).users.index()
     expect(result).toMatchObject({ ok: false, unexpected: true, status: 200 })
+  })
+
+  it('reads the options once, when the call starts: a change during the headers function applies to the next call', async () => {
+    const first = fakeFetch([])
+    const second = fakeFetch([])
+    const options: ClientOptions = {
+      fetch: first.fetch,
+      headers: async () => {
+        Object.assign(options, { fetch: second.fetch, credentials: 'omit' })
+        return {}
+      },
+    }
+    await createClient(appApi, options).users.index()
+    expect(first.fetch.mock.calls[0]![1].credentials).toBeUndefined()
+    expect(second.fetch).not.toHaveBeenCalled()
   })
 
   it('reads credentials and the hooks from the options at each call', async () => {

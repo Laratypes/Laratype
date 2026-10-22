@@ -173,9 +173,9 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
 };
 
 /** A body on a GET or HEAD: fetch would refuse it, and that must not look like a network failure. */
-const assertNoGetBody = (method: string, body: unknown, path: string): void => {
+const assertNoGetBody = (method: string, hasBody: boolean, path: string): void => {
   const upper = method.toUpperCase();
-  if (body != null && (upper === "GET" || upper === "HEAD")) fail(`a ${upper} request cannot have a body: "${path}"`);
+  if (hasBody && (upper === "GET" || upper === "HEAD")) fail(`a ${upper} request cannot have a body: "${path}"`);
 };
 
 /**
@@ -204,10 +204,12 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
  * rejected promise is a `FetchFailed`, which the result union turns into `unexpected`.
- * Every option is read from `options` at each call, so changing one (a refreshed token) applies to the next call.
+ * The options are read from `options` when each call starts, so changing one (a refreshed token) applies to the next
+ * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
+  const { baseUrl, fetch: injected, headers: defaults, credentials, onRequest, onResponse } = options;
+  const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
   const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
@@ -215,10 +217,9 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
   if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
   const url = origin + pathname + (q < 0 ? "" : built.slice(q));
-  assertNoGetBody(method, input.body, path);
+  assertNoGetBody(method, input.body !== undefined, path);
   const body = input.body === undefined ? undefined : JSON.stringify(input.body);
   let fetchFn: FetchLike;
-  const injected = options.fetch;
   if (injected) {
     // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
     fetchFn = injected;
@@ -234,25 +235,28 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
   const { signal } = input;
   throwIfAborted(signal);
-  const defaults = options.headers;
-  const headers = new Headers(typeof defaults === "function" ? await defaults() : defaults);
+  let headers: Headers;
+  if (typeof defaults === "function") {
+    headers = new Headers(await defaults());
+    throwIfAborted(signal);
+  } else {
+    headers = new Headers(defaults);
+  }
   for (const [key, value] of Object.entries(input.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);
   }
   const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
-  if (options.credentials !== undefined) init.credentials = options.credentials;
+  if (credentials !== undefined) init.credentials = credentials;
   if (body !== undefined) {
     init.body = body;
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
   }
   if (signal) init.signal = signal;
-  throwIfAborted(signal);
   const request: ClientRequest = Object.freeze({ url, init });
-  const { onRequest, onResponse } = options;
   if (onRequest) {
     await onRequest(request);
     // onRequest may have set a body or changed the method (fetch's default is GET)
-    assertNoGetBody(init.method ?? "GET", init.body, path);
+    assertNoGetBody(init.method ?? "GET", init.body != null, path);
     throwIfAborted(init.signal);
   }
   // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
