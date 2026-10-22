@@ -143,15 +143,15 @@ describe('defineApi', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [], dirs: [] } } as never)).toThrow(/invalid tree name "a..b"/)
     expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes, dirs \}/)
-    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/path must start with one "\/"/)
-    expect(() => defineApi({ a: { contract: c, path: '', scopes: [], dirs: [] } } as never)).toThrow(/"a" path must start with one "\/"/)
-    expect(() => defineApi({ a: { contract: c, path: '//api', scopes: [], dirs: [] } } as never)).toThrow(
-      new TypeError('[@laratype/contract] defineApi: "a" path must start with one "/"'),
-    )
-    // like the scan's base: no trailing "/", which joinPath would double ("/" + "/users" is "//users", another host)
-    for (const path of ['/', '/api/']) {
+    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/the path must start with one "\/"/)
+    // the endpoint path rule: one leading "/", no control characters (URL parsing drops tab, LF and CR)
+    for (const path of ['', '//api', '/\\api', '/\t/evil.com', '/\n/evil.com']) {
+      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(/defineApi: "a": the path must (start with one "\/"|not contain control characters)/)
+    }
+    // like the scan's base: no trailing "/" (or "\\"), which would double the join ("/" + "/users" is "//users", another host)
+    for (const path of ['/', '/api/', '/api\\']) {
       expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(
-        new TypeError('[@laratype/contract] defineApi: "a" path must not end with "/"'),
+        new TypeError(`[@laratype/contract] defineApi: "a": the path must not end with "/", got ${JSON.stringify(path)}`),
       )
     }
     // a valid entry path still builds same-host URLs
@@ -286,6 +286,9 @@ describe('joinPath', () => {
     // a prefix that already ends with "/" gets none added: "/" + "x" is "/x", not "//x"
     expect(joinPath('/', 'x')).toBe('/x')
     expect(joinPath('/api/', 'users')).toBe('/api/users')
+    // nor makes "//x" from a prefix ending with "/"
+    expect(joinPath('/', '/users')).toBe('/users')
+    expect(joinPath('/api/', '/users')).toBe('/api/users')
   })
 })
 

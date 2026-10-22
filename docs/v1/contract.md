@@ -451,7 +451,7 @@ export type AppApi = typeof appApi
 - **Nodes.** Each node is frozen, has a null prototype, and holds its contract's endpoints and its child nodes in definition order. A non-enumerable `[API_NODE]` holds `{ name, entry }`, and `entry` is `undefined` for a pure folder.
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
-- **Entry path shape.** At runtime the entry `path` starts with one `/` and doesn't end with `/` (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)), like the scan's `base` (`checkBase`). `""` is refused: unlike a base, an entry always has a name, so the scan always gives it at least one segment (`/users`).
+- **Entry path shape.** At runtime the entry `path` follows the [endpoint path](#endpoint-builder) rule (one leading `/`, no control characters) and doesn't end with `/` or `\` (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)), like the scan's `base` (`checkBase`). The type level doesn't check this shape. `""` is refused: unlike a base, an entry always has a name, so the scan always gives it at least one segment (`/users`).
 - **Scope folders.** `dirs` holds the folder of each scope in `scopes`, in the same order: root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). It is required, and its length must match `scopes`, at the type level and at runtime. A folder can appear only once (runtime check). The node info keeps it, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
 - **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix). It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it. `routeErrors(route)` gives one route's errors (`endpointErrors` on its full path) without the consistency check, for the client.
@@ -462,8 +462,8 @@ export type AppApi = typeof appApi
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineApi: invalid tree name "<name>"`
 - `defineApi: "<name>" must be { contract, path, scopes, dirs }`
-- `defineApi: "<name>" path must start with one "/"` (also for `""`, `//api` and `/\api`)
-- `defineApi: "<name>" path must not end with "/"` (`/`, `/api/`: `joinPath` would build `//users`, another host; the same rule as the scan's base, and the scan never generates one)
+- `defineApi: "<name>": the path must start with one "/", got <path>` (also for `""`, `//api` and `/\api`) and `defineApi: "<name>": the path must not contain control characters, got <path>`: the [endpoint path](#endpoint-builder) rule
+- `defineApi: "<name>": the path must not end with "/", got <path>` (`/`, `/api/`, `/api\`; the same rule as the scan's base, and the scan never generates one)
 - `defineApi: "<name>" scopes must be scopes (use defineScope)`
 - `defineApi: "<name>" needs dirs: the folder of each scope ("" for the root)`
 - `defineApi: "<name>" dirs must be root-relative folders ("" for the root)`
