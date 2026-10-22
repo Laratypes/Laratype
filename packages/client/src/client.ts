@@ -124,6 +124,19 @@ const isManifest = (value: unknown): value is Manifest =>
 const SENTINEL = "http://__laratype_base__";
 
 /**
+ * A relative path keeps any origin it is parsed against; one URL parsing reads as another host (or can't parse) does not.
+ * Two bases, so a `"//__laratype_base__/x"` that names the sentinel itself fails too, with two schemes, so does a
+ * scheme-relative `"http:/evil.com"`.
+ */
+const keepsOrigin = (path: string): boolean => {
+  try {
+    return [SENTINEL, "https://__laratype_other__"].every((base) => new URL(path, base).origin === base);
+  } catch {
+    return false;
+  }
+};
+
+/**
  * `"https://host/api"` → `["https://host", "/api"]`; a path (`"/api"`) or `""` has no origin. Anything else, such as
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
@@ -147,8 +160,8 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   } catch {
     return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
   }
-  // a path must keep the sentinel origin: "//host/api" is protocol-relative, another host
-  if (!absolute && url.origin !== SENTINEL) {
+  // a path must keep the origin: "//host/api" is protocol-relative, another host
+  if (!absolute && !keepsOrigin(baseUrl)) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
@@ -176,7 +189,11 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
-  const url = origin + (q < 0 ? joinPath(basePath, built) : joinPath(basePath, built.slice(0, q)) + built.slice(q));
+  const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
+  // without an origin, "//evil.com" (or "/\evil.com", "/\t/evil.com", as URL parsing reads them) is another host: a route
+  // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
+  if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
+  const url = origin + pathname + (q < 0 ? "" : built.slice(q));
   const headers = new Headers(options.headers);
   for (const [key, value] of Object.entries(input.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);

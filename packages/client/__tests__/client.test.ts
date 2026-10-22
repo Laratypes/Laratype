@@ -339,7 +339,7 @@ describe('createClient', () => {
   })
 
   it('rejects a baseUrl that is neither an absolute URL with "://" nor a path starting with "/"', () => {
-    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api']) {
+    for (const baseUrl of ['localhost:3000/api', 'api', 'example.com', '//cdn.example/api', '//__laratype_base__/api']) {
       expect(() => createClient(appApi, { baseUrl })).toThrow(
         new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`),
       )
@@ -653,6 +653,55 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
+  })
+
+  it('always puts a "/" before a route path: a ".evil.com" param cannot extend the host', async () => {
+    // a contract path must start with "/", but a manifest or a forged endpoint can still hold one that doesn't
+    const forged = { 't.tenant': { method: 'get', path: ':tenant/x' }, 't.root': { method: 'get', path: 'x' } }
+    type Calls = { t: Record<'tenant' | 'root', (input?: object) => Promise<unknown>> }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls
+    await api.t.tenant({ params: { tenant: '.evil.com' } })
+    await api.t.tenant({ params: { tenant: '.evil.com' }, query: { q: 1 } })
+    await api.t.root()
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com/api' }) as never as Calls).t.tenant({ params: { tenant: '.evil.com' } })
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://api.example.com/.evil.com/x',
+      'https://api.example.com/.evil.com/x?q=1',
+      'https://api.example.com/x',
+      'https://api.example.com/api/.evil.com/x',
+    ])
+    for (const { url } of calls) expect(new URL(url).host).toBe('api.example.com')
+  })
+
+  it('rejects a route path that would leave the page\'s origin under a same-origin baseUrl', async () => {
+    const forged = {
+      't.slashes': { method: 'get', path: '//evil.com/x' },
+      't.backslash': { method: 'get', path: '/\\evil.com/x' },
+      't.tab': { method: 'get', path: '/\t/evil.com/x' },
+      't.newline': { method: 'get', path: '/\n\\evil.com' },
+      't.invalid': { method: 'get', path: '//[bad' },
+      't.sentinel': { method: 'get', path: '//__laratype_base__/x' },
+      // no leading "/": buildUrl's "\t/evil.com/x" is a path, but "/" + it is not
+      't.joined': { method: 'get', path: '\t/evil.com/x' },
+      't.joinedSentinel': { method: 'get', path: '\t/__laratype_other__/x' },
+    }
+    type Calls = { t: Record<keyof typeof forged extends `t.${infer K}` ? K : never, () => Promise<unknown>> }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch }) as never as Calls
+    // buildUrl refuses a route path URL parsing reads as another host, whatever the baseUrl
+    for (const call of [api.t.slashes, api.t.backslash, api.t.tab, api.t.newline, api.t.invalid, api.t.sentinel]) {
+      await expect(call()).rejects.toThrow(/which a URL reads as another host/)
+    }
+    // the client checks the joined path, parsed against two origins so a path naming either one fails too
+    await expect(api.t.joined()).rejects.toThrow(
+      new TypeError('[@laratype/client] route path "\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
+    )
+    await expect(api.t.joinedSentinel()).rejects.toThrow(/would leave the page's origin/)
+    expect(calls).toEqual([])
+    // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
+    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.joined()
+    expect(new URL(calls[0]!.url).host).toBe('api.example.com')
   })
 
   it('checks the manifest errors at createClient: absent or an array of strings', () => {

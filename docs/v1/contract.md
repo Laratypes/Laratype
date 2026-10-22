@@ -16,17 +16,17 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 |---|---|
 | [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2 |
 | [Path params](#path-params) | merged @ d70daa7 |
-| [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed |
+| [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
-| [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) |
+| [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
+| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `route()` planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -132,7 +132,7 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed.
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/endpoint.ts`](../../packages/contract/src/endpoint.ts)
@@ -140,10 +140,11 @@ merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `No
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
 type Schema = StandardSchemaV1 | undefined;   // internal, not exported
+type BodyThis<M, Self> = (M extends "get" ? true : false) extends true ? "body(): a GET endpoint cannot have a body" : Self;   // internal: the `this` of .body()
 
 export interface EndpointDef {                // runtime description: router, client, OpenAPI
   readonly method: Method;
-  readonly path: string;                      // relative to the contract's URL prefix
+  readonly path: string;                      // relative to the contract's URL prefix; starts with "/"
   readonly query?: StandardSchemaV1;
   readonly body?: StandardSchemaV1;
   readonly headers?: StandardSchemaV1;
@@ -166,7 +167,7 @@ export class Endpoint<M extends Method = Method, P extends string = string,
   readonly def: EndpointDef;
   constructor(def: EndpointDef);
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C>;
-  body<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;
+  body<S extends StandardSchemaV1>(this: BodyThis<M, Endpoint<M, P, Q, B, H, R, St, E, C>>, schema: S): Endpoint<M, P, Q, S, H, R, St, E, C>;   // not on GET
   headers<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, B, S, R, St, E, C>;
   response<S extends StandardSchemaV1, Code extends BodyStatus | undefined = undefined>(schema: S, status?: Code): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C>;   // 2xx but 204/205; keeps a .status(n) set before
   status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C>;   // body-less 2xx
@@ -178,11 +179,11 @@ export class Endpoint<M extends Method = Method, P extends string = string,
 }
 
 export const endpoint: {
-  get: <P extends string>(path: P) => Endpoint<"get", P>;   // status 204 until .response()
-  post: <P extends string>(path: P) => Endpoint<"post", P>;   // status 204 until .response()
-  put: <P extends string>(path: P) => Endpoint<"put", P>;   // status 204 until .response()
-  patch: <P extends string>(path: P) => Endpoint<"patch", P>;   // status 204 until .response()
-  delete: <P extends string>(path: P) => Endpoint<"delete", P>;   // status 204 until .response()
+  get: <P extends `/${string}`>(path: P) => Endpoint<"get", P>;   // status 204 until .response()
+  post: <P extends `/${string}`>(path: P) => Endpoint<"post", P>;   // status 204 until .response()
+  put: <P extends `/${string}`>(path: P) => Endpoint<"put", P>;   // status 204 until .response()
+  patch: <P extends `/${string}`>(path: P) => Endpoint<"patch", P>;   // status 204 until .response()
+  delete: <P extends `/${string}`>(path: P) => Endpoint<"delete", P>;   // status 204 until .response()
 };
 export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
@@ -198,11 +199,13 @@ export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 - **Order-free.** Slots can be set in any order. A later call to the same slot replaces it. `.throws()` **appends**, in call order.
 - **Status.** The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202). `.response(schema, 201)` gives the literal type `201`; a bare endpoint is typed `204`. Because of `NoInfer<Code>`, a contextual return type (for example inside `defineContract`) never infers the status, so `.response(schema)` at the end of a chain stays `200` (f95d859, regression tests in `types/endpoint.types.ts` and `types/contract.types.ts`).
 - **Relative paths.** The path is appended to the contract's URL prefix from the [folder tree](#contract-folder-tree). `'/'` is the prefix itself.
+- **A path starts with one `/`.** `endpoint.get('x')` is a type error (the path is typed `` `/${string}` ``, so a `string`-typed path needs a cast) and throws when the endpoint is defined, and so does a path starting with `//` or `/\`, or holding a control character (URL parsing drops tab, LF and CR, so `/<tab>/evil.com` is `//evil.com`) (runtime only); the constructor and `defineContract` check it too. The client appends the path to `baseUrl`, so a path such as `':tenant/x'` with a `.evil.com` param could otherwise extend the host (#257).
+- **No body on GET.** `fetch` refuses a body on a GET request, so `endpoint.get(path).body(schema)` is a type error (its `this` type is the message `"body(): a GET endpoint cannot have a body"`) and throws at runtime, and so does a GET def with a body passed to the constructor. A wide `Endpoint<Method>` or an `AnyEndpoint` can't say which method it has, so only the runtime check applies to them. Code generic over the method (`<M extends Method>(e: Endpoint<M, P>) => e.body(s)`) can't resolve the guard and needs a cast. There is no HEAD method (see Non-goals).
 - **Capabilities.** The builder holds the endpoint level of the [capabilities](#capabilities-and-derived-errors), and an unset capability is inherited. `.auth()` uses the default guard and `.auth('<guard>')` a named one. `.public()`, `.authorize(false)` and `.throttle(false)` are the only opt-outs.
 - **`__types` is phantom.** It has no runtime property and exists only to carry generics. Runtime consumers read `def`. Type consumers read `__types` (or `EndpointTypes<E, Ctx>`).
 
 ### Diagnostics
-Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a success status outside 2xx (`.response(schema, 404)`, `.status(301)`), `.status()` after `.response()`, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, and an unknown path param.
+Type-only (`types/endpoint.types.ts`): unknown method (`endpoint.head`), a non-string path, non-Standard-Schema slots, a string status, a success status outside 2xx (`.response(schema, 404)`, `.status(301)`), `.status()` after `.response()`, a `.throws()` value that is not an error factory, `.errors()` (removed), a guard missing from `GuardRegistry`, a throttle without `limit` or with an unknown unit, `.throttle(true)`, assigning to `def` or its fields, an unknown path param, a path that doesn't start with `/` (`endpoint.get('x')`, `''`) and `.body()` on a GET endpoint.
 
 Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `throws(): throws must be a list of errors (use defineError)`
@@ -212,6 +215,8 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `response(): the status must be a 2xx success status, got <status>` and the same for `status()`
 - `status(): the endpoint has a response schema; use .response(schema, status)`
 - `response(): a 204 has no body; use .status(204)` (and the same for 205)
+- `body(): a GET endpoint cannot have a body`, and `endpoint: a GET endpoint cannot have a body` from the constructor
+- `endpoint.<method>(): the path must start with one "/", got <path>`, and `endpoint: the path must start with one "/", got <path>` from the constructor (`<path>` is JSON for a string, else its `typeof`), and `<label>: the path must not contain control characters, got <path>`
 
 Writing to a frozen `def` throws `TypeError` in strict mode.
 
@@ -319,7 +324,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 ## defineContract
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). It replaces the named `defineContract(name, endpoints)` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). A contract's name and URL prefix now come from the [contract folder tree](#contract-folder-tree).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). It replaces the named `defineContract(name, endpoints)` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). A contract's name and URL prefix now come from the [contract folder tree](#contract-folder-tree). The path and GET-body re-checks of each endpoint (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
@@ -359,6 +364,7 @@ export const contractEndpoints: <C extends AnyContract>(contract: C) => Array<[E
 Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 - `defineContract: endpoint key "<key>" must be non-empty and must not contain "."`
 - `defineContract: "<key>" is not an endpoint`
+- `defineContract: "<key>": the path must start with one "/", got <path>` and `defineContract: "<key>": a GET endpoint cannot have a body` (an endpoint built by the constructor already fails there; these catch a forged one)
 - `defineContract: unknown option "<option>"`, and the option checks `auth must be true or a guard name`, `throws must be a list of errors (use defineError)` and `throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`
 
 Type-level: a plain record of endpoints is not assignable to `Contract`. An endpoint with inconsistent capabilities gets `{ error: "<key>: <problem>" }` ([Capabilities and derived errors](#capabilities-and-derived-errors)). `authorize` and `auth: false` are not contract options.
@@ -380,7 +386,7 @@ Type-level: a plain record of endpoints is not assignable to `Contract`. An endp
 ## defineApi and route names
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The entry path shape check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) is proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
@@ -445,6 +451,7 @@ export type AppApi = typeof appApi
 - **Nodes.** Each node is frozen, has a null prototype, and holds its contract's endpoints and its child nodes in definition order. A non-enumerable `[API_NODE]` holds `{ name, entry }`, and `entry` is `undefined` for a pure folder.
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
+- **Entry path shape.** At runtime the entry `path` follows the [endpoint path](#endpoint-builder) rule (one leading `/`, no control characters) and doesn't end with `/` or `\` (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)), like the scan's `base`, but stricter: `checkBase` still accepts `//api` or a control character, which then throws here when the generated index is imported. The type level doesn't check this shape. `""` is refused: unlike a base, an entry always has a name, so the scan always gives it at least one segment (`/users`).
 - **Scope folders.** `dirs` holds the folder of each scope in `scopes`, in the same order: root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). It is required, and its length must match `scopes`, at the type level and at runtime. A folder can appear only once (runtime check). The node info keeps it, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
 - **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix). It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it. `routeErrors(route)` gives one route's errors (`endpointErrors` on its full path) without the consistency check, for the client.
@@ -455,7 +462,8 @@ export type AppApi = typeof appApi
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineApi: invalid tree name "<name>"`
 - `defineApi: "<name>" must be { contract, path, scopes, dirs }`
-- `defineApi: "<name>" path must start with "/"`
+- `defineApi: "<name>": the path must start with one "/", got <path>` (also for `""`, `//api` and `/\api`) and `defineApi: "<name>": the path must not contain control characters, got <path>`: the [endpoint path](#endpoint-builder) rule
+- `defineApi: "<name>": the path must not end with "/" or "\", got <path>` (`/`, `/api/`, `/api\`; the scan never generates one)
 - `defineApi: "<name>" scopes must be scopes (use defineScope)`
 - `defineApi: "<name>" needs dirs: the folder of each scope ("" for the root)`
 - `defineApi: "<name>" dirs must be root-relative folders ("" for the root)`
@@ -832,7 +840,7 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
@@ -849,6 +857,7 @@ buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } }) 
 - **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
 - **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
 - **No dot segments:** a param value of exactly `.` or `..` throws, required or optional. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` in a value is encoded (`..%2Fx`).
+- **No other host:** a result that URL parsing reads as another host throws: read the way URL parsing reads it (leading spaces and controls and every tab, LF and CR dropped, `\` as `/`), it must not start with `//` or a `scheme:` (`//x`, `/\x`, `/<tab>/x` and a scheme-relative `http:/x` throw). String work only: `buildUrl` doesn't use `URL`. Endpoint paths start with one `/`, but an absent optional first param drops its segment, so `/:a?//x` would build `//x`, the host `x` (#257).
 - **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object, a function or a symbol throws. An empty query adds no `?`.
 - Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
 
@@ -856,6 +865,7 @@ buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } }) 
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `buildUrl: missing param "<name>" for "<path>"`
 - `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)` (or `".."`)
+- `buildUrl: "<path>" builds "<result>", which a URL reads as another host`
 - `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`
 
 Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.
