@@ -121,6 +121,19 @@ export class Container {
     return this
   }
 
+  /**
+   * Bind `token` to `value` in this container, for tests. Returns a function that puts back this container's own
+   * previous binding of `token` (or none); call the restore functions in reverse order.
+   */
+  swap<T>(token: Token<T>, value: NoInfer<T>): () => void {
+    const previous = this.bindings.get(token)
+    this.instance(token, value)
+    return () => {
+      if (previous) this.bindings.set(token, previous)
+      else this.bindings.delete(token)
+    }
+  }
+
   /** Whether `token` is bound in this container or an ancestor (autowirable classes don't count). */
   has(token: Token): boolean {
     return this.findBinding(token) !== undefined

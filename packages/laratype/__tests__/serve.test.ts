@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { __laratype_deps } from "@laratype/core";
+import { __laratype_deps, Facade } from "@laratype/core";
 import { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
 
@@ -18,6 +18,13 @@ describe("Serve.getContainer", () => {
     const greeter = Serve.getContainer().make(Greeter);
     expect(greeter).toBeInstanceOf(Greeter);
     expect(greeter.clock).toBeInstanceOf(Clock);
+  });
+
+  it("is the facade application until down()", () => {
+    const container = Serve.getContainer();
+    expect(Facade.getFacadeApplication()).toBe(container);
+    Serve.down();
+    expect(Facade.getFacadeApplication()).not.toBe(container);
   });
 });
 

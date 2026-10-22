@@ -1,6 +1,6 @@
 ---
 area: di
-packages: ["@laratype/core", "sauf", "@laratype/support", "laratype"]
+packages: ["@laratype/core", "sauf", "@laratype/support", "laratype", "@laratype/log", "@laratype/auth"]
 issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158]
 verified-against: Laratype@d9e8df2
 last-verified: 2026-10-12
@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR #PRNUM |
 | [Bun build plugin](#bun-build-plugin) | planned → #116 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -546,11 +546,68 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ## Container-backed registries and facades
 
 ### Status
-planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7), [#115](https://github.com/Laratypes/Laratype/issues/115) (D8).
+- Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
+- Facades: proposed: PR #PRNUM @ PRSHA (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)).
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
-- **D8:** a base `Facade` proxy over the container. `Auth`, `Log`, `Hash` and `Mail` become facades. Tests use `app.swap()` and `Facade.fake()`.
+
+### Public API
+[`facade.ts`](../../packages/core/src/facade.ts) · [`container.ts`](../../packages/core/src/container.ts) · [`Hash.ts`](../../packages/support/src/security/Hash.ts) · [`Log.ts`](../../packages/log/src/support/Log.ts) · [`Auth.ts`](../../packages/auth/src/support/Auth.ts)
+
+```ts
+// @laratype/core
+export interface FacadeClass<T> { readonly accessor: Token<T> }
+export abstract class Facade {
+  static readonly accessor: Token<object>;                          // set by each facade
+  static setFacadeApplication(app: Container | undefined): void;
+  static getFacadeApplication(): Container;
+  static fake<T>(this: FacadeClass<T>, fake: NoInfer<T>): () => void;
+  protected static root<T>(this: FacadeClass<T>): T;
+}
+export class Container {
+  // ...the Container section's API, plus:
+  swap<T>(token: Token<T>, value: NoInfer<T>): () => void;
+}
+
+// @laratype/support
+export class Hasher { make(value: string): string }                 // sha256, as in 0.5
+export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
+
+// @laratype/log
+@Injectable({ scope: 'singleton' })
+export class LogManager { getLogger(); format(); info(message); error(message); warn(message); debug(message); emergency(message); alert(message); critical(message) }
+export class Log extends Facade { static readonly accessor: typeof LogManager; /* the same methods, static */ }
+
+// @laratype/auth
+export class AuthManager { attempt(user); user<T>(); id<A>(); isAuthenticated(); check(); login(user); guard<T>(guardName); logout() }
+export class Auth extends Facade { static readonly accessor: typeof AuthManager; /* the same methods, static; attempt() stays an instance method as in 0.5 */ }
+```
+
+### Invariants
+- A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
+- The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`).
+- The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` is `@Injectable({ scope: 'singleton' })`: one logger per container, like the 0.5 static cache.
+- A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).
+- **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. Restore functions run in reverse order.
+- **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor.
+- `Mail` has no implementation on master (`packages/mail` holds only `package.json`), so its facade comes with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170) on this base.
+
+### Diagnostics
+- Resolving an unbound token accessor throws the container's `No binding for InjectionToken(<name>).` ([Container](#container)).
+- `DiError`: `Facade <C> has no accessor.` when a facade class does not set `accessor`.
+- Type-only (`facade.test-d.ts`): a fake that does not match the accessor type, calling `root()` from outside the facade, a `swap()` value that does not match the token.
+
+### Example
+[`examples/di/proposed/facade.ts`](./examples/di/proposed/facade.ts)
+
+### Non-goals
+- No `__callStatic`-style proxy: each facade forwards its methods explicitly, so their types (generics included) stay as written.
+- No fake classes with assertions (Laravel's `Mail::fake()`): `fake()` takes the fake instance.
+- No registries: D7 [#114](https://github.com/Laratypes/Laratype/issues/114).
+
+### Open questions
+- The `Mail` facade → [#170](https://github.com/Laratypes/Laratype/issues/170)
 
 ### Acceptance
 [#114 Done when](https://github.com/Laratypes/Laratype/issues/114) · [#115 Done when](https://github.com/Laratypes/Laratype/issues/115)
