@@ -249,9 +249,12 @@ describe('sauf types:generate', () => {
     const indexFile = join(project, '.laratype', 'api', 'fake.ts');
     writeFileSync(indexFile, "import { appApi } from './index.gen'\nconst fake = { users: appApi.users }\nexport type AppApi = typeof fake\n");
     const options = { projectDir: project, tsconfig: join(project, 'tsconfig.json'), indexFile, typesDir: join(project, '.laratype', 'types'), outFile: 'fake-api.ts' };
-    expect(() => generateApiFile(ts, options)).toThrow(ApiGenerationError);
-    expect(() => generateApiFile(ts, options)).toThrow(`AppApi in ${indexFile} must be the type of the appApi from defineApi`);
-    rmSync(indexFile);
+    try {
+      expect(() => generateApiFile(ts, options)).toThrow(ApiGenerationError);
+      expect(() => generateApiFile(ts, options)).toThrow(`AppApi in ${indexFile} must be the type of the appApi from defineApi`);
+    } finally {
+      rmSync(indexFile);
+    }
   }, 60_000);
 
   it('reports contract type errors with their location', async () => {

@@ -265,11 +265,13 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
     // an endpoint path's rule, plus no trailing "/" like the scan's base: "/" + "/users" would be "//users", another host
     checkPath(entry.path, `defineApi: "${name}"`);
     if (/[/\\]$/.test(entry.path)) fail(`defineApi: "${name}": the path must not end with "/" or "\\", got ${JSON.stringify(entry.path)}`);
-    // each item is { scope, dir }, not a bare scope as in the parallel `scopes` / `dirs` lists this replaces
-    if (!Array.isArray(entry.scopes) || !entry.scopes.every((s) => typeof s === "object" && s !== null && !isScope(s))) {
+    // each item is { scope, dir }, not a bare scope as in the parallel `scopes` / `dirs` lists this replaces; the
+    // spread turns the holes of a sparse array, which `every` would skip, into undefined items
+    const items: unknown[] = Array.isArray(entry.scopes) ? [...entry.scopes] : [];
+    if (!Array.isArray(entry.scopes) || !items.every((s) => typeof s === "object" && s !== null && !isScope(s))) {
       fail(`defineApi: "${name}" scopes must be [{ scope, dir }], outer to inner`);
     }
-    const chain = (entry.scopes as readonly ApiEntryScope[]).map(({ scope, dir }) => Object.freeze({ scope, dir }));
+    const chain = (items as ApiEntryScope[]).map(({ scope, dir }) => Object.freeze({ scope, dir }));
     if (!chain.every((s) => isScope(s.scope))) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
     if (!chain.every((s) => isDir(s.dir))) fail(`defineApi: "${name}" scope dirs must be root-relative folders ("" for the root)`);
     const dup = chain.find((s, i) => chain.findIndex((t) => t.dir === s.dir) !== i);
@@ -399,6 +401,7 @@ export function apiRoutes(api: object): ApiRoute[] {
 
 /** `apiEndpoint(appApi, "users.posts.update")` → that endpoint (throws on an unknown name). */
 export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name> {
+  if (!isApiRoot(api) && !isApiNode(api)) fail("apiEndpoint: expected the appApi from defineApi or an API node");
   let value: unknown = api;
   for (const segment of name.split(".")) {
     value = typeof value === "object" && value !== null && !isEndpoint(value) ? (value as TreeNode)[segment] : undefined;

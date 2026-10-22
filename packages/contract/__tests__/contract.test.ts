@@ -172,7 +172,8 @@ describe('defineApi', () => {
   it('takes each scope with its root-relative folder: scopes: [{ scope, dir }] (H1 #104, C10 #258)', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     const scope = defineScope()({ auth: true })
-    for (const scopes of [scope, [scope], [null]]) {
+    // a bare scope, a null item, a hole in a sparse array
+    for (const scopes of [scope, [scope], [null], [, { scope, dir: '' }]]) {
       expect(() => defineApi({ a: { contract: c, path: '/a', scopes } } as never)).toThrow(
         new TypeError('[@laratype/contract] defineApi: "a" scopes must be [{ scope, dir }], outer to inner'),
       )
@@ -209,6 +210,7 @@ describe('defineApi', () => {
     expect(Object.isFrozen(index!.scopes)).toBe(true)
     expect(store!.scopes).toBe(index!.scopes)
     for (const fake of [{}, { users: appApi.users }, users.show, null]) {
+      expect(() => apiEndpoint(fake as never, 'users.show' as never)).toThrow(new TypeError('[@laratype/contract] apiEndpoint: expected the appApi from defineApi or an API node'))
       expect(() => apiPaths(fake as never)).toThrow(new TypeError('[@laratype/contract] apiPaths: expected the appApi from defineApi, an API node or a contract'))
       expect(() => apiRoutes(fake as never)).toThrow(new TypeError('[@laratype/contract] apiRoutes: expected the appApi from defineApi, an API node or a contract'))
     }
