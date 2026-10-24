@@ -39,7 +39,7 @@ export function laratypeDiBun(options: DiBunPluginOptions = {}): DiBunPlugin {
         const file = normalize(path);
         if (dtsRE.test(file) || file.includes('/node_modules/') || (include && !include(file))) return undefined;
         const code = await readFile(path, 'utf8');
-        const result = transformDi(code, path, { helperId: DI_RUNTIME_ID, ...transformOptions });
+        const result = transformDi(code, path, { ...transformOptions, helperId: transformOptions.helperId ?? DI_RUNTIME_ID });
         return { contents: result ? result.code : code, loader: file.endsWith('x') ? 'tsx' : 'ts' };
       });
     },

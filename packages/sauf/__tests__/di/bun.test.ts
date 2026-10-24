@@ -59,6 +59,11 @@ describe('laratype:di Bun plugin hooks', () => {
     expect((await onLoad({ path: mainFile }))?.contents).toContain('from "virtual:custom";');
   });
 
+  it('keeps the @laratype/core default for an undefined helperId', async () => {
+    const { onLoad } = setup(laratypeDiBun({ helperId: undefined }));
+    expect((await onLoad({ path: mainFile }))?.contents).toContain(`from ${JSON.stringify(DI_RUNTIME_ID)};`);
+  });
+
   it.each([
     ['node_modules', join(appDir, 'node_modules/pkg/index.ts')],
     ['declaration files', join(appDir, 'main.d.ts')],
