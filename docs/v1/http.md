@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 59675ee (#108) |
+| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
@@ -420,10 +420,10 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-proposed: PR #307 @ 432c9c4 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Public API
-[`Response.ts` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/http/src/response/Response.ts) · [`isContractError` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/contract/src/errors.ts) · [`isException` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/support/src/exception/Exception.ts)
+[`Response.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/http/src/response/Response.ts) · [`isContractError` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/contract/src/errors.ts) · [`isException` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/support/src/exception/Exception.ts)
 
 ```ts
 // @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
@@ -444,7 +444,7 @@ export const isException: (value: unknown) => value is Exception;
 - **HTTP errors:** an HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response` whose status is from 400 to 599 too; anything else is an unknown error. Its 4xx or 5xx is decided on the status actually sent, the response's ([#272](https://github.com/Laratypes/Laratype/issues/272), H23).
 - **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response, a contract error's included, drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
 - **Non-`Error` throws:** Hono's error handler only sees an `Error`. A `throw "x"`, `throw {}` or a rejection with a non-`Error`, from a controller or any middleware, leaves the app's `fetch`, which `ResponseKernel.boot()` wraps: it answers the generic 500 with `Cache-Control: no-store` and logs the value, on every adapter. That response doesn't carry the headers middleware set.
-- **Unserializable body:** a contract error whose body JSON can't hold (a `BigInt`, a cycle) answers the generic 500 with `Cache-Control: no-store`, and is logged with the serialization failure.
+- **Unserializable body:** a contract error whose body JSON can't hold (a `BigInt`, a cycle, a getter that throws) answers the generic 500 with `Cache-Control: no-store`, and is logged with the serialization failure.
 - **Logs:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx, contract errors aside. The `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)).
 - **0.5 request classes:** a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422 (`ValidationException`, `{ code: "VALIDATION", message, errors }`), listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500 ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation).
 
