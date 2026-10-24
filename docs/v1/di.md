@@ -28,7 +28,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
-| [Bun build plugin](#bun-build-plugin) | planned → #116 |
+| [Bun build plugin](#bun-build-plugin) | proposed (#116) |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
 
@@ -247,7 +247,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (planned → [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126)). The framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed ([#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -560,10 +560,48 @@ planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7), [#115
 ## Bun build plugin
 
 ### Status
-planned → [#116](https://github.com/Laratypes/Laratype/issues/116) (T4).
+proposed (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
-### Design (non-binding)
-Exposes the same core transform as a Bun plugin in `bun.build.js`, so that framework classes resolved by the container work from `dist/`.
+### Public API
+[`packages/sauf/src/di/bun.ts`](../../packages/sauf/src/di/bun.ts), exported from `packages/sauf/src/di/index.ts` next to the [Vite plugin](#vite-plugin-laratypedi) (internal to the repo: the `sauf` package entry does not export it).
+
+```ts
+export interface DiBunPluginOptions extends DiTransformOptions {
+  include?: (path: string) => boolean;   // files to transform (path with forward slashes); default: every file
+}
+export interface DiBunPlugin {           // the subset of Bun's `BunPlugin` it uses, so sauf builds without bun-types
+  name: string;
+  setup(build: DiBunPluginBuilder): void;
+}
+export interface DiBunPluginBuilder {
+  onLoad(
+    options: { filter: RegExp },
+    callback: (args: { path: string }) => Promise<{ contents: string; loader: 'ts' | 'tsx' } | undefined>,
+  ): unknown;
+}
+export function laratypeDiBun(options?: DiBunPluginOptions): DiBunPlugin;   // name: 'laratype:di'
+```
+
+### Invariants
+- **Same transform:** `onLoad` runs [`transformDi`](#di-transform) on the raw TypeScript, before Bun transpiles it, so the param types are still there. The emitted calls are the ones `sauf dev` gets.
+- **Helper import:** `helperId` defaults to `@laratype/core` (`DI_RUNTIME_ID`), imported directly: no `virtual:laratype/di` to resolve, and `@laratype/core` stays an external of the package build. An explicit `helperId` wins.
+- **Which files:** `.ts`, `.tsx`, `.mts` and `.cts`, except `.d.ts` files, `node_modules` and files `include` rejects; those fall through to Bun's own loader. A file with nothing to emit is returned unchanged.
+- **`bun.build.js`:** the plugin runs on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` or `peerDependencies` (today `@laratype/http`, `@laratype/support` and `laratype`), on that package's own `src/` only. Other packages are built without it, so their `dist/` never imports a package they don't declare. `@laratype/core` is skipped, so it never imports itself.
+- **Result:** a framework class with an own constructor carries its metadata in `dist/`. For example `@laratype/http`'s `Request` is registered with `[() => HonoRequest]`, so `container.make(Request)` autowires it from `dist/` once `HonoRequest` is bound; without the plugin it throws `Cannot autowire`.
+- **No source maps:** `bun.build.js` emits none, so the plugin returns no map.
+
+### Diagnostics
+None of its own. The transform never throws on user code, and resolve-time failures are [Container](#container) `DiError`s. The package builds are minified, so a class in a `DiError` message from `dist/` shows its minified name.
+
+### Example
+`packages/sauf/__tests__/di/bun.test.ts`: the plugin hooks, then `container.make(Request)` against the built `@laratype/http` and `@laratype/core` (ESM and CJS) in a plain Node process. Run `bun run build` first.
+
+### Non-goals
+- Not the app build: `sauf build` and the test preset share the chain of B2 [#126](https://github.com/Laratypes/Laratype/issues/126).
+- Packages that don't depend on `@laratype/core` get no metadata until they do.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#116 Done when](https://github.com/Laratypes/Laratype/issues/116)
