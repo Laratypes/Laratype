@@ -273,6 +273,20 @@ describe('the body by media type (H26 #287)', () => {
     expect(await response.json()).toEqual({ message: 'Malformed JSON in request body.' })
     expect(errors).not.toHaveBeenCalled()
   })
+
+  it('a malformed multipart body is a 400 with a generic body, not a 500', async () => {
+    const errors = quiet()
+    const { app } = serve()
+    // no boundary: `formData()` rejects, which is the client's fault, not a server error
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/form-data' },
+      body: 'not a multipart body',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ message: 'Malformed form data in request body.' })
+    expect(errors).not.toHaveBeenCalled()
+  })
 })
 
 describe('a 0.5 request class', () => {

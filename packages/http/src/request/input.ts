@@ -19,25 +19,29 @@ const JSON_MEDIA_TYPE = /^application\/([a-z0-9.-]+\+)?json(;\s*[a-zA-Z0-9\-]+\=
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
-/** As Hono's `validator('json')` answers it, with a JSON body like the other error responses. */
-const malformedJson = () =>
-  new HTTPException(400, { res: Response.json({ message: "Malformed JSON in request body." }, { status: 400 }) });
+/** A bad request as Hono's `validator()` answers it, with a JSON body like the other error responses. */
+const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ message }, { status: 400 }) });
 
 /**
  * The request body: JSON for a JSON media type, else the form fields `parseBody()` reads (`multipart/form-data` and
  * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty JSON body is no body, `{}` as for
- * the other types (a client may send its JSON Content-Type on a GET); a malformed one is a 400.
+ * the other types (a client may send its JSON Content-Type on a GET); a malformed one is a 400, and so is a form body
+ * `parseBody()` rejects (a missing or bad multipart boundary).
  */
 export const readBody = async (request: HonoRequest): Promise<unknown> => {
   if (!isJsonMediaType(request.header("Content-Type"))) {
-    return request.parseBody({ dot: true });
+    try {
+      return await request.parseBody({ dot: true });
+    } catch {
+      throw badRequest("Malformed form data in request body.");
+    }
   }
   const text = await request.text();
   if (text.trim() === "") return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw malformedJson();
+    throw badRequest("Malformed JSON in request body.");
   }
 };
 
