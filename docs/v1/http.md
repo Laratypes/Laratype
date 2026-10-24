@@ -420,10 +420,10 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-proposed: PR #307 @ 59675ee (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR #307 @ 432c9c4 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Public API
-[`Response.ts` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/http/src/response/Response.ts) · [`isContractError` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/contract/src/errors.ts) · [`isException` @ 59675ee](https://github.com/Laratypes/Laratype/blob/59675ee/packages/support/src/exception/Exception.ts)
+[`Response.ts` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/http/src/response/Response.ts) · [`isContractError` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/contract/src/errors.ts) · [`isException` @ 432c9c4](https://github.com/Laratypes/Laratype/blob/432c9c4/packages/support/src/exception/Exception.ts)
 
 ```ts
 // @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
@@ -437,7 +437,7 @@ export const isException: (value: unknown) => value is Exception;
 ```
 
 ### Invariants
-- **Contract errors:** a thrown `ContractError`, from `defineError` or the `errors` catalog, at any depth, answers its own status with the JSON body `{ code, ...body }`, whatever the route's or controller's status. A declared 5xx keeps its body too: it is the error the contract declares. A contract error is an expected answer, so it is not logged.
+- **Contract errors:** a thrown `ContractError`, from `defineError` or the `errors` catalog, at any depth, answers its own status with the JSON body `{ code, ...body }`, whatever the route's or controller's status. A declared 5xx keeps its body too: it is the error the contract declares. A body's own top-level `toJSON` is dropped: JSON serialization would call it, and it could leave out the declared `code`. A contract error is an expected answer, so it is not logged.
 - **By brand:** the filter tells a contract error with `isContractError` and an `Exception` with `isException`, by a `Symbol.for` brand, not `instanceof`, so one from another copy of `@laratype/contract` or `@laratype/support` counts. `isContractError` also requires a 400-599 integer `status`, a string `code` and a non-array object `body` without its own `code`: a contract error whose fields were changed after it was created so that they no longer fit the wire format is an unknown error. `isException` also requires the public methods of an `Exception`: `getErrorCode()`, `getHttpCode()`, `canResponsible()` and `toJson()`.
 - **Framework errors:** the catalog's 401, 403, 404, 422 and 429 go out as `{ code, message }` (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`) and `{ code: "VALIDATION_ERROR", message, errors }`. The 0.5 `NotFoundException` and `UnauthorizedException` send the same `{ code, message }` shape.
 - **Unknown errors:** any error that is not a contract error, a responsible `Exception` or an HTTP error answers 500, whatever the route's or controller's status. Every 5xx other than a contract error, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
