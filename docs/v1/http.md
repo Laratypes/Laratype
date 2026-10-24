@@ -568,11 +568,12 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
-- `make` copies the result into a new object, and a `__proto__` key stays an own key. The resource object is frozen.
+- `make` copies the result's own enumerable keys into a new object, symbol keys included, and a `__proto__` key stays an own key. The resource object is frozen.
 
 ### Diagnostics
 - `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
 - `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
+- `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example
@@ -594,6 +595,9 @@ Tests: [`packages/http/__tests__/resource/defineResource.test.ts`](../../package
 ### Non-goals
 - No `mergeWhen`, `whenLoaded`, `additional` or `with` (wrapping) helpers.
 - No wire-format typing: the client's `Jsonify` view of the response is H4 [#107](https://github.com/Laratypes/Laratype/issues/107).
+
+### Open questions
+- The paginator shape → [#145](https://github.com/Laratypes/Laratype/issues/145)
 
 ### Acceptance
 [#123 Done when](https://github.com/Laratypes/Laratype/issues/123)
