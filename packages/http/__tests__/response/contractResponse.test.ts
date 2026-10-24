@@ -199,7 +199,8 @@ describe('dev-mode output validation', () => {
     const response = await bootApp().request('/api/users/1')
     expect(response.status).toBe(500)
     expect(response.headers.get('set-cookie')).toBeNull()
-    expect(response.headers.get('cache-control')).toBeNull()
+    // The error's own Cache-Control, not the handler's (#272, H23)
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   it('a missing value fails the check (an empty answer would be null)', async () => {
