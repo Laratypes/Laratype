@@ -370,7 +370,7 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 Type-level: a plain record of endpoints is not assignable to `Contract`. An endpoint with inconsistent capabilities gets `{ error: "<key>: <problem>" }` ([Capabilities and derived errors](#capabilities-and-derived-errors)). `authorize` and `auth: false` are not contract options.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts).
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts).
 
 ### Non-goals
 - No routes, controllers or middleware. Binding a contract to a controller is `r.contract()` in H2 [#105](https://github.com/Laratypes/Laratype/issues/105).
@@ -486,7 +486,7 @@ Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 Type-level, as the `error` property of the offending key: `defineApi: invalid tree name "<name>"`, `defineApi: "<name>" path must start with its folder prefix "<prefix>"`, `defineApi: "<name>" has an endpoint and a child contract with the same name`, `defineApi: "<name>" must be { contract, path, scopes: [{ scope, dir }] }`. `apiEndpoint(appApi, 'users.nope')` and `apiEndpoint(appApi, 'users.posts')` (a node) are type errors.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
 - No server registration. The router reads `apiRoutes()` (H1/H2).
@@ -539,7 +539,7 @@ export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? En
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
 - The projection keeps the schema output (`Date` stays `Date`). The client applies `Jsonify<>` to it ([#110](https://github.com/Laratypes/Laratype/issues/110)).
@@ -753,7 +753,7 @@ Inheritance runs scope → nested scope → contract → endpoint:
 Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `auth: false` in contract options, `throttle: false` in scope options, and non-factory `throws`.
 
 ### Example
-[`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) · [`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) · [`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
 - No middleware in the contract.

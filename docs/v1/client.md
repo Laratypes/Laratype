@@ -83,7 +83,7 @@ export type AppApi = typeof appApi
 - The negative-control fixture `fe/bad.ts` (C5, merged @ e2eac4b) shows the anti-pattern: importing the type from server routes pulls server files into the FE program.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts) (`AppApi`, `ApiTypes`).
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts) (`AppApi`, `ApiTypes`).
 
 ### Non-goals
 - No FE type inference from controllers or routes.
