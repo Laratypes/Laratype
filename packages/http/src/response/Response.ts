@@ -5,6 +5,7 @@ import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
 import { isBodylessStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
+import { BODY_HEADERS } from "./bodyHeaders";
 
 const isErrorStatus = (status: unknown): status is number => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
 
@@ -46,16 +47,6 @@ const scrubErrorHeaders = (headers: Headers) => {
   }
   headers.set("Cache-Control", "no-store");
 };
-
-/**
- * Headers set before the throw, or on a response finalized before it, that describe that body or redirect, not the
- * error's: Hono merges them into the error response, where a stale Content-Length or Content-Encoding breaks the body
- * (#272). An HTTP error's own response keeps them: they describe its own body
- */
-const BODY_HEADERS = [
-  "Content-Type", "Content-Length", "Content-Encoding", "Content-Range", "Content-Disposition", "Content-Location",
-  "Content-Digest", "Repr-Digest", "Digest", "Content-MD5", "Location", "Refresh", "Transfer-Encoding", "Trailer",
-];
 
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];

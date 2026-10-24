@@ -6,6 +6,7 @@ import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import ResponseSupport from "../supports/Response";
 import JsonResource from "../resource/json/JsonResource";
 import ResponseKernel from "./Response";
+import { isBodyHeader } from "./bodyHeaders";
 
 const fail = (route: string, message: string): never => {
   throw new Error(`[@laratype/http] ${route}: ${message}`);
@@ -45,7 +46,8 @@ const isSuccess = (status: number) => status >= 200 && status <= 299;
  *
  * The handler may return the 0.5 `Response` for its headers and content; a 2xx status set on it must be the
  * endpoint's. A redirect or a non-2xx one (a middleware answering 401 or 429 without calling next) is not the
- * endpoint's success and keeps the 0.5 response.
+ * endpoint's success and keeps the 0.5 response. Its body or redirect headers (`BODY_HEADERS`) are dropped: the body
+ * sent here is the server's serialization, not the one they describe.
  */
 export const resolveContractResponse = async (ctx: Context, result: unknown, endpoint: AnyEndpoint, route: string) => {
   const support = result instanceof ResponseSupport ? result : undefined;
@@ -68,8 +70,9 @@ export const resolveContractResponse = async (ctx: Context, result: unknown, end
   }
   const headers = support?.getHeaders() ?? {};
   for (const name in headers) {
-    // The body is JSON or nothing, whatever Content-Type the handler set
-    if (name.toLowerCase() !== "content-type") ctx.header(name, headers[name]);
+    // The body is JSON or nothing: the handler's Content-Type, Content-Length or Content-Encoding describes its own
+    // body, not the one sent here (H4 #107, the BODY_HEADERS of #272)
+    if (!isBodyHeader(name)) ctx.header(name, headers[name]);
   }
 
   if (text === undefined) {

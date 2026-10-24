@@ -157,6 +157,38 @@ describe('status from the contract', () => {
     expect(response.headers.get('content-type')).toBeNull()
     expect(response.headers.get('x-job')).toBe('7')
   })
+
+  it('the handler\'s body headers are dropped: they describe its body, not the JSON sent', async () => {
+    result = new LaratypeResponse({ id: 5, name: 'Edsger' }, 200, {
+      'Content-Encoding': 'gzip',
+      'Content-Length': '120',
+      'Content-Disposition': 'attachment; filename="user.json"',
+      'X-Foo': 'bar',
+    })
+    const response = await bootApp().request('/api/users/5')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-encoding')).toBeNull()
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(response.headers.get('content-disposition')).toBeNull()
+    expect(response.headers.get('content-type')).toMatch(/^application\/json/)
+    expect(response.headers.get('x-foo')).toBe('bar')
+    expect(await response.json()).toEqual({ id: 5, name: 'Edsger' })
+  })
+
+  it('a 204 drops the handler\'s body headers too', async () => {
+    const deletes = defineContract()({ destroy: endpoint.delete('/:id') })
+    class Deletes extends Controller {
+      destroy() { return new LaratypeResponse({ deleted: true }, undefined, { 'Content-Length': '120', 'Content-Encoding': 'gzip', 'X-Foo': 'bar' }) }
+    }
+    const app = new Hono()
+    Route.api(defineApi({ deletes: { contract: deletes, path: '/api/deletes', scopes: [], dirs: [] } }), (r) => [r.contract(deletes, Deletes)]).mount(app)
+    const response = await app.request('/api/deletes/1', { method: 'DELETE' })
+    expect(response.status).toBe(204)
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(response.headers.get('content-encoding')).toBeNull()
+    expect(response.headers.get('x-foo')).toBe('bar')
+    expect(await response.text()).toBe('')
+  })
 })
 
 describe('JSON serialization', () => {
