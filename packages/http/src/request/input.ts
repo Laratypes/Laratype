@@ -10,10 +10,11 @@ import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/con
 
 /**
  * The media type Hono's `validator('json')` reads as JSON: `application/json` and `application/*+json`, with any
- * parameters (`; charset=utf-8`). Hono's regex, which it does not export, plus the `i` flag: media types are
- * case-insensitive (RFC 9110 §8.3.1), so `Application/JSON` is JSON too.
+ * parameters (`; charset=utf-8`). Hono's regex, which it does not export, with digits in the vendor prefix too
+ * (`application/vnd.github.v3+json`, H26 #287) and the `i` flag: media types are case-insensitive (RFC 9110 §8.3.1),
+ * so `Application/JSON` is JSON too.
  */
-const JSON_MEDIA_TYPE = /^application\/([a-z-\.]+\+)?json(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
+const JSON_MEDIA_TYPE = /^application\/([a-z0-9.-]+\+)?json(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
 
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);

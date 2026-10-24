@@ -230,6 +230,8 @@ describe('the body by media type (H26 #287)', () => {
     'application/json; charset=utf-8',
     'application/json;charset=UTF-8',
     'application/vnd.api+json',
+    // a digit in the vendor prefix: Hono's own regex misses it (#287)
+    'application/vnd.github.v3+json',
     'Application/JSON',
   ])('reads %s as JSON, up to the controller and validated()', async (contentType) => {
     quiet()
