@@ -495,7 +495,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 ## API type projection
 
 ### Status
-merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify` proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 08379f0 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify` proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 
 ### Public API
 [`packages/contract/src/api-types.ts`](../../packages/contract/src/api-types.ts)
