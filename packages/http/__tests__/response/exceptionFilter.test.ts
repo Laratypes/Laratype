@@ -107,6 +107,13 @@ describe('domain errors', () => {
     await expectBody(await throwing(() => Maintenance()), 503, { code: 'MAINTENANCE', message: 'Back soon.', retryAt: '2026-10-23T00:00:00Z' })
   })
 
+  it('a body with its own toJSON keeps the declared code: the top-level toJSON is dropped', async () => {
+    quiet()
+    const Taken = defineError(409, 'EMAIL_TAKEN', () => ({ toJSON: () => ({ message: 'Taken.' }), email: 'ada@example.com' }))
+    await expectBody(await throwing(() => Taken()), 409, { code: 'EMAIL_TAKEN', email: 'ada@example.com' })
+    expect(logged).not.toHaveBeenCalled()
+  })
+
   it('a contract error of another package copy is told by its brand', async () => {
     quiet()
     const foreign = () => Object.defineProperty(
