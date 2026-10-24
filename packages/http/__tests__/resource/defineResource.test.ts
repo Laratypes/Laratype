@@ -84,6 +84,15 @@ describe('defineResource', () => {
     expect(Object.keys(out)).toEqual(['__proto__'])
   })
 
+  it('make keeps an own symbol key, as the output type promises', () => {
+    const tag = Symbol('tag')
+    const Tagged = defineResource(User, (user) => ({ id: user.id, [tag]: user.name }))
+    const out = Tagged.make(new User(1, 'ada'))
+    expect(Object.getOwnPropertySymbols(out)).toEqual([tag])
+    expect(out[tag]).toBe('ada')
+    expect(Object.keys(out)).toEqual(['id'])
+  })
+
   it('drops a missing value made by another copy of the module (src and dist)', () => {
     const foreign = Object.freeze({ [Symbol.for('laratype.resource.missing')]: true, toJSON: () => undefined })
     const Foreign = defineResource(User, () => ({ id: 1, gone: foreign }))

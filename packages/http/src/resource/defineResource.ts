@@ -97,8 +97,12 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     if (!isPlainObject(data)) {
       throw new TypeError(`[@laratype/http] ${model.name}: the resource function must return a plain object, got ${describe(data)}`);
     }
-    // fromEntries defines own properties, so a `__proto__` key stays a key
-    return Object.fromEntries(Object.entries(data).filter(([, value]) => !isMissing(value))) as Out;
+    // fromEntries defines own properties, so a `__proto__` key stays a key; own keys include symbol keys
+    const entries = Reflect.ownKeys(data)
+      .filter((key) => Object.prototype.propertyIsEnumerable.call(data, key))
+      .map((key) => [key, data[key]] as const)
+      .filter(([, value]) => !isMissing(value));
+    return Object.fromEntries(entries) as Out;
   };
 
   return Object.freeze({
