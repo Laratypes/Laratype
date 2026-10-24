@@ -1,6 +1,6 @@
 import type { Context, Hono, Next } from "hono";
-import { API_NODE, apiRoutes, contractEndpoints, isEndpoint } from "@laratype/contract";
-import type { AnyContract, Api, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import { API_NODE, apiRoutes, contractEndpoints, isApiNode, isApiRoot, isEndpoint } from "@laratype/contract";
+import type { API_ROOT, AnyContract, Api, ApiEntry, ApiRoute } from "@laratype/contract";
 import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
@@ -49,28 +49,23 @@ interface TreeEntry {
   readonly node: object;
 }
 
-const nodeInfo = (value: unknown) =>
-  typeof value === "object" && value !== null ? (value as Record<symbol, ApiNodeInfo | undefined>)[API_NODE] : undefined;
-
 /**
- * The mounted contracts of an API tree with their `dirs`, depth-first: `apiRoutes()` gives the routes but not the
- * entries. Endpoints are told by the `isEndpoint` brand; every other child must be a node, and the root holds nodes
- * only, so a value that is not a `defineApi` tree throws.
+ * The mounted contracts of an API tree with their scope folders, depth-first: `apiRoutes()` gives the routes but not
+ * the entries. The root, its nodes and endpoints are told by their brands, so a value that is not a `defineApi` tree throws.
  */
 const treeEntries = (api: unknown): TreeEntry[] => {
-  if (typeof api !== "object" || api === null) fail("expected the appApi tree built with defineApi");
-  if (Object.values(api as object).some((child) => !nodeInfo(child))) fail("expected the appApi tree built with defineApi");
+  if (!isApiRoot(api)) return fail("expected the appApi tree built with defineApi");
   const out: TreeEntry[] = [];
   const walk = (node: object) => {
     for (const child of Object.values(node)) {
       if (isEndpoint(child)) continue;
-      const info = nodeInfo(child);
-      if (!info) return fail("expected the appApi tree built with defineApi");
-      if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry, node: child as object });
-      walk(child as object);
+      if (!isApiNode(child)) return fail("expected the appApi tree built with defineApi");
+      const info = child[API_NODE];
+      if (info.entry) out.push({ name: info.name, entry: info.entry as ApiEntry, node: child });
+      walk(child);
     }
   };
-  walk(api as object);
+  walk(api);
   return out;
 };
 
@@ -105,7 +100,7 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
   if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract() and r.scope()");
 
   const scopeDirs = new Map<string, boolean>();
-  for (const { entry } of entries) entry.scopes.forEach((scope, i) => scopeDirs.set(entry.dirs[i]!, scope.authorize === true || scopeDirs.get(entry.dirs[i]!) === true));
+  for (const { entry } of entries) for (const { scope, dir } of entry.scopes) scopeDirs.set(dir, scope.authorize === true || scopeDirs.get(dir) === true);
 
   const scopes = new Map<string, MountedScope>();
   // Keyed by tree name: a tree node names one contract, a contract value every entry that holds it
@@ -155,7 +150,7 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): RouteEntry[] => {
       );
     }
     const endpointMiddleware = endpointStack(mounted.options, key, route.name);
-    const scopeItems = entry.dirs.map((dir) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
+    const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
@@ -360,7 +355,7 @@ export class ApiRoutes {
  * Their URLs come from the tree, so there is no route prefix. A missing or duplicate contract, and a scope with
  * `authorize` and no policy, are compile errors and runtime errors.
  */
-export function api<A extends object, const M extends readonly ApiRouteItem[]>(
+export function api<A extends { readonly [API_ROOT]: true }, const M extends readonly ApiRouteItem[]>(
   appApi: A,
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {

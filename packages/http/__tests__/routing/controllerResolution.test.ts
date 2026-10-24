@@ -11,7 +11,7 @@ import type { ApiRoutes, Ctx, EndpointRouteBuilder } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const greetings = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
-const greetingsApi = defineApi({ greetings: { contract: greetings, path: '/api/greetings', scopes: [], dirs: [] } })
+const greetingsApi = defineApi({ greetings: { contract: greetings, path: '/api/greetings', scopes: [] } })
 
 class Greeter {
   greet() { return 'hello' }
@@ -245,7 +245,7 @@ describe('r.contract() options', () => {
     index: endpoint.get('/').response(anything),
     destroy: endpoint.delete('/:id').response(anything),
   })
-  const postsApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [], dirs: [] } })
+  const postsApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
   class PostController extends Controller {
     index() { return { index: true } }
     destroy() { return { destroyed: true } }
@@ -302,7 +302,7 @@ describe('r.contract() options', () => {
 
   it('an endpoint named after an Object.prototype method takes no inherited callback', () => {
     const odd = defineContract()({ toString: endpoint.get('/').response(anything), index: endpoint.get('/i').response(anything) })
-    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [] } })
     class Odd extends Controller { toString() { return 'odd' } index() { return {} } }
     // An object literal also has the inherited toString, which the endpoints map would type as a callback
     const endpoints = { index: (r: EndpointRouteBuilder) => r.middleware(Audit) }
@@ -312,7 +312,7 @@ describe('r.contract() options', () => {
 
   it('an endpoint with its own .authorize() needs the contract policy when Route.api mounts', () => {
     const guarded = defineContract()({ index: endpoint.get('/').response(anything), destroy: endpoint.delete('/:id').auth().authorize() })
-    const guardedApi = defineApi({ guarded: { contract: guarded, path: '/api/guarded', scopes: [], dirs: [] } })
+    const guardedApi = defineApi({ guarded: { contract: guarded, path: '/api/guarded', scopes: [] } })
     class Guarded extends Controller { index() { return {} } destroy() {} }
     const message = '[@laratype/http] Route.api: guarded.destroy: endpoint has .authorize() but r.contract() has no { policy }'
     // the route proof reports the first two at compile time; this is the mount check for untyped callers

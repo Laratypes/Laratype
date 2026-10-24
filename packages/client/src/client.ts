@@ -1,5 +1,5 @@
-import { API_NODE, apiPaths, buildUrl, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
+import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
@@ -93,25 +93,11 @@ class FetchFailed {
   constructor(readonly cause: unknown) {}
 }
 
-type TreeNode = Readonly<Record<string | symbol, unknown>>;
-
 /** One node of an API tree (`appApi.users`), as `createClient` takes it. */
-export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
+export type ApiNodeShape = AnyApiNode;
 
-/** The `defineApi` root: each key is an API node whose own name is that key (`appApi.users` is named `"users"`). */
-export type ApiRootShape<A> = { readonly [K in keyof A]: K extends string ? { readonly [API_NODE]: ApiNodeInfo<K> } : never };
-
-const isApiNode = (value: unknown): value is TreeNode =>
-  typeof value === "object" && value !== null && typeof (value as TreeNode)[API_NODE] === "object";
-
-/**
- * The `defineApi` root, which carries no brand of its own: every value is an API node whose name is its key.
- * So a hand-made object (`{ posts: appApi.users.posts }`) is not a root.
- */
-const isApiRoot = (value: unknown): value is TreeNode =>
-  typeof value === "object" &&
-  value !== null &&
-  Object.entries(value).every(([key, node]) => isApiNode(node) && (node[API_NODE] as ApiNodeInfo).name === key);
+/** The `defineApi` root, told by its brand: a hand-made object (`{ posts: appApi.users.posts }`) is not one. */
+export type ApiRootShape = { readonly [API_ROOT]: true };
 
 const isManifestRoute = (value: unknown): value is ManifestRoute =>
   typeof value === "object" && value !== null && typeof (value as ManifestRoute).method === "string" && typeof (value as ManifestRoute).path === "string";
@@ -344,7 +330,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
  * An API node's names are relative to it: `appApi.users` → `"index"`, `"posts.update"`.
  */
 const pathsOf = (api: object): RouteSpec[] => {
-  const prefix = isApiNode(api) ? `${(api[API_NODE] as ApiNodeInfo).name}.` : "";
+  const prefix = isApiNode(api) ? `${api[API_NODE].name}.` : "";
   return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => {
     const { response, status } = r.endpoint.def;
     return {
@@ -395,7 +381,7 @@ export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOp
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape<A>>(api: A, options?: ClientOptions): ClientOf<A>;
+export function createClient<A extends ApiRootShape>(api: A, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
   const send = createSend(options);
