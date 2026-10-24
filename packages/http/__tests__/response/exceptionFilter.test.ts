@@ -114,6 +114,17 @@ describe('domain errors', () => {
     expect(logged).not.toHaveBeenCalled()
   })
 
+  it('a body getter that throws answers the generic 500 like an unserializable body, logged once', async () => {
+    quiet()
+    const Exploding = defineError(409, 'EXPLODING', () => ({ get detail(): string { throw new TypeError('getter') } }))
+    const error = Exploding()
+    const response = await throwing(() => error)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    await expectBody(response, 500, GENERIC)
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(logged).toHaveBeenCalledWith(error, expect.any(TypeError))
+  })
+
   it('a contract error of another package copy is told by its brand', async () => {
     quiet()
     const foreign = () => Object.defineProperty(

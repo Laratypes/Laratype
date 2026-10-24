@@ -165,17 +165,18 @@ export default class Response extends AppServiceProvider {
     // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
     // controller's status. It is expected, so it is not logged (#108)
     if (isContractError(err)) {
-      // A body's own `toJSON` would replace `{ code, ...body }` at serialization, and a declared `code` could go with
-      // it, so the top level drops it. A nested one is the body's own JSON shape and stays
-      const body = { ...err.body } as { toJSON?: unknown };
-      if (typeof body.toJSON === "function") {
-        delete body.toJSON;
-      }
       try {
-        return c.json({ code: err.code, ...body }, err.status as ContentfulStatusCode);
+        // A body's own `toJSON` would replace `{ code, ...body }` at serialization, and a declared `code` could go
+        // with it, so the top level drops it. A nested one is the body's own JSON shape and stays. The copy is in
+        // here too: a body getter can throw, and that is an unserializable body like a BigInt or a cycle
+        const json: { code: string; toJSON?: unknown } = { code: err.code, ...err.body };
+        if (typeof json.toJSON === "function") {
+          delete json.toJSON;
+        }
+        return c.json(json, err.status as ContentfulStatusCode);
       }
       catch (failure) {
-        // A body JSON can't hold (a BigInt, a cycle): the generic 500, with the error logged
+        // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
         console.error(err, failure);
         return c.json({ message: "Server Error" }, 500);
       }
