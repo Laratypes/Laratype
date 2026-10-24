@@ -39,7 +39,8 @@ export type Jsonify<T> = unknown extends T
 
 /**
  * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
- * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string.
+ * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string; a
+ * `toJSON` result JSON can't carry (`toJSON(): bigint`) makes the value `never` too, since `JSON.stringify` throws.
  * `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols become `never`, so a
  * schema input JSON can't carry is a type error at the call; so is an `undefined` array item, which is sent as `null`.
  * The server validates the parsed JSON, so a field typed `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
@@ -47,7 +48,9 @@ export type Jsonify<T> = unknown extends T
 type JsonInput<T> = unknown extends T
   ? T
   : T extends { toJSON(...args: any[]): infer J }
-    ? T | JsonInput<J>
+    ? [J] extends [JsonInput<J>]
+      ? T | JsonInput<J>
+      : JsonInput<J>
     : T extends string | number | boolean | null | undefined
       ? T
       : T extends NotJson | bigint | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>

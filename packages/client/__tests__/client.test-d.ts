@@ -213,6 +213,11 @@ describe('JSON-safe request input (#255)', () => {
     expectTypeOf<Body>().toEqualTypeOf<{ big: never; map: never; set: never; fn: never; maybe?: undefined; items: string[] }>()
   })
 
+  test('body: an object whose toJSON returns a value JSON cannot carry is never, since JSON.stringify throws', () => {
+    type Body = CallInput<Shape<{ at: { toJSON(): bigint } }>>['body']
+    expectTypeOf<Body>().toEqualTypeOf<{ at: never }>()
+  })
+
   test('query: a Date is passed as itself or its ISO string, as buildUrl sends it; the rest is the schema input', () => {
     type Query = CallInput<Shape<undefined, { from?: Date; days: Date[]; big: bigint; page?: number }>>['query']
     expectTypeOf<Query>().toEqualTypeOf<{ from?: Date | string; days: (Date | string)[]; big: bigint; page?: number }>()
