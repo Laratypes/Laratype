@@ -1,6 +1,6 @@
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
+import { ContractError, defineError, endpoint, errors, isContractError } from '@laratype/contract'
 
 describe('defineError', () => {
   it('returns a frozen factory carrying status and code', () => {
@@ -137,6 +137,39 @@ describe('defineError', () => {
     expect(() => defineError(4.5, 'X')).toThrow(/invalid status/)
     expect(() => defineError('404' as never, 'X')).toThrow(/invalid status/)
     expect(() => defineError(404, 'X', { message: 'x' } as never)).toThrow(/body must be a function/)
+  })
+})
+
+describe('isContractError', () => {
+  it('is true for any error def\'s error, the catalog ones included', () => {
+    expect(isContractError(defineError(409, 'EMAIL_TAKEN', (email: string) => ({ email }))('a@b.c'))).toBe(true)
+    expect(isContractError(errors.notFound())).toBe(true)
+    expect(isContractError(errors.validation({ name: ['Required'] }))).toBe(true)
+  })
+
+  it('checks the brand, not instanceof, so an error of another package copy counts', () => {
+    const foreign = Object.defineProperty(new Error('x'), Symbol.for('laratype.contract-error'), { value: true })
+    expect(isContractError(Object.assign(foreign, { status: 409, code: 'EMAIL_TAKEN', body: {} }))).toBe(true)
+  })
+
+  it('is false for an unbranded value with the same fields, and for any other error', () => {
+    expect(isContractError({ status: 409, code: 'EMAIL_TAKEN', body: {} })).toBe(false)
+    expect(isContractError(Object.assign(new Error('x'), { status: 409, code: 'EMAIL_TAKEN', body: {} }))).toBe(false)
+    expect(isContractError(new Error('EMAIL_TAKEN'))).toBe(false)
+    expect(isContractError(null)).toBe(false)
+    expect(isContractError('EMAIL_TAKEN')).toBe(false)
+  })
+
+  it.each([
+    ['a 2xx status', { status: 200 }],
+    ['a non-integer status', { status: 404.5 }],
+    ['a code that is not a string', { code: 404 }],
+    ['a null body', { body: null }],
+    ['an array body', { body: ['x'] }],
+    ['a string body', { body: 'x' }],
+    ['a body with its own code', { body: { code: 'OTHER', message: 'x' } }],
+  ])('is false for an error changed after it was created: %s', (_, change) => {
+    expect(isContractError(Object.assign(errors.notFound(), change))).toBe(false)
   })
 })
 
