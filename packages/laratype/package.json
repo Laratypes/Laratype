@@ -44,7 +44,7 @@
   "author": "Ily1606",
   "license": "MIT",
   "peerDependencies": {
-    "hono": "^4.6.18",
+    "hono": "^4.8.0",
     "@laratype/auth": "workspace:*",
     "@laratype/http": "workspace:*"
   },
