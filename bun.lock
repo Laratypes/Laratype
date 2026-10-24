@@ -72,6 +72,10 @@
       "dependencies": {
         "@laratype/contract": "workspace:*",
       },
+      "devDependencies": {
+        "hono": "catalog:",
+        "zod": "catalog:",
+      },
       "peerDependencies": {
         "typescript": ">=5.4",
       },

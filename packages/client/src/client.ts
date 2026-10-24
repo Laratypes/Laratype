@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
+import type { Client, ClientOf, ClientOptions, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -381,12 +381,27 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
  */
 export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;
 /**
+ * The manifest client with the type of `options.headers` as the second type argument, since it is not inferred next
+ * to an explicit `AppApi`: `createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`.
+ * `options.headers` is then required, so the headers it names are sent.
+ */
+export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
+  manifest: Manifest,
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+): Client<T, ProvidedHeaders<Hd>>;
+/**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
  * like the server's `joinPath`, and its params are only its own.
  */
-export function createClient<C extends AnyContract>(contract: C, options?: ClientOptions): ClientOf<C>;
+export function createClient<C extends AnyContract, Hd extends HeadersInit = HeadersInit>(
+  contract: C,
+  options?: ClientOptions<Hd>,
+): ClientOf<C, ProvidedHeaders<Hd>>;
 /** The typed client for one API node (`appApi.users`), named relative to it: `api.posts.update`. */
-export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOptions): ClientOf<N>;
+export function createClient<N extends ApiNodeShape, Hd extends HeadersInit = HeadersInit>(
+  node: N,
+  options?: ClientOptions<Hd>,
+): ClientOf<N, ProvidedHeaders<Hd>>;
 /**
  * The typed client for the generated `appApi` (`$api`). Names follow the folder tree (`api.users.posts.update(...)`)
  * and URLs are the contracts' full paths, so `baseUrl` is only the origin.
@@ -395,7 +410,10 @@ export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOp
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape<A>>(api: A, options?: ClientOptions): ClientOf<A>;
+export function createClient<A extends ApiRootShape<A>, Hd extends HeadersInit = HeadersInit>(
+  api: A,
+  options?: ClientOptions<Hd>,
+): ClientOf<A, ProvidedHeaders<Hd>>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
   const send = createSend(options);
