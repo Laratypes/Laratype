@@ -68,7 +68,7 @@ No new export: `RequestKernel.handle` runs it for every `Route.api` route, and t
 - **Context:** the handler context is built from the validated **output** types (`InferOut`), so handlers see coerced and defaulted values.
 
 ### Diagnostics
-Runtime, besides the 400 and 422 bodies above: `RequestKernel.handle` throws a `TypeError` when a contract route also gets a request class, ``<route name or path>: a contract route validates its endpoint's query and body schemas, so it takes no request class (<Request>)``. The route proof reports a handler whose `query` or `body` type doesn't match the schema output ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
+Runtime, besides the 400 and 422 bodies above: `RequestKernel.handle` throws a `TypeError` when a contract route also gets a request class, ``<route name or path>: a contract route validates its endpoint's query and body schemas, so it takes no request class (<Request>)``. The route proof reports a handler whose `query` or `body` type doesn't match the schema output as a TypeScript error whose property name is ``<c>.<e>: `query` of the ctx does not match the handler (it is the output of the endpoint's query schema) ``, and the same with `body`, with the detail `{ route_provides, handler_requires }` ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
 
 ### Example
 Runtime tests: [`packages/http/__tests__/request/pipeline.test.ts`](../../packages/http/__tests__/request/pipeline.test.ts).
