@@ -1,0 +1,292 @@
+// A4 #151: guards resolved from the app container, booted like `sauf dev` with the auth flows of examples/basic
+import 'reflect-metadata'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Hono } from 'hono'
+import LocalStrategy from 'passport-local'
+import { Container, depsRegistry } from '@laratype/core'
+import { bootProviders, ContextApi, HTTP_APP, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
+import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
+import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
+
+const repository = { metadata: { primaryColumns: [{ propertyName: 'id' }] } }
+
+class User {
+  id!: number
+  email!: string
+  static rows: User[] = []
+  static getRepository = () => repository
+  static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
+    User.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null)
+}
+
+class Admin extends User {
+  static rows: Admin[] = []
+  static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
+    Admin.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null)
+}
+
+/** The PersonalAccessToken model: a token must have a live record. */
+class PersonalAccessToken {
+  static rows: any[] = []
+  static insert = vi.fn(async (row: any) => { PersonalAccessToken.rows.push({ ...row, save: vi.fn() }) })
+  static createQueryBuilder = () => {
+    let params: { token: string, expires_at: Date }
+    const query = {
+      where: (_: string, values: typeof params) => { params = values; return query },
+      getOne: async () => PersonalAccessToken.rows.find(row => row.token === params.token && row.expires_at > params.expires_at) ?? null,
+    }
+    return query
+  }
+}
+
+const make = <T extends User>(Model: { new(): T, rows: T[] }, id: number, email: string) => {
+  const row = Object.assign(new Model(), { id, email, password: 'secret' })
+  Model.rows.push(row)
+  return row
+}
+
+const local = { strategyName: 'local', strategy: PassportStrategy.make(LocalStrategy), options: { usernameField: 'email', passwordField: 'password' } }
+
+// examples/basic/app/config/auth.ts, without the google guard (it needs network)
+const authConfig = {
+  default: { guard: 'web' },
+  guards: {
+    web: { ...local, provider: User, verification: 'jwt' },
+    admin: { ...local, provider: Admin, verification: 'jwt' },
+    api: { provider: User, verification: 'jwt' },
+  },
+} satisfies LaratypeConfig.Auth
+
+const entry = (name: string, value: unknown) => ({ name, path: `app/${name}.ts`, load: async () => ({ default: value }) })
+
+const manifest = (withTokenModel = true): AppManifest => ({
+  configs: [entry('auth', authConfig)],
+  models: withTokenModel ? [entry('PersonalAccessToken', PersonalAccessToken)] : [],
+  routes: [], commands: [], migrations: [], seeders: [], factories: [], modules: [],
+})
+
+class LocalAuthentication extends Middleware {
+  async handle(_: Request, res: any, next: any) {
+    return (await Passport.authenticate('web', {}))(res, next)
+  }
+}
+
+class AdminLocalAuthentication extends Middleware {
+  async handle(_: Request, res: any, next: any) {
+    return (await Passport.authenticate('admin', {}))(res, next)
+  }
+}
+
+// The controllers of examples/basic: LoginController, AdminLoginController, UserController.me
+class LoginController extends Controller {
+  async login() {
+    const authenticated = Auth.user<any>()
+    if (!authenticated) return { user: null }
+    return { user: authenticated.getUser(), token: await authenticated.generateToken({ name: 'Default Token', abilities: '*' }) }
+  }
+
+  async manualLogin(request: Request) {
+    const attempt = await Auth.guard<any>('web').attempt(request.all())
+    if (!attempt) return { user: null }
+    return { user: attempt.getUser(), token: await attempt.generateToken({ name: 'Default Token', abilities: '*' }) }
+  }
+
+  async adminLogin() {
+    const authenticated = Auth.guard<any>('admin').user()
+    if (!authenticated) return { user: null }
+    return { user: authenticated.getUser(), token: await authenticated.generateToken({ name: 'Default Token', abilities: '*' }) }
+  }
+
+  me() {
+    return { user: ContextApi.getUser() }
+  }
+}
+
+const boot = async (withTokenModel = true) => {
+  setAppManifest(manifest(withTokenModel))
+  const container = new Container({ deps: depsRegistry })
+  const app = new Hono()
+  container.instance(HTTP_APP, app)
+  await bootProviders(container, [RequestKernel, PassportServiceProvider, ResponseKernel])
+  app.post('/login', RequestKernel.handle({ method: 'post', path: '/login', controller: [LoginController, 'login'], middleware: [LocalAuthentication] }))
+  app.post('/login/manual', RequestKernel.handle({ method: 'post', path: '/login/manual', controller: [LoginController, 'manualLogin'] }))
+  app.post('/admin/login', RequestKernel.handle({ method: 'post', path: '/admin/login', controller: [LoginController, 'adminLogin'], middleware: [AdminLocalAuthentication] }))
+  app.get('/me', RequestKernel.handle({ method: 'get', path: '/me', controller: [LoginController, 'me'], middleware: [AuthGuard] }))
+  return { app, container }
+}
+
+const post = (app: Hono, path: string, body: unknown) =>
+  app.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+const me = (app: Hono, token: string) => app.request('/me', { headers: { Authorization: `Bearer ${token}` } })
+
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  globalThis.__laratype_config = { key: 'a4-test-key' }
+  globalThis.__laratype_route_model_bindings = {}
+  globalThis.__laratype_db = { models: { User, Admin, PersonalAccessToken } } as any
+  User.rows = []
+  Admin.rows = []
+  PersonalAccessToken.rows = []
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+afterAll(() => {
+  delete (globalThis as any).__laratype_manifest
+  delete (globalThis as any).__laratype_config
+  delete (globalThis as any).__laratype_db
+})
+
+describe('PassportServiceProvider', () => {
+  it('binds AUTH_CONFIG and an AuthManager singleton', async () => {
+    const { container } = await boot()
+    expect(container.make(AUTH_CONFIG)).toBe(authConfig)
+    expect(container.make(AuthManager)).toBe(container.make(AuthManager))
+    expect(container.make(AuthManager).config).toBe(authConfig)
+  })
+
+  it('registers the strategy of each passport guard under its name', async () => {
+    const use = vi.spyOn(Passport.passport, 'use')
+    await boot()
+    expect(use.mock.calls.map(([name]) => name)).toEqual(['web', 'admin'])
+  })
+
+  it('fails the boot without app/config/auth.ts', async () => {
+    setAppManifest({ ...manifest(), configs: [] })
+    const container = new Container({ deps: depsRegistry })
+    await expect(bootProviders(container, [PassportServiceProvider])).rejects.toThrow('app/config/auth.ts not found')
+  })
+
+  it('binds AUTH_CONFIG and AuthManager before every provider boot()', async () => {
+    setAppManifest(manifest())
+    const container = new Container({ deps: depsRegistry })
+    container.instance(HTTP_APP, new Hono())
+    let seen: unknown[] = []
+    class Probe extends ServiceProvider {
+      boot() { seen = [this.app.make(AUTH_CONFIG), this.app.make(AuthManager)] }
+    }
+    await bootProviders(container, [PassportServiceProvider, Probe])
+    expect(seen).toEqual([authConfig, container.make(AuthManager)])
+  })
+})
+
+describe('AuthVerification', () => {
+  it('resolves a named guard from the app container', async () => {
+    const { container } = await boot()
+    await ContextApi.run({ container } as any, () => {
+      expect(AuthVerification.guard('admin')).toBe(container.make(AuthManager).guard('admin'))
+    })
+  })
+})
+
+describe('AuthManager', () => {
+  const manager = new AuthManager(authConfig)
+
+  it('builds the default guard when no name is given', () => {
+    expect(manager.defaultGuard).toBe('web')
+    expect(manager.guard().name).toBe('web')
+    expect(manager.guard()).toBe(manager.guard('web'))
+  })
+
+  it('caches one guard per name', () => {
+    expect(manager.guard('admin')).toBe(manager.guard('admin'))
+    expect(manager.guard('admin')).not.toBe(manager.guard('web'))
+  })
+
+  it('builds a PassportGuard for a config with a strategy, else a TokenGuard', () => {
+    expect(manager.guard('web')).toBeInstanceOf(PassportGuard)
+    expect(manager.guard('api')).toBeInstanceOf(TokenGuard)
+    expect(manager.guard('api')).not.toBeInstanceOf(PassportGuard)
+    expect(manager.guard('admin').config).toBe(authConfig.guards.admin)
+  })
+
+  it('throws for a guard that is not in the config', () => {
+    expect(() => manager.guard('missing')).toThrow('[@laratype/auth] Auth guard "missing" is not defined in app/config/auth.ts.')
+    expect(() => manager.guard('toString')).toThrow('Auth guard "toString" is not defined')
+  })
+})
+
+describe('auth flows of examples/basic', () => {
+  it('logs in through the local strategy, then authenticates the issued token', async () => {
+    const { app } = await boot()
+    const ada = make(User, 1, 'ada@example.com')
+
+    const login = await post(app, '/login', { email: 'ada@example.com', password: 'secret' })
+    expect(login.status).toBe(200)
+    const { user, token } = await login.json()
+    expect(user).toMatchObject({ id: 1, email: 'ada@example.com' })
+    expect(PersonalAccessToken.rows).toEqual([expect.objectContaining({ tokenable_type: 'User', tokenable_id: 1, token, verification_type: 'jwt' })])
+
+    const response = await me(app, token)
+    expect(response.status).toBe(200)
+    expect((await response.json()).user).toMatchObject({ id: ada.id, email: ada.email })
+    expect(PersonalAccessToken.rows[0].save).toHaveBeenCalledOnce()
+  })
+
+  it('answers the strategy challenge for wrong credentials', async () => {
+    const { app } = await boot()
+    make(User, 1, 'ada@example.com')
+    const login = await post(app, '/login', { email: 'ada@example.com', password: 'wrong' })
+    // 0.5 behaviour of the passport framework's strategy.fail(), unchanged by A4
+    expect(await login.json()).toEqual({ challenge: { message: 'Incorrect username or password.' } })
+    expect(PersonalAccessToken.rows).toEqual([])
+  })
+
+  it('logs in with Auth.guard(name).attempt()', async () => {
+    const { app } = await boot()
+    make(User, 2, 'grace@example.com')
+    const login = await post(app, '/login/manual', { email: 'grace@example.com', password: 'secret' })
+    const { user, token } = await login.json()
+    expect(user).toMatchObject({ id: 2 })
+    expect((await (await me(app, token)).json()).user).toMatchObject({ id: 2 })
+
+    const wrong = await post(app, '/login/manual', { email: 'grace@example.com', password: 'nope' })
+    expect(await wrong.json()).toEqual({ user: null })
+  })
+
+  it('logs an admin in through the admin guard', async () => {
+    const { app } = await boot()
+    make(Admin, 7, 'root@example.com')
+    const login = await post(app, '/admin/login', { email: 'root@example.com', password: 'secret' })
+    const { user, token } = await login.json()
+    expect(user).toMatchObject({ id: 7 })
+    expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'Admin', tokenable_id: 7 })
+    expect((await (await me(app, token)).json()).user).toMatchObject({ id: 7, email: 'root@example.com' })
+  })
+
+  it('rejects a token with no live record', async () => {
+    const { app } = await boot()
+    make(User, 1, 'ada@example.com')
+    const { token } = await (await post(app, '/login', { email: 'ada@example.com', password: 'secret' })).json()
+    PersonalAccessToken.rows[0].expires_at = new Date(Date.now() - 1000)
+    const response = await me(app, token)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ code: 'UNAUTHORIZED', message: 'Token is invalid or expired.' })
+  })
+
+  it('verifies the JWT itself without a PersonalAccessToken model', async () => {
+    const { app } = await boot(false)
+    make(User, 1, 'ada@example.com')
+    const { token } = await (await post(app, '/login', { email: 'ada@example.com', password: 'secret' })).json()
+    expect((await (await me(app, token)).json()).user).toMatchObject({ guard: 'web', payload: { id: 1 } })
+    expect((await me(app, `${token}x`)).status).toBe(401)
+  })
+})
+
+describe('outside the app container', () => {
+  it('Auth and AuthVerification name the missing container', async () => {
+    expect(() => AuthVerification.verify('token')).toThrow('[@laratype/auth] No app container')
+    await expect(Auth.guard('web').attempt({})).rejects.toThrow('[@laratype/auth] No app container')
+    expect(Auth.user()).toBeNull()
+  })
+
+  it('a request container without AuthManager names the provider', async () => {
+    const container = new Container({ deps: depsRegistry })
+    await ContextApi.run({ container } as any, () => {
+      expect(() => AuthVerification.verify('token')).toThrow('AuthManager is not bound in the app container: boot PassportServiceProvider')
+    })
+  })
+})
