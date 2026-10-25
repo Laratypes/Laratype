@@ -211,6 +211,13 @@ describe('endpoint capabilities', () => {
     [{ limit: 1.5, per: 60 }],
     [{ limit: 10, per: 0 }],
     [{ limit: 10, per: '1w' }],
+    [{ limit: 10, per: '0s' }],
+    [{ limit: 10, per: '0.0h' }],
+    [{ limit: 10, per: Infinity }],
+    [{ limit: 10, per: Number.NaN }],
+    [{ limit: 10, per: 0.5 }],
+    [{ limit: 10, per: '0.001s' }],
+    [{ limit: 10, per: '9999999999999d' }],
     [{ limit: 10 }],
     [null],
   ])('rejects the throttle %j', (options) => {
