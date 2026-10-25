@@ -537,7 +537,7 @@ export class Container {
 ```
 
 ### Invariants
-- **Request scope:** `createRequestScope()` returns a child container that also holds a per-request cache. Like `createChild()`, it sees the parent's bindings and its own bindings shadow them. A child of a request scope shares its cache.
+- **Request scope:** `createRequestScope()` returns a child container that also holds a per-request cache. Like `createChild()`, it sees the parent's bindings and its own bindings shadow them. A child of a request scope shares its cache. A request scope can start another one; the inner one has its own cache, and neither disposes the other's values.
 - **Request-scoped keys** are `scoped()` bindings, `bind(..., { scope: 'request' })` bindings, bindings whose class has `@Injectable({ scope: 'request' })`, and unbound classes with `@Injectable({ scope: 'request' })` (autowired; `has()` stays `false`). Each is built once per request scope and cached there until `dispose()`:
   - The **request scope builds it**, so the scope's own bindings apply: `scope.instance(REQUEST_ID, id)` reaches a request-scoped class or factory bound on the app container. A factory receives the request scope.
   - The current request scope is the nearest one up the chain of the container `make()` was called on. A singleton's owner builds it above the request scope, so a request-scoped key it needs resolves in the request scope of the `make()` in progress. Resolution is synchronous, so concurrent requests never mix.
@@ -551,7 +551,7 @@ export class Container {
 - **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. It runs every disposer, then rethrows the failures as one `AggregateError`.
   - It never disposes a transient, a plain singleton or an `instance()` value; a singleton that bubbled is a request-scoped value, so it is disposed. It doesn't call a dispose method under another name (`dispose()`, `close()`).
   - A second `dispose()` does nothing. `make()` on a disposed request scope, or on a child container of one, throws, and a disposed scope can't start a new one with `createRequestScope()`.
-- **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope once the response is resolved, error responses included. A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
+- **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope when the handler settles: after its response, or after it throws, before the app's error handler builds the error response (that handler runs outside the request store). A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
 - `@laratype/core` imports no `node:*` module: the request scope is an object its caller owns. `@laratype/http` keeps it in the AsyncLocalStorage store of `ContextApi`.
 
 ### Diagnostics
