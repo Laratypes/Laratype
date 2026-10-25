@@ -190,9 +190,17 @@ type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never :
 /** The literal keys of every member of `Hd`: an index signature next to them is left out, not the keys. */
 type LiteralKeys<Hd> = keyof { [K in keyof Hd as LiteralKey<K>]: 0 };
 
+/**
+ * Whether some member of `Hd` may leave out `K`: an optional key (also under `exactOptionalPropertyTypes`, where its
+ * value type has no `undefined`) or a value that may be `undefined`.
+ */
+type MayOmit<Hd, K> = true extends (Hd extends unknown ? ({} extends Pick<Hd, K & keyof Hd> ? true : undefined extends Hd[K & keyof Hd] ? true : false) : never)
+  ? true
+  : false;
+
 /** The literal keys an `options.headers` object always sends: required in every member of a union. */
 type ProvidedKeys<Hd> = [Hd] extends [Record<string, string>]
-  ? { [K in LiteralKeys<Hd>]: undefined extends Hd[K & keyof Hd] ? never : K }[LiteralKeys<Hd>]
+  ? { [K in LiteralKeys<Hd>]: MayOmit<Hd, K> extends true ? never : K }[LiteralKeys<Hd>]
   : never;
 
 /**

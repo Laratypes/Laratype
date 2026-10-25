@@ -303,6 +303,13 @@ describe('headers that options.headers provides (#255)', () => {
   test('a provided value the schema rejects leaves the header required', () => {
     const versioned = defineContract()({ v: endpoint.get('/api/v').headers(z.object({ 'x-version': z.literal('2') })) })
     void createClient(versioned, { headers: { 'x-version': '2' as const } }).v()
+    // a literal needs no `as const`: createClient infers options.headers as const
+    void createClient(versioned, { headers: { 'x-version': '2' } }).v()
+    // pairs and a Headers still type-check, and provide no header
+    void createClient(versioned, { headers: [['x-version', '2']] })
+    void createClient(versioned, { headers: new Headers() })
+    // an optional key may be left out, so it is not provided
+    expectTypeOf<ProvidedHeaders<{ 'x-version'?: '2'; a: string }>>().toEqualTypeOf<{ a: string }>()
     // @ts-expect-error '1' is not the '2' the schema accepts
     void createClient(versioned, { headers: { 'x-version': '1' as const } }).v()
     // @ts-expect-error nor is any string

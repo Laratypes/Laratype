@@ -393,12 +393,12 @@ export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
  * like the server's `joinPath`, and its params are only its own.
  */
-export function createClient<C extends AnyContract, Hd extends HeadersInit = HeadersInit>(
+export function createClient<C extends AnyContract, const Hd extends HeadersInit = HeadersInit>(
   contract: C,
   options?: ClientOptions<Hd>,
 ): ClientOf<C, ProvidedHeaders<Hd>>;
 /** The typed client for one API node (`appApi.users`), named relative to it: `api.posts.update`. */
-export function createClient<N extends ApiNodeShape, Hd extends HeadersInit = HeadersInit>(
+export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit = HeadersInit>(
   node: N,
   options?: ClientOptions<Hd>,
 ): ClientOf<N, ProvidedHeaders<Hd>>;
@@ -410,7 +410,7 @@ export function createClient<N extends ApiNodeShape, Hd extends HeadersInit = He
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape<A>, Hd extends HeadersInit = HeadersInit>(
+export function createClient<A extends ApiRootShape<A>, const Hd extends HeadersInit = HeadersInit>(
   api: A,
   options?: ClientOptions<Hd>,
 ): ClientOf<A, ProvidedHeaders<Hd>>;
