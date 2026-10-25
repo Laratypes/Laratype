@@ -429,6 +429,49 @@ describe('r.contract() options', () => {
     )
   })
 
+  it('an item built with no tree entry to name the contract is reported by plan(), which names it', () => {
+    // r.contract() cannot name "posts" when its builder has no entry for it, so plan() must report the item: a builder
+    // kept from another Route.api() call, or the fresh one an endpoints callback gets, must not hide an inherited key
+    const inherited = () => Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) })
+    const message = '[@laratype/http] Route.api: contract "posts": endpoints.destroy is inherited: endpoints must have own keys only'
+    const other = defineContract()({ index: endpoint.get('/').response(anything) })
+    const otherApi = defineApi({ other: { contract: other, path: '/other', scopes: [], dirs: [] } })
+    class Other extends Controller {
+      index() { return {} }
+    }
+    let kept: any
+    Route.api(otherApi, (r) => {
+      kept = r
+      return [r.contract(other, Other)]
+    })
+    const keptItem = kept.contract(posts, PostController, { endpoints: inherited() })
+    expect(() => Route.api(postsApi, (() => [keptItem]) as never)).toThrow(message)
+    // the issue travels with the frozen options copy: a clone that keeps it still reports, fresh options are re-checked
+    expect(() => Route.api(postsApi, (() => [Object.fromEntries(Object.entries(keptItem))]) as never)).toThrow(message)
+    expect(() => Route.api(postsApi, (() => [{ ...keptItem, options: { ...keptItem.options } }]) as never)).toThrow(message)
+    expect(() => Route.api(postsApi, (() => [{ ...keptItem, options: { endpoints: inherited() } }]) as never)).toThrow(message)
+    // a plain copy is checked again, so its marker cannot silence a non-plain prototype
+    const plainItem = kept.contract(posts, PostController, {})
+    const forged = { ...plainItem, options: Object.assign(Object.create({ destroy: Audit }), plainItem.options) }
+    expect(() => Route.api(postsApi, (() => [forged]) as never)).toThrow('contract "posts": options.destroy is inherited')
+    // an inherited option key goes through the same deferred check, not only the endpoints map
+    const inheritedOption = kept.contract(posts, PostController, Object.create({ policy: PostPolicy }) as never)
+    expect(() => Route.api(postsApi, (() => [inheritedOption]) as never)).toThrow('contract "posts": options.policy is inherited')
+    let entryless: any
+    Route.api(otherApi, (r) => [
+      r.contract(other, Other, {
+        endpoints: {
+          index: (inner) => {
+            entryless = (inner as any).contract(posts, PostController, { endpoints: inherited() })
+            return inner
+          },
+        },
+      }),
+    ])
+    expect(() => Route.api(postsApi, (() => [entryless]) as never)).toThrow(message)
+    expect(() => Route.api(postsApi, (() => [{ ...entryless }]) as never)).toThrow(message)
+  })
+
   it('a getter is read once: the check and the routes see the same endpoints', () => {
     let reads = 0
     const options = { get endpoints() { return reads++ ? {} : Object.create({ destroy: (r: EndpointRouteBuilder) => r.middleware(Audit) }) } }

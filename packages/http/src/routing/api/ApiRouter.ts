@@ -44,7 +44,6 @@ class RouteBuilder {
     const names = mountedEntries(this.entries, contract).map((e) => e.name);
     if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
     const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copy });
-    copied.add(mounted);
     return mounted;
   }
 
@@ -56,8 +55,13 @@ class RouteBuilder {
 
 const isObject = (value: unknown): value is object => typeof value === "object" && value !== null;
 
-/** The items built by `r.contract()`, whose options are already checked for plainness and copied. */
-const copied = new WeakSet<object>();
+/**
+ * On the frozen `options` copy `copyOptions` builds: the plainness issue `r.contract()` could not report there because
+ * its builder had no tree entry to name the contract, or `undefined` when the options are plain. plan() reads it once it
+ * names the contract. Enumerable, so a spread of the options keeps the issue (spread copies symbol keys); pinned to the
+ * copy and non-configurable, so options rebuilt from scratch are checked again.
+ */
+const PLAIN_ISSUE = Symbol("laratype.http.checkedContractOptions");
 
 /**
  * A frozen copy of every own string key on a `null` prototype, so nothing inherited is read later (not even from a
@@ -96,6 +100,8 @@ const copyOptions = (options: unknown): { copy: ContractRouteOptions<object> | u
     issue ??= plainIssue("endpoints", item);
     return Object.freeze(frozenCopy(item));
   });
+  // Enumerable, so `{ ...options }` keeps the issue; no string key, so every option check sees the same keys
+  Object.defineProperty(copy, PLAIN_ISSUE, { value: issue, enumerable: true });
   return { copy: Object.freeze(copy) as ContractRouteOptions<object>, issue };
 };
 
@@ -183,13 +189,16 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       if (typeof controller !== "function") {
         fail(`contract "${names.join('", "')}": r.contract() got ${String(controller)} as its controller (a circular import?)`);
       }
-      // An item built without r.contract() (untyped callers) is checked for plainness and copied here
-      const { copy: options, issue } = copied.has(item) ? { copy: item.options, issue: undefined } : copyOptions(item.options);
+      // An item built without r.contract() (untyped callers) is checked for plainness and copied here, as are its
+      // options when they carry no issue: r.contract() pins the issue it could not report, when its builder had no tree
+      // entry, to the frozen copy of the options
+      const pinned = isObject(item.options) ? (item.options as { readonly [PLAIN_ISSUE]?: string })[PLAIN_ISSUE] : undefined;
+      const { copy: options, issue } = pinned !== undefined ? { copy: item.options, issue: pinned } : copyOptions(item.options);
       if (issue !== undefined) fail(`contract "${names.join('", "')}": ${issue}`);
       checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      const stored = copied.has(item) ? item : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, options });
+      const stored = pinned !== undefined ? item : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, options });
       for (const name of names) contracts.set(name, stored);
     } else {
       fail("the routes callback must return r.contract() and r.scope() items");
