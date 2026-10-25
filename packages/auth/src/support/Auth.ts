@@ -1,4 +1,5 @@
 import { ContextApi } from "@laratype/support";
+import { Facade } from "@laratype/core";
 import { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
 import Authentication from "../passport/Authentication";
@@ -62,45 +63,82 @@ class Authenticate<T extends Model> {
   }
 }
 
-export default class Auth {
+/** The implementation behind the `Auth` facade. */
+export class AuthManager {
   async attempt<T extends Model>(user: T) {
     const auth = GuardStore.getAuthConfig();
     return new Authenticate<T>(auth.default.guard).attempt(user);
   }
 
-  static user<T extends Model>() {
+  user<T extends Model>() {
     const user = ContextApi.getUser<T>();
     if(!user) return null;
     const auth = GuardStore.getAuthConfig();
     return new Authenticate<T>(auth.default.guard).setUser(user);
   }
 
-  static id<A>(): A {
+  id<A>(): A {
     throw new Error("Method not implemented.");
   }
 
-  static isAuthenticated(): boolean {
+  isAuthenticated(): boolean {
     throw new Error("Method not implemented.");
   }
 
-  static check(): boolean {
+  check(): boolean {
     throw new Error("Method not implemented.");
   }
 
-  static login<T extends Model>(user: T) {
+  login<T extends Model>(user: T) {
     const auth = GuardStore.getAuthConfig();
     return new Authenticate<T>(auth.default.guard).login(user);
   }
 
-  static guard<T extends Model>(guardName: string) {
+  guard<T extends Model>(guardName: string) {
     const authenticated = new Authenticate<T>(guardName);
     const user = ContextApi.getUser<T>();
     if(user) authenticated.setUser(user);
     return authenticated;
   }
 
-  static logout(): Promise<void> {
+  logout(): Promise<void> {
     throw new Error("Method not implemented.");
+  }
+}
+
+export default class Auth extends Facade {
+  static override readonly accessor = AuthManager;
+
+  async attempt<T extends Model>(user: T) {
+    return Auth.root().attempt(user);
+  }
+
+  static user<T extends Model>() {
+    return Auth.root().user<T>();
+  }
+
+  static id<A>(): A {
+    return Auth.root().id<A>();
+  }
+
+  static isAuthenticated(): boolean {
+    return Auth.root().isAuthenticated();
+  }
+
+  static check(): boolean {
+    return Auth.root().check();
+  }
+
+  static login<T extends Model>(user: T) {
+    return Auth.root().login(user);
+  }
+
+  static guard<T extends Model>(guardName: string) {
+    return Auth.root().guard<T>(guardName);
+  }
+
+  static logout(): Promise<void> {
+    return Auth.root().logout();
   }
   
 }
