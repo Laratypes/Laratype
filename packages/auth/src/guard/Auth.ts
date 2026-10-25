@@ -11,14 +11,13 @@ export default class AuthGuard extends Middleware {
   }
 
   async handle(request: Request, res: Response, next: NextHandler) {
-    const guard = authManager().guard();
-    const token = guard.token(request);
+    const token = this.getToken(request);
     if (!token) {
       return Promise.reject(new UnauthorizedException({
         message: "Token is missing or invalid.",
       }));
     }
-    const user = await guard.verify(token);
+    const user = await authManager().guard().verify(token);
     if (!user) {
       return Promise.reject(new UnauthorizedException({
         message: "Token is invalid or expired.",

@@ -3,8 +3,6 @@ import type TokenGuard from "../guard/TokenGuard";
 import type { JWTSignOptions } from "../guard/TokenGuard";
 import { authManager } from "../guard/resolve";
 
-export type { JWTSignOptions } from "../guard/TokenGuard";
-
 export class Authenticated<T extends Model = any> {
 
   private user: T;
