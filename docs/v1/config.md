@@ -2,7 +2,7 @@
 area: config
 packages: ["@laratype/core", "@laratype/support"]
 issues: [152]
-verified-against: Laratype@24b46ab (+ PR #300 @ 03850ae; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
+verified-against: Laratype@24b46ab (+ PR #300 @ 25d57c9; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
 last-verified: 2026-10-25
 ---
 
@@ -19,7 +19,7 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 | Section | Status |
 |---|---|
 | [Config files and config()](#config-files-and-config) | proposed: PR #300 @ a7fb452 |
-| [Environment validation](#environment-validation) | proposed: PR #300 @ 03850ae |
+| [Environment validation](#environment-validation) | proposed: PR #300 @ 25d57c9 |
 
 ---
 
@@ -81,10 +81,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR #300 @ 03850ae (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
+proposed: PR #300 @ 25d57c9 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)).
 
 ### Public API
-[`core/src/env.ts` @ 03850ae](https://github.com/Laratypes/Laratype/blob/03850aecab6af3090d90febcad5c5b4aca8196ce/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 03850ae](https://github.com/Laratypes/Laratype/blob/03850aecab6af3090d90febcad5c5b4aca8196ce/packages/support/src/environ/validateEnv.ts)
+[`core/src/env.ts` @ 25d57c9](https://github.com/Laratypes/Laratype/blob/25d57c91096f20dfe106e1151316ca529964dfcc/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 25d57c9](https://github.com/Laratypes/Laratype/blob/25d57c91096f20dfe106e1151316ca529964dfcc/packages/support/src/environ/validateEnv.ts)
 
 ```ts
 // @laratype/core
@@ -112,7 +112,7 @@ export class EnvValidationError extends Error {
 - Runtime, invalid env:
   ```
   [@laratype/support] Invalid environment (app/config/env.ts), <n> failing:
-    - <NAME>: does not match the schema
+  - <NAME>: does not match the schema
   ```
   `<n>` is the number of failing variables, plus the `(environment)` line when issues have no path; a name is listed once however many of its checks failed.
 - Runtime, the schema throws: `[@laratype/support] the schema of app/config/env.ts threw (<error name>) while validating the environment; its message is withheld since it may hold a value`.
