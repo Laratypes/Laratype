@@ -11,6 +11,8 @@ export type {
   Scope,
   Token,
 } from './container'
+export { Facade } from './facade'
+export type { FacadeClass } from './facade'
 export { Inject, Injectable } from './decorators'
 export type { InjectableOptions } from './decorators'
 export { InjectionToken, token } from './token'

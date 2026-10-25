@@ -1,7 +1,7 @@
-// Type tests for createClient (CL1 #109) and the result union (CL2 #110), inferred from the generated appApi.
+// Type tests for createClient (CL1 #109), the result union (CL2 #110) and the options (CL3 #124), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import { createClient } from '@laratype/client'
-import type { Client, ClientOf, ClientResult, ClientSuccess, HeaderValues, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ResponseData, UnexpectedResult } from '@laratype/client'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
@@ -218,5 +218,41 @@ describe('createClient(manifest)', () => {
     void sep.users.show({ params: {} })
     // @ts-expect-error without the AppApi type argument the client is never
     void createClient(manifest).users
+  })
+})
+
+describe('options and hooks', () => {
+  test('headers: a HeadersInit, or a function returning one, sync or async', () => {
+    expectTypeOf<{ headers: { authorization: string } }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => [string, string][] }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => Promise<Headers> }>().toMatchTypeOf<ClientOptions>()
+    // @ts-expect-error a function must return headers
+    createClient(appApi, { headers: () => 1 })
+  })
+
+  test('credentials is a RequestCredentials', () => {
+    expectTypeOf<ClientOptions['credentials']>().toEqualTypeOf<RequestCredentials | undefined>()
+    // @ts-expect-error not a credentials mode
+    createClient(appApi, { credentials: 'always' })
+  })
+
+  test('the hooks get the request (url and the merged init, with Headers) and the response', () => {
+    expectTypeOf<ClientRequest>().toEqualTypeOf<{ readonly url: string; readonly init: RequestInit & { headers: Headers } }>()
+    createClient(appApi, {
+      onRequest: (request) => {
+        expectTypeOf(request).toEqualTypeOf<ClientRequest>()
+        request.init.headers.set('x-signature', 'sig')
+      },
+      onResponse: async (response, request) => {
+        expectTypeOf(response).toEqualTypeOf<Response>()
+        expectTypeOf(request).toEqualTypeOf<ClientRequest>()
+      },
+    })
+    createClient(appApi, {
+      onRequest: (request) => {
+        // @ts-expect-error the url is read-only
+        request.url = '/other'
+      },
+    })
   })
 })

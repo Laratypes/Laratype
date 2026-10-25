@@ -1,1 +1,1 @@
-export { default as Log } from "./support/Log"
+export { default as Log, LogManager } from "./support/Log"

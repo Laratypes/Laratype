@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, Manifest, ManifestRoute } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -158,21 +158,44 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   return [absolute ? url.origin : "", url.pathname.replace(/\/+$/, "")];
 };
 
+/** A body on a GET or HEAD: fetch would refuse it, and that must not look like a network failure. */
+const assertNoGetBody = (method: string, hasBody: boolean, path: string): void => {
+  const upper = method.toUpperCase();
+  if (hasBody && (upper === "GET" || upper === "HEAD")) fail(`a ${upper} request cannot have a body: "${path}"`);
+};
+
+/**
+ * A call aborted before `fetch` (while the headers function or `onRequest` ran): the status-0 result fetch would give,
+ * without running the next step.
+ */
+const throwIfAborted = (signal: AbortSignal | null | undefined): void => {
+  if (signal?.aborted) throw new FetchFailed(signal.reason);
+};
+
+/** Whether the body was read or locked (a reader taken), so the client can't read it. */
+const bodyTaken = (response: Response): boolean => response.bodyUsed || !!response.body?.locked;
+
 /**
  * One request: the route path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
  * `buildUrl` only sees the route path; the result is then joined to `baseUrl`'s path with the server's `joinPath`, so
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
- * Headers: `options.headers`, overridden by the call's own `headers`; then `content-type: application/json` for a body
- * when neither sets one.
+ * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
+ * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given.
+ * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
+ * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
+ * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`
+ * once aborted.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
  * rejected promise is a `FetchFailed`, which the result union turns into `unexpected`.
- * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
+ * The options are read from `options` when each call starts, so changing one (a refreshed token) applies to the next
+ * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
+  const { baseUrl, fetch: injected, headers: defaults, credentials, onRequest, onResponse } = options;
+  const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
   const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
@@ -180,39 +203,69 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
   if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
   const url = origin + pathname + (q < 0 ? "" : built.slice(q));
-  const headers = new Headers(options.headers);
-  for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) headers.set(key, value);
-  }
-  const init: RequestInit = { method: method.toUpperCase(), headers };
-  if (input.body !== undefined) {
-    // fetch would refuse it, and that must not look like a network failure
-    if (method === "get") fail(`a GET request cannot have a body: "${path}"`);
-    init.body = JSON.stringify(input.body);
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
-  }
-  if (input.signal) init.signal = input.signal;
-  let pending: () => Promise<Response>;
-  const injected = options.fetch;
+  assertNoGetBody(method, input.body !== undefined, path);
+  const body = input.body === undefined ? undefined : JSON.stringify(input.body);
+  let fetchFn: FetchLike;
   if (injected) {
     // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
-    pending = () => injected(url, init);
+    fetchFn = injected;
   } else {
-    const fetchFn = globalThis.fetch;
-    if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+    const globalFetch = globalThis.fetch;
+    if (typeof globalFetch !== "function") fail("no fetch available: pass options.fetch");
     // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
     if (!origin && !resolvesInPage(url)) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
-    pending = () => fetchFn(url, init);
+    fetchFn = globalFetch;
+  }
+  // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
+  const { signal } = input;
+  throwIfAborted(signal);
+  let headers: Headers;
+  if (typeof defaults === "function") {
+    headers = new Headers(await defaults());
+    throwIfAborted(signal);
+  } else {
+    headers = new Headers(defaults);
+  }
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value !== undefined) headers.set(key, value);
+  }
+  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
+  if (credentials !== undefined) init.credentials = credentials;
+  if (body !== undefined) {
+    init.body = body;
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  }
+  if (signal) init.signal = signal;
+  const request: ClientRequest = Object.freeze({ url, init });
+  if (onRequest) {
+    await onRequest(request);
+    // onRequest may have set a body or changed the method (fetch's default is GET)
+    assertNoGetBody(init.method ?? "GET", init.body != null, path);
+    throwIfAborted(init.signal);
   }
   // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
-  const response = pending();
+  const pending = fetchFn(url, init);
+  let response: Response;
   try {
-    return await response;
+    response = await pending;
   } catch (error) {
     throw new FetchFailed(error);
   }
+  if (onResponse) {
+    // an injected fetch may hand over a used body; only a body this hook used is its fault
+    const readable = !bodyTaken(response);
+    try {
+      await onResponse(response, request);
+    } catch (error) {
+      // the call rejects and nobody reads the body: release it
+      cancelBody(response);
+      throw error;
+    }
+    if (readable && bodyTaken(response)) fail("onResponse read the response body: read a response.clone() instead");
+  }
+  return response;
 };
 
 const unexpected = (status: number, error: unknown, response: Response | undefined, text?: string): Result =>
