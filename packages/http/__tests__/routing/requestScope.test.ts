@@ -1,0 +1,131 @@
+// D6 #112: RequestKernel gives each request its own request scope and disposes it after the response
+import 'reflect-metadata'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { Hono } from 'hono'
+import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
+import { HTTP_APP } from '@laratype/support'
+import { Controller, RequestKernel } from '../../src/index'
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5))
+
+let nextId = 0
+class RequestId {
+  readonly id = ++nextId
+}
+class Repo {
+  constructor(readonly requestId: RequestId) {}
+}
+class Service {
+  constructor(readonly repo: Repo, readonly requestId: RequestId) {}
+}
+class ScopeController extends Controller {
+  constructor(readonly service: Service, readonly requestId: RequestId) {
+    super()
+  }
+  async index() {
+    const before = this.describe()
+    // Let the other request run in between
+    await tick()
+    return { before, after: this.describe() }
+  }
+  describe() {
+    return [this.requestId.id, this.service.requestId.id, this.service.repo.requestId.id]
+  }
+}
+// What the sauf DI transform emits for the constructors above
+__laratype_deps(Repo, [() => RequestId], { params: ['requestId'] })
+__laratype_deps(Service, [() => Repo, () => RequestId], { params: ['repo', 'requestId'] })
+__laratype_deps(ScopeController, [() => Service, () => RequestId], { params: ['service', 'requestId'] })
+
+/** A Hono app booted like `sauf dev` does: the container holds it, and RequestKernel registers its middleware. */
+const bootApp = (bind: (container: Container) => void) => {
+  const container = new Container({ deps: depsRegistry })
+  const app = new Hono()
+  container.instance(HTTP_APP, app)
+  bind(container)
+  new RequestKernel(container).boot()
+  return { app, container }
+}
+
+beforeAll(() => {
+  globalThis.__laratype_route_model_bindings = {}
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('request scope under RequestKernel', () => {
+  it('two parallel requests never share request-scoped or bubbled instances', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Service is a singleton that depends on a request-scoped value, so it bubbles to request scope
+    const { app } = bootApp((container) => container.scoped(RequestId).scoped(Repo).singleton(Service))
+    app.get('/scope', RequestKernel.handle({ method: 'get', path: '/scope', controller: [ScopeController, 'index'] }))
+    const bodies = await Promise.all([1, 2, 3, 4].map(async () => (await app.request('/scope')).json()))
+    const ids = bodies.map(({ before, after }: { before: number[], after: number[] }) => {
+      // every instance of one request sees the same RequestId, before and after the other requests ran
+      expect(new Set([...before, ...after]).size).toBe(1)
+      return before[0]
+    })
+    expect(new Set(ids).size).toBe(4)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[@laratype/core] Service is a singleton but depends on request-scoped Repo'))
+  })
+
+  it('disposes the request-scoped values once the response is resolved, on success and on error', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const disposed: string[] = []
+    class Unit {
+      [Symbol.dispose]() { disposed.push('unit') }
+    }
+    class UnitController extends Controller {
+      constructor(readonly unit: Unit) { super() }
+      index() {
+        disposed.push('handler')
+        return { ok: true }
+      }
+      show() {
+        throw new Error('boom')
+      }
+    }
+    __laratype_deps(UnitController, [() => Unit], { params: ['unit'] })
+    const { app } = bootApp((container) => container.scoped(Unit))
+    app.onError((_error, c) => c.text('error', 500))
+    app.get('/unit', RequestKernel.handle({ method: 'get', path: '/unit', controller: [UnitController, 'index'] }))
+    app.get('/unit/fail', RequestKernel.handle({ method: 'get', path: '/unit/fail', controller: [UnitController, 'show'] }))
+    expect((await app.request('/unit')).status).toBe(200)
+    expect(disposed).toEqual(['handler', 'unit'])
+    disposed.length = 0
+    expect((await app.request('/unit/fail')).status).toBe(500)
+    expect(disposed).toEqual(['unit'])
+  })
+
+  it('a failed disposal is logged once and never changes the response', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    class Leaky {
+      async [Symbol.asyncDispose]() { throw new Error('close failed') }
+    }
+    class LeakyController extends Controller {
+      constructor(readonly leaky: Leaky) { super() }
+      index() { return { ok: true } }
+    }
+    __laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
+    const { app } = bootApp((container) => container.scoped(Leaky))
+    app.get('/leaky', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
+    try {
+      const response = await app.request('/leaky')
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true })
+      await tick()
+      expect(error).toHaveBeenCalledTimes(1)
+      expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky: disposing the request scope failed')
+      expect(error.mock.calls[0]![1]).toBeInstanceOf(AggregateError)
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+})

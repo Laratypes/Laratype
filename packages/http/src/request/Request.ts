@@ -10,7 +10,7 @@ import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { StandardSchemaV1 } from "@laratype/contract";
 
-/** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
+/** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
 
 type RulesResult = { ok: true; value: any } | { ok: false; issues: unknown[] };
@@ -86,7 +86,7 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers are resolved from: the app container `boot()` puts on each request, else one
+   * The container controllers are resolved from: the request scope of the app container `boot()` puts on each request, else one
    * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
    */
   public static container(): Container {
@@ -341,9 +341,24 @@ export default class Request extends AppServiceProvider {
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
-      (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
-      this.resolveRequest(ctx);
-      return next();
+      // One request scope per request (D6 #112): request-scoped values are built in it and disposed after the response
+      const scope = this.app.createRequestScope();
+      (ctx.set as (key: string, value: Container) => void)(CONTAINER, scope);
+      try {
+        this.resolveRequest(ctx);
+        return await next();
+      } finally {
+        await Request.disposeRequestScope(scope, ctx);
+      }
     });
+  }
+
+  /** The response is already resolved, so a failed disposal is logged once, never turned into an error response. */
+  protected static async disposeRequestScope(scope: Container, ctx: Context) {
+    try {
+      await scope.dispose();
+    } catch (error) {
+      console.error(`[@laratype/http] ${ctx.req.method} ${ctx.req.path}: disposing the request scope failed`, error);
+    }
   }
 }
