@@ -207,8 +207,12 @@ export class Container {
     return new Container(options, this)
   }
 
-  /** A child container for one request: request-scoped values are built once in it, until `dispose()`. */
+  /**
+   * A child container for one request: request-scoped values are built once in it, until `dispose()`.
+   * A disposed request scope, or a child of one, throws instead.
+   */
   createRequestScope(options: ContainerOptions = {}): Container {
+    if (this.requestScope()?.disposed) throw new DiError('Request scope already disposed.')
     const scope = new Container(options, this)
     scope.requestCache = new Map()
     return scope

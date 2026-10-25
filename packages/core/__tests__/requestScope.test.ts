@@ -239,6 +239,8 @@ describe('dispose()', () => {
     expect(disposed).toBe(1)
     expect(() => scope.make(Db)).toThrow(new DiError('Request scope already disposed.'))
     expect(() => scope.createChild().make(Db)).toThrow(new DiError('Request scope already disposed.'))
+    expect(() => scope.createRequestScope()).toThrow(new DiError('Request scope already disposed.'))
+    expect(() => scope.createChild().createRequestScope()).toThrow(new DiError('Request scope already disposed.'))
     expect(app.createRequestScope().make(Db)).not.toBe(db)
   })
 
