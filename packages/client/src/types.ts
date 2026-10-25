@@ -221,6 +221,15 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/**
+ * The request a call is about to send, as `fetch` gets it: `fetch(url, init)`. `init.headers` is a `Headers`, already
+ * merged (`options.headers`, the call's `headers`, the JSON `content-type`).
+ */
+export interface ClientRequest {
+  readonly url: string;
+  readonly init: RequestInit & { headers: Headers };
+}
+
 export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /** Origin the contract paths are appended to. Default `""`: same origin, since contract paths are full (`/api/...`). */
   baseUrl?: string;
@@ -229,7 +238,20 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /**
    * Headers sent with every call; a call's own `headers` override them. Given as an object, the names it always sends
    * (`ProvidedHeaders<Hd>`, inferred by `createClient`) are optional in each call's `headers`, even when the
-   * endpoint's headers schema requires them.
+   * endpoint's headers schema requires them. A function is called at each call, so it can return a fresh auth token;
+   * it may be async. Its headers are known only when it runs, so it provides none to the types.
    */
-  headers?: Hd;
+  headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
+  /**
+   * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
+   * Redirects are followed, so set `init.redirect = "error"` in `onRequest` if a redirect must not carry them elsewhere.
+   */
+  credentials?: RequestCredentials;
+  /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
+  onRequest?: (request: ClientRequest) => void | Promise<void>;
+  /**
+   * Called with every response, before the client reads its body (read a `response.clone()` to see it); not called
+   * when `fetch` rejects. A throw rejects the call.
+   */
+  onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
 }

@@ -1,8 +1,8 @@
-// Type tests for createClient (CL1 #109), the result union (CL2 #110) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
+// Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
 import { createClient } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
@@ -308,6 +308,9 @@ describe('headers that options.headers provides (#255)', () => {
     // pairs and a Headers still type-check, and provide no header
     void createClient(versioned, { headers: [['x-version', '2']] })
     void createClient(versioned, { headers: new Headers() })
+    // a headers function is known only when it runs, so it provides nothing
+    // @ts-expect-error the schema header stays required
+    void createClient(versioned, { headers: () => ({ 'x-version': '2' }) }).v()
     // an optional key may be left out, so it is not provided
     expectTypeOf<ProvidedHeaders<{ 'x-version'?: '2'; a: string }>>().toEqualTypeOf<{ a: string }>()
     // @ts-expect-error '1' is not the '2' the schema accepts
@@ -352,5 +355,41 @@ describe('createClient(manifest)', () => {
     void sep.users.show({ params: {} })
     // @ts-expect-error without the AppApi type argument the client is never
     void createClient(manifest).users
+  })
+})
+
+describe('options and hooks', () => {
+  test('headers: a HeadersInit, or a function returning one, sync or async', () => {
+    expectTypeOf<{ headers: { authorization: string } }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => [string, string][] }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => Promise<Headers> }>().toMatchTypeOf<ClientOptions>()
+    // @ts-expect-error a function must return headers
+    createClient(appApi, { headers: () => 1 })
+  })
+
+  test('credentials is a RequestCredentials', () => {
+    expectTypeOf<ClientOptions['credentials']>().toEqualTypeOf<RequestCredentials | undefined>()
+    // @ts-expect-error not a credentials mode
+    createClient(appApi, { credentials: 'always' })
+  })
+
+  test('the hooks get the request (url and the merged init, with Headers) and the response', () => {
+    expectTypeOf<ClientRequest>().toEqualTypeOf<{ readonly url: string; readonly init: RequestInit & { headers: Headers } }>()
+    createClient(appApi, {
+      onRequest: (request) => {
+        expectTypeOf(request).toEqualTypeOf<ClientRequest>()
+        request.init.headers.set('x-signature', 'sig')
+      },
+      onResponse: async (response, request) => {
+        expectTypeOf(response).toEqualTypeOf<Response>()
+        expectTypeOf(request).toEqualTypeOf<ClientRequest>()
+      },
+    })
+    createClient(appApi, {
+      onRequest: (request) => {
+        // @ts-expect-error the url is read-only
+        request.url = '/other'
+      },
+    })
   })
 })

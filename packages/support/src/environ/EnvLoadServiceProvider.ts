@@ -1,4 +1,8 @@
+import { ENV_CONFIG_NAME } from "@laratype/core";
+import type { EnvDefinition } from "@laratype/core";
+import { loadDefault, manifestEntry } from "../manifest/AppManifest";
 import { ServiceProvider } from "../ServiceProvider";
+import { validateEnv } from "./validateEnv";
 import { getProjectPath } from "../path-resolver/pathResolver";
 import { globSync } from "glob";
 import dotenv from "dotenv";
@@ -42,8 +46,11 @@ export function loadEnv(projectDir?: string): string | undefined {
 
 export default class EnvLoadServiceProvider extends ServiceProvider {
 
+  /** Loads the env file, then validates `process.env` with `app/config/env.ts` (`defineEnv`) when the app has one. */
   public async boot() {
     loadEnv();
+    const entry = manifestEntry('configs', ENV_CONFIG_NAME);
+    if (entry) await validateEnv(await loadDefault<EnvDefinition>(entry), process.env);
   }
 
 }

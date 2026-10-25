@@ -32,6 +32,9 @@
     "./*": "./*"
   },
   "buildOptions": {},
+  "dependencies": {
+    "@laratype/contract": "workspace:*"
+  },
   "devDependencies": {
     "reflect-metadata": "^0.2.2"
   },
