@@ -209,16 +209,45 @@ describe('validateEnv', () => {
     expect(printed(error)).not.toContain(SECRET)
   })
 
-  it('never prints a path segment the schema keyed by a value', async () => {
-    const issue = (key: string) => ({ message: 'bad', path: [key] })
-    const schema = { '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [issue(SECRET), issue('SK_LIVE'), issue('MISSING_KEY')] }) } } as const
-    const error = await failure(defineEnv(schema), { KEY: SECRET, UPPER: 'SK_LIVE' })
+  it('never prints a path segment the schema keyed by a value, even transformed', async () => {
+    // Keys its issues by the values it gets, raw and upper-cased, and always requires MISSING_KEY
+    const schema = {
+      '~standard': {
+        version: 1,
+        vendor: 'x',
+        validate: (input: unknown) => ({
+          issues: [
+            ...Object.values(input as Record<string, string>).flatMap(value => [{ message: 'bad', path: [value] }, { message: 'bad', path: [value.toUpperCase()] }]),
+            { message: 'bad', path: ['MISSING_KEY'] },
+          ],
+        }),
+      },
+    } as const
+    const error = await failure(defineEnv(schema), { KEY: SECRET })
     expect(error.issues).toEqual([
       { name: '(environment)', message: INVALID_MESSAGE },
       { name: 'MISSING_KEY', message: INVALID_MESSAGE },
     ])
     expect(printed(error)).not.toContain(SECRET)
-    expect(printed(error)).not.toContain('SK_LIVE')
+    expect(printed(error)).not.toContain(SECRET.toUpperCase())
+  })
+
+  it('names nothing from a schema that throws on an empty env', async () => {
+    const schema = {
+      '~standard': {
+        version: 1,
+        vendor: 'x',
+        validate: (input: unknown) => {
+          if (Object.keys(input as object).length === 0) throw new Error('empty')
+          return { issues: [{ message: 'bad', path: ['APP_KEY'] }, { message: 'bad', path: ['NOT_SET'] }] }
+        },
+      },
+    } as const
+    const error = await failure(defineEnv(schema), { APP_KEY: 'x' })
+    expect(error.issues).toEqual([
+      { name: 'APP_KEY', message: INVALID_MESSAGE },
+      { name: '(environment)', message: INVALID_MESSAGE },
+    ])
   })
 
   it('names a missing variable', async () => {

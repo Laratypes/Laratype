@@ -29,20 +29,34 @@ export class EnvValidationError extends Error {
   }
 }
 
-/** A conventional env variable name: what a missing variable's issue path holds. */
-const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+/** The first path segment of an issue, when it is a string key. */
+const keyOf = (issue: StandardIssue): string | undefined => {
+  const first = issue.path?.[0];
+  const key = typeof first === "object" && first !== null ? first.key : first;
+  return typeof key === "string" ? key : undefined;
+};
+
+/**
+ * The variables the schema declares, without any env value: the keys of the issues it reports for an empty input
+ * (a missing variable's path). A schema that throws on it declares none.
+ */
+const declaredNames = async (definition: EnvDefinition): Promise<ReadonlySet<string>> => {
+  try {
+    const result = await validate(definition.schema, {});
+    return new Set(result.ok ? [] : result.issues.map(keyOf).filter((key): key is string => key !== undefined));
+  } catch {
+    return new Set();
+  }
+};
 
 /**
  * The variable of an issue: its first path segment, which may itself contain a dot (`db.password`). The path comes
- * from the schema, which can key it by a value, so a segment is printed only when it is a variable of `env`, or a
- * conventional name (a missing variable) that equals no env value; anything else is `(environment)`.
+ * from the schema, which can key it by a (transformed) value, so a segment is printed only when it is a variable of
+ * `env` or a name the schema declares (`declaredNames`); anything else is `(environment)`.
  */
-const nameOf = (issue: StandardIssue, env: Readonly<Record<string, string | undefined>>, values: ReadonlySet<string>): string => {
-  const first = issue.path?.[0];
-  const key = typeof first === "object" && first !== null ? first.key : first;
-  if (typeof key !== "string") return "(environment)";
-  if (Object.hasOwn(env, key)) return key;
-  return ENV_NAME.test(key) && !values.has(key) ? key : "(environment)";
+const nameOf = (issue: StandardIssue, env: Readonly<Record<string, string | undefined>>, declared: ReadonlySet<string>): string => {
+  const key = keyOf(issue);
+  return key !== undefined && (Object.hasOwn(env, key) || declared.has(key)) ? key : "(environment)";
 };
 
 /**
@@ -67,11 +81,11 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
   }
   if (result.ok) return;
   // One line per name, however many of its checks failed; issues with no path share the (environment) line
-  const values = new Set(Object.values(env).filter((value): value is string => typeof value === "string"));
+  const declared = await declaredNames(definition);
   const issues: EnvIssue[] = [];
   const seen = new Set<string>();
   for (const issue of result.issues) {
-    const name = nameOf(issue, env, values);
+    const name = nameOf(issue, env, declared);
     if (seen.has(name)) continue;
     seen.add(name);
     issues.push({ name, message: INVALID_MESSAGE });
