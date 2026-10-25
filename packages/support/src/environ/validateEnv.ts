@@ -29,11 +29,20 @@ export class EnvValidationError extends Error {
   }
 }
 
-/** The variable of an issue: its first path segment, which may itself contain a dot (`db.password`). */
-const nameOf = (issue: StandardIssue): string => {
+/** A conventional env variable name: what a missing variable's issue path holds. */
+const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+
+/**
+ * The variable of an issue: its first path segment, which may itself contain a dot (`db.password`). The path comes
+ * from the schema, which can key it by a value, so a segment is printed only when it is a variable of `env`, or a
+ * conventional name (a missing variable) that equals no env value; anything else is `(environment)`.
+ */
+const nameOf = (issue: StandardIssue, env: Readonly<Record<string, string | undefined>>, values: ReadonlySet<string>): string => {
   const first = issue.path?.[0];
-  if (first === undefined) return "(environment)";
-  return String(typeof first === "object" ? first.key : first);
+  const key = typeof first === "object" && first !== null ? first.key : first;
+  if (typeof key !== "string") return "(environment)";
+  if (Object.hasOwn(env, key)) return key;
+  return ENV_NAME.test(key) && !values.has(key) ? key : "(environment)";
 };
 
 /**
@@ -53,15 +62,16 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
   try {
     result = await validate(definition.schema, env);
   } catch (error) {
-    // No cause: the error may quote a value
-    throw new Error(`[@laratype/support] the schema of app/config/${ENV_CONFIG_NAME}.ts threw (${(error as Error | null)?.name ?? typeof error}) while validating the environment; its message is withheld since it may hold a value`);
+    // No cause, no name: the error, even its name, may quote a value
+    throw new Error(`[@laratype/support] the schema of app/config/${ENV_CONFIG_NAME}.ts threw while validating the environment; the error is withheld since it may hold a value`);
   }
   if (result.ok) return;
   // One line per name, however many of its checks failed; issues with no path share the (environment) line
+  const values = new Set(Object.values(env).filter((value): value is string => typeof value === "string"));
   const issues: EnvIssue[] = [];
   const seen = new Set<string>();
   for (const issue of result.issues) {
-    const name = nameOf(issue);
+    const name = nameOf(issue, env, values);
     if (seen.has(name)) continue;
     seen.add(name);
     issues.push({ name, message: INVALID_MESSAGE });

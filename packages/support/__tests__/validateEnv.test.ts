@@ -196,8 +196,35 @@ describe('validateEnv', () => {
   it('withholds an error the schema throws, which may quote a value', async () => {
     const definition = defineEnv(z.object({ DB_URL: z.string().transform(url => JSON.parse(url) as unknown) }))
     const error = await validateEnv(definition, { DB_URL: `{${SECRET}` }).catch((e: unknown) => e) as Error
-    expect(error.message).toBe('[@laratype/support] the schema of app/config/env.ts threw (SyntaxError) while validating the environment; its message is withheld since it may hold a value')
+    expect(error.message).toBe('[@laratype/support] the schema of app/config/env.ts threw while validating the environment; the error is withheld since it may hold a value')
     expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('withholds the name of an error the schema throws, which may quote a value', async () => {
+    class Leaky extends Error {
+      override name = `Bad ${SECRET}`
+    }
+    const schema = { '~standard': { version: 1, vendor: 'x', validate: () => { throw new Leaky('x') } } } as const
+    const error = await validateEnv(defineEnv(schema), { KEY: SECRET }).catch((e: unknown) => e) as Error
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('never prints a path segment the schema keyed by a value', async () => {
+    const issue = (key: string) => ({ message: 'bad', path: [key] })
+    const schema = { '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [issue(SECRET), issue('SK_LIVE'), issue('MISSING_KEY')] }) } } as const
+    const error = await failure(defineEnv(schema), { KEY: SECRET, UPPER: 'SK_LIVE' })
+    expect(error.issues).toEqual([
+      { name: '(environment)', message: INVALID_MESSAGE },
+      { name: 'MISSING_KEY', message: INVALID_MESSAGE },
+    ])
+    expect(printed(error)).not.toContain(SECRET)
+    expect(printed(error)).not.toContain('SK_LIVE')
+  })
+
+  it('names a missing variable', async () => {
+    const definition = defineEnv(z.object({ APP_KEY: z.string() }))
+    const error = await failure(definition, {})
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
   })
 
   it('awaits an async schema', async () => {
