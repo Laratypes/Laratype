@@ -55,7 +55,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | `sauf` | CLI, dev server, the `laratype:di` transform | 0.5; transform core merged @ 8dc389b, abstract-class flag merged (#101); Vite wiring in `sauf dev` merged (#102) | `@laratype/core` (runtime helper) |
 | `@laratype/http` | Router v2, pipeline, controllers, `Ctx` | 0.5; Router v2 merged ([#104](https://github.com/Laratypes/Laratype/issues/104)), controllers and route proof merged ([#105](https://github.com/Laratypes/Laratype/issues/105)); v1 planned → #106 | contract, core |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
-| `@laratype/auth` | Guards, typed `Register`, policies | 0.5; v1 planned → #119, #120, #121 | core, http |
+| `@laratype/auth` | Guards, typed `Register`, policies | 0.5; guards in the container proposed (#151); v1 planned → #119, #120, #121 | core, http |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM); v1 waits for S5 → #88 | core |
 | typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); OpenAPI planned → #143 | contract |
 | `laratype` | Kernel / `Serve` | 0.5; container boot merged @ 468c2ec | core, support |
