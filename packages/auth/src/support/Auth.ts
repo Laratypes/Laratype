@@ -1,37 +1,38 @@
 import { ContextApi } from "@laratype/support";
-import { Model } from "@laratype/database";
+import type { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
-import Authentication from "../passport/Authentication";
-import { GuardStore } from "./GuardStore";
+import { authManager } from "../guard/resolve";
 
 class Authenticate<T extends Model> {
-  
-  protected guardName: string;
+
+  protected guardName?: string;
   protected authenticated?: Authenticated<T>;
 
-  constructor(guardName: string) {
+  /** `guardName` is resolved by the app container's `AuthManager`; the default guard when omitted. */
+  constructor(guardName?: string) {
     this.guardName = guardName;
   }
 
-  async attempt(fields: Record<string, any>) {
-    const guards = GuardStore.getGuards();
-    const guard = guards[this.guardName];
+  protected guard() {
+    return authManager().guard<T>(this.guardName);
+  }
 
-    const user = await Authentication.login(guard, fields)
+  async attempt(fields: Record<string, any>) {
+    const guard = this.guard();
+
+    const user = await guard.attempt(fields)
 
     if(!user) {
       return false;
     }
 
-    this.authenticated = new Authenticated<T>(user, guard, this.guardName)
+    this.authenticated = new Authenticated<T>(user, guard)
 
     return this.authenticated;
   }
 
   setUser(user: T) {
-    const guards = GuardStore.getGuards();
-    const guard = guards[this.guardName];
-    this.authenticated = new Authenticated<T>(user, guard, this.guardName)
+    this.authenticated = new Authenticated<T>(user, this.guard())
 
     return this.authenticated;
   }
@@ -49,10 +50,7 @@ class Authenticate<T extends Model> {
   }
 
   login(user: T){
-    const guards = GuardStore.getGuards();
-    const guard = guards[this.guardName];
-
-    this.authenticated = new Authenticated<T>(user, guard, this.guardName)
+    this.authenticated = new Authenticated<T>(user, this.guard())
 
     return this.authenticated;
   }
@@ -64,15 +62,13 @@ class Authenticate<T extends Model> {
 
 export default class Auth {
   async attempt<T extends Model>(user: T) {
-    const auth = GuardStore.getAuthConfig();
-    return new Authenticate<T>(auth.default.guard).attempt(user);
+    return new Authenticate<T>().attempt(user);
   }
 
   static user<T extends Model>() {
     const user = ContextApi.getUser<T>();
     if(!user) return null;
-    const auth = GuardStore.getAuthConfig();
-    return new Authenticate<T>(auth.default.guard).setUser(user);
+    return new Authenticate<T>().setUser(user);
   }
 
   static id<A>(): A {
@@ -88,8 +84,7 @@ export default class Auth {
   }
 
   static login<T extends Model>(user: T) {
-    const auth = GuardStore.getAuthConfig();
-    return new Authenticate<T>(auth.default.guard).login(user);
+    return new Authenticate<T>().login(user);
   }
 
   static guard<T extends Model>(guardName: string) {
@@ -102,5 +97,5 @@ export default class Auth {
   static logout(): Promise<void> {
     throw new Error("Method not implemented.");
   }
-  
+
 }

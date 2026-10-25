@@ -1,70 +1,22 @@
-import { ModelManagement, InternalException } from "@laratype/support";
-import JWTVerification from "./jwt";
-import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
-import { JwtVerification } from ".";
-import { Model } from "@laratype/database";
-import { GuardStore } from "../support/GuardStore";
+import type { Model } from "@laratype/database";
+import type TokenGuard from "../guard/TokenGuard";
+import type { JWTSignOptions } from "../guard/TokenGuard";
+import { authManager } from "../guard/resolve";
 
-export type JWTSignOptions = {
-  expiresIn?: number;
-  name: string;
-  abilities: string;
-}
+export type { JWTSignOptions } from "../guard/TokenGuard";
 
 export class Authenticated<T extends Model = any> {
 
   private user: T;
-  protected guard: any;
-  protected guardName: string;
+  protected guard: TokenGuard<T>;
 
-  constructor(user: T, guard: any, guardName: string) {
+  constructor(user: T, guard: TokenGuard<T>) {
     this.user = user;
     this.guard = guard;
-    this.guardName = guardName;
   }
 
   async generateToken(options: JWTSignOptions) {
-    const fieldIdName = ModelManagement.getPrimaryKeyFromModelInstance(this.user);
-    if(!fieldIdName) {
-      throw new InternalException(`Model ${this.user.constructor.name} does not have a primary key defined.`)
-    }
-    const payload = {
-      // @ts-ignore
-      id: this.user[fieldIdName],
-    };
-    const expiresIn = options.expiresIn || 3600;
-    const verificationMode = this.guard.verification;
-    let token: string | undefined
-    if (verificationMode === 'jwt') {
-      token = await JWTVerification.sign({
-        guard: this.guardName,
-        payload: payload,
-      }, {
-        ...options,
-        expiresIn,
-      })
-    }
-
-    if (!token) {
-      throw new UnsupportedVerificationModeException()
-    }
-
-    const modelName = this.user.constructor.name;
-    const ModelVerify = GuardStore.getModelVerify();
-    if (ModelVerify) {
-      await ModelVerify.insert({
-        tokenable_type: modelName,
-        tokenable_id: payload.id,
-        name: options.name,
-        abilities: options.abilities,
-        token,
-        verification_type: verificationMode,
-        last_used_at: new Date(),
-        expires_at: new Date(Date.now() + expiresIn * 1000),
-      } as any);
-    }
-
-    return token;
+    return this.guard.issueToken(this.user, options);
   }
 
   getUser(): T {
@@ -72,82 +24,16 @@ export class Authenticated<T extends Model = any> {
   }
 }
 
-class Verification {
-
-  protected guardName: string;
-
-  constructor(guardName: string) {
-    this.guardName = guardName;
-  }
-
-  public async verify(token: string) {
-    const ModelVerify = await GuardStore.getModelVerify();
-
-    let verificationMode: string;
-    let verifyRecord: any;
-
-    if(ModelVerify) {
-      verifyRecord = await ModelVerify.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
-        token,
-        expires_at: new Date(),
-      }).getOne() as any;
-  
-      if (!verifyRecord) {
-        return false;
-      }
-
-      verificationMode = verifyRecord.verification_type;
-    }
-    else {
-      const auth = GuardStore.getAuthConfig();
-      const guard = auth.guards[this.guardName];
-      verificationMode = guard.verification;
-    }
-
-    let decoded: any
-    if (verificationMode === 'jwt') {
-      try {
-        decoded = await JwtVerification.verify(token);
-      }
-      catch (err) {
-        return false;
-      }
-      this.guardName = decoded.guard;
-    }
-    else {
-      throw new UnsupportedVerificationModeException()
-    }
-    if (ModelVerify && verifyRecord) {
-      const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
-
-      const user = await modelResource?.findOneBy({
-        id: verifyRecord.tokenable_id,
-      } as any);
-
-      if (!user) {
-        return false;
-      }
-
-      verifyRecord.last_used_at = new Date();
-      await verifyRecord.save();
-
-      return user;
-    }
-
-    return decoded;
-  }
-
-}
-
 export default class AuthVerification {
 
+  /** The guard named `guardName`, from the app container's `AuthManager`. */
   public static guard(guardName: string) {
-    return new Verification(guardName);
+    return authManager().guard(guardName);
   }
 
+  /** The user `token` belongs to, verified by the default guard, or `false`. */
   public static verify(token: string): Promise<any> {
-    const auth = GuardStore.getAuthConfig();
-    return this.guard(auth.default.guard).verify(token);
+    return authManager().guard().verify(token);
   }
 
 }
