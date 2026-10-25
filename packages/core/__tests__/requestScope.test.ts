@@ -8,6 +8,9 @@ const depsOf = (entries: [Function, DepsEntry][]) => new Map(entries)
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1))
 
+/** The process-wide set of keys already warned about; reset per test so tests stay independent. */
+const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
+
 let warn: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
@@ -16,6 +19,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  delete (globalThis as { [BUBBLE_WARNED]?: unknown })[BUBBLE_WARNED]
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -365,7 +369,6 @@ describe('scope bubbling', () => {
     expect(warn).not.toHaveBeenCalled()
     // A second copy of @laratype/core finds the keys already warned about under the shared symbol
     vi.stubEnv('NODE_ENV', 'development')
-    const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
     ;(globalThis as { [BUBBLE_WARNED]?: Set<unknown> })[BUBBLE_WARNED] = new Set([Quiet])
     new Container({ deps }).scoped(RequestId).singleton(Quiet).createRequestScope().make(Quiet)
     expect(warn).not.toHaveBeenCalled()
