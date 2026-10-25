@@ -1,6 +1,6 @@
 /**
  * `laratype:di` for `Bun.build` (`bun.build.js`): runs the DI transform on framework `.ts` sources before Bun
- * transpiles them, and imports the helper from `@laratype/core` directly (an external in the package builds).
+ * transpiles them, and imports the helper from `@laratype/core` directly (an external in package builds).
  */
 import { readFile } from 'node:fs/promises';
 import { isTransformable, normalize, sourceRE } from './files';
