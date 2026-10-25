@@ -7,7 +7,7 @@ paths:
 
 ## Errors
 
-- Each package throws its own `Error` subclass and sets its `name`: `ContractError` (`packages/contract/src/errors.ts`), `DiError` (`packages/core/src/container.ts`).
+- Each v1 package throws its own `Error` subclass and sets its `name`: `ContractError` (`packages/contract/src/errors.ts`), `DiError` (`packages/core/src/container.ts`).
 - Build message text in one place per package and reuse it: the `errors` builders in `packages/core/src/container.ts`, `fail()` in `packages/contract/src/internal.ts`.
 - A message is a full sentence that names the offending value (`got ${JSON.stringify(path)}`). When the fix isn't obvious, add it after `Fix:`, as the `DiError` messages do.
 - To recognize an error that may come from another bundle or package copy, check a `Symbol.for` brand, not `instanceof` (`CONTRACT_ERROR` in `packages/contract/src/errors.ts`).

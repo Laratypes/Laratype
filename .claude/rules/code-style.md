@@ -25,14 +25,15 @@ paths:
 - Type-only imports use `import type`.
 - A class injected through a constructor stays a value import, even if it is used only as a type. The sauf DI transform reads it at runtime.
 - Node built-ins use the `node:` protocol (`node:path`, `node:vm`).
-- Packages use named exports only: no `export default` in `packages/*/src`. Default exports belong to user contract files (`export default defineContract<Prefix>()(...)`).
+- v1 packages (`contract`, `core`, `client`) use named exports only: no `export default` in their `src`. Default exports belong to user contract files (`export default defineContract<Prefix>()(...)`).
+- 0.5 packages keep their default exports: they are the public API of the published 0.5 packages. Change them only as part of the package's migration issue.
 
 ## TypeScript
 
 - Public types need TypeScript >= 5.4. Use `NoInfer` where a parameter must not widen inference (see `packages/contract/src/endpoint.ts`).
 - Type values as `unknown`, not `any`. Use `any` only in type-level positions where inference needs it, e.g. `E extends ErrorDef<any, infer Code, any, any>` in `packages/contract/src/errors.ts`.
 - Non-null assertions (`!`) are allowed, but only when the value is checked a few lines above.
-- Never use `@ts-ignore`. Use `@ts-expect-error` with the reason on the same line: `// @ts-expect-error a required param cannot be omitted`.
+- Never use `@ts-ignore`. Use `@ts-expect-error` with the reason on the same line: `// @ts-expect-error a required param cannot be omitted`. The few `@ts-ignore` left in 0.5 code (`auth`, `sauf`) predate this rule: replace one when you edit its line.
 
 ## Idioms
 
