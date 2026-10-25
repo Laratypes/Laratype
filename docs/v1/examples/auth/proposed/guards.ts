@@ -19,7 +19,8 @@ export class AuditServiceProvider extends ServiceProvider {
 export class AdminGuard extends Middleware {
   async handle(request: Request, res: Response, next: NextHandler) {
     const container = ContextApi.getContainer()
-    const user = await container?.make(AuthManager).guard<User>('admin').user(request)
+    if (!container) throw new Error('No app container: serve the route through RequestKernel')
+    const user = await container.make(AuthManager).guard<User>('admin').user(request)
     if (!user) throw new Error('Unauthenticated')
     ContextApi.setUser(user)
     return next(request)
