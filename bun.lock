@@ -53,6 +53,7 @@
       "version": "0.5.4",
       "dependencies": {
         "@laratype/console": "workspace:*",
+        "@laratype/core": "workspace:*",
         "@laratype/database": "workspace:*",
         "@laratype/http": "workspace:*",
         "@laratype/support": "workspace:*",

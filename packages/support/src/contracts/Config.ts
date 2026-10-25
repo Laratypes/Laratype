@@ -94,10 +94,11 @@ export namespace LaratypeConfig {
     }
   }
 
+  // Without a strategy, AuthManager builds a TokenGuard; with one, a PassportGuard (A4 #151)
   type AuthGuard = {
-    readonly strategy: typeof Strategy
-    readonly strategyName: string
-    readonly options: Record<string, any>
+    readonly strategy?: typeof Strategy
+    readonly strategyName?: string
+    readonly options?: Record<string, any>
     provider: any
     verification: VerificationType
   }

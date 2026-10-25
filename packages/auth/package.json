@@ -30,6 +30,7 @@
   "author": "Ily1606",
   "license": "MIT",
   "dependencies": {
+    "@laratype/core": "workspace:*",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
     "passport": "^0.7.0",
