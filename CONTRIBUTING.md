@@ -8,7 +8,7 @@ Thank you for considering contributing to Laratype! This guide covers setup, com
 
 - **Tasks and their Done-when** live in GitHub issues. v1 issues carry an ID in the title (`[C3]`, `[D1]`, `[B13]`, ...), labels (`v1`, `area: *`, priority, size) and a milestone, and are tracked in [#83](https://github.com/Laratypes/Laratype/issues/83). Respect an issue's "Depends on".
 - **The v1 API** is specified in `docs/v1/<area>.md`. Before starting an issue, read the spec section it links to; [docs/v1/README.md](docs/v1/README.md) explains the format and [docs/v1/overview.md](docs/v1/overview.md) indexes the areas. If the code you need contradicts the spec, or the spec has a gap, ask on the issue or open a new one.
-- **Code rules** (`import type`, TypeScript >= 5.4, decorator settings, package boundaries) are in [AGENTS.md](AGENTS.md#code-rules), and the detailed conventions (style, naming, errors, comments, tests) are in [`.claude/rules/`](.claude/rules/). They apply to everyone.
+- **Code rules** (`import type`, TypeScript >= 5.4, decorator settings, package boundaries) are in [AGENTS.md](AGENTS.md#code-rules), and the detailed conventions (style, types, naming, errors, comments, tests) are in [`.claude/rules/`](.claude/rules/). They apply to everyone.
 
 ## Setup
 

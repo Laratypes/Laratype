@@ -52,7 +52,7 @@ CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and p
 
 ## Code rules
 
-The detailed conventions (style, naming, errors, comments, tests) are in [`.claude/rules/`](.claude/rules/). Claude Code loads them by path; other agents read the files that match what they touch.
+The detailed conventions (style, types, naming, errors, comments, tests) are in [`.claude/rules/`](.claude/rules/). Claude Code loads them by path; other agents read the files that match what they touch.
 
 - Type-only imports use `import type`.
 - TypeScript >= 5.4: public types use `NoInfer`, and the contract package declares an optional `typescript >=5.4` peer.
