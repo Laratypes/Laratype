@@ -549,8 +549,8 @@ export class Container {
   - Outside a request scope it then throws like any request-scoped key.
   - In dev the container prints one `console.warn` per key per process. Copies of `@laratype/core` share the set through `Symbol.for('laratype.di.bubbleWarned')`. It is silent when `globalThis.__PROD__` is `true`, or when `__PROD__` is unset and `NODE_ENV` is `production`: the same check as the http fallback-container warning.
 - **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. It runs every disposer, then rethrows the failures as one `AggregateError`.
-  - It never disposes transient, singleton or `instance()` values, and it doesn't call a dispose method under another name (`dispose()`, `close()`).
-  - A second `dispose()` does nothing. `make()` on a disposed request scope, or on one of its children, throws.
+  - It never disposes a transient, a plain singleton or an `instance()` value; a singleton that bubbled is a request-scoped value, so it is disposed. It doesn't call a dispose method under another name (`dispose()`, `close()`).
+  - A second `dispose()` does nothing. `make()` on a disposed request scope, or on a child container of one, throws, and a disposed scope can't start a new one with `createRequestScope()`.
 - **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope once the response is resolved, error responses included. A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
 - `@laratype/core` imports no `node:*` module: the request scope is an object its caller owns. `@laratype/http` keeps it in the AsyncLocalStorage store of `ContextApi`.
 
