@@ -40,8 +40,8 @@ const nameOf = (issue: StandardIssue): string => {
  * Validates `source` (`process.env` at boot) with the env file's definition, and throws one
  * `EnvValidationError` that lists each failing variable once. The vendor issues are not kept, and no text from the
  * schema is printed: a schema can transform its input before a check (lowercase, `decodeURIComponent`, base64) and then
- * quote that transformed value, which the raw env forms cannot redact. Only the variable names and a fixed message are
- * printed. An error the schema throws (a transform's `new URL(value)`) is replaced for the same reason.
+ * quote that transformed value, which no redaction of the raw env value can catch. Only the variable names and a fixed
+ * message are printed. An error the schema throws (a transform's `new URL(value)`) is replaced for the same reason.
  */
 export const validateEnv = async (definition: EnvDefinition, source: Readonly<Record<string, string | undefined>>): Promise<void> => {
   if (typeof definition?.schema?.["~standard"]?.validate !== "function") {
