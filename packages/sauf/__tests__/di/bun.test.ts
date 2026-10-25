@@ -122,7 +122,8 @@ describe('framework classes resolved by the container from dist/', () => {
 });
 
 // `bun.build.js` enables the plugin for every package that depends on `@laratype/core`, on its own `src/` only.
-// The minified dists keep the helper name: an import in ESM, a member call on the `require` in CJS.
+// The minified dists keep the helper name: an import in ESM, a member call on the `require` in CJS. `laratype` is
+// enabled too, but its sources have no own constructor yet, so its dist carries no call to assert.
 const packagesDir = fileURLToPath(new URL('../../../', import.meta.url));
 const dist = (pkg: string, file: string) => readFileSync(join(packagesDir, pkg, 'dist', file), 'utf8');
 const esmHelperImport = /import\s*\{\s*__laratype_deps\b/;

@@ -3,6 +3,7 @@
  * transpiles them, and imports the helper from `@laratype/core` directly (an external in the package builds).
  */
 import { readFile } from 'node:fs/promises';
+import { isTransformable, normalize, sourceRE } from './files';
 import { DI_PLUGIN_NAME, DI_RUNTIME_ID } from './plugin';
 import { transformDi, type DiTransformOptions } from './transform';
 
@@ -20,14 +21,12 @@ export interface DiBunPluginBuilder {
 }
 
 export interface DiBunPluginOptions extends DiTransformOptions {
-  /** Files to transform, besides the `.ts` / `.tsx` / `.mts` / `.cts` check. Defaults to every file. */
+  /**
+   * Further filter on the files the extension and `node_modules` checks let through. `bun.build.js` uses it to
+   * keep the transform on the package's own `src/`. Defaults to every such file.
+   */
   include?: (path: string) => boolean;
 }
-
-const tsRE = /\.(c|m)?tsx?$/;
-const dtsRE = /\.d\.(c|m)?ts$/;
-
-const normalize = (path: string) => path.replace(/\\/g, '/');
 
 export function laratypeDiBun(options: DiBunPluginOptions = {}): DiBunPlugin {
   const { include, ...rest } = options;
@@ -37,12 +36,12 @@ export function laratypeDiBun(options: DiBunPluginOptions = {}): DiBunPlugin {
   return {
     name: DI_PLUGIN_NAME,
     setup(build) {
-      build.onLoad({ filter: tsRE }, async ({ path }) => {
+      build.onLoad({ filter: sourceRE }, async ({ path }) => {
         const file = normalize(path);
-        if (dtsRE.test(file) || file.includes('/node_modules/') || (include && !include(file))) return undefined;
+        if (!isTransformable(file) || (include && !include(file))) return undefined;
         const code = await readFile(path, 'utf8');
         const result = transformDi(code, path, transformOptions);
-        return { contents: result ? result.code : code, loader: file.endsWith('x') ? 'tsx' : 'ts' };
+        return { contents: result ? result.code : code, loader: file.endsWith('.tsx') ? 'tsx' : 'ts' };
       });
     },
   };
