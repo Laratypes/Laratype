@@ -25,11 +25,9 @@ const packageExternals = (pkg) => [
   ...Object.keys(pkg.peerDependencies ?? {}),
 ];
 
-// The DI transform (T4 #116) imports its helper from @laratype/core, so it only runs on packages that
-// always have it: a dependency or a required peer. @laratype/core itself is skipped: it would import itself.
-const usesDi = (pkg) => pkg.name !== DI_RUNTIME_ID
-  && (DI_RUNTIME_ID in (pkg.dependencies ?? {})
-    || (DI_RUNTIME_ID in (pkg.peerDependencies ?? {}) && !pkg.peerDependenciesMeta?.[DI_RUNTIME_ID]?.optional));
+// The DI transform (T4 #116) imports its helper from @laratype/core, so it only runs on packages that depend on
+// it. @laratype/core itself is skipped: it would import itself.
+const usesDi = (pkg) => pkg.name !== DI_RUNTIME_ID && DI_RUNTIME_ID in (pkg.dependencies ?? {});
 
 // Forward slashes, and lower case on Windows, where Bun's paths and the cwd can differ in casing.
 const comparablePath = (file) => {

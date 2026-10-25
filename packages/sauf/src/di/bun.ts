@@ -30,7 +30,9 @@ const dtsRE = /\.d\.(c|m)?ts$/;
 const normalize = (path: string) => path.replace(/\\/g, '/');
 
 export function laratypeDiBun(options: DiBunPluginOptions = {}): DiBunPlugin {
-  const { include, ...transformOptions } = options;
+  const { include, ...rest } = options;
+  // `transformDi` defaults an undefined `helperId` to `virtual:laratype/di`, which a package build cannot resolve.
+  const transformOptions = { ...rest, helperId: rest.helperId ?? DI_RUNTIME_ID };
 
   return {
     name: DI_PLUGIN_NAME,
@@ -39,7 +41,7 @@ export function laratypeDiBun(options: DiBunPluginOptions = {}): DiBunPlugin {
         const file = normalize(path);
         if (dtsRE.test(file) || file.includes('/node_modules/') || (include && !include(file))) return undefined;
         const code = await readFile(path, 'utf8');
-        const result = transformDi(code, path, { ...transformOptions, helperId: transformOptions.helperId ?? DI_RUNTIME_ID });
+        const result = transformDi(code, path, transformOptions);
         return { contents: result ? result.code : code, loader: file.endsWith('x') ? 'tsx' : 'ts' };
       });
     },

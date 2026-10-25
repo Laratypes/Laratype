@@ -567,7 +567,7 @@ proposed (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ```ts
 export interface DiBunPluginOptions extends DiTransformOptions {
-  include?: (path: string) => boolean;   // files to transform (path with forward slashes); default: every file
+  include?: (path: string) => boolean;   // further filter, path with forward slashes; default: every file the checks let through
 }
 export interface DiBunPlugin {           // the subset of Bun's `BunPlugin` it uses, so sauf builds without bun-types
   name: string;
@@ -586,12 +586,12 @@ export function laratypeDiBun(options?: DiBunPluginOptions): DiBunPlugin;   // n
 - **Same transform:** `onLoad` runs [`transformDi`](#di-transform) on the raw TypeScript, before Bun transpiles it, so the param types are still there. An app file gets the same calls from the [Vite plugin](#vite-plugin-laratypedi) under `sauf dev`. Monorepo `sauf dev` loads the framework packages from `src/`, outside the app root, and does not transform them, so there a framework class with constructor params still needs a binding.
 - **Helper import:** `helperId` defaults to `@laratype/core` (`DI_RUNTIME_ID`), imported directly: no `virtual:laratype/di` to resolve, and `@laratype/core` stays an external of the package build. A `helperId` other than `undefined` wins.
 - **Which files:** `.ts`, `.tsx`, `.mts` and `.cts`, except `.d.ts` files, `node_modules` and files `include` rejects; those fall through to Bun's own loader. A file with nothing to emit is returned unchanged.
-- **`bun.build.js`:** the plugin runs on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` or as a required (not optional) peer (today `@laratype/http`, `@laratype/support` and `laratype`), on that package's own `src/` only. Other packages are built without it, so their `dist/` never imports a package they don't declare. `@laratype/core` is skipped, so it never imports itself.
+- **`bun.build.js`:** the plugin runs on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (today `@laratype/http`, `@laratype/support` and `laratype`), on that package's own `src/` only. Other packages are built without it, so their `dist/` never imports a package they don't declare. `@laratype/core` is skipped, so it never imports itself.
 - **Result:** a framework class with an own constructor carries its metadata in `dist/`. For example `@laratype/http`'s `Request` is registered with `[() => HonoRequest]`, so `container.make(Request)` autowires it from `dist/` once `HonoRequest` is bound; without the plugin it throws `Cannot autowire`.
 - **No source maps:** `bun.build.js` emits none, so the plugin returns no map.
 
 ### Diagnostics
-None of its own. The transform never throws on user code, and resolve-time failures are [Container](#container) `DiError`s. The package builds are minified, so a class in a `DiError` message from `dist/` shows its minified name.
+None of its own: the plugin only reads the source and hands it back. A transform error carries the transform's own `[laratype:di]` message and fails the package build, and resolve-time failures are [Container](#container) `DiError`s. The package builds are minified, so a class in a `DiError` message from `dist/` shows its minified name.
 
 ### Example
 `packages/sauf/__tests__/di/bun.test.ts`: the plugin hooks, then `container.make(Request)` against the built `@laratype/http` and `@laratype/core` (ESM and CJS) in a plain Node process. Run `bun run build` first.

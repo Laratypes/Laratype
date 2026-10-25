@@ -120,3 +120,28 @@ describe('framework classes resolved by the container from dist/', () => {
     expect(result.from.replace(/\\/g, '/')).toMatch(/\/packages\/http\/dist\/index\.(esm\.js|cjs)$/);
   }, 30_000);
 });
+
+// `bun.build.js` enables the plugin for every package that depends on `@laratype/core`, on its own `src/` only.
+// The minified dists keep the helper name: an import in ESM, a member call on the `require` in CJS.
+const packagesDir = fileURLToPath(new URL('../../../', import.meta.url));
+const dist = (pkg: string, file: string) => readFileSync(join(packagesDir, pkg, 'dist', file), 'utf8');
+const esmHelperImport = /import\s*\{\s*__laratype_deps\b/;
+const cjsHelperCall = /\.__laratype_deps\(/;
+
+const distCases: Array<[pkg: string, file: string, metadata: RegExp]> = [
+  ['http', 'esm.js', esmHelperImport],
+  ['http', 'cjs', cjsHelperCall],
+  ['support', 'esm.js', esmHelperImport],
+  ['support', 'cjs', cjsHelperCall],
+];
+
+describe('bun.build.js enables the plugin per package', () => {
+  it.each(distCases)('%s dist/index.%s carries the emitted metadata', (pkg, file, metadata) => {
+    expect(dist(pkg, `index.${file}`)).toMatch(metadata);
+  });
+
+  it('skips @laratype/core, which defines the helper', () => {
+    expect(dist('core', 'index.esm.js')).not.toMatch(esmHelperImport);
+    expect(dist('core', 'index.cjs')).not.toMatch(cjsHelperCall);
+  });
+});

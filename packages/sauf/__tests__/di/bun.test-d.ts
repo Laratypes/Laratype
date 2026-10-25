@@ -1,8 +1,9 @@
-import { describe, expectTypeOf, it } from 'vitest';
+// Type tests for laratypeDiBun (T4 #116): run by `bunx vitest run --project types`.
+import { describe, expectTypeOf, test } from 'vitest';
 import { laratypeDiBun, type DiBunPlugin, type DiBunPluginOptions, type DiTransformOptions } from '../../src/di';
 
 describe('laratypeDiBun types', () => {
-  it('takes the transform options plus `include`, and returns a Bun plugin', () => {
+  test('takes the transform options plus `include`, and returns a Bun plugin', () => {
     expectTypeOf(laratypeDiBun).parameter(0).toEqualTypeOf<DiBunPluginOptions | undefined>();
     expectTypeOf<DiBunPluginOptions>().toMatchTypeOf<DiTransformOptions>();
     expectTypeOf<DiBunPluginOptions['include']>().toEqualTypeOf<((path: string) => boolean) | undefined>();
@@ -10,7 +11,7 @@ describe('laratypeDiBun types', () => {
     expectTypeOf(laratypeDiBun()).toHaveProperty('setup');
   });
 
-  it('rejects unknown options', () => {
+  test('rejects unknown options', () => {
     // @ts-expect-error not an option
     laratypeDiBun({ filter: /x/ });
   });
