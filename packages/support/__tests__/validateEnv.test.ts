@@ -6,7 +6,7 @@ import type { EnvDefinition } from '@laratype/core'
 import { EnvValidationError, validateEnv } from '../src/environ/validateEnv'
 
 const SECRET = 'sk_live_9f8e7d6c5b4a'
-const INVALID = 'does not match the schema'
+const INVALID_MESSAGE = 'does not match the schema'
 
 const vendors: [string, EnvDefinition][] = [
   [
@@ -29,8 +29,14 @@ const vendors: [string, EnvDefinition][] = [
 
 const valid = { APP_KEY: 'k'.repeat(32), DB_PORT: '3306', NODE_ENV: 'production', OTHER: 'x' }
 
-const failure = async (definition: EnvDefinition, source: Record<string, string>): Promise<EnvValidationError> =>
-  await validateEnv(definition, source).catch((error: unknown) => error) as EnvValidationError
+const failure = async (definition: EnvDefinition, source: Record<string, string>): Promise<EnvValidationError> => {
+  try {
+    await validateEnv(definition, source)
+  } catch (error) {
+    return error as EnvValidationError
+  }
+  throw new Error('expected validateEnv to reject')
+}
 
 /** Everything an error may print, including the objects a logger or an HTTP handler may serialize. */
 const printed = (error: Error): string =>
@@ -45,15 +51,15 @@ describe.each(vendors)('validateEnv with %s', (_, definition) => {
     const error = await failure(definition, { APP_KEY: 'short', DB_PORT: 'abc' })
     expect(error).toBeInstanceOf(EnvValidationError)
     expect(error.issues).toEqual([
-      { name: 'APP_KEY', message: INVALID },
-      { name: 'DB_PORT', message: INVALID },
-      { name: 'NODE_ENV', message: INVALID },
+      { name: 'APP_KEY', message: INVALID_MESSAGE },
+      { name: 'DB_PORT', message: INVALID_MESSAGE },
+      { name: 'NODE_ENV', message: INVALID_MESSAGE },
     ])
     expect(error.message).toBe(
       '[@laratype/support] Invalid environment (app/config/env.ts), 3 failing:\n'
-      + `  - APP_KEY: ${INVALID}\n`
-      + `  - DB_PORT: ${INVALID}\n`
-      + `  - NODE_ENV: ${INVALID}`,
+      + `  - APP_KEY: ${INVALID_MESSAGE}\n`
+      + `  - DB_PORT: ${INVALID_MESSAGE}\n`
+      + `  - NODE_ENV: ${INVALID_MESSAGE}`,
     )
   })
 
@@ -75,13 +81,23 @@ describe('validateEnv', () => {
   it('names an issue without a path as the environment', async () => {
     const definition = defineEnv(z.object({}).refine(() => false, 'APP_URL or APP_HOST must be set'))
     const error = await failure(definition, {})
-    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID }])
+    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID_MESSAGE }])
+  })
+
+  it('groups issues without a path on one environment line', async () => {
+    const definition = defineEnv(z.object({}).superRefine((_, ctx) => {
+      ctx.addIssue({ code: 'custom', message: 'APP_URL must be set' })
+      ctx.addIssue({ code: 'custom', message: 'APP_HOST must be set' })
+    }))
+    const error = await failure(definition, {})
+    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID_MESSAGE }])
+    expect(error.message).toContain('1 failing:')
   })
 
   it('does not print the value a valibot toLowerCase/regex pipe produced', async () => {
     const definition = defineEnv(v.object({ APP_KEY: v.pipe(v.string(), v.toLowerCase(), v.regex(/^sk_/)) }))
     const error = await failure(definition, { APP_KEY: 'LIVE_SECRET_9F8E7D' })
-    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain('LIVE_SECRET_9F8E7D')
     expect(printed(error)).not.toContain('live_secret_9f8e7d')
   })
@@ -91,17 +107,20 @@ describe('validateEnv', () => {
       APP_KEY: z.string().toLowerCase().regex(/^sk_/, { error: issue => `received ${String(issue.input)}` }),
     }))
     const error = await failure(definition, { APP_KEY: 'LIVE_SECRET_9F8E7D' })
-    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain('LIVE_SECRET_9F8E7D')
     expect(printed(error)).not.toContain('live_secret_9f8e7d')
   })
 
   it('does not print the value a decodeURIComponent transform produced', async () => {
+    const decoded = `sk live/secret ${SECRET}`
     const definition = defineEnv(v.object({
       APP_KEY: v.pipe(v.string(), v.transform(decodeURIComponent), v.check(() => false, issue => `bad ${issue.input}`)),
     }))
-    const error = await failure(definition, { APP_KEY: encodeURIComponent(SECRET) })
-    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID }])
+    const error = await failure(definition, { APP_KEY: encodeURIComponent(decoded) })
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
+    // EncodeURIComponent changes this value, so the test would catch a redactor that only knows the raw input
+    expect(printed(error)).not.toContain(decoded)
     expect(printed(error)).not.toContain(SECRET)
   })
 
@@ -110,7 +129,7 @@ describe('validateEnv', () => {
       APP_KEY: v.pipe(v.string(), v.transform(value => Buffer.from(value, 'base64').toString()), v.check(() => false, issue => `bad ${issue.input}`)),
     }))
     const error = await failure(definition, { APP_KEY: Buffer.from(SECRET).toString('base64') })
-    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain(SECRET)
   })
 
@@ -118,7 +137,7 @@ describe('validateEnv', () => {
     const definition = defineEnv(z.object({ 'db.password': z.string().min(32) }))
     const error = await failure(definition, { 'db.password': 'hunter2' })
     // Not "db": the whole key is the variable, so a dotted env name is neither split nor confused with a path
-    expect(error.issues).toEqual([{ name: 'db.password', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'db.password', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain('hunter2')
   })
 
@@ -130,8 +149,8 @@ describe('validateEnv', () => {
       }),
     }))
     const error = await failure(definition, { APP_KEY: SECRET })
-    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID }])
-    expect(error.message).toBe(`[@laratype/support] Invalid environment (app/config/env.ts), 1 failing:\n  - APP_KEY: ${INVALID}`)
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
+    expect(error.message).toBe(`[@laratype/support] Invalid environment (app/config/env.ts), 1 failing:\n  - APP_KEY: ${INVALID_MESSAGE}`)
     expect(printed(error)).not.toContain(SECRET)
   })
 
@@ -143,8 +162,8 @@ describe('validateEnv', () => {
     const DB_URL = `postgres://app:${SECRET}@db.local/app`
     const error = await failure(definition, { DB_URL, DB_HOST: 'db.local' })
     expect(error.issues).toEqual([
-      { name: 'DB_HOST', message: INVALID },
-      { name: '(environment)', message: INVALID },
+      { name: 'DB_HOST', message: INVALID_MESSAGE },
+      { name: '(environment)', message: INVALID_MESSAGE },
     ])
     expect(printed(error)).not.toContain(SECRET)
   })
@@ -153,7 +172,7 @@ describe('validateEnv', () => {
     const value = 'pa"ss\\word'
     const schema = { '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${JSON.stringify(value)}`, path: ['PASS'] }] }) } } as const
     const error = await failure(defineEnv(schema), { PASS: value })
-    expect(error.issues).toEqual([{ name: 'PASS', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'PASS', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain(value)
     expect(printed(error)).not.toContain('pa"ss')
   })
@@ -161,7 +180,7 @@ describe('validateEnv', () => {
   it('prints no schema text, even for a trimmed value', async () => {
     const definition = defineEnv(v.object({ KEY: v.pipe(v.string(), v.trim(), v.check(() => false, issue => `bad key ${String(issue.input)}`)) }))
     const error = await failure(definition, { KEY: `  ${SECRET}  ` })
-    expect(error.issues).toEqual([{ name: 'KEY', message: INVALID }])
+    expect(error.issues).toEqual([{ name: 'KEY', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain(SECRET)
   })
 
@@ -170,7 +189,7 @@ describe('validateEnv', () => {
       .refine(env => env.DB_PASSWORD !== env.DB_USER, { message: 'the password must not be the user name' })
       .superRefine((env, ctx) => ctx.addIssue({ code: 'custom', message: `password ${env.DB_PASSWORD} is weak` })))
     const error = await failure(definition, { DB_USER: 'app', DB_PASSWORD: 'hunter2' })
-    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID }])
+    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain('hunter2')
   })
 
@@ -184,7 +203,7 @@ describe('validateEnv', () => {
   it('awaits an async schema', async () => {
     const definition = defineEnv(z.object({ A: z.string().refine(async a => a === 'ok', 'not ok') }))
     await expect(validateEnv(definition, { A: 'ok' })).resolves.toBeUndefined()
-    await expect(validateEnv(definition, { A: 'nope' })).rejects.toThrow(`  - A: ${INVALID}`)
+    await expect(validateEnv(definition, { A: 'nope' })).rejects.toThrow(`  - A: ${INVALID_MESSAGE}`)
   })
 
   it('rejects an env file without defineEnv, with the 0.5 rename hint', async () => {

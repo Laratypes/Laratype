@@ -10,7 +10,7 @@ export interface EnvIssue {
 }
 
 /** The only message an issue carries: no text from the schema is ever printed. */
-const INVALID = "does not match the schema";
+const INVALID_MESSAGE = "does not match the schema";
 
 /** The hint a 0.5 app with a plain `app/config/env.ts` config needs. */
 const NOT_DEFINE_ENV =
@@ -57,14 +57,14 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
     throw new Error(`[@laratype/support] the schema of app/config/${ENV_CONFIG_NAME}.ts threw (${(error as Error | null)?.name ?? typeof error}) while validating the environment; its message is withheld since it may hold a value`);
   }
   if (result.ok) return;
-  // One line per variable, however many of its checks failed
+  // One line per name, however many of its checks failed; issues with no path share the (environment) line
   const issues: EnvIssue[] = [];
   const seen = new Set<string>();
   for (const issue of result.issues) {
     const name = nameOf(issue);
     if (seen.has(name)) continue;
     seen.add(name);
-    issues.push({ name, message: INVALID });
+    issues.push({ name, message: INVALID_MESSAGE });
   }
   throw new EnvValidationError(issues);
 };
