@@ -209,6 +209,61 @@ describe('AuthManager', () => {
   })
 })
 
+describe('TokenGuard', () => {
+  const guard = new TokenGuard('api', authConfig.guards.api)
+
+  it('reads the token through request.bearerToken() only', () => {
+    expect(guard.token({ bearerToken: () => 'valid.token' } as unknown as Request)).toBe('valid.token')
+    expect(guard.token({ bearerToken: () => '' } as unknown as Request)).toBeUndefined()
+  })
+
+  it('answers the user of the request token, or false', async () => {
+    const user = { id: 1 } as any
+    const verify = vi.spyOn(guard, 'verify').mockResolvedValue(user)
+    const request = { bearerToken: () => 'valid.token' } as unknown as Request
+    await expect(guard.user(request)).resolves.toBe(user)
+    expect(verify).toHaveBeenCalledWith('valid.token')
+
+    verify.mockResolvedValue(false)
+    await expect(guard.user(request)).resolves.toBe(false)
+    await expect(guard.user({ bearerToken: () => '' } as unknown as Request)).resolves.toBe(false)
+  })
+})
+
+describe('PassportGuard', () => {
+  it('registers its strategy under the guard name and fails another strategy as in 0.5', () => {
+    let verifyCallback: any
+    class FakeStrategy {
+      constructor(_options: Record<string, unknown>, callback: any) { verifyCallback = callback }
+    }
+    const guard = new PassportGuard('api', {
+      strategy: FakeStrategy as any,
+      strategyName: 'google',
+      provider: User,
+      verification: 'jwt',
+    })
+    const use = vi.fn()
+    guard.register({ use } as any, undefined)
+    expect(use).toHaveBeenCalledWith('api', expect.any(FakeStrategy))
+
+    const callback = vi.fn()
+    verifyCallback({}, {}, callback)
+    expect(callback).toHaveBeenCalledWith(null, false, { message: 'Strategy not implemented' })
+  })
+})
+
+describe('Auth.login', () => {
+  it('signs with the default guard of the app container', async () => {
+    const { container } = await boot()
+    await ContextApi.run({ container } as any, async () => {
+      const user = make(User, 3, 'lin@example.com')
+      const authenticated = Auth.login<any>(user)
+      const token = await authenticated.generateToken({ name: 'Default Token', abilities: '*' })
+      expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'User', tokenable_id: 3, token })
+    })
+  })
+})
+
 describe('auth flows of examples/basic', () => {
   it('logs in through the local strategy, then authenticates the issued token', async () => {
     const { app } = await boot()

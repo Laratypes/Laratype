@@ -1,6 +1,7 @@
 // Type tests (A4 #151): run by `bunx vitest run --project types`.
 import { describe, expectTypeOf, test } from 'vitest'
 import type { Strategy } from 'passport'
+import type { Request } from '@laratype/http'
 import { Container } from '@laratype/core'
 import type { LaratypeConfig } from '@laratype/support'
 import { AUTH_CONFIG, AuthManager, PassportGuard, TokenGuard } from '../src'
@@ -39,6 +40,13 @@ describe('AuthManager.guard()', () => {
 
   test('PassportGuard is a TokenGuard', () => {
     expectTypeOf<PassportGuard<User>>().toExtend<TokenGuard<User>>()
+  })
+
+  test('TokenGuard reads the request and answers its user', () => {
+    const guard = manager.guard<User>('admin')
+    expectTypeOf(guard.token).parameter(0).toEqualTypeOf<Request>()
+    expectTypeOf(guard.token({} as Request)).toEqualTypeOf<string | undefined>()
+    expectTypeOf(guard.user({} as Request)).toEqualTypeOf<Promise<User | false>>()
   })
 
   test('negatives', () => {
