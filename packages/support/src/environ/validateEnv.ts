@@ -1,12 +1,21 @@
 import { ENV_CONFIG_NAME } from "@laratype/core";
 import type { EnvDefinition } from "@laratype/core";
 import { validate } from "@laratype/contract";
+import type { StandardIssue } from "@laratype/contract";
 
-/** One failing variable: its name and the schema's message, with the variable's value redacted. */
+/** One failing variable. The message is fixed: schema text may quote a value (see `validateEnv`). */
 export interface EnvIssue {
   readonly name: string;
   readonly message: string;
 }
+
+/** The only message an issue carries: no text from the schema is ever printed. */
+const INVALID = "does not match the schema";
+
+/** The hint a 0.5 app with a plain `app/config/env.ts` config needs. */
+const NOT_DEFINE_ENV =
+  `[@laratype/support] app/config/${ENV_CONFIG_NAME}.ts must default-export defineEnv(schema)`
+  + " (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)";
 
 /** Boot fails with this when the environment does not match the `defineEnv` schema. It never holds a value. */
 export class EnvValidationError extends Error {
@@ -20,39 +29,23 @@ export class EnvValidationError extends Error {
   }
 }
 
-const REDACTED = "***";
-
-/** Env values this long are cut out of every message: a secret that a refinement quotes under another name. */
-const ANY = 4;
-/** Values this long match anywhere; shorter ones only where they stand alone. */
-const LONG = 8;
-
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** A value as a message may show it: raw, trimmed, JSON-escaped (valibot quotes it: `received "..."`). */
-const forms = (value: string) =>
-  [value, value.trim()].flatMap((form) => [form, JSON.stringify(form).slice(1, -1)]).filter((form) => form !== "");
-
-/**
- * One pattern for these values, longest first so a value never leaves part of a longer one. A value of 8+ characters
- * matches anywhere; a shorter one only where it stands alone, so `prod` leaves `"production"` and `0` leaves `>=1024`.
- */
-const pattern = (values: ReadonlyArray<string>): RegExp | undefined => {
-  const all = [...new Set(values.flatMap(forms))]
-    .sort((a, b) => b.length - a.length)
-    .map((form) => (form.length >= LONG ? escape(form) : `(?<!\\w)${escape(form)}(?!\\w)`));
-  return all.length ? new RegExp(all.join("|"), "g") : undefined;
+/** The variable of an issue: its first path segment, which may itself contain a dot (`db.password`). */
+const nameOf = (issue: StandardIssue): string => {
+  const first = issue.path?.[0];
+  if (first === undefined) return "(environment)";
+  return String(typeof first === "object" ? first.key : first);
 };
 
 /**
- * Validates `source` (`process.env` at boot) with the env file's definition, and throws one `EnvValidationError`
- * that lists every failing variable. The vendor issues are not kept: some carry the input. Each message has the
- * failing variable's value cut out, and every env value of 4+ characters (a secret a refinement quotes). An error the
- * schema throws (a transform's `new URL(value)`) is replaced, since its message may quote the value.
+ * Validates `source` (`process.env` at boot) with the env file's definition, and throws one
+ * `EnvValidationError` that lists each failing variable once. The vendor issues are not kept, and no text from the
+ * schema is printed: a schema can transform its input before a check (lowercase, `decodeURIComponent`, base64) and then
+ * quote that transformed value, which the raw env forms cannot redact. Only the variable names and a fixed message are
+ * printed. An error the schema throws (a transform's `new URL(value)`) is replaced for the same reason.
  */
 export const validateEnv = async (definition: EnvDefinition, source: Readonly<Record<string, string | undefined>>): Promise<void> => {
   if (typeof definition?.schema?.["~standard"]?.validate !== "function") {
-    throw new TypeError(`[@laratype/support] app/config/${ENV_CONFIG_NAME}.ts must default-export defineEnv(schema)`);
+    throw new TypeError(NOT_DEFINE_ENV);
   }
   // A copy: a schema that transforms its input never changes process.env
   const env = { ...source };
@@ -64,16 +57,14 @@ export const validateEnv = async (definition: EnvDefinition, source: Readonly<Re
     throw new Error(`[@laratype/support] the schema of app/config/${ENV_CONFIG_NAME}.ts threw (${(error as Error | null)?.name ?? typeof error}) while validating the environment; its message is withheld since it may hold a value`);
   }
   if (result.ok) return;
-  const quoted = Object.values(env).filter((value): value is string => typeof value === "string" && value.length >= ANY);
-  const issues = Object.entries(result.errors).flatMap(([path, messages]) => {
-    const name = path.split(".")[0];
-    const own = Object.hasOwn(env, name) ? env[name] : undefined;
-    // One pattern: cutting the own value first could split a longer value that contains it
-    const values = pattern(typeof own === "string" ? [own, ...quoted] : quoted);
-    return messages.map((message) => ({
-      name: path === "" ? "(environment)" : path,
-      message: values ? message.replace(values, REDACTED) : message,
-    }));
-  });
+  // One line per variable, however many of its checks failed
+  const issues: EnvIssue[] = [];
+  const seen = new Set<string>();
+  for (const issue of result.issues) {
+    const name = nameOf(issue);
+    if (seen.has(name)) continue;
+    seen.add(name);
+    issues.push({ name, message: INVALID });
+  }
   throw new EnvValidationError(issues);
 };

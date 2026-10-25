@@ -51,6 +51,7 @@ describe('env validation at boot (K1 #152)', () => {
     const { message, issues } = error as EnvValidationError
     expect(issues.map(issue => issue.name)).toEqual(['K1_APP_KEY', 'K1_DB_PORT'])
     expect(message).toContain('Invalid environment (app/config/env.ts), 2 failing:')
+    expect(issues.map(issue => issue.message)).toEqual(['does not match the schema', 'does not match the schema'])
     expect([message, (error as Error).stack, JSON.stringify(error)].join('\n')).not.toContain(SECRET)
     // The configs, which read the env, are never loaded
     expect(loaded).not.toHaveBeenCalled()
@@ -75,8 +76,8 @@ describe('env validation at boot (K1 #152)', () => {
     expect(config('config.name')).toBe('app')
   })
 
-  it('fails when the env file does not export defineEnv(schema)', async () => {
+  it('fails when the env file does not export defineEnv(schema), with the 0.5 rename hint', async () => {
     setAppManifest(manifest([entry('env', { K1_APP_KEY: 'string' }), entry('config', {})]))
-    await expect(boot()).rejects.toThrow('[@laratype/support] app/config/env.ts must default-export defineEnv(schema)')
+    await expect(boot()).rejects.toThrow('[@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)')
   })
 })

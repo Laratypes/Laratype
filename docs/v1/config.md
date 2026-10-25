@@ -104,21 +104,26 @@ export class EnvValidationError extends Error {
 - **Schema:** any Standard Schema (zod 3.25+, valibot, arktype, ...), validated with `@laratype/contract`'s `validate`, sync or async.
 - **File (Q18):** `app/config/env.ts` default-exports `defineEnv(schema)`. The manifest already collects it with the configs; no build change.
 - **Boot:** `EnvLoadServiceProvider` loads the env file (`.env`, ...), then validates a copy of `process.env` with the schema, before any config file loads. An app without `env.ts` is not validated. The schema's output is not written back: `process.env` keeps its strings.
-- **Error (Q19):** an invalid env throws one `EnvValidationError` listing every failing variable (name + the schema's message), and boot fails. The vendor issues are not kept.
-- **Values are never printed:** each message has `***` in place of the failing variable's value and of every env value of 4+ characters (a secret that a refinement quotes under another name or at the root), raw, trimmed and JSON-escaped. A value of 8+ characters is cut anywhere; a shorter one only where it stands alone (`prod` leaves `"production"`). Schema text equal to such an env value shows as `***`. An error the schema throws (a transform's `new URL(value)`) is replaced by one that withholds its message and has no `cause`. An issue with no path is named `(environment)`.
+- **Error (Q19):** an invalid env throws one `EnvValidationError` listing every failing variable once (its name + a fixed message), and boot fails. The vendor issues are not kept.
+- **Values are never printed:** a failing line is the variable's name and `does not match the schema`; no text from the schema is printed. A schema transforms its input before a check (lowercase, `decodeURIComponent`, base64) and then a validator quotes that transformed value, which the raw env forms cannot redact, so no validator text is trusted. An error the schema throws (a transform's `new URL(value)`) is replaced by one that withholds its message and has no `cause`. An issue with no path is named `(environment)`; a dotted name (`db.password`) is one variable name.
 
 ### Diagnostics
 - Runtime, invalid env:
   ```
   [@laratype/support] Invalid environment (app/config/env.ts), <n> failing:
-    - <NAME>: <message>
+    - <NAME>: does not match the schema
   ```
+  `<n>` is the number of failing variables, and each variable is listed once however many of its checks failed.
 - Runtime, the schema throws: `[@laratype/support] the schema of app/config/env.ts threw (<error name>) while validating the environment; its message is withheld since it may hold a value`.
-- Runtime, `env.ts` without `defineEnv`: `TypeError: [@laratype/support] app/config/env.ts must default-export defineEnv(schema)`.
+- Runtime, `env.ts` without `defineEnv`: `TypeError: [@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)`.
 - Runtime, not a schema: `TypeError: [@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 3.25+, valibot, arktype, ...)`.
 - Type-only (`core/__tests__/config.test-d.ts`), a value that is not a Standard Schema:
   - `defineEnv({ PORT: 'number' })`: `error TS2353: Object literal may only specify known properties, and 'PORT' does not exist in type 'StandardSchemaV1<unknown, unknown>'.`
   - `defineEnv((value: unknown) => value)`: `error TS2345: Argument of type '(value: unknown) => unknown' is not assignable to parameter of type 'StandardSchemaV1<unknown, unknown>'.`
+
+### Breaking changes
+- An `app/config/env.ts` that is a plain 0.5 config (a default-exported object, not `defineEnv(schema)`) no longer boots: that file is the env file (Q18), so `EnvLoadServiceProvider` throws `TypeError: ... must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)`.
+  Migration: rename the file, for example to `app/config/environment.ts`. The manifest collects it as a config, and the app adds it to the config `declare module` to type `config('environment.<key>')`.
 
 ### Example
 [`examples/config/proposed/config.ts`](./examples/config/proposed/config.ts).
@@ -128,7 +133,7 @@ export class EnvValidationError extends Error {
 
 ### Open questions
 - Resolved: `defineEnv` lives in `app/config/env.ts`, which the manifest loads (Q18, [#152](https://github.com/Laratypes/Laratype/issues/152#issuecomment-6099909669)).
-- Resolved: an invalid env lists every failing variable (name + Standard Schema message) and fails boot; values are never printed (Q19, [#152](https://github.com/Laratypes/Laratype/issues/152#issuecomment-6099909669)).
+- Resolved: an invalid env lists every failing variable (name + a fixed message) and fails boot; values are never printed (Q19, [#152](https://github.com/Laratypes/Laratype/issues/152#issuecomment-6099909669)).
 
 ### Acceptance
 [#152 Done when](https://github.com/Laratypes/Laratype/issues/152)
