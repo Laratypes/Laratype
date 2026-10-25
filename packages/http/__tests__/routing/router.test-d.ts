@@ -202,7 +202,7 @@ describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
       toString: endpoint.get('/t'), valueOf: endpoint.get('/v'), hasOwnProperty: endpoint.get('/h'), isPrototypeOf: endpoint.get('/i'),
       propertyIsEnumerable: endpoint.get('/p'), toLocaleString: endpoint.get('/l'), constructor: endpoint.get('/c'), index: endpoint.get('/'),
     })
-    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [] } })
     class OddController extends Controller {
       toString() {} valueOf() {} hasOwnProperty() {} isPrototypeOf() {} propertyIsEnumerable() {} toLocaleString() {} index() {}
     }
