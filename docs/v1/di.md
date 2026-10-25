@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. D6 (request scope and scope bubbling) is proposed. The transform is not wired into `sauf build` yet, and the other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | planned → #114, #115 |
 | [Bun build plugin](#bun-build-plugin) | planned → #116 |
@@ -112,7 +112,7 @@ export class Container {
 ```
 
 ### Invariants
-- **Scopes in D1:** `transient` and `singleton`. `bind()` is transient unless `{ scope: 'singleton' }` is passed. `request` scope is planned → [#112](https://github.com/Laratypes/Laratype/issues/112). Final scope names: `singleton | request | transient`.
+- **Scopes in D1:** `transient` and `singleton`. `bind()` is transient unless `{ scope: 'singleton' }` is passed. The `request` scope is proposed in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) ([#112](https://github.com/Laratypes/Laratype/issues/112)). Final scope names: `singleton | request | transient`.
 - **Autowire:** `make(Cls)` with no binding builds the class from the deps lookup, so unregistered concrete classes need no registration. Autowired classes are **transient**, Laravel-style ([#112](https://github.com/Laratypes/Laratype/issues/112)). A singleton needs an explicit binding or `@Injectable({ scope })` ([#98](https://github.com/Laratypes/Laratype/issues/98)).
 - **Resolution order:** look up the binding through the parent chain. If none is found and the key is a class, autowire it. Otherwise throw.
 - **Singletons** are built by the container that **owns** the binding, so a child's overrides never leak into a shared instance. The first result is cached. Rebinding replaces both the binding and its cached instance.
@@ -417,14 +417,14 @@ export function Injectable(options?: InjectableOptions): (target: Function) => v
 - `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` followed by a fix hint ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `@Inject() is only supported on constructor parameters (found on \`<method>\`).` This is thrown when the class is defined. Method injection is planned → [#158](https://github.com/Laratypes/Laratype/issues/158).
 
-Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and `Injectable({ scope: 'request' })`.
+Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and an unknown scope (`Injectable({ scope: 'session' })`). `Injectable({ scope: 'request' })` is accepted since D6 ([Request scope and scope bubbling](#request-scope-and-scope-bubbling), proposed).
 
 ### Example
 [`examples/di/decorators.ts`](./examples/di/decorators.ts). SWC pipeline fixture: `packages/sauf/__tests__/di/fixtures/inject-core/`.
 
 ### Non-goals
 - No TC39 (stage 3) decorators: they have no parameter decorators.
-- No `request` scope yet (see [#112](https://github.com/Laratypes/Laratype/issues/112)).
+- The `request` scope is specified in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) (proposed, [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Open questions
 - Resolved: both are exported from `@laratype/core`, and the T1 fixture `inject-core` imports them from there ([#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050)).
@@ -518,12 +518,65 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-planned → [#112](https://github.com/Laratypes/Laratype/issues/112) (D6).
+proposed (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
-### Design (non-binding)
-- Adds the third scope, `request`: a per-request cache in the AsyncLocalStorage store of `packages/support/src/context/ContextApi.ts`, disposed when the request ends.
-- **Scope bubbling:** a controller that depends on a request-scoped provider becomes request-scoped, with a dev warning.
-- The D1 carry-overs are settled: autowired classes stay transient, `has()` counts explicit bindings only, and abstract classes get the transform-flag guard ([Container](#container)).
+### Public API
+[`container.ts`](../../packages/core/src/container.ts) · [`Request.ts`](../../packages/http/src/request/Request.ts) (`RequestKernel.boot()`)
+
+```ts
+export type Scope = 'transient' | 'request' | 'singleton';
+export interface InjectableOptions { scope?: Scope }   // @Injectable({ scope: 'request' }) is accepted
+
+export class Container {
+  // ...the D1 API (see Container), plus:
+  scoped<T>(token: Newable<T>): this;                              // = bind(token, undefined, { scope: 'request' })
+  scoped<T>(token: Token<T>, concrete: NoInfer<Concrete<T>>): this;
+  createRequestScope(options?: ContainerOptions): Container;      // a child container for one request
+  dispose(): Promise<void>;                                        // request scopes only
+}
+```
+
+### Invariants
+- **Request scope:** `createRequestScope()` returns a child container that also holds a per-request cache. Like `createChild()`, it sees the parent's bindings and its own bindings shadow them. A child of a request scope shares its cache.
+- **Request-scoped keys** are `scoped()` bindings, `bind(..., { scope: 'request' })` bindings, bindings whose class has `@Injectable({ scope: 'request' })`, and unbound classes with `@Injectable({ scope: 'request' })` (autowired; `has()` stays `false`). Each is built once per request scope and cached there until `dispose()`:
+  - The **request scope builds it**, so the scope's own bindings apply: `scope.instance(REQUEST_ID, id)` reaches a request-scoped class or factory bound on the app container. A factory receives the request scope.
+  - The current request scope is the nearest one up the chain of the container `make()` was called on. A singleton's owner builds it above the request scope, so a request-scoped key it needs resolves in the request scope of the `make()` in progress. Resolution is synchronous, so concurrent requests never mix.
+  - With no request scope, resolving a request-scoped key throws (see Diagnostics).
+- `transient` and `singleton` keep their lifetimes inside a request scope. A transient that depends on a request-scoped key gets the request's value and needs no bubbling. `instance()` values never bubble.
+- **Scope bubbling:** a singleton (a binding, or an autowired `@Injectable({ scope: 'singleton' })` class) that resolves a request-scoped key while it is built, directly or through transients or other singletons, becomes request-scoped for that key:
+  - It is not cached as a singleton. Its first value is cached in the current request scope, and from then on it is built once per request scope.
+  - It is still built by the container that owns its binding (the root for an autowired class), so a request scope's overrides of its other dependencies don't apply.
+  - Outside a request scope it then throws like any request-scoped key.
+  - In dev the container prints one `console.warn` per key per process. Copies of `@laratype/core` share the set through `Symbol.for('laratype.di.bubbleWarned')`. It is silent when `globalThis.__PROD__` is `true`, or when `__PROD__` is unset and `NODE_ENV` is `production`: the same check as the http fallback-container warning.
+- **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. It runs every disposer, then rethrows the failures as one `AggregateError`.
+  - It never disposes transient, singleton or `instance()` values, and it doesn't call a dispose method under another name (`dispose()`, `close()`).
+  - A second `dispose()` does nothing. `make()` on a disposed request scope, or on one of its children, throws.
+- **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope once the response is resolved, error responses included. A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
+- `@laratype/core` imports no `node:*` module: the request scope is an object its caller owns. `@laratype/http` keeps it in the AsyncLocalStorage store of `ContextApi`.
+
+### Diagnostics
+`DiError` messages (exact text; `[Required by <P>.]` as in [Resolution errors with fix hints](#resolution-errors-with-fix-hints)):
+- `Cannot resolve <key>: it is request-scoped but no request scope is active. [Required by <P>.] Fix: resolve it inside a request (from the container of \`createRequestScope()\`), or make it transient.`
+- `Request scope already disposed.`
+- `Only a request scope can be disposed.` The promise of `dispose()` rejects with it on a container that `createRequestScope()` did not return.
+
+Other messages:
+- `AggregateError`: `Failed to dispose <n> request-scoped value(s).`, with the disposers' errors in `errors`, newest value first.
+- Dev warning (`console.warn`): `[@laratype/core] <C> is a singleton but depends on request-scoped <D>, so it is resolved once per request. Make <C> request-scoped (or transient) to silence this.` `<D>` is the first request-scoped key reached while `<C>` was built.
+- `console.error` from `RequestKernel`: `[@laratype/http] <METHOD> <path>: disposing the request scope failed`, followed by the `AggregateError`.
+
+Type-only (`container.types.test.ts`, `decorators.test.ts`): `scoped()` rejects what `singleton()` rejects (a wrong concrete type, self-binding an abstract class or a token), and an unknown scope name is a type error.
+
+### Example
+[`examples/di/proposed/request-scope.ts`](./examples/di/proposed/request-scope.ts). Tests: [`packages/core/__tests__/requestScope.test.ts`](../../packages/core/__tests__/requestScope.test.ts) and [`packages/http/__tests__/routing/requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests through Hono).
+
+### Non-goals
+- No async factories or async resolution (as in [Container](#container)).
+- No boot-time check for singleton → request dependencies: bubbling handles them when they resolve. Eager validation is [Boot-time graph diagnostics](#boot-time-graph-diagnostics).
+- Request-scoped values are disposed once the handler's response is resolved, so a streamed body must not use them afterwards.
+
+### Open questions
+- Resolved: autowired classes stay transient, `has()` counts explicit bindings only, and abstract classes get the transform-flag guard ([#112](https://github.com/Laratypes/Laratype/issues/112); see [Container](#container)).
 
 ### Acceptance
 [#112 Done when](https://github.com/Laratypes/Laratype/issues/112)
