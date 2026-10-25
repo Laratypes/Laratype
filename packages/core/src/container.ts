@@ -63,6 +63,9 @@ const errors = {
     `Cannot resolve ${param}: its type resolved to undefined at runtime.`
     + ' It is probably an interface/type imported without `import type`, or a circular import evaluated too early.'
     + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
+  noMetadata: (cls: Function): string =>
+    `Cannot autowire ${keyName(cls)}: its constructor takes ${cls.length} param(s) but no dependency metadata was found.`
+    + ' Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.',
   conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
     `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
     + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
@@ -116,6 +119,21 @@ export class Container {
   instance<T>(token: Token<T>, value: NoInfer<T>): this {
     this.bindings.set(token, { scope: 'singleton', create: () => value, resolved: { value } })
     return this
+  }
+
+  /**
+   * Bind `token` to `value` in this container, for tests. Returns a function that puts back this container's own
+   * previous binding of `token` (or none), unless `token` was bound again since; call the restore functions in reverse order.
+   */
+  swap<T>(token: Token<T>, value: NoInfer<T>): () => void {
+    const previous = this.bindings.get(token)
+    this.instance(token, value)
+    const swapped = this.bindings.get(token)
+    return () => {
+      if (this.bindings.get(token) !== swapped) return
+      if (previous) this.bindings.set(token, previous)
+      else this.bindings.delete(token)
+    }
   }
 
   /** Whether `token` is bound in this container or an ancestor (autowirable classes don't count). */
@@ -181,11 +199,7 @@ export class Container {
   protected build(cls: Newable): unknown {
     const entry = this.deps.get(cls)
     if (!entry) {
-      if (cls.length > 0) {
-        throw new DiError(
-          `Cannot autowire ${keyName(cls)}: its constructor takes ${cls.length} param(s) but no dependency metadata was found.`,
-        )
-      }
+      if (cls.length > 0) throw new DiError(errors.noMetadata(cls))
       return new cls()
     }
     const injected = injectTokens(cls)

@@ -8,6 +8,7 @@ import {
   apiEndpoint,
   apiPaths,
   apiRoutes,
+  buildUrl,
   endpointErrors,
   routeErrors,
   contractEndpoints,
@@ -20,6 +21,7 @@ import {
   isContract,
   isEndpoint,
   isScope,
+  joinPath,
   resolveCapabilities,
 } from '@laratype/contract'
 import { appApi } from './fixtures/app/api'
@@ -71,6 +73,15 @@ describe('defineContract', () => {
     expect(() => defineContract()({ 'a.b': endpoint.get('/') })).toThrow(/endpoint key "a.b" must be non-empty and must not contain "."/)
     expect(() => defineContract()({ '': endpoint.get('/') })).toThrow(/endpoint key ""/)
     expect(() => defineContract()({ a: { def: {} } as never })).toThrow(/"a" is not an endpoint/)
+    // a forged or older-copy endpoint skips the constructor's path check
+    const forged = Object.defineProperty({ def: { method: 'get', path: ':tenant/x', status: 204, throws: [] } }, ENDPOINT, { value: true })
+    expect(() => defineContract()({ a: forged as never })).toThrow(
+      new TypeError('[@laratype/contract] defineContract: "a": the path must start with one "/", got ":tenant/x"'),
+    )
+    const getBody = Object.defineProperty({ def: { method: 'get', path: '/x', body: z.object({}), status: 204, throws: [] } }, ENDPOINT, { value: true })
+    expect(() => defineContract()({ a: getBody as never })).toThrow(
+      new TypeError('[@laratype/contract] defineContract: "a": a GET endpoint cannot have a body'),
+    )
     expect(() => defineContract()({}, { authorize: true } as never)).toThrow(/defineContract: unknown option "authorize"/)
     expect(() => defineContract()({}, { auth: false } as never)).toThrow(/auth must be true or a guard name/)
     expect(() => defineContract()({}, { throttle: { limit: 0, per: 60 } })).toThrow(/throttle must be/)
@@ -132,7 +143,20 @@ describe('defineApi', () => {
     const c = defineContract()({ show: endpoint.get('/') })
     expect(() => defineApi({ 'a..b': { contract: c, path: '/a', scopes: [], dirs: [] } } as never)).toThrow(/invalid tree name "a..b"/)
     expect(() => defineApi({ a: c } as never)).toThrow(/"a" must be \{ contract, path, scopes, dirs \}/)
-    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/path must start with "\/"/)
+    expect(() => defineApi({ a: { contract: c, path: 'a', scopes: [], dirs: [] } })).toThrow(/the path must start with one "\/"/)
+    // the endpoint path rule: one leading "/", no control characters (URL parsing drops tab, LF and CR)
+    for (const path of ['', '//api', '/\\api', '/\t/evil.com', '/\n/evil.com']) {
+      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(/defineApi: "a": the path must (start with one "\/"|not contain control characters)/)
+    }
+    // like the scan's base: no trailing "/" (or "\\"), which would double the join ("/" + "/users" is "//users", another host)
+    for (const path of ['/', '/api/', '/api\\']) {
+      expect(() => defineApi({ a: { contract: c, path, scopes: [], dirs: [] } } as never)).toThrow(
+        new TypeError(`[@laratype/contract] defineApi: "a": the path must not end with "/" or "\\", got ${JSON.stringify(path)}`),
+      )
+    }
+    // a valid entry path still builds same-host URLs
+    const ok = defineApi({ a: { contract: defineContract()({ index: endpoint.get('/'), show: endpoint.get('/:id') }), path: '/api', scopes: [], dirs: [] } })
+    expect(apiPaths(ok).map((r) => buildUrl(r.path, { params: { id: 7 } }))).toEqual(['/api', '/api/7'])
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [{ auth: true }], dirs: [''] } } as never)).toThrow(/use defineScope/)
     expect(() => defineApi({ a: { contract: c, path: '/a', scopes: [], dirs: [] }, 'a.show': { contract: c, path: '/a/show', scopes: [], dirs: [] } } as never)).toThrow(
       /"a.show" is both an endpoint and a contract/,
@@ -247,6 +271,25 @@ describe('apiRoutes', () => {
       ['/api/things', []],
       ['/api/things/:id?', ['NOT_FOUND']],
     ])
+  })
+})
+
+describe('joinPath', () => {
+  it('appends the path to the prefix, always with a "/" between them', () => {
+    expect(joinPath('/api', '/users')).toBe('/api/users')
+    expect(joinPath('', '/users')).toBe('/users')
+    expect(joinPath('/api', '/')).toBe('/api')
+    expect(joinPath('', '')).toBe('/')
+    // a path without its leading "/" (a manifest, a forged endpoint) must not extend the prefix or a host before it
+    expect(joinPath('/api', 'users')).toBe('/api/users')
+    expect(joinPath('', '.evil.com/x')).toBe('/.evil.com/x')
+    // a prefix that already ends with "/" gets none added: "/" + "x" is "/x", not "//x"
+    expect(joinPath('/', 'x')).toBe('/x')
+    expect(joinPath('/api/', 'users')).toBe('/api/users')
+    // nor makes "//x" from a prefix ending with "/"
+    expect(joinPath('/', '/users')).toBe('/users')
+    expect(joinPath('/api/', '/users')).toBe('/api/users')
+    expect(joinPath('/api/', '/')).toBe('/api')
   })
 })
 

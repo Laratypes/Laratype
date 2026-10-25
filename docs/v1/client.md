@@ -16,9 +16,9 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
-| [Options and hooks](#options-and-hooks) | planned → #124 |
+| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)) |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
@@ -99,7 +99,7 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)).
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
@@ -115,8 +115,9 @@ export type ApiRootShape<A>;                         // each key K is an API nod
 export interface ClientOptions {
   baseUrl?: string;                 // an absolute URL (https://…) or a path starting with /; default "" (same origin)
   fetch?: FetchLike;                // default: the global fetch
-  headers?: HeadersInit;            // sent with every call
-  // all three are read from this object at each call
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);   // sent with every call
+  credentials?: RequestCredentials; onRequest?: …; onResponse?: …      // see Options and hooks (CL3)
+  // every option is read from this object at each call
 }
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -141,7 +142,7 @@ if (result.ok) result.data.title                     // see Result union
 - **Input:** `createClient` takes exactly one of four inputs: the generated `appApi` from `$api` (`.laratype/api/index.gen.ts`), one API node (`appApi.users`), one contract file, or the generated `manifest` of api.ts for a [separate-repo FE](#separate-repo-fe-generated-manifest). A plain object counts as the `appApi` root only if every value is an API node whose own name is its key; a hand-made object such as `{ posts: appApi.users.posts }` or `{ users: usersContract }` is rejected. The overloads type the same four inputs, so anything else, a single endpoint included, fails to compile. It takes the contract **values** (S2 option a), so the same schemas are available for client-side form validation. Since the [folder tree](./contract.md#contract-folder-tree), the `appApi` mode needs `sauf dev` or `sauf types:generate` to have run. A single endpoint throws `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`, and anything else throws `[@laratype/client] createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest`. Endpoints are recognized by their `Symbol.for` brand ([contract.md › Endpoint builder](./contract.md#endpoint-builder)), so a contract from another bundle or package copy works.
 - **Names** follow the folder tree (`api.users.posts.update`). Name-style calls are the primary style. Each client node is frozen, has a null prototype and lists its endpoints and child nodes in definition order.
 - **One source of routes:** every input is turned into flat routes (name, method, full path) and nested by route name. The `appApi`, an API node and a contract go through `apiPaths()` ([contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)), the same walker behind the router's `apiRoutes()`, so names and paths match the router's. It resolves no capabilities: a route's declared errors are resolved lazily, on its first non-2xx answer, and a contract whose `.authorize()` gets `auth` from a folder scope still builds on its own. An API node's names are relative to it. The manifest gives its routes directly.
-- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin) and trailing slashes are stripped. It must be an absolute URL with `://` or a path starting with `/`: anything else (`localhost:3000/api`, `api`, a protocol-relative `//host/api`) throws `[@laratype/client] createClient: baseUrl "<baseUrl>" must be an absolute URL (https://…) or a path starting with /`, and so does a query, a hash, a backslash or any whitespace or control character. `baseUrl` is parsed once with `URL` (against a sentinel origin, so a path stays a path); the path is normalized (`/a/./b/../c` is `/a/c`) and the origin is the parsed one. An invalid URL (a bad port), credentials (`https://user:pass@…`) or a scheme other than `http`/`https` throws, at `createClient` and at a call if `options.baseUrl` is changed later (http(s) URL parsing turns `/\evil.com` into another host, and strips the tab in `/\t/evil.com`, which becomes `//evil.com`). The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `buildUrl` fills the route path alone, then the result is joined to `baseUrl`'s path with the server's `joinPath`, so `baseUrl` is never parsed as route syntax (a `:tenant` in it stays as it is). a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
+- **URLs** are the contracts' full paths (`/api/users/:user/posts/:post`), built with [`buildUrl`](./contract.md#url-builder). `baseUrl` is only the origin; it defaults to `""` (same origin) and trailing slashes are stripped. It must be an absolute URL with `://` or a path starting with `/`: anything else (`localhost:3000/api`, `api`, a protocol-relative `//host/api`) throws `[@laratype/client] createClient: baseUrl "<baseUrl>" must be an absolute URL (https://…) or a path starting with /`, and so does a query, a hash, a backslash or any whitespace or control character. `baseUrl` is parsed once with `URL` (against a sentinel origin, so a path stays a path); the path is normalized (`/a/./b/../c` is `/a/c`) and the origin is the parsed one. An invalid URL (a bad port), credentials (`https://user:pass@…`) or a scheme other than `http`/`https` throws, at `createClient` and at a call if `options.baseUrl` is changed later (http(s) URL parsing turns `/\evil.com` into another host, and strips the tab in `/\t/evil.com`, which becomes `//evil.com`). The S2 reference `baseUrl: "/api"` no longer applies. A single contract has no folder prefix, so its endpoint paths are appended to `baseUrl`, and its params are only its own. `buildUrl` fills the route path alone, then the result is joined to `baseUrl`'s path with the server's `joinPath`, so `baseUrl` is never parsed as route syntax (a `:tenant` in it stays as it is). `joinPath` always puts a `/` between the two, so a route path that doesn't start with `/` (a hand-edited manifest, a forged endpoint) can't extend the host: `':tenant/x'` with `{ tenant: '.evil.com' }` under `https://api.example.com` is `https://api.example.com/.evil.com/x`, not `https://api.example.com.evil.com/x` (#257). [`buildUrl`](./contract.md#url-builder) already refuses a route path that URL parsing reads as another host (`//evil.com`, `/\evil.com`, `/<tab>/evil.com`). Under a same-origin `baseUrl` (no origin), the joined path is checked the same way (parsed against two sentinel origins), which catches a route path that only becomes one once `/` is put before it (`<tab>/evil.com`), and the call rejects with `[@laratype/client] route path "<path>" would leave the page's origin: "<joined path>"`. a route path of `/` is `baseUrl` itself (`https://host/api/users`, not `.../users/`, which strict routing answers with 404).
 - **Call input** (`CallInput<E>`):
   - `params`: every param of the full path, `[x]` folder params included. Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param is a type error and throws before `fetch` is called.
   - `query`: the query schema input, serialized by `buildUrl`.
@@ -151,7 +152,7 @@ if (result.ok) result.data.title                     // see Result union
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
 - **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`.
 - **Global `fetch` vs injected `fetch`:** both get `(url, init)`, and `fetch` resolves a relative URL itself (against the document's base URL in a browser). The client checks only what would otherwise look like a network failure: a GET with a body rejects with `[@laratype/client] a GET request cannot have a body: "<path>"`, and with the global `fetch` a relative URL outside a browser (no `document` or `location`, as in Node SSR or Deno without `--location`, or a page base that doesn't resolve the URL to http(s), such as `about:blank`, `about:srcdoc`, the jsdom default, `blob:` or `data:`) rejects; set `baseUrl` to an absolute URL, or pass `fetch`. An injected `fetch` is not guarded, since it may resolve relative URLs itself. A synchronous throw from `fetch`, global or injected, rejects the call; only a rejected promise is the status-0 result.
-- **Options are live:** `baseUrl`, `headers` and `fetch` are read from the options object at each call, so changing them later (a refreshed token) applies to the next call.
+- **Options are live:** every option (`baseUrl`, `headers`, `fetch`, and those of [Options and hooks](#options-and-hooks)) is read from the options object when each call starts, so changing one later (a refreshed token) applies to the next call.
 - **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema, or with a declared 204 or 205, gives `undefined`. The `Jsonify` helper is internal for now.
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
 - The FE program loads 0 server files and 0 hono files: `packages/client/__tests__/fe.test.ts` compiles `fixtures/fe/main.ts` with its own tsconfig (`types: []`, DOM lib, not extending the repo tsconfig) and checks the program of one `tsc --listFiles` run.
@@ -161,6 +162,7 @@ if (result.ok) result.data.title                     // see Result union
 - `[@laratype/client] createClient: got a single endpoint; pass its contract, an API node or the appApi`
 - `[@laratype/client] createClient: baseUrl "<baseUrl>" must not have a query or a hash` (at `createClient`; a call rejects with it if `options.baseUrl` is changed later)
 - `[@laratype/client] no fetch available: pass options.fetch` (the call rejects)
+- `[@laratype/client] route path "<path>" would leave the page's origin: "<joined path>"` (the call rejects: a same-origin `baseUrl` and a route path that URL parsing reads as another host)
 - `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them` (from [buildUrl](./contract.md#url-builder))
 - Type-level: a missing required param, body or schema header, an unknown param, or a body that doesn't match the schema input (`packages/client/__tests__/client.test-d.ts`).
 
@@ -169,7 +171,6 @@ if (result.ok) result.data.title                     // see Result union
 
 ### Non-goals
 - No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
-- No dynamic headers, hooks or `credentials`: CL3 [#124](https://github.com/Laratypes/Laratype/issues/124).
 
 ### Open questions
 - None recorded.
@@ -247,10 +248,55 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 ## Options and hooks
 
 ### Status
-planned → [#124](https://github.com/Laratypes/Laratype/issues/124) (CL3).
+proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3). Extends the `ClientOptions` of [createClient](#createclient).
 
-### Design (non-binding)
-Per #124: `baseUrl`, dynamic headers (a function, for example for an auth token), `onRequest` / `onResponse` hooks, `credentials`, `AbortSignal` and a custom `fetch`.
+### Public API
+[`packages/client/src/types.ts` @ f68de49](https://github.com/Laratypes/Laratype/blob/f68de494976eee08523e9ee4efe74fc86cd8bcaa/packages/client/src/types.ts)
+
+```ts
+export interface ClientOptions {
+  baseUrl?: string;                                              // as in createClient
+  fetch?: FetchLike;                                             // as in createClient
+  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
+  credentials?: RequestCredentials;
+  onRequest?: (request: ClientRequest) => void | Promise<void>;
+  onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
+}
+export interface ClientRequest {
+  readonly url: string;
+  readonly init: RequestInit & { headers: Headers };
+}
+```
+
+### Invariants
+- **Live options:** every option is read from the options object when each call starts, as `baseUrl`, `headers` and `fetch` already are, so one call never mixes old and new options.
+- **Dynamic headers:** a `headers` function is called, and awaited, at each call (a fresh auth token). Its headers are the defaults: the call's own `headers` override them, then `content-type: application/json` is added for a body when neither sets one ([createClient](#createclient) › Call input).
+- **`credentials`:** set on every call's `RequestInit` when given; absent otherwise, so `fetch` keeps its default (`same-origin`).
+- **Redirects:** the client leaves redirects to `fetch` and sets no `redirect` mode. A Fetch-conforming `fetch` (the global one) follows them by default; on a cross-origin redirect it drops `authorization` but keeps other custom headers, and with `credentials: "include"` it may send the cookies the new origin has, subject to cookie policy (scope, `SameSite`). An injected `fetch` handles redirects its own way. A client that sends secrets in custom headers, or uses `"include"`, against a server that may redirect elsewhere should set `init.redirect = "error"` (or `"manual"`, whose opaque response is the status-0 [unexpected result](#result-union)) in `onRequest`.
+- **`AbortSignal`:** per call, `signal` in the call input ([createClient](#createclient) › Call input). There is no client-wide signal; `onRequest` can set `request.init.signal`.
+- **Custom `fetch`:** `options.fetch` ([createClient](#createclient) › Global `fetch` vs injected `fetch`).
+- **Order of a call:** build the URL and the JSON body → the checks that reject before sending (a missing param, a GET with a body, a body JSON cannot hold, no `fetch`, a relative URL outside a browser) → the `headers` function → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So neither the `headers` function nor `onRequest` is called for a request that is never sent.
+- **`onRequest`** gets a frozen `{ url, init }`: the URL as built and the `init` that `fetch` then gets, its `headers` already merged into a `Headers`. It may change `init` (add a signature header, set a `signal`); the URL and the `init` object itself can't be replaced. A body it puts on a GET or HEAD (or on a request whose `method` it removes: `fetch` then sends a GET) rejects the call with `a <METHOD> request cannot have a body`.
+- **Abort before `fetch`:** a call whose `signal` is aborted before `fetch` resolves as the status-0 unexpected result, with the signal's reason. The signal is checked before the `headers` function, before `onRequest` and before `fetch`, so no step runs once it is aborted; aborting does not interrupt a pending `headers` function or hook.
+- **`onResponse`** gets every response `fetch` resolves with, whatever its status, and the same request, before the client reads the body; it must read a `response.clone()`, since the client reads the body itself, and one that reads or locks the body of `response` rejects the call. A clone it makes is its own to read or cancel. It is not called when `fetch` rejects (the status-0 result).
+- **Failures:** a `headers` function or a hook that throws or rejects rejects the call, like the other configuration errors ([createClient](#createclient) › Result); it is never turned into a result. A failing `headers` function or `onRequest` means `fetch` is not called; a failing `onResponse` cancels the unread body, so it doesn't hold a connection open.
+- **Runtime:** browser-pure, as the rest of the client: no Node API.
+
+### Diagnostics
+- The error a `headers` function or a hook throws rejects the call as it is.
+- `[@laratype/client] a <METHOD> request cannot have a body: "<path>"` (the call rejects: `onRequest` put a body on a GET or HEAD)
+- `[@laratype/client] onResponse read the response body: read a response.clone() instead` (the call rejects)
+- Type-level (`packages/client/__tests__/client.test-d.ts`): a `headers` function that doesn't return `HeadersInit`, a `credentials` that isn't a `RequestCredentials`, and assigning `request.url` are type errors.
+
+### Example
+[`examples/client/proposed/options-and-hooks.ts`](./examples/client/proposed/options-and-hooks.ts)
+
+### Non-goals
+- No retries, no replacing the response from `onResponse` (wrap `fetch` for that), and no hook on a network failure.
+- No client-wide `AbortSignal` or timeout.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#124 Done when](https://github.com/Laratypes/Laratype/issues/124)

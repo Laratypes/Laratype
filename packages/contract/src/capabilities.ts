@@ -158,8 +158,16 @@ const nearest = <T>(values: ReadonlyArray<T | undefined>): T | undefined => {
 /** Same rule as the `PathParams` type: a segment starting with `:` and a name. */
 export const hasPathParams = (path: string): boolean => /(?:^|\/):[^/{?]/.test(path);
 
-export const joinPath = (prefix: string, path: string): string =>
-  path === "" || path === "/" ? prefix || "/" : `${prefix}${path}`;
+/**
+ * Puts one "/" between the two: a path without one (`".evil.com/x"`) must not extend the prefix or a host before it, and
+ * one trailing "/" of the prefix is dropped (`"/"` + `"/x"` is `"/x"`, not `"//x"`). It doesn't validate either side:
+ * `defineApi` and the endpoint builder check the paths, `buildUrl` and the client the result.
+ */
+export const joinPath = (prefix: string, path: string): string => {
+  const head = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  if (path === "" || path === "/") return head || "/";
+  return path.startsWith("/") ? `${head}${path}` : `${head}/${path}`;
+};
 
 /** Where an endpoint is resolved at runtime: its contract's URL prefix, the scope chain and the contract options. */
 export interface CapabilityContext {
@@ -226,14 +234,20 @@ export const isErrorDef = (value: unknown): value is AnyErrorDef =>
   typeof (value as AnyErrorDef).is === "function";
 
 const DURATION = /^\d+(?:\.\d+)?[smhd]$/;
+const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const;
 
 export const checkThrottle = (value: unknown, label: string): ThrottleOptions => {
   const t = value as ThrottleOptions | null;
   const per = t?.per;
+  const seconds =
+    typeof per === "number" ? per
+    : typeof per === "string" && DURATION.test(per) ? Number.parseFloat(per) * UNIT_SECONDS[per.slice(-1) as keyof typeof UNIT_SECONDS]
+    : Number.NaN;
+  // From 1 second to MAX_SAFE_INTEGER ms: a shorter window never limits ("0s"), a longer one never ends (Infinity)
   if (
     typeof t !== "object" || t === null ||
     !Number.isInteger(t.limit) || t.limit <= 0 ||
-    !((typeof per === "number" && per > 0) || (typeof per === "string" && DURATION.test(per)))
+    !(seconds >= 1 && seconds * 1000 <= Number.MAX_SAFE_INTEGER)
   ) {
     fail(`${label}: throttle must be { limit: positive integer, per: seconds or "<n>s|m|h|d" }`);
   }

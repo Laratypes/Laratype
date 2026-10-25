@@ -84,6 +84,8 @@ planned → [#151](https://github.com/Laratypes/Laratype/issues/151) (A4, M3).
 ### Design (non-binding)
 The jwt, session and passport guards are resolved from the container and configured through typed config ([#152](https://github.com/Laratypes/Laratype/issues/152)). Done when the auth flows in `examples/basic` pass.
 
+- **Token:** a token guard reads it with `request.bearerToken()` only, never from `Authorization` itself (A5 [#288](https://github.com/Laratypes/Laratype/issues/288), shipped in the 0.5 `AuthGuard`). It returns the token of `Authorization: Bearer <token>`, with the scheme in any case and the token an RFC 6750 b64token, else `""`, and the guard answers its 401.
+
 ### Acceptance
 [#151 Done when](https://github.com/Laratypes/Laratype/issues/151)
 

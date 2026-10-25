@@ -19,15 +19,15 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `params`, `query`, `body` planned → #106 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); registry storage planned → #114 |
-| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112 |
+| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | planned → #108 |
+| [Exceptions](#exceptions) | current error handling merged (#267, #272, #275); planned → #108 |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
-| [Rate limiting](#rate-limiting) | planned → #229 |
+| [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
 | [Resources](#resources) | planned → #123 |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
@@ -252,7 +252,7 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly middleware: readonly MiddlewareClass[];
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
-  readonly unenforced: readonly ("auth" | "authorize" | "throttle" | "validation")[];   // what the router does not enforce yet
+  readonly unenforced: readonly ("auth" | "authorize" | "validation")[];   // what the router does not enforce yet
   readonly domain: string | undefined;
 }
 
@@ -264,7 +264,7 @@ type ApiTreeNode<A>;          // the tree nodes that hold a contract: typeof app
 type ApiScopeDir<A>;          // "" | "users/[user]"
 type ApiAuthorizeDir<A>;      // the scope folders with authorize
 type CheckApiRoutes<A, M>;    // unknown, or { error: "Route.api: ..." }
-const UNENFORCED_NOTICE: "auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106)";
+const UNENFORCED_NOTICE: "auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)";
 ```
 
 The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it.
@@ -280,7 +280,7 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
 - **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(req, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
 - **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner), and the `policy` of `r.contract()` on each route of the contract (`RouteEntry.policy`). Running them is planned → [#121](https://github.com/Laratypes/Laratype/issues/121): a scope policy's `before` needs the signed-in user ([#120](https://github.com/Laratypes/Laratype/issues/120)) and the bound models ([#118](https://github.com/Laratypes/Laratype/issues/118)).
-- **Auth, rate limits and input validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` sets no rate limit until H17 [#229](https://github.com/Laratypes/Laratype/issues/229). A route whose endpoint has a body, query or headers schema gets its input unchecked until H3 [#106](https://github.com/Laratypes/Laratype/issues/106). `RouteEntry.unenforced` records which of `auth`, `authorize`, `throttle` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
+- **Auth and input validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` is enforced by `mount()` ([Rate limiting](#rate-limiting)). A route whose endpoint has a body, query or headers schema gets its input unchecked until H3 [#106](https://github.com/Laratypes/Laratype/issues/106). `RouteEntry.unenforced` records which of `auth`, `authorize` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
 - **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
 - **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The hostname is made of non-empty labels of letters, digits and inner hyphens. `.domain()` re-labels the routes `Route.api` already checked. The match reads the `Host` header only (the request URL's host when there is none, as with an in-process `app.request()`), never `X-Forwarded-Host`: behind a proxy, the proxy must preserve the `Host` header. It ignores case, the request port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). A request for another host falls through to the next matching route, or gets a 404. `.domain()` is name-based virtual hosting, not an access-control boundary: any client can send any `Host` header, so no guard or policy may key on the domain alone.
 - **Registry.** `mount()` returns one `RouteEntry` per route. `RouteAppServiceProvider` stores what `routes()` returns in `globalThis.__laratype_routes`, as in 0.5, and `sauf route:list` reads both v2 and 0.5 entries. The move to a container `RouteRegistry` is planned → [#114](https://github.com/Laratypes/Laratype/issues/114).
@@ -331,7 +331,7 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `contract "<tree name>": endpoints.<key> must be a callback, (r) => r.middleware(...)`
 - `<route name>: endpoints.<key> must return the builder it gets, (r) => r.middleware(...)`
 
-Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: <route name> (auth[, authorize][, throttle][, validation]), ...`
+Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106), so these routes skip those checks: <route name> (auth[, authorize][, validation]), ...`
 
 ### Example
 [`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts), and its `RouteServiceProvider` registers it with `apiRoutes.mount(this.apps)`. With scopes:
@@ -350,7 +350,7 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ### Non-goals
 - No policy execution: [#121](https://github.com/Laratypes/Laratype/issues/121).
 - No model binding (`r.bind()`): H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
-- No 401, 403 or 429 from the contract's capabilities: [#120](https://github.com/Laratypes/Laratype/issues/120), [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#229](https://github.com/Laratypes/Laratype/issues/229).
+- No 401 or 403 from the contract's capabilities: [#120](https://github.com/Laratypes/Laratype/issues/120), [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121). The 429 is in [Rate limiting](#rate-limiting).
 - No domain params (`{account}.example.com`).
 
 ### Open questions
@@ -364,13 +364,13 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ## Controller resolution
 
 ### Status
-merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). Request scopes are planned → [#112](https://github.com/Laratypes/Laratype/issues/112).
+merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). Request scopes are planned → [#112](https://github.com/Laratypes/Laratype/issues/112). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Invariants
 - **Resolution:** `Request.controllerKernel` resolves the controller with `app.make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
-- **Which container:** `RequestKernel.boot()` puts the app container on every request (`ContextApi.getContainer()`). Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use.
+- **Which container:** `RequestKernel.boot()` puts the app container on every request (`ContextApi.getContainer()`). Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use. Creating it prints one `console.warn` per process (module copies and dev restarts included), except in production (`globalThis.__PROD__`, or `NODE_ENV=production` when `__PROD__` is unset): ``[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.`` ([#270](https://github.com/Laratypes/Laratype/issues/270)).
 - **Lifetime:** an unbound controller is transient: a new instance per request, as with `new`. A binding's scope (`singleton`, `@Injectable({ scope })`) applies as it does anywhere else.
-- **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount. A controller (0.5 too) whose constructor takes params needs the [DI transform](./di.md#di-transform)'s metadata, so it must be app code the `laratype:di` plugin compiles; otherwise it fails where `new` used to pass `undefined`: ``Cannot autowire <Controller>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the controller with the laratype:di plugin (sauf dev / sauf build), or bind it with a factory in a service provider `register()` (an app binding, so it needs RequestKernel).`` `@Inject` can't fix it: without DI metadata the container fails before it reads `@Inject`.
+- **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount. A controller (0.5 too) whose constructor takes params needs the [DI transform](./di.md#di-transform)'s metadata, so it must be app code the `laratype:di` plugin compiles; otherwise it fails where `new` used to pass `undefined`: ``Cannot autowire <Controller>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.`` The hint comes from core ([di.md › Resolution errors with fix hints](./di.md#resolution-errors-with-fix-hints)); a binding is an app binding, so it needs RequestKernel. `@Inject` can't fix it: without DI metadata the container fails before it reads `@Inject`.
 - **Mount checks read the declared class:** the handler and status-decorator checks of `Route.api` read the class passed to `r.contract()`. A binding of that class should be a subclass of it.
 - **Kernel container:** the kernel container passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 
@@ -431,7 +431,15 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). Unknown errors are merged ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary). An HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response`; anything else is an unknown error. `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx; the `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)). Until H5, a thrown `defineError` / catalog error (`ContractError`) is an unknown error too, so it answers 500 instead of its own status. A 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422, listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500 ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation).
+planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). The current error handling in Invariants is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+
+### Invariants
+- **Unknown errors** ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
+- **HTTP errors:** an HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response` whose status is from 400 to 599 too; anything else is an unknown error. Its 4xx or 5xx is decided on the status actually sent, the response's ([#272](https://github.com/Laratypes/Laratype/issues/272), H23).
+- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
+- **Logging:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx; the `Exception` constructor's own log of reportable Exceptions is separate, an open item tracked in [#273](https://github.com/Laratypes/Laratype/issues/273).
+- **Contract errors:** until H5, a thrown `defineError` / catalog error (`ContractError`) is an unknown error too, so it answers 500 instead of its own status.
+- **0.5 request validation** ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation): a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422, listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500.
 
 ### Design (non-binding)
 - **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).
@@ -532,17 +540,46 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
 ## Rate limiting
 
 ### Status
-planned → [#229](https://github.com/Laratypes/Laratype/issues/229) (H17, M2). Depends on C4b [#228](https://github.com/Laratypes/Laratype/issues/228), H1 [#104](https://github.com/Laratypes/Laratype/issues/104).
+proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2 (H17 [#229](https://github.com/Laratypes/Laratype/issues/229), M2). Keying by the user id waits for the contract auth guard: planned → [#120](https://github.com/Laratypes/Laratype/issues/120). Counters through the cache: planned → [#166](https://github.com/Laratypes/Laratype/issues/166).
 
-### Design (non-binding)
-- **Declared in the contract:** `.throttle({ limit, per })` on a scope, a contract or an endpoint. The nearest level wins, and `.throttle(false)` opts out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
-- **Applied when routes are registered,** with no route middleware.
-- **Key:** the user id, or the IP when no user is signed in.
-- **Response:** 429 with the contract's error body, plus `Retry-After`.
-- **Store:** counters go through the cache ([#166](https://github.com/Laratypes/Laratype/issues/166)), with a memory fallback.
+### Public API
+None: `ApiRoutes.mount()` applies the rate limit of each route whose resolved `throttle` is set ([`throttle.ts`](https://github.com/Laratypes/Laratype/blob/21161f25ff30fdac72392b47cc92616d83ba84d9/packages/http/src/routing/api/throttle.ts)). The store interface is internal until the cache implements it.
+
+### Invariants
+- **Declared in the contract:** `.throttle({ limit, per })` on a scope, a contract or an endpoint. The nearest level wins, and `.throttle(false)` opts out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). A route whose resolved `throttle` is unset is never limited and never counted.
+- **Applied when routes are registered,** with no route middleware: `mount()` wraps the route's handler, so the limit runs before the route middleware and the request parsing. On a `.domain()` route, only requests for that host are counted.
+- **Fixed window per route and client.** Each route (its method, `.domain()` host and path, so same-named routes of two groups or domains never share a counter) counts its own hits per client in windows of `per` (seconds, or `"<n>s|m|h|d"`; from 1 second to `Number.MAX_SAFE_INTEGER` ms, as the contract checks). The window starts at the client's first hit; the hit past `limit` in a window, and every hit after it in that window, answers 429.
+- **Key:** the IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): the socket address (`getConnInfo` of `@hono/node-server` on Node, the server's `requestIP()` on Bun), never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists. An IPv4 address carried in IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) counts as that IPv4 address, and an IPv6 client is counted by its /64, the block one client can rotate addresses in. Keying by the user id when one is signed in is planned → [#120](https://github.com/Laratypes/Laratype/issues/120): no contract auth guard runs before the limit yet.
+- **No address, no limit.** A request with no client address (`request.ip()` is `""`: another runtime, an in-process `app.request()` without an env, a socket gone) is served unthrottled, so clients without an address never share one bucket. The first such request logs one warning per process.
+- **Response:** 429 with the catalog error body `{ code: "TOO_MANY_REQUESTS", message: "Too Many Requests." }` ([Exceptions](#exceptions)) and `Retry-After`, the whole seconds until the window ends (at least 1). It is thrown as a Hono `HTTPException`, so the exception path of `ResponseKernel` (or Hono's own error handler) answers it.
+- **Store:** an in-memory store, one per process, until the cache ([#166](https://github.com/Laratypes/Laratype/issues/166)) implements the store interface. Counters are not shared between processes, and two Hono apps of one process share them. Ended windows are dropped at most once a minute, and past 100,000 windows a full store drops the window that ends first: an ended one if there is one, else the live one nearest its end (its client starts a new window early). It finds it among the oldest window of each window length, with no scan of the store. `mount()` checks the window again before it registers any route.
+
+### Diagnostics
+- `[@laratype/http] Route.api: <route name>: throttle per must be from 1 second to 9007199254740991 ms, got <per>` (at `mount()`; the contract already rejects such a `per`)
+
+Warning, logged once per process: `[@laratype/http] Route.api: a request has no client address (another runtime, or an in-process app.request()), so rate-limited routes serve such requests without a limit (first: <route name>)`
+
+### Example
+```ts
+// app/api/_scope.ts
+export default defineScope<ScopePrefix>()({ throttle: { limit: 100, per: '1m' } })
+// app/api/posts.ts
+export default defineContract<Prefix>()({
+  index: endpoint.get('/').response(PostList),                                // 100 per minute, from the scope
+  store: endpoint.post('/').body(NewPost).throttle({ limit: 5, per: '1m' }), // 5 per minute
+  health: endpoint.get('/health').throttle(false),                            // never limited
+})
+```
+
+Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (requests through `app.request()` with a Bun-style env for the client address).
 
 ### Non-goals
-- No stacked limits on one endpoint.
+- No stacked limits on one endpoint (named limiters, later).
+- No `X-RateLimit-*` headers.
+- No trusted-proxy setting: it must be an explicit opt-in that names the proxies.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#229 Done when](https://github.com/Laratypes/Laratype/issues/229)

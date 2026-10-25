@@ -31,6 +31,43 @@ describe('endpoint builder', () => {
     expect(endpoint.post('/form').status(205).response(z.string()).def.status).toBe(200)
   })
 
+  it('.body() throws on a GET endpoint (fetch refuses a body), and is kept on every other method', () => {
+    const body = z.object({ name: z.string() })
+    const error = new TypeError('[@laratype/contract] body(): a GET endpoint cannot have a body')
+    expect(() => (endpoint.get('/x') as AnyEndpoint).body(body)).toThrow(error)
+    expect(() => (endpoint.get('/x').query(z.object({})) as AnyEndpoint).body(body)).toThrow(error)
+    for (const make of [endpoint.post, endpoint.put, endpoint.patch, endpoint.delete]) {
+      expect(make('/x').body(body).def.body).toBe(body)
+    }
+    // the constructor is public: a GET def with a body throws there too
+    expect(() => new Endpoint({ method: 'get', path: '/x', body, status: 204, throws: [] })).toThrow(
+      new TypeError('[@laratype/contract] endpoint: a GET endpoint cannot have a body'),
+    )
+  })
+
+  it('the path must start with one "/", from the builder and the constructor', () => {
+    // "//evil.com" and "/\\evil.com" are another host under a same-origin baseUrl
+    for (const path of ['x', ':tenant/x', '', ' /x', '//evil.com/x', '/\\evil.com/x']) {
+      expect(() => endpoint.get(path as never)).toThrow(
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must start with one "/", got ${JSON.stringify(path)}`),
+      )
+    }
+    expect(() => endpoint.post(1 as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got number'))
+    expect(() => endpoint.post(1n as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got bigint'))
+    expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
+      new TypeError('[@laratype/contract] endpoint: the path must start with one "/", got "x"'),
+    )
+    for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a\u0000', '/a\u007f']) {
+      expect(() => endpoint.get(path as never)).toThrow(
+        new TypeError(`[@laratype/contract] endpoint.get(): the path must not contain control characters, got ${JSON.stringify(path)}`),
+      )
+    }
+    // other whitespace can't change the host: a regex param may hold a space
+    expect(endpoint.get('/files/:name{[\\w ]+}').def.path).toBe('/files/:name{[\\w ]+}')
+    expect(endpoint.get('/').def.path).toBe('/')
+    expect(endpoint.get('/a//b').def.path).toBe('/a//b')
+  })
+
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {
     expect(endpoint.post('/jobs').status(202).def).toMatchObject({ status: 202 })
     expect(endpoint.post('/jobs').status(202).def.response).toBeUndefined()
@@ -174,6 +211,13 @@ describe('endpoint capabilities', () => {
     [{ limit: 1.5, per: 60 }],
     [{ limit: 10, per: 0 }],
     [{ limit: 10, per: '1w' }],
+    [{ limit: 10, per: '0s' }],
+    [{ limit: 10, per: '0.0h' }],
+    [{ limit: 10, per: Infinity }],
+    [{ limit: 10, per: Number.NaN }],
+    [{ limit: 10, per: 0.5 }],
+    [{ limit: 10, per: '0.001s' }],
+    [{ limit: 10, per: '9999999999999d' }],
     [{ limit: 10 }],
     [null],
   ])('rejects the throttle %j', (options) => {
