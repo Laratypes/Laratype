@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed. The other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 

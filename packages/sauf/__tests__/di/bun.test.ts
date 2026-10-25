@@ -99,6 +99,7 @@ const resolveRequest = (load: string) => `
   }));
 `;
 
+// A cold `node` start takes seconds on Windows, and these two spawn one each: more than the 5s default.
 describe('framework classes resolved by the container from dist/', () => {
   it.each([
     ['ESM', ['--input-type=module'], `
@@ -117,5 +118,5 @@ describe('framework classes resolved by the container from dist/', () => {
     const result = JSON.parse(runNode(args, resolveRequest(load)));
     expect(result).toMatchObject({ instance: true, page: '2', ownDeps: true, params: ['requestCtx'] });
     expect(result.from.replace(/\\/g, '/')).toMatch(/\/packages\/http\/dist\/index\.(esm\.js|cjs)$/);
-  });
+  }, 30_000);
 });
