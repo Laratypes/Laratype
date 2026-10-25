@@ -78,6 +78,8 @@ describe('env validation at boot (K1 #152)', () => {
 
   it('fails when the env file does not export defineEnv(schema), with the 0.5 rename hint', async () => {
     setAppManifest(manifest([entry('env', { K1_APP_KEY: 'string' }), entry('config', {})]))
-    await expect(boot()).rejects.toThrow('[@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)')
+    const error = await boot().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(TypeError)
+    expect((error as Error).message).toBe('[@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)')
   })
 })

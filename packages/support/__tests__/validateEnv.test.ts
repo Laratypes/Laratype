@@ -206,9 +206,11 @@ describe('validateEnv', () => {
     await expect(validateEnv(definition, { A: 'nope' })).rejects.toThrow(`  - A: ${INVALID_MESSAGE}`)
   })
 
-  it('rejects an env file without defineEnv, with the 0.5 rename hint', async () => {
+  it('rejects an env file without defineEnv with a TypeError carrying the 0.5 rename hint', async () => {
     const message = '[@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)'
-    await expect(validateEnv({} as EnvDefinition, {})).rejects.toThrow(new TypeError(message))
+    const error = await validateEnv({} as EnvDefinition, {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(TypeError)
+    expect((error as Error).message).toBe(message)
     await expect(validateEnv(undefined as never, {})).rejects.toThrow(TypeError)
   })
 })
