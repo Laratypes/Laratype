@@ -121,9 +121,50 @@ describe('framework classes resolved by the container from dist/', () => {
   }, 30_000);
 });
 
-// `bun.build.js` enables the plugin for every package that depends on `@laratype/core`, on its own `src/` only.
-// The minified dists keep the helper name: an import in ESM, a member call on the `require` in CJS. `laratype` is
-// enabled too, but its sources have no own constructor yet, so its dist carries no call to assert.
+// A framework base class carries its own entry in `dist/` too: `@laratype/http`'s `Controller` is registered with `[]`.
+// An app subclass with its own constructor and no metadata (`sauf build` runs no transform yet, B2 #126) must fail
+// closed rather than be built with the base class's arguments.
+const refuseUnregisteredSubclass = (load: string) => `
+  ${load}
+  class UserController extends Controller {
+    constructor(users) {
+      super();
+      this.users = users;
+    }
+  }
+  const container = new Container({ deps: depsRegistry });
+  try {
+    container.make(UserController);
+    console.log(JSON.stringify({ threw: false }));
+  } catch (error) {
+    console.log(JSON.stringify({ threw: true, name: error.name, message: error.message.split(" Fix:")[0] }));
+  }
+`;
+
+describe('an untransformed subclass fails closed from dist/', () => {
+  it.each([
+    ['ESM', ['--input-type=module'], `
+      import { Container, depsRegistry } from "@laratype/core";
+      import { Controller } from "@laratype/http";
+    `],
+    ['CJS', [], `
+      const { Container, depsRegistry } = require("@laratype/core");
+      const { Controller } = require("@laratype/http");
+    `],
+  ])('%s: refuses to autowire a subclass of @laratype/http Controller with no metadata', (_, args, load) => {
+    const result = JSON.parse(runNode(args, refuseUnregisteredSubclass(load)));
+    expect(result).toEqual({
+      threw: true,
+      name: 'DiError',
+      message: 'Cannot autowire UserController: its constructor takes 1 param(s) but no dependency metadata was found.',
+    });
+  }, 30_000);
+});
+
+// `bun.build.js` enables the plugin for every package that lists `@laratype/core` in `dependencies`, on its own
+// `src/` only: `http`, `support`, `auth`, `log` and `laratype`. The minified dists keep the helper name: an import
+// in ESM, a member call on the `require` in CJS. `laratype` is enabled too, but its sources have no own
+// constructor yet, so its dist carries no call to assert.
 const packagesDir = fileURLToPath(new URL('../../../', import.meta.url));
 const dist = (pkg: string, file: string) => readFileSync(join(packagesDir, pkg, 'dist', file), 'utf8');
 const esmHelperImport = /import\s*\{\s*__laratype_deps\b/;
@@ -134,6 +175,10 @@ const distCases: Array<[pkg: string, file: string, metadata: RegExp]> = [
   ['http', 'cjs', cjsHelperCall],
   ['support', 'esm.js', esmHelperImport],
   ['support', 'cjs', cjsHelperCall],
+  ['auth', 'esm.js', esmHelperImport],
+  ['auth', 'cjs', cjsHelperCall],
+  ['log', 'esm.js', esmHelperImport],
+  ['log', 'cjs', cjsHelperCall],
 ];
 
 describe('bun.build.js enables the plugin per package', () => {
