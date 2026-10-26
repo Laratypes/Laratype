@@ -1,6 +1,6 @@
-import { API_NODE, apiPaths, buildUrl, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { AnyContract, Api, ApiNodeInfo, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, Manifest, ManifestRoute } from "./types";
+import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -93,25 +93,11 @@ class FetchFailed {
   constructor(readonly cause: unknown) {}
 }
 
-type TreeNode = Readonly<Record<string | symbol, unknown>>;
-
 /** One node of an API tree (`appApi.users`), as `createClient` takes it. */
-export type ApiNodeShape = { readonly [API_NODE]: ApiNodeInfo };
+export type ApiNodeShape = AnyApiNode;
 
-/** The `defineApi` root: each key is an API node whose own name is that key (`appApi.users` is named `"users"`). */
-export type ApiRootShape<A> = { readonly [K in keyof A]: K extends string ? { readonly [API_NODE]: ApiNodeInfo<K> } : never };
-
-const isApiNode = (value: unknown): value is TreeNode =>
-  typeof value === "object" && value !== null && typeof (value as TreeNode)[API_NODE] === "object";
-
-/**
- * The `defineApi` root, which carries no brand of its own: every value is an API node whose name is its key.
- * So a hand-made object (`{ posts: appApi.users.posts }`) is not a root.
- */
-const isApiRoot = (value: unknown): value is TreeNode =>
-  typeof value === "object" &&
-  value !== null &&
-  Object.entries(value).every(([key, node]) => isApiNode(node) && (node[API_NODE] as ApiNodeInfo).name === key);
+/** The `defineApi` root, told by its brand: a hand-made object (`{ posts: appApi.users.posts }`) is not one. */
+export type ApiRootShape = { readonly [API_ROOT]: true };
 
 const isManifestRoute = (value: unknown): value is ManifestRoute =>
   typeof value === "object" && value !== null && typeof (value as ManifestRoute).method === "string" && typeof (value as ManifestRoute).path === "string";
@@ -172,21 +158,44 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   return [absolute ? url.origin : "", url.pathname.replace(/\/+$/, "")];
 };
 
+/** A body on a GET or HEAD: fetch would refuse it, and that must not look like a network failure. */
+const assertNoGetBody = (method: string, hasBody: boolean, path: string): void => {
+  const upper = method.toUpperCase();
+  if (hasBody && (upper === "GET" || upper === "HEAD")) fail(`a ${upper} request cannot have a body: "${path}"`);
+};
+
+/**
+ * A call aborted before `fetch` (while the headers function or `onRequest` ran): the status-0 result fetch would give,
+ * without running the next step.
+ */
+const throwIfAborted = (signal: AbortSignal | null | undefined): void => {
+  if (signal?.aborted) throw new FetchFailed(signal.reason);
+};
+
+/** Whether the body was read or locked (a reader taken), so the client can't read it. */
+const bodyTaken = (response: Response): boolean => response.bodyUsed || !!response.body?.locked;
+
 /**
  * One request: the route path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
  * `buildUrl` only sees the route path; the result is then joined to `baseUrl`'s path with the server's `joinPath`, so
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
- * Headers: `options.headers`, overridden by the call's own `headers`; then `content-type: application/json` for a body
- * when neither sets one.
+ * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
+ * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given.
+ * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
+ * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
+ * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`
+ * once aborted.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
  * rejected promise is a `FetchFailed`, which the result union turns into `unexpected`.
- * `baseUrl`, `headers` and `fetch` are read from `options` at each call, so changing them (a refreshed token) applies.
+ * The options are read from `options` when each call starts, so changing one (a refreshed token) applies to the next
+ * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const [origin, basePath] = splitBaseUrl(options.baseUrl ?? "");
+  const { baseUrl, fetch: injected, headers: defaults, credentials, onRequest, onResponse } = options;
+  const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
   const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
@@ -194,39 +203,69 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
   if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
   const url = origin + pathname + (q < 0 ? "" : built.slice(q));
-  const headers = new Headers(options.headers);
-  for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) headers.set(key, value);
-  }
-  const init: RequestInit = { method: method.toUpperCase(), headers };
-  if (input.body !== undefined) {
-    // fetch would refuse it, and that must not look like a network failure
-    if (method === "get") fail(`a GET request cannot have a body: "${path}"`);
-    init.body = JSON.stringify(input.body);
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
-  }
-  if (input.signal) init.signal = input.signal;
-  let pending: () => Promise<Response>;
-  const injected = options.fetch;
+  assertNoGetBody(method, input.body !== undefined, path);
+  const body = input.body === undefined ? undefined : JSON.stringify(input.body);
+  let fetchFn: FetchLike;
   if (injected) {
     // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
-    pending = () => injected(url, init);
+    fetchFn = injected;
   } else {
-    const fetchFn = globalThis.fetch;
-    if (typeof fetchFn !== "function") fail("no fetch available: pass options.fetch");
+    const globalFetch = globalThis.fetch;
+    if (typeof globalFetch !== "function") fail("no fetch available: pass options.fetch");
     // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
     if (!origin && !resolvesInPage(url)) {
       fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
     }
-    pending = () => fetchFn(url, init);
+    fetchFn = globalFetch;
+  }
+  // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
+  const { signal } = input;
+  throwIfAborted(signal);
+  let headers: Headers;
+  if (typeof defaults === "function") {
+    headers = new Headers(await defaults());
+    throwIfAborted(signal);
+  } else {
+    headers = new Headers(defaults);
+  }
+  for (const [key, value] of Object.entries(input.headers ?? {})) {
+    if (value !== undefined) headers.set(key, value);
+  }
+  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
+  if (credentials !== undefined) init.credentials = credentials;
+  if (body !== undefined) {
+    init.body = body;
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  }
+  if (signal) init.signal = signal;
+  const request: ClientRequest = Object.freeze({ url, init });
+  if (onRequest) {
+    await onRequest(request);
+    // onRequest may have set a body or changed the method (fetch's default is GET)
+    assertNoGetBody(init.method ?? "GET", init.body != null, path);
+    throwIfAborted(init.signal);
   }
   // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
-  const response = pending();
+  const pending = fetchFn(url, init);
+  let response: Response;
   try {
-    return await response;
+    response = await pending;
   } catch (error) {
     throw new FetchFailed(error);
   }
+  if (onResponse) {
+    // an injected fetch may hand over a used body; only a body this hook used is its fault
+    const readable = !bodyTaken(response);
+    try {
+      await onResponse(response, request);
+    } catch (error) {
+      // the call rejects and nobody reads the body: release it
+      cancelBody(response);
+      throw error;
+    }
+    if (readable && bodyTaken(response)) fail("onResponse read the response body: read a response.clone() instead");
+  }
+  return response;
 };
 
 const unexpected = (status: number, error: unknown, response: Response | undefined, text?: string): Result =>
@@ -344,7 +383,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
  * An API node's names are relative to it: `appApi.users` → `"index"`, `"posts.update"`.
  */
 const pathsOf = (api: object): RouteSpec[] => {
-  const prefix = isApiNode(api) ? `${(api[API_NODE] as ApiNodeInfo).name}.` : "";
+  const prefix = isApiNode(api) ? `${api[API_NODE].name}.` : "";
   return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => {
     const { response, status } = r.endpoint.def;
     return {
@@ -381,12 +420,27 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
  */
 export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;
 /**
+ * The manifest client with the type of `options.headers` as the second type argument, since it is not inferred next
+ * to an explicit `AppApi`: `createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`.
+ * `options.headers` is then required, so the headers it names are sent.
+ */
+export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
+  manifest: Manifest,
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+): Client<T, ProvidedHeaders<Hd>>;
+/**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
  * like the server's `joinPath`, and its params are only its own.
  */
-export function createClient<C extends AnyContract>(contract: C, options?: ClientOptions): ClientOf<C>;
+export function createClient<C extends AnyContract, const Hd extends HeadersInit = HeadersInit>(
+  contract: C,
+  options?: ClientOptions<Hd>,
+): ClientOf<C, ProvidedHeaders<Hd>>;
 /** The typed client for one API node (`appApi.users`), named relative to it: `api.posts.update`. */
-export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOptions): ClientOf<N>;
+export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit = HeadersInit>(
+  node: N,
+  options?: ClientOptions<Hd>,
+): ClientOf<N, ProvidedHeaders<Hd>>;
 /**
  * The typed client for the generated `appApi` (`$api`). Names follow the folder tree (`api.users.posts.update(...)`)
  * and URLs are the contracts' full paths, so `baseUrl` is only the origin.
@@ -395,7 +449,10 @@ export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOp
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape<A>>(api: A, options?: ClientOptions): ClientOf<A>;
+export function createClient<A extends ApiRootShape, const Hd extends HeadersInit = HeadersInit>(
+  api: A,
+  options?: ClientOptions<Hd>,
+): ClientOf<A, ProvidedHeaders<Hd>>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
   const send = createSend(options);

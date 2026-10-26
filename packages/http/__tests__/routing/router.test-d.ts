@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Middleware, Route } from '../../src/index'
-import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, Ctx, EndpointKey, MountedContract, MountedScope } from '../../src/index'
+import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, Ctx, EndpointKey, EndpointRouteBuilder, MountedContract, MountedScope } from '../../src/index'
 
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
@@ -14,9 +14,9 @@ const users = defineContract()({ index: endpoint.get('/'), show: endpoint.get('/
 const posts = defineContract()({ index: endpoint.get('/'), store: endpoint.post('/') })
 const health = defineContract()({ check: endpoint.get('/') })
 const appApi = defineApi({
-  users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
-  'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] },
+  users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [{ scope: root, dir: '' }, { scope: usersUser, dir: 'users/[user]' }] },
+  'v1.health': { contract: health, path: '/api/v1/health', scopes: [] },
 })
 
 // The endpoints declare no response schema, so the handlers return nothing (the route proof checks it)
@@ -35,6 +35,13 @@ describe('reading the tree', () => {
 })
 
 describe('Route.api', () => {
+  test('takes the root that defineApi returns only, told by its brand (C10 #258)', () => {
+    // @ts-expect-error a hand-made object of the root's own nodes
+    Route.api({ users: appApi.users }, () => [])
+    // @ts-expect-error an API node
+    Route.api(appApi.users, () => [])
+  })
+
   test('every contract once, and a policy on the authorize scope', () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(users, UserController),
@@ -139,8 +146,8 @@ describe('Route.api', () => {
     const postsOnly = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
     const comments = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
     const twins = defineApi({
-      posts: { contract: postsOnly, path: '/api/posts', scopes: [], dirs: [] },
-      comments: { contract: comments, path: '/api/comments', scopes: [], dirs: [] },
+      posts: { contract: postsOnly, path: '/api/posts', scopes: [] },
+      comments: { contract: comments, path: '/api/comments', scopes: [] },
     })
     class Ctrl extends Controller { index() { return [] } }
     // @ts-expect-error Route.api: contract "posts" | "comments" has the type of another contract of the tree
@@ -157,7 +164,7 @@ describe('Route.api', () => {
   test('the error names the problem', () => {
     const a = defineContract()({ index: endpoint.get('/') })
     const b = defineContract()({ index: endpoint.get('/') })
-    const twins = defineApi({ a: { contract: a, path: '/a', scopes: [], dirs: [] }, b: { contract: b, path: '/b', scopes: [], dirs: [] } })
+    const twins = defineApi({ a: { contract: a, path: '/a', scopes: [] }, b: { contract: b, path: '/b', scopes: [] } })
     type Items = [MountedContract<typeof a>]
     expectTypeOf<CheckApiRoutes<typeof twins, Items>>().toEqualTypeOf<{
       error:
@@ -188,6 +195,36 @@ describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
       r.contract(appApi.users.posts, PostController, { endpoints: { store: (r) => r.middleware(Audit).middleware(Audit) } }),
       r.contract(health, HealthController, {}),
     ])
+  })
+
+  test('endpoints named after Object.prototype members take an inline map, with or without them', () => {
+    const odd = defineContract()({
+      toString: endpoint.get('/t'), valueOf: endpoint.get('/v'), hasOwnProperty: endpoint.get('/h'), isPrototypeOf: endpoint.get('/i'),
+      propertyIsEnumerable: endpoint.get('/p'), toLocaleString: endpoint.get('/l'), constructor: endpoint.get('/c'), index: endpoint.get('/'),
+    })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [] } })
+    class OddController extends Controller {
+      toString() {} valueOf() {} hasOwnProperty() {} isPrototypeOf() {} propertyIsEnumerable() {} toLocaleString() {} index() {}
+    }
+    const audit = (r: EndpointRouteBuilder) => r.middleware(Audit)
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, { endpoints: { index: (r) => r.middleware(Audit) } })])
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, { endpoints: { index: audit } })])
+    // `r` keeps its contextual type on every colliding key
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, {
+      endpoints: {
+        toString: (r) => r.middleware(Audit), valueOf: (r) => r.middleware(Audit), hasOwnProperty: (r) => r.middleware(Audit),
+        isPrototypeOf: (r) => r.middleware(Audit), propertyIsEnumerable: (r) => r.middleware(Audit),
+        toLocaleString: (r) => r.middleware(Audit), constructor: (r) => r.middleware(Audit),
+      },
+    })])
+    Route.api(oddApi, (r) => [
+      // @ts-expect-error the callback of a non-colliding key still returns the builder
+      r.contract(odd, OddController as never, { endpoints: { index: () => [Audit] } }),
+      // @ts-expect-error so does the callback of a colliding key whose Object.prototype member takes no parameter
+      r.contract(odd, OddController as never, { endpoints: { toString: () => [Audit] } }),
+      // @ts-expect-error a middleware class is not a callback
+      r.contract(odd, OddController as never, { endpoints: { valueOf: Audit } }),
+    ] as never)
   })
 
   test('an unknown endpoint, a callback that does not return the builder, or a policy that is not a class is an error', () => {

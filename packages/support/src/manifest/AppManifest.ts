@@ -35,7 +35,7 @@ export interface AppManifest {
   readonly error?: string;
   /**
    * Production only: where `sauf build`'s tsc emitted `app/`, relative to `dist/app.manifest.js` (`"app"` with
-   * `"rootDir": "."`, `""` for the 0.5 build rooted at `app/`). The deprecated `getAppPath()` resolves against it.
+   * `"rootDir": "."`, `""` for the 0.5 build rooted at `app/` on TypeScript 5, `"app"` on TypeScript 6). The deprecated `getAppPath()` resolves against it.
    */
   readonly appDir?: string;
 }

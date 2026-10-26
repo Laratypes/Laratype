@@ -1,4 +1,4 @@
-import { ConfigLoadServiceProvider, DateTimeServiceProvider, importModule, ServiceProvider, EnvLoadServiceProvider, AppServiceProvider, appManifest, loadDefault } from '@laratype/support';
+import { ConfigLoadServiceProvider, DateTimeServiceProvider, importModule, type ServiceProvider, EnvLoadServiceProvider, type AppServiceProvider, appManifest, loadDefault } from '@laratype/support';
 
 export async function register(onlyConfig: true): Promise<Array<typeof ServiceProvider>>;
 export async function register(onlyConfig?: false): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;

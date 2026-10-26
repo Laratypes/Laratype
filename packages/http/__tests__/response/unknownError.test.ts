@@ -65,7 +65,7 @@ describe('unknown errors', () => {
   it('a Route.api endpoint with a declared 201 still answers 500', async () => {
     quiet()
     const posts = defineContract()({ store: endpoint.post('/').response(anything, 201), ping: endpoint.get('/ping').status(204) })
-    const postsApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [], dirs: [] } })
+    const postsApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
     class Posts extends Controller {
       store() { throw new Error('secret detail') }
       ping() { throw new TypeError('secret detail') }

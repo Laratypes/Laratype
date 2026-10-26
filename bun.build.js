@@ -3,6 +3,7 @@ import path from "path";
 
 import merge from "deepmerge"
 import { entries } from "./scripts/alias.js";
+import { DI_RUNTIME_ID, laratypeDiBun } from "./packages/sauf/src/di/index.ts";
 
 // Bun.build metafiles, read by scripts/check-dist.mjs to detect inlined workspace packages.
 const META_DIR = path.resolve("./dist_tmp/bun-meta");
@@ -23,6 +24,16 @@ const packageExternals = (pkg) => [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.peerDependencies ?? {}),
 ];
+
+// The DI transform (T4 #116) imports its helper from @laratype/core, so it only runs on packages that depend on
+// it. @laratype/core itself is skipped: it would import itself.
+const usesDi = (pkg) => pkg.name !== DI_RUNTIME_ID && DI_RUNTIME_ID in (pkg.dependencies ?? {});
+
+// Forward slashes, and lower case on Windows, where Bun's paths and the cwd can differ in casing.
+const comparablePath = (file) => {
+  const normalized = file.replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+};
 
 const metaName = (task) => path.relative(process.cwd(), task.entrypoints[0])
   .replace(/[\\/]/g, "_")
@@ -46,6 +57,8 @@ const metaName = (task) => path.relative(process.cwd(), task.entrypoints[0])
       ...packageExternals(pkg),
     ];
 
+    const srcDir = `${comparablePath(path.resolve(pkgDir, "src"))}/`;
+
     // No `define` for globalThis.__PROD__ here: folding it into package dists disabled
     // the dev paths (sauf dev dist -> src rewrite, resolveModule). Production sets it at runtime.
     const baseConfigEsm = {
@@ -58,6 +71,8 @@ const metaName = (task) => path.relative(process.cwd(), task.entrypoints[0])
       splitting: true,
       minify: true,
       naming: "[dir]/[name].esm.[ext]",
+      // Own sources only: other workspace packages are externals.
+      plugins: usesDi(pkg) ? [laratypeDiBun({ include: (file) => comparablePath(file).startsWith(srcDir) })] : [],
     }
 
     const baseConfigCjs = {
