@@ -28,7 +28,7 @@ type IsAny<X> = 0 extends 1 & X ? true : false;
  * is a constraint, not a conditional on `V`: a conditional is deferred for a generic `V`, and `V & <deferred>` rejects
  * it. `any` satisfies every type, so it passes, as it does every other route check.
  */
-type ConcreteValue = object | string | number | boolean | bigint | symbol | null | undefined;
+type ConcreteValue = object | string | number | boolean | bigint | symbol | void | null | undefined;
 
 /**
  * The value, or no key at all when `condition` is false. The value is kept as it is (a function too): use a
@@ -89,11 +89,14 @@ const describe = (value: unknown): string =>
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   value != null && typeof (value as Iterable<unknown>)[Symbol.iterator] === "function";
 
+/** The `[@laratype/http]` prefix and the model name, in the one place this file builds them. */
+const failMessage = (model: ModelClass, message: string): string => `[@laratype/http] ${model.name}: ${message}`;
+
 /**
  * The keys `make` refuses, and why: a `toJSON` key makes JSON.stringify send its result instead of the mapped data the
  * contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` send the body as text/html.
  */
-const RESERVED_KEYS: ReadonlyMap<string, string> = new Map([
+const RESERVED_KEY_MESSAGES: ReadonlyMap<string, string> = new Map([
   ["toJSON", "the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data"],
   ["constructor", "the resource function must not return a constructor key: the body would be sent as text/html instead of JSON"],
 ]);
@@ -117,13 +120,13 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     const data: unknown = fn(instance);
     // A copy keeps own fields only: a class instance would lose its getters and send its private fields
     if (!isPlainObject(data)) {
-      throw new TypeError(`[@laratype/http] ${model.name}: the resource function must return a plain object, got ${describe(data)}`);
+      throw new TypeError(failMessage(model, `the resource function must return a plain object, got ${describe(data)}`));
     }
     const keys = Reflect.ownKeys(data).filter((key) => Object.prototype.propertyIsEnumerable.call(data, key));
     for (const key of keys) {
       if (typeof key !== "string") continue;
-      const message = RESERVED_KEYS.get(key);
-      if (message !== undefined) throw new TypeError(`[@laratype/http] ${model.name}: ${message}`);
+      const message = RESERVED_KEY_MESSAGES.get(key);
+      if (message !== undefined) throw new TypeError(failMessage(model, message));
     }
     // fromEntries defines own properties, so a `__proto__` key stays a key; own keys include symbol keys
     const entries = keys.map((key) => [key, data[key]] as const).filter(([, value]) => !isMissing(value));
@@ -135,10 +138,10 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     collection: (models: Iterable<InstanceType<M>>) => Array.from(models, make),
     paginate: <P extends { readonly data: Iterable<InstanceType<M>> }>(page: P) => {
       if (!isPlainObject(page)) {
-        throw new TypeError(`[@laratype/http] ${model.name}: paginate() takes a plain page object ({ data, ...meta }), got ${describe(page)}`);
+        throw new TypeError(failMessage(model, `paginate() takes a plain page object ({ data, ...meta }), got ${describe(page)}`));
       }
       if (!isIterable(page.data)) {
-        throw new TypeError(`[@laratype/http] ${model.name}: paginate() takes a page whose data holds the models, got data ${describe(page.data)}`);
+        throw new TypeError(failMessage(model, `paginate() takes a page whose data holds the models, got data ${describe(page.data)}`));
       }
       return { ...page, data: Array.from(page.data, make) } as unknown as ResourcePage<P, Out>;
     },

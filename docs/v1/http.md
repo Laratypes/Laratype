@@ -605,7 +605,7 @@ interface Resource<M, Out> {
 }
 
 function when<V extends ConcreteValue>(condition: boolean, value: V): V | MissingValue;   // the value as it is (a function too)
-type ConcreteValue;   // object | string | number | boolean | bigint | symbol | null | undefined: not exported, it refuses unknown and lets any through
+type ConcreteValue;   // object | string | number | boolean | bigint | symbol | void | null | undefined: not exported, it refuses unknown and lets any through
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue; one object per member of a union
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -618,7 +618,7 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
 - `make` copies the result's own enumerable keys into a new object, symbol keys included, and a `__proto__` key stays an own key. The resource object is frozen.
-- **Refused keys:** `make` throws on a top-level `toJSON` or `constructor` key instead of copying it. A `toJSON` key makes JSON.stringify send what it returns instead of the `Out` the contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` (`content.constructor === Object`) send the body as text/html. Only the data's own top-level keys are inspected: a nested `toJSON` stays the nested object's business, and `paginate` copies the page's other fields as they are.
+- **Refused keys:** `make` throws on a top-level `toJSON` or `constructor` key of the data `fn` returns, instead of copying it — a key that a `when()` would drop throws too, so the failure does not depend on data. A `toJSON` key makes JSON.stringify send what it returns instead of the `Out` the contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` (`content.constructor === Object`) send the body as text/html. Only the data's own enumerable top-level keys are inspected: a nested `toJSON` stays the nested object's business, and `paginate` copies the page's other fields as they are.
 
 ### Diagnostics
 - `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
@@ -626,6 +626,7 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - `[@laratype/http] <Model>: the resource function must not return a constructor key: the body would be sent as text/html instead of JSON`
 - `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
 - `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
+- A value typed `unknown` (or one with no concrete type): `Argument of type 'unknown' is not assignable to parameter of type 'ConcreteValue'` (`when()`).
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example

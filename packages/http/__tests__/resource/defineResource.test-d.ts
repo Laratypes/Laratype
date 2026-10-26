@@ -48,18 +48,21 @@ describe('the inferred output', () => {
   })
 
   test('when() accepts a generic value, whose constraint is concrete', () => {
-    const string_ = <T extends string>(t: T, condition: boolean) => when(condition, t)
-    const number_ = <T extends number>(t: T, condition: boolean) => when(condition, t)
-    const model = <T extends User>(t: T, condition: boolean) => when(condition, t)
+    const fromString = <T extends string>(t: T, condition: boolean) => when(condition, t)
+    const fromNumber = <T extends number>(t: T, condition: boolean) => when(condition, t)
+    const fromModel = <T extends User>(t: T, condition: boolean) => when(condition, t)
     const email: string = 'ada@example.com'
     const id: number = 1
-    expectTypeOf(string_(email, true)).toEqualTypeOf<string | MissingValue>()
-    expectTypeOf(number_(id, true)).toEqualTypeOf<number | MissingValue>()
-    expectTypeOf(model(user(), true)).toEqualTypeOf<User | MissingValue>()
+    expectTypeOf(fromString(email, true)).toEqualTypeOf<string | MissingValue>()
+    expectTypeOf(fromNumber(id, true)).toEqualTypeOf<number | MissingValue>()
+    expectTypeOf(fromModel(user(), true)).toEqualTypeOf<User | MissingValue>()
   })
 
-  test('when() does not refuse an any value, as no route check does; it is left to the runtime', () => {
+  test('when() does not refuse an any value, as no route check does; its key stays required', () => {
     expectTypeOf(when(true, {} as any)).toEqualTypeOf<any>()
+    const Any = defineResource(User, (user) => ({ id: user.id, extra: when(true, user as any) }))
+    expectTypeOf<ReturnType<typeof Any.make>>().toHaveProperty('extra')
+    expectTypeOf<ReturnType<typeof Any.make>['extra']>().toBeAny()
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {

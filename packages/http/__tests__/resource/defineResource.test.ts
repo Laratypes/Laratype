@@ -91,6 +91,13 @@ describe('defineResource', () => {
     )
   })
 
+  it('make refuses the key even when a when() would drop it: the check runs before the filter', () => {
+    const Dropped = defineResource(User, () => ({ id: 1, toJSON: when(false, () => ({ id: 0 })) }))
+    expect(() => Dropped.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a toJSON key',
+    )
+  })
+
   it('make leaves a nested toJSON to the nested object: only the top-level keys are checked', () => {
     const Nested = defineResource(User, (user) => ({ meta: { toJSON: () => ({ id: user.id }) } }))
     expect(JSON.parse(JSON.stringify(Nested.make(new User(1, 'ada'))))).toEqual({ meta: { id: 1 } })
