@@ -118,7 +118,7 @@ describe('a resource through Route.api', () => {
     legacy: endpoint.get('/legacy').response(anything),
     legacyCollection: endpoint.get('/legacy-collection').response(anything),
   })
-  const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
+  const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
   class UserController extends Controller {
     index() { return UserResource.paginate({ data: [new User(1, 'ada'), new User(2, 'bob', true)], total: 2 }) }

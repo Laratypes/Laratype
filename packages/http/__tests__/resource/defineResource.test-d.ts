@@ -130,7 +130,7 @@ const users = defineContract()({
   show: endpoint.get('/:id').response(UserDto),
   page: endpoint.get('/page').response(z.object({ data: z.array(UserDto), total: z.number() })),
 })
-const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
+const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
 class UserController extends Controller {
   index() { return UserResource.collection([] as User[]) }
