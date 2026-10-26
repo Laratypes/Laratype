@@ -1,6 +1,6 @@
 // D8 #115: Hash is a facade over the container binding of Hasher
-import { randomBytes, scryptSync } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import crypto from 'node:crypto'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Container, Facade } from '@laratype/core'
 import { Hash, Hasher } from '@laratype/support'
 
@@ -47,21 +47,32 @@ describe('Hasher', () => {
     expect(hasher.check('secret', null as any)).toBe(false)
   })
 
-  it('refuses a stored scrypt cost above its memory bound instead of running it', () => {
+  it('refuses a stored hash at another cost without running scrypt', () => {
     const [, , , salt, key] = hasher.make('secret').split('$')
-    const costly = `$scrypt$N=1048576,r=8,p=1$${salt}$${key}`
-    expect(hasher.check('secret', costly)).toBe(false)
-    expect(hasher.isHashed(costly)).toBe(false)
-    expect(hasher.check('secret', `$scrypt$N=1000,r=8,p=1$${salt}$${key}`)).toBe(false)
+    const spy = vi.spyOn(crypto, 'scryptSync')
+    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2']) {
+      const other = `$scrypt$${cost}$${salt}$${key}`
+      expect(hasher.check('secret', other)).toBe(false)
+      expect(hasher.isHashed(other)).toBe(false)
+      expect(hasher.needsRehash(other)).toBe(true)
+    }
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 
-  it('verifies a hash made with another scrypt cost, and asks for a rehash', () => {
-    const salt = randomBytes(16)
-    const key = scryptSync('secret', salt, 32, { N: 1024, r: 8, p: 1 })
-    const other = `$scrypt$N=1024,r=8,p=1$${salt.toString('base64')}$${key.toString('base64')}`
-    expect(hasher.check('secret', other)).toBe(true)
-    expect(hasher.check('other', other)).toBe(false)
-    expect(hasher.needsRehash(other)).toBe(true)
+  it('refuses a salt or key shorter than make() writes, without running scrypt', () => {
+    const [, , , salt, key] = hasher.make('secret').split('$')
+    const shortSalt = Buffer.from(salt, 'base64').subarray(0, 8).toString('base64')
+    const shortKey = Buffer.from(key, 'base64').subarray(0, 16).toString('base64')
+    const spy = vi.spyOn(crypto, 'scryptSync')
+    for (const [storedSalt, storedKey] of [[shortSalt, key], [salt, shortKey]]) {
+      const other = `$scrypt$N=16384,r=8,p=1$${storedSalt}$${storedKey}`
+      expect(hasher.check('secret', other)).toBe(false)
+      expect(hasher.isHashed(other)).toBe(false)
+      expect(hasher.needsRehash(other)).toBe(true)
+    }
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 
   it('tells a scrypt hash from a plain value', () => {

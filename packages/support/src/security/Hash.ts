@@ -5,7 +5,7 @@ import { Facade } from '@laratype/core';
 const COST = { N: 16384, r: 8, p: 1 } as const;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
-/** scrypt's memory cap; a stored hash may ask for at most half of it (128 * N * r bytes), so its cost stays bounded. */
+/** scrypt's memory cap for `make()` and `check()` (128 * N * r bytes). */
 const MAX_MEMORY = 256 * 1024 * 1024;
 
 const PREFIX = `$scrypt$N=${COST.N},r=${COST.r},p=${COST.p}$`;
@@ -17,12 +17,12 @@ const parse = (hashed: string) => {
   const match = SCRYPT_HASH.exec(hashed);
   if (!match) return undefined;
   const [N, r, p] = match.slice(1, 4).map(Number) as [number, number, number];
+  // make() has only ever written this cost and these lengths; anything else is not a stored hash it produced
+  if (N !== COST.N || r !== COST.r || p !== COST.p) return undefined;
   const salt = Buffer.from(match[4]!, 'base64');
   const key = Buffer.from(match[5]!, 'base64');
-  // N is a power of two above 1, as scrypt requires
-  const valid = N > 1 && (N & (N - 1)) === 0 && r > 0 && p > 0 && p <= 16 && 128 * N * r <= MAX_MEMORY / 2
-    && salt.length >= 8 && key.length >= 16;
-  return valid ? { N, r, p, salt, key } : undefined;
+  if (salt.length !== SALT_BYTES || key.length !== KEY_BYTES) return undefined;
+  return { N, r, p, salt, key };
 };
 
 /** The implementation behind the `Hash` facade: salted scrypt, stored as `$scrypt$N=<n>,r=<r>,p=<p>$<salt>$<key>` (base64). */
@@ -34,7 +34,7 @@ export class Hasher {
     return `${PREFIX}${salt.toString('base64')}$${key.toString('base64')}`;
   }
 
-  /** Whether `value` matches `hashed`: a scrypt hash from `make()`, or a 0.5 sha256 hash, so stored passwords keep working. */
+  /** Whether `value` matches `hashed`: a hash `make()` wrote, or a 0.5 sha256 hash, so stored passwords keep working. */
   public check(value: string, hashed: string): boolean {
     if (typeof value !== 'string' || typeof hashed !== 'string') return false;
     const scrypt = parse(hashed);
@@ -52,12 +52,12 @@ export class Hasher {
     return false;
   }
 
-  /** Whether `hashed` is not what `make()` gives today (a 0.5 sha256 hash, or another scrypt cost), so it should be replaced. */
+  /** Whether `hashed` is not what `make()` gives today (a 0.5 sha256 hash, or a hash at another cost), so it should be replaced. */
   public needsRehash(hashed: string): boolean {
-    return typeof hashed !== 'string' || !hashed.startsWith(PREFIX) || parse(hashed) === undefined;
+    return typeof hashed !== 'string' || parse(hashed) === undefined;
   }
 
-  /** Whether `value` is already a scrypt hash, which is stored as it is instead of being hashed again. */
+  /** Whether `value` is already a hash `make()` wrote, which is stored as it is instead of being hashed again. */
   public isHashed(value: string): boolean {
     return typeof value === 'string' && parse(value) !== undefined;
   }
