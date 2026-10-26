@@ -529,11 +529,48 @@ export interface EndpointShape { method: string; path: string; params: object; q
 export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? EndpointShape : ApiShape<A[K]> };
 ```
 
-[`packages/contract/src/json.ts`](../../packages/contract/src/json.ts) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107))
+[`json.ts` @ 74c8922](https://github.com/Laratypes/Laratype/blob/74c8922b63486edad9017b99a5591278b01b8427/packages/contract/src/json.ts#L1-L39) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107))
 
 ```ts
-// the wire type of a value after JSON.stringify + JSON.parse
-export type Jsonify<T> = /* abridged: see the file */;
+import type { Prettify } from "./path";
+
+type NotJson = undefined | symbol | ((...args: any[]) => unknown);
+
+/** An array item that JSON cannot hold becomes `null`, as `JSON.stringify` does. */
+type JsonItem<T> = T extends NotJson ? null : Jsonify<T>;
+
+/** A property JSON keeps: a string key whose value is not only `undefined`, functions or symbols. */
+type JsonKey<T, K extends keyof T> = K extends symbol ? never : [Exclude<T[K], undefined>] extends [NotJson] ? never : K;
+
+/**
+ * An object's wire type. `JSON.stringify` drops a property whose value is `undefined`, so a property that may be
+ * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire.
+ */
+type JsonObject<T> = Prettify<
+  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: Jsonify<T[K]> } & {
+    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: Jsonify<T[K]>;
+  }
+>;
+
+/**
+ * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
+ * `undefined` / functions / symbols are removed from unions and their properties dropped, a property that may be
+ * `undefined` is optional, `bigint` → `never`, `Map` / `Set` → `{}`. The server serializes a response schema's output
+ * with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ */
+export type Jsonify<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : T extends string | number | boolean | null
+      ? T
+      : T extends NotJson | bigint
+        ? never
+        : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+          ? {}
+          : T extends readonly unknown[]
+            ? { -readonly [K in keyof T]: JsonItem<T[K]> }
+            : JsonObject<T>;
 ```
 
 ### Invariants
