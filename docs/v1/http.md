@@ -459,10 +459,23 @@ export const isException: (value: unknown) => value is Exception;
 - **Logs:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx, contract errors aside. The `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)).
 - **0.5 request classes:** a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422 (`ValidationException`, `{ code: "VALIDATION", message, errors }`), listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500 ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation).
 
-### Design (non-binding)
-- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** the client narrows an error by its `code` ([client.md › Result union](./client.md#result-union)). The unknown-error 500 has no `code`, so the client classifies it as unexpected. A dev-mode detail view is out of scope for M1.
-- **Removed:** `fail()`, `ErrorReply` and the error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)). None of them exists in package code.
-- **Undeclared errors:** checked in dev and test → [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
+- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** the client narrows an error by its `code` ([client.md › Result union](./client.md#result-union)). The unknown-error 500 has no `code`, so the client classifies it as unexpected.
+
+### Diagnostics
+- The unknown-error body, and that of every non-contract 5xx: `{ "message": "Server Error" }`, with `Cache-Control: no-store`.
+- A contract error answers its own status with `{ code, ...body }`; the framework errors are the codes listed in Invariants (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`, `VALIDATION_ERROR`).
+- Logs: one `console.error` per reportable error or 5xx, contract errors aside (Invariants › Logs).
+
+### Example
+Runtime tests in `packages/http/__tests__/response/`: [`exceptionFilter.test.ts`](../../packages/http/__tests__/response/exceptionFilter.test.ts), `unknownError.test.ts`, `errorHeaders.test.ts` and `validationError.test.ts`.
+
+### Non-goals
+- No dev-mode error detail view in M1.
+- No `fail()`, `ErrorReply` or error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)): errors are thrown. None of them exists in package code.
+- The undeclared-error check in dev and test is a separate section: [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#108 Done when](https://github.com/Laratypes/Laratype/issues/108)

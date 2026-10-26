@@ -774,7 +774,7 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)).
 
 ### Public API
-[`packages/contract/src/errors.ts`](../../packages/contract/src/errors.ts)
+[`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
 
 ```ts
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
