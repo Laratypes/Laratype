@@ -495,6 +495,37 @@ describe('options and hooks', () => {
     expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
   })
 
+  it('sets redirect on every call from options.redirect, default "error"', async () => {
+    const { fetch } = fakeFetch()
+    await createClient(appApi, { fetch }).users.index()
+    await createClient(appApi, { fetch, redirect: 'follow' }).users.index()
+    await createClient(appApi, { fetch, redirect: 'manual' }).users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['error', 'follow', 'manual'])
+  })
+
+  it('onRequest setting request.init.redirect wins over options.redirect', async () => {
+    const { fetch } = fakeFetch()
+    const api = createClient(appApi, {
+      fetch,
+      redirect: 'error',
+      onRequest: ({ init }) => void (init.redirect = 'follow'),
+    })
+    await api.users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('follow')
+  })
+
+  it('reads redirect at each call: mutating the options takes effect on the next call', async () => {
+    const { fetch } = fakeFetch()
+    const options: ClientOptions = { fetch, redirect: 'follow' }
+    const api = createClient(appApi, options)
+    await api.users.index()
+    options.redirect = 'manual'
+    await api.users.index()
+    options.redirect = undefined
+    await api.users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'manual', 'error'])
+  })
+
   it('onRequest gets the url and the merged init just before fetch, and may change the init', async () => {
     const { fetch, calls } = fakeFetch()
     const controller = new AbortController()

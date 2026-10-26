@@ -223,7 +223,7 @@ switch (result.code) {
 - **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `ACCOUNT_LOCKED` are both 403), so `status` alone doesn't identify the error. `code` is `undefined` on the unexpected variant, so `switch (result.code)` covers it with `case undefined`.
 - **Unexpected** (`unexpected: true`), always with `response` except before the headers arrive:
   - a network failure or an abort before the headers arrive: `status: 0`, `response: undefined`, `error` is the thrown error;
-  - an opaque response from an injected `fetch` (`redirect: "manual"`, `mode: "no-cors"`): also `status: 0`, but with `response` set (`response.type` is `opaqueredirect` or `opaque`), so `response` tells it apart from a network failure;
+  - an opaque response (`redirect: "manual"` from [Options and hooks](#options-and-hooks), or `mode: "no-cors"`): also `status: 0`, but with `response` set (`response.type` is `opaqueredirect` or `opaque`), so `response` tells it apart from a network failure;
   - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
   - a 2xx other than the declared status, or an empty body where a response schema is declared;
   - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
@@ -263,6 +263,7 @@ export interface ClientOptions {
   fetch?: FetchLike;                                             // as in createClient
   headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
   credentials?: RequestCredentials;
+  redirect?: RequestRedirect;
   onRequest?: (request: ClientRequest) => void | Promise<void>;
   onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
 }
@@ -276,7 +277,7 @@ export interface ClientRequest {
 - **Live options:** every option is read from the options object when each call starts, as `baseUrl`, `headers` and `fetch` already are, so one call never mixes old and new options.
 - **Dynamic headers:** a `headers` function is called, and awaited, at each call (a fresh auth token). Its headers are the defaults: the call's own `headers` override them, then `content-type: application/json` is added for a body when neither sets one ([createClient](#createclient) › Call input).
 - **`credentials`:** set on every call's `RequestInit` when given; absent otherwise, so `fetch` keeps its default (`same-origin`).
-- **Redirects:** the client leaves redirects to `fetch` and sets no `redirect` mode. A Fetch-conforming `fetch` (the global one) follows them by default; on a cross-origin redirect it drops `authorization` but keeps other custom headers, and with `credentials: "include"` it may send the cookies the new origin has, subject to cookie policy (scope, `SameSite`). An injected `fetch` handles redirects its own way. A client that sends secrets in custom headers, or uses `"include"`, against a server that may redirect elsewhere should set `init.redirect = "error"` (or `"manual"`, whose opaque response is the status-0 [unexpected result](#result-union)) in `onRequest`.
+- **Redirects:** the client sets `init.redirect` on every call from `options.redirect`, default `"error"`, so a redirect makes `fetch` reject and the call resolves as the status-0 [unexpected result](#result-union). `"follow"` restores fetch's own default: a Fetch-conforming `fetch` (the global one) follows them, and on a cross-origin redirect it drops `authorization` but keeps other custom headers, and with `credentials: "include"` it may send the cookies the new origin has, subject to cookie policy (scope, `SameSite`). `"manual"` gives the opaque status-0 result with `response` set ([Result union](#result-union)). A per-call `init.redirect` set by `onRequest` still wins. An injected `fetch` may ignore the mode. This is a **breaking default** for v1 client users: before it, the client set no `redirect`, so `fetch` followed redirects.
 - **`AbortSignal`:** per call, `signal` in the call input ([createClient](#createclient) › Call input). There is no client-wide signal; `onRequest` can set `request.init.signal`.
 - **Custom `fetch`:** `options.fetch` ([createClient](#createclient) › Global `fetch` vs injected `fetch`).
 - **Order of a call:** build the URL and the JSON body → the checks that reject before sending (a missing param, a GET with a body, a body JSON cannot hold, no `fetch`, a relative URL outside a browser) → the `headers` function → `onRequest` → `fetch(url, init)` → `onResponse` → the [result union](#result-union). So neither the `headers` function nor `onRequest` is called for a request that is never sent.
@@ -290,7 +291,7 @@ export interface ClientRequest {
 - The error a `headers` function or a hook throws rejects the call as it is.
 - `[@laratype/client] a <METHOD> request cannot have a body: "<path>"` (the call rejects: `onRequest` put a body on a GET or HEAD)
 - `[@laratype/client] onResponse read the response body: read a response.clone() instead` (the call rejects)
-- Type-level (`packages/client/__tests__/client.test-d.ts`): a `headers` function that doesn't return `HeadersInit`, a `credentials` that isn't a `RequestCredentials`, and assigning `request.url` are type errors.
+- Type-level (`packages/client/__tests__/client.test-d.ts`): a `headers` function that doesn't return `HeadersInit`, a `credentials` that isn't a `RequestCredentials`, a `redirect` that isn't a `RequestRedirect`, and assigning `request.url` are type errors.
 
 ### Example
 [`examples/client/proposed/options-and-hooks.ts`](./examples/client/proposed/options-and-hooks.ts)

@@ -244,9 +244,16 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
-   * Redirects are followed, so set `init.redirect = "error"` in `onRequest` if a redirect must not carry them elsewhere.
+   * Redirects are not followed: `redirect` defaults to `"error"`, so a redirect rejects the call instead of carrying them
+   * elsewhere.
    */
   credentials?: RequestCredentials;
+  /**
+   * The `redirect` mode of every call. Default `"error"`: a redirect makes `fetch` reject, and the call resolves as the
+   * status-0 unexpected result. `"follow"` restores fetch's own default; `"manual"` gives an opaque status-0 result with
+   * `response` set. A per-call `init.redirect` set by `onRequest` wins.
+   */
+  redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
   onRequest?: (request: ClientRequest) => void | Promise<void>;
   /**
