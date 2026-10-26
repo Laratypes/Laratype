@@ -10,11 +10,12 @@ import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/con
 
 /**
  * The media type Hono's `validator('json')` reads as JSON: `application/json` and `application/*+json`, with any
- * parameters (`; charset=utf-8`). Hono's regex, which it does not export, with digits in the vendor prefix too
- * (`application/vnd.github.v3+json`, H26 #287) and the `i` flag: media types are case-insensitive (RFC 9110 §8.3.1),
- * so `Application/JSON` is JSON too.
+ * parameters (`; charset=utf-8`), the OWS RFC 9110 §8.3.1 allows before the `;` (`application/json ; charset=utf-8`)
+ * included. Hono's regex, which it does not export, with digits and `_` in the vendor subtype too
+ * (`application/vnd.github.v3+json`, H26 #287; `application/vnd.my_app+json`, RFC 6838) and the `i` flag: media types
+ * are case-insensitive (RFC 9110 §8.3.1), so `Application/JSON` is JSON too.
  */
-const JSON_MEDIA_TYPE = /^application\/([a-z0-9.-]+\+)?json(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
+const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
 
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
@@ -22,19 +23,82 @@ export const isJsonMediaType = (contentType: string | undefined): boolean =>
 /** A bad request as Hono's `validator()` answers it, with a JSON body like the other error responses. */
 const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ message }, { status: 400 }) });
 
+/** A blank byte of a form body: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
+ * tells Unicode whitespace from data, so only these count. */
+const isBlankByte = (byte: number): boolean => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d);
+
+/**
+ * The body of a form request: `first`, the chunk a peek read, then `rest`. A form body may be an upload, so the peek
+ * keeps no more than that one chunk in memory (Hono's `bodyLimit` hands its request a stream the same way).
+ */
+const bodyWithFirstChunk = (first: Uint8Array, rest: ReadableStreamDefaultReader<Uint8Array>): ReadableStream<Uint8Array> =>
+  new ReadableStream({
+    start(controller) {
+      controller.enqueue(first);
+    },
+    async pull(controller) {
+      const { done, value } = await rest.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return rest.cancel(reason);
+    },
+  });
+
+/**
+ * The request to read the form body from, or `undefined` when the body is empty or whitespace only, the form types'
+ * answer to the JSON path's: `formData()` rejects an empty `multipart/form-data` body, yet a client may send its form
+ * Content-Type on a GET or a DELETE with no body. Reads only the leading blank bytes, then gives `request.raw` the
+ * whole body back as a stream, for `parseBody()` after it.
+ */
+const formBodyRequest = async (request: HonoRequest): Promise<HonoRequest | undefined> => {
+  if (request.raw.body === null) return undefined;
+  const reader = request.raw.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return undefined;
+    if (value.every(isBlankByte)) continue;
+    const init: RequestInit & { duplex: "half" } = { body: bodyWithFirstChunk(value, reader), duplex: "half" };
+    request.raw = new Request(request.raw, init);
+    return request;
+  }
+};
+
+/** The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. */
+const isFormMediaType = (contentType: string | undefined): boolean =>
+  contentType !== undefined && (contentType.startsWith("multipart/form-data") || contentType.startsWith("application/x-www-form-urlencoded"));
+
+/**
+ * The form body, as `parseBody()` reads it. Only a body `formData()` rejects is the client's fault, the 400: a missing
+ * or bad multipart boundary, a truncated part. Everything else is rethrown: Hono's `bodyLimit` (4.9.6) errors the
+ * stream with its own `BodyLimitError`, which has to reach the middleware's handler for the 413, and a body the server
+ * already read or is reading another way is a server bug, the generic 500 (`bodyUsed`, a stream still locked, or an
+ * error that is no `TypeError`).
+ */
+const readFormBody = async (request: HonoRequest): Promise<unknown> => {
+  if (!isFormMediaType(request.header("Content-Type"))) return {};
+  // Tested before the parse: `parseBody()` marks the body used too, and a body it read as a malformed one is still a 400
+  if (request.raw.bodyUsed) throw new TypeError("the request body was already read, so the pipeline cannot parse it");
+  const bodyLocked = request.raw.body?.locked ?? false;
+  try {
+    const readable = await formBodyRequest(request);
+    return readable ? await readable.parseBody({ dot: true }) : {};
+  } catch (error) {
+    if (bodyLocked || !(error instanceof TypeError)) throw error;
+    throw badRequest("Malformed form data in request body.");
+  }
+};
+
 /**
  * The request body: JSON for a JSON media type, else the form fields `parseBody()` reads (`multipart/form-data` and
- * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty JSON body is no body, `{}` as for
- * the other types (a client may send its JSON Content-Type on a GET); a malformed one is a 400, and so is a form body
- * `parseBody()` rejects (a missing or bad multipart boundary).
+ * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty body is no body, `{}` for the JSON
+ * and the form types alike (a client may send its Content-Type on a GET); a malformed one is a 400, and so is a form
+ * body `parseBody()` rejects (a missing or bad multipart boundary).
  */
 export const readBody = async (request: HonoRequest): Promise<unknown> => {
   if (!isJsonMediaType(request.header("Content-Type"))) {
-    try {
-      return await request.parseBody({ dot: true });
-    } catch {
-      throw badRequest("Malformed form data in request body.");
-    }
+    return readFormBody(request);
   }
   const text = await request.text();
   if (text.trim() === "") return {};
@@ -54,6 +118,9 @@ export const readQuery = (request: HonoRequest): Record<string, string | string[
 
 /** The fields of zod and valibot issues that hold submitted data. */
 type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
+
+/** An issue's message, and whether cutting the submitted data out of it shortened it. */
+type IssueMessage = { readonly message: string; readonly cut: boolean };
 
 const RECEIVED = "received ";
 
@@ -94,26 +161,31 @@ const receivedAt = (message: string, received: string): number => {
  * last: zod 3 and valibot end with the word `received` and the issue's `received`, in any case (`Invalid enum
  * value. Expected 'a' | 'b', received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email:
  * Received "a@b"`), cut with the separators before it; zod's unrecognized keys follow the first `": "`. A zod
- * `invalid_type` keeps its `received`, a type name. Any other message is kept as it is. `publicIssue` turns a
- * message with nothing left into `Invalid value`.
+ * `invalid_type` keeps its `received`, a type name. Any other message, the app's own included, is kept as it is.
+ * `cut` tells whether a cut left nothing (`publicIssue` turns that into `Invalid value`), so a message the app wrote
+ * empty is kept empty.
  */
-const issueMessage = (issue: LibraryIssue): string => {
+const issueMessage = (issue: LibraryIssue): IssueMessage => {
   const { message, code, received, keys } = issue;
   if (Array.isArray(keys) && keys.length > 0) {
     const at = message.indexOf(": ");
-    if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return message.slice(0, at);
+    if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
   }
-  if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return message;
+  if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return { message, cut: false };
   const at = receivedAt(message, String(received));
-  return at === -1 ? message : trimSeparators(message.slice(0, at));
+  return at === -1 ? { message, cut: false } : { message: trimSeparators(message.slice(0, at)), cut: true };
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
-export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; message: string } => ({
-  path: issuePath(issue),
-  // A message that was only the submitted data (`Received "x"`, `: a`) has nothing left: a generic one, never the data
-  message: issueMessage(issue) || "Invalid value",
-});
+export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; message: string } => {
+  const { message, cut } = issueMessage(issue);
+  return {
+    path: issuePath(issue),
+    // A message a cut left with nothing (`Received "x"`, `: a`, `" : a"`) has only the data to show: a generic one. A
+    // message the app wrote, empty or whitespace-only, is not cut, and is kept as it is
+    message: cut && message.trim() === "" ? "Invalid value" : message,
+  };
+};
 
 /**
  * The 422 of a contract route, `{ code: "VALIDATION_ERROR", message, errors }` (docs/v1/http.md › Exceptions), as a

@@ -3,6 +3,8 @@
 import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
+import type { MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import * as v from 'valibot'
 import { Container, depsRegistry } from '@laratype/core'
@@ -107,6 +109,13 @@ describe('a contract route', () => {
     expect(await response.json()).toEqual({ query: { page: 2 } })
   })
 
+  it('a GET with a multipart Content-Type and no body is no body, not a 400', async () => {
+    quiet()
+    const response = await app().request('/api/users/7/posts/42', { headers: { 'Content-Type': 'multipart/form-data; boundary=x' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ params: { user: '7', post: '42' }, query: null, body: null })
+  })
+
   it('a 422 message never repeats the submitted value', async () => {
     quiet()
     const response = await app().request('/api/users/7/posts?draft=s3cr3t', json({ title: 'Hi' }))
@@ -174,6 +183,11 @@ describe('a contract route', () => {
     [{ message: 'Expected abut received 5', received: 5 }, 'Expected abut'],
     // unrecognized keys with nothing before them
     [{ message: ': a', keys: ['a'] }, 'Invalid value'],
+    // ... and with blank separators before them
+    [{ message: ' : a', keys: ['a'] }, 'Invalid value'],
+    // a message the app wrote is kept as it is, empty or whitespace-only included
+    [{ message: '', code: 'custom' }, ''],
+    [{ message: '   ', code: 'custom' }, '   '],
   ])('cuts the received value of %o', async (issue, message) => {
     quiet()
     const schema = { '~standard': { version: 1, vendor: 'other', validate: () => ({ issues: [{ ...issue, path: ['email'] }] }) } } as const
@@ -217,21 +231,25 @@ describe('a contract route', () => {
 
 describe('the body by media type (H26 #287)', () => {
   /** A 0.5 route whose request class validates `{ name }`: what reaches the controller and `validated()`. */
-  const serve = () => {
+  const serve = (...middleware: MiddlewareHandler[]) => {
     let validated: unknown
     class NameRequest extends LaratypeRequest { rules() { return z.object({ name: z.string(), user: z.object({ age: z.string() }).optional() }) } }
     class Users extends Controller { store(req: NameRequest) { validated = req.validated(); return { ok: true } } }
     const app = bootApp()
-    app.post('/users', RequestKernel.handle({ method: 'post', path: '/users', request: NameRequest, controller: [Users, 'store'] }))
+    app.post('/users', ...middleware, RequestKernel.handle({ method: 'post', path: '/users', request: NameRequest, controller: [Users, 'store'] }))
     return { app, validated: () => validated }
   }
 
   it.each([
     'application/json; charset=utf-8',
     'application/json;charset=UTF-8',
+    // OWS before the `;`, as RFC 9110 §8.3.1 allows
+    'application/json ; charset=utf-8',
     'application/vnd.api+json',
     // a digit in the vendor prefix: Hono's own regex misses it (#287)
     'application/vnd.github.v3+json',
+    // `_` in the vendor subtype (RFC 6838)
+    'application/vnd.my_app+json',
     'Application/JSON',
   ])('reads %s as JSON, up to the controller and validated()', async (contentType) => {
     quiet()
@@ -286,6 +304,57 @@ describe('the body by media type (H26 #287)', () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ message: 'Malformed form data in request body.' })
     expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('an empty or whitespace-only form body is no body, {}, as for JSON', async () => {
+    quiet()
+    // `formData()` rejects an empty multipart body, so a GET or a DELETE that sends its form Content-Type with no body
+    // would fail before any middleware: `{}` is what the JSON path answers for an empty body
+    const empty = defineContract()({ store: endpoint.post('/').body(z.object({})).response(z.unknown(), 201) })
+    class Empty { store(ctx: Ctx<typeof empty.store>) { return { body: ctx.body } } }
+    const app = bootApp()
+    Route.api(defineApi({ empty: { contract: empty, path: '/empty', scopes: [] } }), (r) => [r.contract(empty, Empty)]).mount(app)
+    for (const body of [undefined, '', '  \r\n']) {
+      const response = await app.request('/empty', { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=x' }, body })
+      expect(response.status).toBe(201)
+      expect(await response.json()).toEqual({ body: {} })
+    }
+  })
+
+  it('a body over bodyLimit answers 413, a streamed multipart one and a streamed JSON one alike', async () => {
+    quiet()
+    const { app } = serve(bodyLimit({ maxSize: 256 }))
+    // No Content-Length: `bodyLimit` reads the stream, which it errors with its own `BodyLimitError`, and `parseBody()`
+    // sees that error too. It is no malformed body: it has to reach `bodyLimit`'s handler, the 413
+    const chunked = (text: string) => new ReadableStream<Uint8Array>({
+      start(controller) {
+        const bytes = new TextEncoder().encode(text)
+        for (let at = 0; at < bytes.length; at += 32) controller.enqueue(bytes.slice(at, at + 32))
+        controller.close()
+      },
+    })
+    const over = (contentType: string, text: string) => {
+      const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers: { 'Content-Type': contentType }, body: chunked(text), duplex: 'half' }
+      return init
+    }
+    const multipart = `--x\r\nContent-Disposition: form-data; name="name"\r\n\r\n${'a'.repeat(512)}\r\n--x--\r\n`
+    const form = await app.request('/users', over('multipart/form-data; boundary=x', multipart))
+    expect(form.status).toBe(413)
+    const body = await app.request('/users', over('application/json', JSON.stringify({ name: 'a'.repeat(512) })))
+    expect(body.status).toBe(413)
+    expect(await form.text()).toBe(await body.text())
+  })
+
+  it('a body read before the pipeline is a server bug: 500, not a 400', async () => {
+    const errors = quiet()
+    // An earlier middleware consumed the body: the pipeline has nothing to parse, and a 400 would blame the client for it
+    const { app } = serve(async (c, next) => { await c.req.raw.text(); await next() })
+    const form = new FormData()
+    form.append('name', 'ada')
+    const response = await app.request('/users', { method: 'POST', body: form })
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ message: 'Server Error' })
+    expect(errors).toHaveBeenCalled()
   })
 })
 
