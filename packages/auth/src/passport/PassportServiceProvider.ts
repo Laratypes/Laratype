@@ -88,7 +88,7 @@ export default class PassportServiceProvider extends ServiceProvider {
         return res;
       }
       cb(null, false, { message: 'Incorrect username or password.' });
-    })
+    }, (err: unknown) => cb(err, false))
   }
 
   public async boot() {

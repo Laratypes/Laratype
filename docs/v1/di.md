@@ -571,8 +571,13 @@ export class Container {
 }
 
 // @laratype/support
-export class Hasher { make(value: string): string }                 // sha256, as in 0.5
-export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
+export class Hasher {
+  make(value: string): string;                                       // salted scrypt: $scrypt$N=16384,r=8,p=1$<salt>$<key> (base64)
+  check(value: string, hashed: string): boolean;                     // a make() hash, or a 0.5 sha256 hash
+  needsRehash(hashed: string): boolean;                              // true for a 0.5 hash or another scrypt cost
+  isHashed(value: string): boolean;                                  // a scrypt hash, stored as is by Model
+}
+export class Hash extends Facade { static readonly accessor: typeof Hasher; /* the same methods, static */ }
 
 // @laratype/log
 export class LogManager {
@@ -608,6 +613,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthManager;
 - The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
 - The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).
+- `Hasher.make()` salts every hash (scrypt, a random 16-byte salt), so a password hash can't be matched in a query: `Model.findOneBy()` no longer hashes a `password` key, and the auth login looks the user up by its other fields, then calls `Hash.check()`. `check()` also accepts a 0.5 sha256 hash, and a successful login replaces it (`needsRehash()`). `Model.save()` / `update()` / `updateFor()` hash a `password` value unless it is already a scrypt hash (`isHashed()`). `check()` refuses a stored scrypt cost above 128 MiB.
 - **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. It does nothing when the token was bound again after the swap. Restore functions run in reverse order.
 - **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor. A fake lives in the container that was the facade application when it was made: fake after the app container is set.
 - A swap changes what the next `make()` returns. A singleton that resolved the token earlier, or while it was swapped, keeps the instance it got.

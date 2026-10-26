@@ -5,7 +5,8 @@ const cast = (input: Record<string, any>) => {
   const result: Record<string, any> = {};
   for (const key in input) {
     result[key] = input[key];
-    if (key === 'password') {
+    // A value that is already a hash (a loaded model saved again) is stored as it is
+    if (key === 'password' && !Hash.isHashed(input[key])) {
       result[key] = Hash.make(input[key]);
     }
   }
@@ -86,7 +87,8 @@ export default class Model extends BaseEntity {
       new (): T;
   } & typeof BaseEntity, where: FindOptionsWhere<T>): any;
   
+  // Not cast: a salted password hash never matches in a where clause; check it with Hash.check() after the lookup
   static findOneBy(where: any) {
-    return super.findOneBy(cast(where));
+    return super.findOneBy(where);
   }
 }

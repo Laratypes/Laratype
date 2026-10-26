@@ -26,7 +26,7 @@ class Bcrypt extends Hasher {
 app.bind(Hasher, Bcrypt)
 
 // Tests: swap the binding in the app, or fake it through the facade. Both return a restore function.
-const restoreHash = app.swap(Hasher, { make: value => `swapped:${value}` })
+const restoreHash = app.swap(Hasher, new Bcrypt())
 const restoreTime = Time.fake({ now: () => 0 })
 restoreTime()
 restoreHash()
