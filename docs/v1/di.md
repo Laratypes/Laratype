@@ -573,7 +573,7 @@ export class Container {
 // @laratype/support
 export class Hasher {
   make(value: string): string;                                       // salted scrypt: $scrypt$N=16384,r=8,p=1$<salt>$<key> (base64)
-  check(value: string, hashed: string): boolean;                     // a make() hash, or a 0.5 sha256 hash
+  check(value: string, hashed: string): boolean;                     // a make() hash at any valid scrypt cost, or a 0.5 sha256 hash
   needsRehash(hashed: string): boolean;                              // true for a 0.5 hash or another scrypt cost
   isHashed(value: string): boolean;                                  // a scrypt hash, stored as is by Model
 }
