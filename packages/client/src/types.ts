@@ -1,5 +1,8 @@
 import type { ApiTypes, EndpointShape, Jsonify, Prettify } from "@laratype/contract";
 
+/** What `JSON.stringify` drops from an object or sends as `null` in an array; the same set as `Jsonify` in @laratype/contract. */
+type NotJson = undefined | symbol | ((...args: any[]) => unknown);
+
 /**
  * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
  * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string; a
