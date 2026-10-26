@@ -9,16 +9,16 @@ import { GuardStore } from '../src/support/GuardStore'
 /** sha256('secret'), the 0.5 format. */
 const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b'
 
-type Row = { id: number; email: string; password: string }
+type Row = { id: number; [key: string]: any }
 
 /** The slice of a typeorm Model that login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { select = false } = {}) => {
+const fakeModel = (rows: Row[], { column = 'password', select = false } = {}) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
   class User {
     static getRepository() {
       return {
         metadata: {
-          findColumnWithPropertyName: (name: string) => (name === 'password' ? { propertyPath: 'password', isSelect: select } : undefined),
+          findColumnWithPropertyName: (name: string) => (name === column ? { propertyPath: column, isSelect: select } : undefined),
         },
         update: async (id: number, data: Partial<Row>) => {
           calls.update.push([id, data])
@@ -100,6 +100,16 @@ describe('Authentication.login', () => {
     expect(calls.update).toEqual([])
   })
 
+  it('returns the new hash when it rehashes a selectable password column', async () => {
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, { select: true })
+    const user: any = await Authentication.login(guardOf(User), { email: 'old@example.com', password: 'secret' })
+    expect(calls.update).toHaveLength(1)
+    expect(user.password).toBe(rows[0]!.password)
+    expect(Hash.isHashed(user.password)).toBe(true)
+    expect(Hash.check('secret', user.password)).toBe(true)
+  })
+
   it('never queries without a password or a lookup field', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await Authentication.login(guardOf(User), { email: 'ada@example.com' })).toBeNull()
@@ -107,6 +117,15 @@ describe('Authentication.login', () => {
     expect(await Authentication.login(guardOf(User), { email: undefined, password: 'secret' })).toBeNull()
     expect(await Authentication.login(guardOf(User), { email: 'ada@example.com', password: 42 })).toBeNull()
     expect(calls.where).toEqual([])
+  })
+
+  it('logs in through a guard passwordField that is not "password"', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', pass: Hash.make('secret') }], { column: 'pass' })
+    const guard = guardOf(User, { usernameField: 'email', passwordField: 'pass' })
+    const user = await Authentication.login(guard, { email: 'ada@example.com', pass: 'secret' })
+    expect(user).toEqual({ id: 1, email: 'ada@example.com' })
+    expect(calls.where).toEqual([{ email: 'ada@example.com' }])
+    expect(calls.addSelect).toEqual(['user.pass'])
   })
 
   it('reads the password under the guard passwordField', async () => {

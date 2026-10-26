@@ -37,7 +37,9 @@ export default class Authentication {
     if (!column.isSelect) delete user[passwordField]
     if (!Hash.check(password, hashed)) return null
     if (Hash.needsRehash(hashed)) {
-      await model.getRepository().update(model.getId(user), { [passwordField]: Hash.make(password) })
+      const rehashed = Hash.make(password)
+      await model.getRepository().update(model.getId(user), { [passwordField]: rehashed })
+      if (column.isSelect) user[passwordField] = rehashed
     }
     return user
   }
