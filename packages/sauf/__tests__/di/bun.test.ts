@@ -123,7 +123,8 @@ describe('framework classes resolved by the container from dist/', () => {
 
 // A framework base class carries its own entry in `dist/` too: `@laratype/http`'s `Controller` is registered with `[]`.
 // An app subclass with its own constructor and no metadata (`sauf build` runs no transform yet, B2 #126) must fail
-// closed rather than be built with the base class's arguments.
+// closed rather than be built with the base class's arguments. The result also pins the base entry, so the test cannot
+// pass just because a missing entry throws the same error.
 const refuseUnregisteredSubclass = (load: string) => `
   ${load}
   class UserController extends Controller {
@@ -137,18 +138,24 @@ const refuseUnregisteredSubclass = (load: string) => `
     container.make(UserController);
     console.log(JSON.stringify({ threw: false }));
   } catch (error) {
-    console.log(JSON.stringify({ threw: true, name: error.name, message: error.message.split(" Fix:")[0] }));
+    console.log(JSON.stringify({
+      threw: true,
+      name: error.name,
+      message: error.message.split(" Fix:")[0],
+      baseOwnDeps: hasOwnDeps(Controller),
+      baseSlots: getDeps(Controller).entry.slots.length,
+    }));
   }
 `;
 
 describe('an untransformed subclass fails closed from dist/', () => {
   it.each([
     ['ESM', ['--input-type=module'], `
-      import { Container, depsRegistry } from "@laratype/core";
+      import { Container, depsRegistry, getDeps, hasOwnDeps } from "@laratype/core";
       import { Controller } from "@laratype/http";
     `],
     ['CJS', [], `
-      const { Container, depsRegistry } = require("@laratype/core");
+      const { Container, depsRegistry, getDeps, hasOwnDeps } = require("@laratype/core");
       const { Controller } = require("@laratype/http");
     `],
   ])('%s: refuses to autowire a subclass of @laratype/http Controller with no metadata', (_, args, load) => {
@@ -157,6 +164,8 @@ describe('an untransformed subclass fails closed from dist/', () => {
       threw: true,
       name: 'DiError',
       message: 'Cannot autowire UserController: its constructor takes 1 param(s) but no dependency metadata was found.',
+      baseOwnDeps: true,
+      baseSlots: 0,
     });
   }, 30_000);
 });
