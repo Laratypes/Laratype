@@ -1,7 +1,9 @@
-// Type tests for createClient (CL1 #109), the result union (CL2 #110) and the options (CL3 #124), inferred from the generated appApi.
+// Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
+import * as z from 'zod'
 import { createClient } from '@laratype/client'
-import type { Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import { defineContract, endpoint } from '@laratype/contract'
 import type { ApiTypes } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
@@ -187,6 +189,141 @@ describe('wire type of the response (Jsonify)', () => {
       response: { a: string; b: string | undefined; c?: number; d: undefined; e: () => void; f: Date | undefined; g: Record<string, boolean> }
     }>
     expectTypeOf<Wire>().toEqualTypeOf<{ a: string; b?: string; c?: number; f?: string; g: Record<string, boolean> }>()
+  })
+})
+
+describe('JSON-safe request input (#255)', () => {
+  type Shape<Body, Query = undefined> = {
+    method: 'post'; path: '/'; params: {}; query: Query; body: Body; headers: undefined
+    response: undefined; status: 204; errors: never
+  }
+
+  test('body: what JSON carries; a Date is passed as itself or its ISO string', () => {
+    type Body = CallInput<Shape<{
+      at: Date; n: number; tags: Date[]; pair: [Date, string]; nested: { d?: Date; s: string | null }; any: unknown
+    }>>['body']
+    expectTypeOf<Body>().toEqualTypeOf<{
+      at: Date | string; n: number; tags: (Date | string)[]; pair: [Date | string, string]; nested: { d?: Date | string; s: string | null }; any: unknown
+    }>()
+  })
+
+  test('body: a value JSON cannot carry is never, so the call is a type error', () => {
+    type Body = CallInput<Shape<{ big: bigint; map: Map<string, string>; set: Set<string>; fn: () => void; maybe?: bigint; items: (string | undefined)[] }>>['body']
+    // an undefined array item is sent as null
+    expectTypeOf<Body>().toEqualTypeOf<{ big: never; map: never; set: never; fn: never; maybe?: undefined; items: string[] }>()
+  })
+
+  test('body: an object whose toJSON returns a value JSON cannot carry is never, since JSON.stringify throws', () => {
+    type Body = CallInput<Shape<{ at: { toJSON(): bigint } }>>['body']
+    expectTypeOf<Body>().toEqualTypeOf<{ at: never }>()
+  })
+
+  test('query: a Date is passed as itself or its ISO string, as buildUrl sends it; the rest is the schema input', () => {
+    type Query = CallInput<Shape<undefined, { from?: Date; days: Date[]; big: bigint; page?: number }>>['query']
+    expectTypeOf<Query>().toEqualTypeOf<{ from?: Date | string; days: (Date | string)[]; big: bigint; page?: number }>()
+  })
+
+  test('a contract whose date field coerces: the call takes a Date or an ISO string, not a number', () => {
+    const events = defineContract()({
+      store: endpoint.post('/api/events').body(z.object({ at: z.coerce.date(), name: z.string() })).query(z.object({ since: z.coerce.date().optional() })),
+      big: endpoint.post('/api/big').body(z.object({ n: z.bigint() })),
+    })
+    const client = createClient(events)
+    void client.store({ body: { at: new Date(), name: 'launch' }, query: { since: new Date() } })
+    void client.store({ body: { at: '2026-10-22T10:00:00.000Z', name: 'launch' }, query: { since: '2026-10-01' } })
+    // @ts-expect-error a number is not a Date or its JSON form
+    void client.store({ body: { at: 1, name: 'launch' } })
+    // @ts-expect-error JSON cannot carry a bigint (JSON.stringify throws)
+    void client.big({ body: { n: 1n } })
+  })
+
+  test('a body JSON cannot carry at all is never and stays required, so the call is a type error', () => {
+    const maps = defineContract()({ store: endpoint.post('/api/maps').body(z.map(z.string(), z.string())) })
+    const client = createClient(maps)
+    expectTypeOf<Parameters<typeof client.store>>().toEqualTypeOf<[input: { body: never; headers?: HeaderValues; signal?: AbortSignal }]>()
+    // @ts-expect-error the body can't be left out
+    void client.store()
+  })
+})
+
+describe('headers that options.headers provides (#255)', () => {
+  test('are optional in the call; the others stay required', () => {
+    const provided = createClient(appApi, { headers: { 'x-tenant': 't1', authorization: 'Bearer t' } })
+    expectTypeOf<Parameters<typeof provided.users.store>[0]['headers']>().toEqualTypeOf<({ 'x-tenant'?: string } & HeaderValues) | undefined>()
+    void provided.users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+    void provided.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't2' } })
+    // header names are case-insensitive
+    void createClient(appApi, { headers: { 'X-Tenant': 't1' } }).users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+    // an API node and a contract too
+    void createClient(appApi.users, { headers: { 'x-tenant': 't1' } }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+    void createClient(usersContract, { headers: { 'x-tenant': 't1' } }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+    // other headers leave it required
+    // @ts-expect-error x-tenant is still required
+    void createClient(appApi, { headers: { authorization: 'Bearer t' } }).users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+  })
+
+  test('only the literal names an object always sends: a Headers, an array or a Record<string, string> provides none', () => {
+    const record: Record<string, string> = { 'x-tenant': 't1' }
+    expectTypeOf(createClient(appApi, { headers: record })).toEqualTypeOf(api)
+    const pattern: Record<`x-${string}`, string> = {}
+    expectTypeOf(createClient(appApi, { headers: pattern })).toEqualTypeOf(api)
+    // a key that may be missing: optional, or in only one member of a union
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant'?: string; authorization: string }>>().toEqualTypeOf<{ authorization: string }>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { authorization: string }>>().toEqualTypeOf<{}>()
+    expectTypeOf<ProvidedHeaders<{ 'x-tenant': string } | { 'x-tenant': string; authorization: string }>>().toEqualTypeOf<{ 'x-tenant': string }>()
+    // an index signature next to literal keys keeps them
+    expectTypeOf<ProvidedHeaders<{ [k: string]: string; 'x-tenant': string }>>().toEqualTypeOf<{ 'x-tenant': string }>()
+    const either = (headers: { 'x-tenant': string } | { authorization: string }) => createClient(appApi, { headers })
+    expectTypeOf(either).returns.toEqualTypeOf(api)
+    expectTypeOf(createClient(appApi, { headers: new Headers({ 'x-tenant': 't1' }) })).toEqualTypeOf(api)
+    expectTypeOf(createClient(appApi, { headers: [['x-tenant', 't1']] })).toEqualTypeOf(api)
+    expectTypeOf(createClient(appApi, { baseUrl: 'https://example.com' })).toEqualTypeOf(api)
+  })
+
+  test('the manifest client takes the headers type as its second type argument, checked against options.headers', () => {
+    type Store = {
+      method: 'post'; path: '/api/keys'; params: {}; query: undefined; body: undefined; headers: { 'x-api-key': string }
+      response: undefined; status: 204; errors: never
+    }
+    type Generated = { keys: { store: Store } }
+    const keyed = createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k' } })
+    void keyed.keys.store()
+    // @ts-expect-error the headers must send what the type argument names
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { authorization: 'a' } })
+    // other headers may be sent too
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k', 'accept-language': 'en' } }).keys.store()
+    // @ts-expect-error and they are required
+    void createClient<Generated, { 'x-api-key': string }>(manifest)
+    // @ts-expect-error even with other options
+    void createClient<Generated, { 'x-api-key': string }>(manifest, {})
+    // @ts-expect-error without it the header stays required
+    void createClient<Generated>(manifest, { headers: { 'x-api-key': 'k' } }).keys.store()
+  })
+
+  test('a provided value the schema rejects leaves the header required', () => {
+    const versioned = defineContract()({ v: endpoint.get('/api/v').headers(z.object({ 'x-version': z.literal('2') })) })
+    void createClient(versioned, { headers: { 'x-version': '2' as const } }).v()
+    // a literal needs no `as const`: createClient infers options.headers as const
+    void createClient(versioned, { headers: { 'x-version': '2' } }).v()
+    // pairs and a Headers still type-check, and provide no header
+    void createClient(versioned, { headers: [['x-version', '2']] })
+    void createClient(versioned, { headers: new Headers() })
+    // a headers function is known only when it runs, so it provides nothing
+    // @ts-expect-error the schema header stays required
+    void createClient(versioned, { headers: () => ({ 'x-version': '2' }) }).v()
+    // an optional key may be left out, so it is not provided
+    expectTypeOf<ProvidedHeaders<{ 'x-version'?: '2'; a: string }>>().toEqualTypeOf<{ a: string }>()
+    // @ts-expect-error '1' is not the '2' the schema accepts
+    void createClient(versioned, { headers: { 'x-version': '1' as const } }).v()
+    // @ts-expect-error nor is any string
+    void createClient(versioned, { headers: { 'x-version': String(2) } }).v()
+  })
+
+  test('options are still checked', () => {
+    // @ts-expect-error a header value is a string
+    createClient(appApi, { headers: { 'x-tenant': 1 } })
+    // @ts-expect-error an unknown option
+    createClient(appApi, { nope: 1 })
   })
 })
 
