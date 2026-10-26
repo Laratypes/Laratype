@@ -18,7 +18,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)) |
-| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option added by CL9 [#315](https://github.com/Laratypes/Laratype/issues/315) |
+| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option added by CL9 [#315](https://github.com/Laratypes/Laratype/issues/315) @ ab22579 |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
@@ -223,7 +223,7 @@ switch (result.code) {
 - **Narrowing:** by `ok`, then by `code`. Two errors can share a status (`FORBIDDEN` and an app-defined `ACCOUNT_LOCKED` are both 403), so `status` alone doesn't identify the error. `code` is `undefined` on the unexpected variant, so `switch (result.code)` covers it with `case undefined`.
 - **Unexpected** (`unexpected: true`), always with `response` except before the headers arrive:
   - a network failure, an abort before the headers arrive, or a redirect under the default `redirect: "error"` ([Options and hooks](#options-and-hooks)): `status: 0`, `response: undefined`, `error` is the thrown error;
-  - an opaque response (`redirect: "manual"` from [Options and hooks](#options-and-hooks), or `mode: "no-cors"`): also `status: 0`, but with `response` set (`response.type` is `opaqueredirect` or `opaque`), so `response` tells it apart from a network failure;
+  - an opaque response (`redirect: "manual"` from [Options and hooks](#options-and-hooks), or `mode: "no-cors"` set by `onRequest` or an injected `fetch`): also `status: 0`, but with `response` set (`response.type` is `opaqueredirect` or `opaque`), so `response` tells it apart from a network failure;
   - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
   - a 2xx other than the declared status, or an empty body where a response schema is declared;
   - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
@@ -252,10 +252,10 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 ## Options and hooks
 
 ### Status
-proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3); the `redirect` option is added by CL9 [#315](https://github.com/Laratypes/Laratype/issues/315). Extends the `ClientOptions` of [createClient](#createclient).
+proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3), with the `redirect` option added by CL9 [#315](https://github.com/Laratypes/Laratype/issues/315) @ ab22579. Extends the `ClientOptions` of [createClient](#createclient).
 
 ### Public API
-[`packages/client/src/types.ts` @ f68de49](https://github.com/Laratypes/Laratype/blob/f68de494976eee08523e9ee4efe74fc86cd8bcaa/packages/client/src/types.ts)
+[`packages/client/src/types.ts` @ ab22579](https://github.com/Laratypes/Laratype/blob/ab22579f63f78469d3445a82052dd8c7d3d0e7b5/packages/client/src/types.ts)
 
 ```ts
 export interface ClientOptions {

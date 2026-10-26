@@ -181,8 +181,8 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
- * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given, and so is
- * `init.redirect`, from `options.redirect`, default `"error"`; `onRequest` can still override it.
+ * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given, and
+ * `init.redirect` is set on every call, from `options.redirect`, default `"error"`; `onRequest` can still override it.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
  * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
  * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`

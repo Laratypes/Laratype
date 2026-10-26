@@ -373,7 +373,7 @@ describe('options and hooks', () => {
     createClient(appApi, { credentials: 'always' })
   })
 
-  test('redirect is a RequestRedirect, and the hooks do not type it differently', () => {
+  test('redirect is a RequestRedirect', () => {
     expectTypeOf<ClientOptions['redirect']>().toEqualTypeOf<RequestRedirect | undefined>()
     createClient(appApi, { redirect: 'manual' })
     // @ts-expect-error not a redirect mode
