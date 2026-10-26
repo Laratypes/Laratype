@@ -79,7 +79,7 @@ A scope policy can define `before(user, params)` for the check shared by every e
 ## Guards in the container
 
 ### Status
-proposed ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3). Typed config through `config('auth')` waits for K1 [#152](https://github.com/Laratypes/Laratype/issues/152), the shared driver `Manager` for F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard for a session package; see its [Open questions](#open-questions).
+proposed ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3). The auth config is bound in `register()` from the app manifest, not through `config('auth')`: K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the config store in `ConfigLoadServiceProvider.boot()`, after every `register()` (see [Invariants](#invariants)). The shared driver `Manager` for F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard for a session package; see its [Open questions](#open-questions).
 
 ### Public API
 `packages/auth/src/guard/` (`AuthManager.ts`, `TokenGuard.ts`, `PassportGuard.ts`, `tokens.ts`), exported from `@laratype/auth`.
@@ -122,15 +122,15 @@ type AuthGuard = {
 };
 ```
 
-The 0.5 API keeps its signatures and resolves its guards from the request's container: `Auth.guard(name)`, `Auth.user()`, `Auth.login()`, `AuthVerification.guard(name)` (now returns the `TokenGuard`), `AuthVerification.verify(token)`, `AuthGuard` and `Passport.authenticate(name)`.
+The 0.5 API keeps its signatures and resolves its guards from the request's container: `Auth.guard(name)`, `Auth.user()`, `Auth.login()`, `AuthVerification.guard(name)` (now returns the `TokenGuard`), `AuthVerification.verify(token)`, `AuthGuard` and `Passport.authenticate(name)`. `Auth` is D8's facade ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)) over the stateless `AuthService`, which builds the per-guard handles below.
 
 ### Invariants
-- **Binding:** `PassportServiceProvider.register()` loads `app/config/auth.ts` and the `PersonalAccessToken` model from the app manifest, binds the config to `AUTH_CONFIG` with `instance()`, and binds `AuthManager` as a singleton. Both are available in every provider's `boot()`. The auth config may read `Env.get()`, and `EnvLoadServiceProvider` loads the env file only in its `boot()`, after every `register()`: `PassportServiceProvider.register()` loads it first.
+- **Binding:** `PassportServiceProvider.register()` loads `app/config/auth.ts` and the `PersonalAccessToken` model from the app manifest, binds the config to `AUTH_CONFIG` with `instance()`, and binds `AuthManager` as a singleton. Both are available in every provider's `boot()`. `register()` runs before any `boot()`, so K1's [`config('auth')`](./config.md) store is not filled yet: the config comes from the manifest, and K1's `ConfigLoadServiceProvider` loads the same module later, so both hold one object. The auth config may read `Env.get()`, and `EnvLoadServiceProvider` loads the env file only in its `boot()`, after every `register()`: `PassportServiceProvider.register()` loads it first, so `auth.ts` never reads an env file it has not loaded.
 - **Drivers:** `guard(name)` builds a `PassportGuard` when the guard's config has a `strategy`, else a `TokenGuard`. A guard is built once per name and cached by the manager. There is no `extend()`: custom drivers come with the shared `Manager` (F1 [#160](https://github.com/Laratypes/Laratype/issues/160)).
 - **Passport:** `PassportServiceProvider.boot()` registers the strategy of every `PassportGuard` under the guard's name, so `Passport.authenticate('<guard>')` runs it. The local strategy's verify callback calls the guard's `attempt()` with `options.usernameField` and `options.passwordField`; another strategy fails with `Strategy not implemented`, as in 0.5. `options` is optional since A4 (token guards have none); a local guard needs both `usernameField` and `passwordField`, because the verify callback looks the user up by exactly those keys.
 - **Token:** a token guard reads it with `request.bearerToken()` only, never from `Authorization` itself (A5 [#288](https://github.com/Laratypes/Laratype/issues/288), shipped in the 0.5 `AuthGuard`). It returns the token of `Authorization: Bearer <token>`, with the scheme in any case and the token an RFC 6750 b64token, else `""`, and the guard answers its 401.
 - **Verification:** with a `PersonalAccessToken` model, a token must have a record whose `expires_at` is in the future; the record's `verification_type` picks the verifier, and its `tokenable_type` and `tokenable_id` load the user. Without the model, `verify()` returns the decoded JWT. Only `jwt` is implemented: another `verification`, or a record whose `verification_type` is not `jwt`, throws `UnsupportedVerificationModeException` (`code: "UNSUPPORT_VERIFICATION_MODE"`).
-- **Resolution:** `Auth`, `AuthGuard` and `AuthVerification` resolve `AuthManager` from the container of the current request (`ContextApi.getContainer()`); `Passport.authenticate(name)` runs the strategy that `PassportServiceProvider.boot()` registered under that name. There is no global guard state: `globalThis.__laratype_auth_config` and `__laratype_auth_model_verify` are removed.
+- **Resolution:** `Auth`, `AuthGuard` and `AuthVerification` resolve `AuthManager` from the container of the current request (`ContextApi.getContainer()`); `Auth` does it through D8's facade and `AuthService`. `Passport.authenticate(name)` runs the strategy that `PassportServiceProvider.boot()` registered under that name. There is no global guard state: `globalThis.__laratype_auth_config` and `__laratype_auth_model_verify` are removed.
 - **Outside a request** resolving a guard throws (see Diagnostics); `Auth.guard(name)` resolves it lazily, on `attempt()` or `login()`, and `Auth.user()` answers `null` because no user is authenticated. Code outside a request resolves `AuthManager` from the container it has, such as a provider's `this.app`.
 
 ### Diagnostics
@@ -151,7 +151,7 @@ The 0.5 API keeps its signatures and resolves its guards from the request's cont
 - No change to the 0.5 config shape beyond the optional strategy fields, and no typed guard names (A1 [#119](https://github.com/Laratypes/Laratype/issues/119)).
 
 ### Open questions
-- Typed config: read the auth config through `config('auth')` once K1 [#152](https://github.com/Laratypes/Laratype/issues/152) merges.
+- Loading the configs before every `register()` would let `PassportServiceProvider` bind `config('auth')` instead of the manifest entry (K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the store in `boot()`).
 - `AuthManager` on the shared driver `Manager` (F1 [#160](https://github.com/Laratypes/Laratype/issues/160)).
 - Session guard: needs a session package (no issue yet; see [#151](https://github.com/Laratypes/Laratype/issues/151)).
 

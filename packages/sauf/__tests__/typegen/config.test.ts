@@ -203,7 +203,7 @@ describe('laratype:api (the dev scan behind $api)', () => {
     const id = await resolveId('$api');
     expect(id).toBe(join(dir, '.laratype/api/index.gen.ts'));
     const index = readFileSync(id!, 'utf8');
-    expect(index).toContain("'users.posts': { contract: c1, path: '/v2/users/:user/posts', scopes: [s0, s1], dirs: ['', 'users/[user]'] },");
+    expect(index).toContain("'users.posts': { contract: c1, path: '/v2/users/:user/posts', scopes: [{ scope: s0, dir: '' }, { scope: s1, dir: 'users/[user]' }] },");
     // the startup scan writes no api.ts (no TS checker)
     expect(existsSync(join(dir, '.laratype/api.ts'))).toBe(false);
     expect(existsSync(join(dir, '.laratype/types/app/contracts/users/[user]/$types.d.ts'))).toBe(true);
@@ -305,7 +305,7 @@ describe('laratype:api (the dev scan behind $api)', () => {
     // a contract added between restarts shows up on the next rescan
     writeFileSync(join(dir, 'app/api/things.ts'), "export default {}\n");
     await contractTreePlugin([{ name: 'other' }, plugin])!.restart();
-    expect(readFileSync(id!, 'utf8')).toContain("'things': { contract: c0, path: '/api/things', scopes: [s0], dirs: [''] },");
+    expect(readFileSync(id!, 'utf8')).toContain("'things': { contract: c0, path: '/api/things', scopes: [{ scope: s0, dir: '' }] },");
     // and goes away when deleted
     rmSync(join(dir, 'app/api/things.ts'));
     await api.restart();

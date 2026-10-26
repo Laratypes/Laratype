@@ -77,6 +77,14 @@ const isConfigFile = (name: string) =>
 const isKindFile = (kind: ManifestKind, name: string) => (kind === "configs" ? isConfigFile(name) : isModuleFile(name, KIND_EXTENSIONS[kind]));
 /** A module's entry: `index.ts` (or `.mts`, `.js`, `.mjs`). */
 const isModuleIndex = (name: string) => isModuleFile(name, MODULE_EXTENSIONS) && stripExtension(name) === "index";
+/**
+ * Whether a file is the output of a source next to it: `User.js` next to `User.ts` (`.mjs` next to `.mts`), what tsc
+ * writes without `outDir`. It is not read, so it never clashes with its source.
+ */
+const isEmittedNextTo = (name: string, siblings: ReadonlySet<string>) => {
+  const source = name.replace(/\.js$/, ".ts").replace(/\.mjs$/, ".mts");
+  return source !== name && siblings.has(source);
+};
 
 /** What `scanManifest()` tracks: the project's real path, and the symlinks it did not follow. */
 interface ScanContext {
@@ -128,16 +136,20 @@ function scanDir(ctx: ScanContext, projectDir: string, dir: string, kind: Manife
   }
   const within = new Set([...ancestors, real]);
   const entries: ScannedEntry[] = [];
-  for (const entry of readdirSync(abs, { withFileTypes: true }).sort(byName)) {
+  const dirents = readdirSync(abs, { withFileTypes: true }).sort(byName);
+  const siblings = new Set(dirents.map((entry) => entry.name));
+  for (const entry of dirents) {
     const type = kindOfEntry(ctx, abs, entry, posix.join(rel, entry.name));
     if (kind === "modules") {
       if (type !== "dir") continue;
-      for (const file of readdirSync(join(abs, entry.name)).sort().filter(isModuleIndex)) {
+      const files = readdirSync(join(abs, entry.name)).sort();
+      const names = new Set(files);
+      for (const file of files.filter((name) => isModuleIndex(name) && !isEmittedNextTo(name, names))) {
         entries.push({ name: entry.name, path: posix.join(dir, entry.name, file) });
       }
     } else if (type === "dir" && NESTED.has(kind) && entry.name !== "node_modules") {
       entries.push(...scanDir(ctx, projectDir, dir, kind, posix.join(prefix, entry.name), within));
-    } else if (type === "file" && isKindFile(kind, entry.name)) {
+    } else if (type === "file" && isKindFile(kind, entry.name) && !isEmittedNextTo(entry.name, siblings)) {
       entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path: posix.join(dir, prefix, entry.name) });
     }
   }
@@ -149,7 +161,8 @@ const warned = new Set<string>();
 
 /**
  * Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a name found
- * twice in a kind: in both layouts, or `User.ts` next to `User.js`. Symlinks that lead outside the project, or back to
+ * twice in a kind: in both layouts, or `User.ts` next to `User.mjs`. A `User.js` next to `User.ts` is tsc's output
+ * (a build without `outDir`) and is skipped. Symlinks that lead outside the project, or back to
  * a folder being read, are not followed: one warning lists them.
  */
 export function scanManifest(projectDir: string): ScannedManifest {

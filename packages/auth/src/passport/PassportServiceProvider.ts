@@ -85,6 +85,8 @@ export default class PassportServiceProvider extends ServiceProvider {
 
     // app/config/auth.ts may read Env.get(), and EnvLoadServiceProvider loads the env file only in boot(), after every register()
     loadEnv();
+    // Every register() runs before any boot() (K1 #152's ConfigLoadServiceProvider included), so config('auth') is not
+    // loaded yet: the config comes from the manifest, and K1 loads the same module later for config('auth').
     const authConfig = await loadDefault<Config.Auth>(authEntry);
 
     const personalModel = manifestEntry('models', 'PersonalAccessToken');

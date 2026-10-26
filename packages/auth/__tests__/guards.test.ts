@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import LocalStrategy from 'passport-local'
-import { Container, depsRegistry } from '@laratype/core'
-import { bootProviders, ContextApi, HTTP_APP, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
+import { config, Container, depsRegistry } from '@laratype/core'
+import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
 
@@ -151,7 +151,7 @@ describe('PassportServiceProvider', () => {
     expect(container.make(AuthManager).config).toBe(authConfig)
   })
 
-  it('loads the env file before importing app/config/auth.ts', async () => {
+  it('loads the env file before app/config/auth.ts, which K1 loads later for config()', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'laratype-auth-env-'))
     writeFileSync(join(dir, '.env'), 'A4_AUTH_ENV=loaded\n')
     vi.spyOn(process, 'cwd').mockReturnValue(dir)
@@ -166,15 +166,23 @@ describe('PassportServiceProvider', () => {
             seen = process.env.A4_AUTH_ENV
             return { default: authConfig }
           },
-        }],
+        }, entry('config', { name: 'app' })],
       })
+      // Every register() runs before any boot(), so registering PassportServiceProvider only binds auth.ts here:
+      // K1's ConfigLoadServiceProvider has not filled config('auth') yet
+      expect(() => config('auth')).toThrow('ran before the configs were loaded')
       const container = new Container({ deps: depsRegistry })
-      await bootProviders(container, [PassportServiceProvider])
+      await bootProviders(container, [EnvLoadServiceProvider, ConfigLoadServiceProvider, PassportServiceProvider])
       expect(seen).toBe('loaded')
+      // ... and the two get the same auth config, once auth.ts has been evaluated
+      expect(container.make(AUTH_CONFIG)).toBe(authConfig)
+      expect(config('auth')).toBe(authConfig)
     }
     finally {
       delete process.env.A4_AUTH_ENV
       delete (globalThis as any).__laratype_env_file
+      delete (globalThis as any).__laratype_configs
+      delete (globalThis as any).__laratype_config
       rmSync(dir, { recursive: true, force: true })
     }
   })
