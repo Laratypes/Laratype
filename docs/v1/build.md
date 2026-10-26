@@ -24,7 +24,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [sauf build steps](#sauf-build-steps) | planned → #127, #128, #129, #130, #172, #173, #155, #156 |
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
-| [Bun DI plugin](#bun-di-plugin) | proposed (#116) |
+| [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
 | [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); planned → #189, #190 |
 
 ---
@@ -225,10 +225,10 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8).
 ## Bun DI plugin
 
 ### Status
-proposed (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
+proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Invariants
-- `bun.build.js` runs `laratypeDiBun()` (`packages/sauf/src/di/bun.ts`), the same core transform as `laratype:di`, on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (not `@laratype/core` itself; today `@laratype/http`, `@laratype/support`, `@laratype/auth`, `@laratype/log` and `laratype`), on its own `src/` only. Framework classes resolved by the container then work from `dist/`. API and invariants: [di.md › Bun build plugin](./di.md#bun-build-plugin).
+- `bun.build.js` runs `laratypeDiBun()` (`packages/sauf/src/di/bun.ts`), the same core transform as `laratype:di`, on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (not `@laratype/core` itself; today `@laratype/http`, `@laratype/support`, `@laratype/auth`, `@laratype/log` and `laratype`), on its own `src/` only. Framework classes resolved by the container then work from `dist/`. Public API, invariants, diagnostics, example and non-goals: [di.md › Bun build plugin](./di.md#bun-build-plugin); this section only records the build wiring.
 
 ### Acceptance
 [#116 Done when](https://github.com/Laratypes/Laratype/issues/116)

@@ -28,7 +28,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
-| [Bun build plugin](#bun-build-plugin) | proposed (#116) |
+| [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
 
@@ -638,10 +638,10 @@ export class Auth extends Facade { static readonly accessor: typeof AuthManager;
 ## Bun build plugin
 
 ### Status
-proposed (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
+proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
-[`packages/sauf/src/di/bun.ts`](../../packages/sauf/src/di/bun.ts), exported from `packages/sauf/src/di/index.ts` next to the [Vite plugin](#vite-plugin-laratypedi) (internal to the repo: the `sauf` package entry does not export it).
+[`sauf/src/di/bun.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/bun.ts), exported from [`sauf/src/di/index.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/index.ts) next to the [Vite plugin](#vite-plugin-laratypedi) (internal to the repo: the `sauf` package entry does not export it).
 
 ```ts
 export interface DiBunPluginOptions extends DiTransformOptions {
