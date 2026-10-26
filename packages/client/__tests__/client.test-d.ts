@@ -1,4 +1,4 @@
-// Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
+// Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124, CL9 #315) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
 import { createClient } from '@laratype/client'

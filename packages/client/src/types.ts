@@ -244,8 +244,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
-   * Redirects are not followed: `redirect` defaults to `"error"`, so a redirect rejects the call instead of carrying them
-   * elsewhere.
+   * Redirects are not followed by default (`redirect` is `"error"`), so a redirect rejects the call rather than carrying the
+   * credentials elsewhere.
    */
   credentials?: RequestCredentials;
   /**
