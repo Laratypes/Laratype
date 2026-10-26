@@ -30,14 +30,25 @@ const fail = (message: string): never => {
 
 /** Runtime `r`; its types come from `ApiRouteBuilder<A>`. */
 class RouteBuilder {
-  constructor(readonly stack: readonly MiddlewareClass[] = []) {}
+  /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
+  constructor(
+    readonly stack: readonly MiddlewareClass[] = [],
+    private readonly entries: readonly TreeEntry[] = [],
+  ) {}
 
   middleware(...middleware: MiddlewareClass[]) {
-    return new RouteBuilder([...this.stack, ...middleware]);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries);
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
-    return Object.freeze({ kind: "contract", contract, controller, middleware: this.stack, options });
+    // A copy: mutating the options (or their endpoints map) after r.contract() must not change the routes. Whether the
+    // originals are plain is decided now, as the copy drops inherited keys. A contract that is not in the tree is
+    // reported by Route.api
+    const { copy, issue } = copyOptions(options);
+    const names = mountedEntries(this.entries, contract).map((e) => e.name);
+    if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
+    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copy });
+    return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
@@ -58,6 +69,62 @@ class RouteBuilder {
     return Object.freeze({ kind: "route", method, path, handler, middleware: this.stack });
   }
 }
+
+const isObject = (value: unknown): value is object => typeof value === "object" && value !== null;
+
+/**
+ * On the frozen `options` copy `copyOptions` builds: the plainness issue `r.contract()` could not report there because
+ * its builder had no tree entry to name the contract, or `undefined` when the options are plain. plan() reads it once it
+ * names the contract. Enumerable, so a spread of the options keeps the issue (spread copies symbol keys); pinned to the
+ * copy and non-configurable, so options rebuilt from scratch are checked again.
+ */
+const PLAIN_ISSUE = Symbol("laratype.http.checkedContractOptions");
+
+/**
+ * A frozen copy of every own string key on a `null` prototype, so nothing inherited is read later (not even from a
+ * polluted `Object.prototype`) and a non-enumerable key is checked like any other.
+ */
+const frozenCopy = (value: object, map: (key: string, item: unknown) => unknown = (_, item) => item): object => {
+  const copy: object = Object.create(null);
+  // defineProperty, not assignment: an own "__proto__" key stays a key instead of setting the prototype
+  for (const key of Object.getOwnPropertyNames(value)) {
+    Object.defineProperty(copy, key, { value: map(key, (value as Record<string, unknown>)[key]), enumerable: true });
+  }
+  return copy;
+};
+
+/**
+ * Why `options` or its `endpoints` map is not plain: an inherited enumerable key, whose option or callback would be
+ * dropped (which fails open for auth middleware), or a prototype other than `Object.prototype` or `null` (a deeper
+ * chain could hide a non-enumerable inherited callback).
+ */
+const plainIssue = (label: string, value: object): string | undefined => {
+  for (const key in value) if (!Object.hasOwn(value, key)) return `${label}.${key} is inherited: ${label} must have own keys only`;
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return `${label} must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object`;
+  return undefined;
+};
+
+/**
+ * Frozen copies of `r.contract()` options and their `endpoints` map, each key read once, with the `plainIssue` of the
+ * originals. Anything else is returned as is, for `checkOptions` to report.
+ */
+const copyOptions = (options: unknown): { copy: ContractRouteOptions<object> | undefined; issue: string | undefined } => {
+  if (!isObject(options)) return { copy: options as ContractRouteOptions<object> | undefined, issue: undefined };
+  let issue = plainIssue("options", options);
+  const copy = frozenCopy(options, (key, item) => {
+    if (key !== "endpoints" || !isObject(item)) return item;
+    issue ??= plainIssue("endpoints", item);
+    return Object.freeze(frozenCopy(item));
+  });
+  // Enumerable, so `{ ...options }` keeps the issue; no string key, so every option check sees the same keys
+  Object.defineProperty(copy, PLAIN_ISSUE, { value: issue, enumerable: true });
+  return { copy: Object.freeze(copy) as ContractRouteOptions<object>, issue };
+};
+
+/** The tree entries a mounted contract names: by its tree node (one), or by the contract value (every entry holding it). */
+const mountedEntries = (entries: readonly TreeEntry[], contract: unknown) =>
+  entries.filter((e) => e.node === contract || e.entry.contract === contract);
 
 interface TreeEntry {
   readonly name: string;
@@ -117,8 +184,7 @@ const hostname = (c: Context) => {
  * every contract of the tree is mounted once, every `r.scope()` names a scope folder, and every scope with
  * `authorize` has a policy. Ad-hoc routes (`r.get()`, ...) are kept apart from the contract routes.
  */
-const plan = (api: unknown, items: readonly ApiRouteItem[]): { routes: RouteEntry[]; adHoc: AdHocRouteEntry[] } => {
-  const entries = treeEntries(api);
+const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRouteItem[]): { routes: RouteEntry[]; adHoc: AdHocRouteEntry[] } => {
   if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)");
 
   const scopeDirs = new Map<string, boolean>();
@@ -134,16 +200,24 @@ const plan = (api: unknown, items: readonly ApiRouteItem[]): { routes: RouteEntr
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
-      const matched = entries.filter((e) => e.node === item.contract || e.entry.contract === item.contract);
+      const matched = mountedEntries(entries, item.contract);
       const names = matched.map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
-      if (typeof item.controller !== "function") {
-        fail(`contract "${names.join('", "')}": r.contract() got ${String(item.controller)} as its controller (a circular import?)`);
+      const controller = item.controller;
+      if (typeof controller !== "function") {
+        fail(`contract "${names.join('", "')}": r.contract() got ${String(controller)} as its controller (a circular import?)`);
       }
-      checkOptions(names, matched[0]!.entry.contract, item.options);
+      // An item built without r.contract() (untyped callers) is checked for plainness and copied here, as are its
+      // options when they carry no issue: r.contract() pins the issue it could not report, when its builder had no tree
+      // entry, to the frozen copy of the options
+      const pinned = isObject(item.options) ? (item.options as { readonly [PLAIN_ISSUE]?: string })[PLAIN_ISSUE] : undefined;
+      const { copy: options, issue } = pinned !== undefined ? { copy: item.options, issue: pinned } : copyOptions(item.options);
+      if (issue !== undefined) fail(`contract "${names.join('", "')}": ${issue}`);
+      checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      for (const name of names) contracts.set(name, item);
+      const stored = pinned !== undefined ? item : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, options });
+      for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
     } else {
@@ -235,29 +309,47 @@ const adHocEntry = (item: MountedRoute): AdHocRouteEntry =>
   });
 
 /**
- * The options of `r.contract(c, Ctrl, { policy, endpoints })`: `policy` is a class, and every `endpoints` key is an
- * endpoint of the contract with a callback.
+ * The options of `r.contract(c, Ctrl, { policy, endpoints })`, as copied by `copyOptions` (whose plainness check comes
+ * first): `policy` is a class, and every `endpoints` key is an endpoint of the contract with a callback.
  */
 const checkOptions = (names: readonly string[], contract: object, options: ContractRouteOptions<object> | undefined) => {
   const at = `contract "${names.join('", "')}"`;
   if (options !== undefined && (typeof options !== "object" || options === null)) fail(`${at}: r.contract() options must be { policy?, endpoints? }`);
+  // A misspelled key (`endpoint`) would drop its middleware silently, as an inherited one would
+  const unknown = options === undefined ? undefined : Object.keys(options).find((key) => key !== "policy" && key !== "endpoints");
+  if (unknown !== undefined) fail(`${at}: r.contract() options must be { policy?, endpoints? }, not options.${unknown}`);
   if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on
   // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's (running it is A3 #121)
+  const contractKeys = contractEndpoints(contract as AnyContract);
   if (options?.policy === undefined) {
-    const authorized = contractEndpoints(contract as AnyContract).find(([, e]) => e.def.authorize === true);
+    const authorized = contractKeys.find(([, e]) => e.def.authorize === true);
     if (authorized) fail(`${names[0]}.${authorized[0]}: endpoint has .authorize() but r.contract() has no { policy }`);
   }
   if (options === undefined) return;
   const endpoints: Record<string, unknown> | undefined = options.endpoints;
   if (endpoints === undefined) return;
   if (typeof endpoints !== "object" || endpoints === null) fail(`${at}: { endpoints } must map endpoint names to (r) => r.middleware(...)`);
-  const keys: string[] = contractEndpoints(contract as AnyContract).map(([key]) => key);
-  for (const [key, callback] of Object.entries(endpoints!)) {
-    if (!keys.includes(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${keys.map((k) => `"${k}"`).join(", ")})`);
-    if (typeof callback !== "function") fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
+  const keys = new Set(contractKeys.map(([key]) => key));
+  for (const key of Object.keys(endpoints!)) {
+    if (!keys.has(key)) fail(`${at}: endpoints.${key} is not an endpoint of the contract (endpoints: ${[...keys].map((k) => `"${k}"`).join(", ")})`);
+    if (!isCallback(endpoints![key])) fail(`${at}: endpoints.${key} must be a callback, (r) => r.middleware(...)`);
   }
+};
+
+/**
+ * A function that can be called: not a class (a middleware class compiles under a key typed `Function`, such as
+ * hasOwnProperty). A class source starts with the `class` keyword, then whitespace, a comment or `{`, and never a `(`
+ * after them; a method shorthand (`classes(r) {}`, `class$(r) {}`, `class /* c *\/ (r) {}`) has one. A bound class or a
+ * Proxy of one prints `[native code]` and gets past this check: calling it then throws its own TypeError.
+ */
+const isCallback = (value: unknown) => {
+  if (typeof value !== "function") return false;
+  const source = Function.prototype.toString.call(value);
+  if (!/^class[\s{/]/.test(source)) return true;
+  const rest = source.slice(5).replace(/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*/, "");
+  return rest.startsWith("(");
 };
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
@@ -443,6 +535,7 @@ export function api<A extends object, const M extends readonly ApiRouteItem[]>(
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
 ): ApiRoutes {
   if (typeof routes !== "function") fail("expected a routes callback: Route.api(appApi, (r) => [...])");
-  const { routes: entries, adHoc } = plan(appApi, routes(new RouteBuilder() as unknown as ApiRouteBuilder<A>));
-  return new ApiRoutes(entries, adHoc);
+  const entries = treeEntries(appApi);
+  const { routes: planned, adHoc } = plan(appApi, entries, routes(new RouteBuilder([], entries) as unknown as ApiRouteBuilder<A>));
+  return new ApiRoutes(planned, adHoc);
 }

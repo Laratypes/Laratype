@@ -21,10 +21,21 @@ export interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
+/**
+ * The callback of one `endpoints` key. For an endpoint named after an `Object.prototype` member (`toString`), a map that
+ * leaves it out still has the inherited member, which TypeScript compares with the callback type, so that member's type
+ * is accepted too. A member with parameters (`hasOwnProperty`) widens to `Function` instead, which has no call signature,
+ * so `r` keeps its contextual type. The runtime reads own keys only and rejects a callback that does not return the
+ * builder.
+ */
+type EndpointCallback<K> = K extends keyof Object
+  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
+  : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
+
 /** `r.contract(contract, Controller, { policy, endpoints })`. */
 export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> = {
   /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
-  readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
 } & (
   // A required `policy` member, so `P` keeps the `undefined` of `cond ? Policy : undefined` (inference from an
   // optional property drops it) and the route proof reports the missing policy

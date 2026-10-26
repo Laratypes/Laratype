@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Middleware, Route } from '../../src/index'
-import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, Ctx, EndpointKey, MountedContract, MountedScope } from '../../src/index'
+import type { ApiAuthorizeDir, ApiRoutes, ApiScopeDir, ApiTreeName, CheckApiRoutes, Ctx, EndpointKey, EndpointRouteBuilder, MountedContract, MountedScope } from '../../src/index'
 
 const root = defineScope()({ auth: true })
 const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>()({ authorize: true })
@@ -188,6 +188,36 @@ describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
       r.contract(appApi.users.posts, PostController, { endpoints: { store: (r) => r.middleware(Audit).middleware(Audit) } }),
       r.contract(health, HealthController, {}),
     ])
+  })
+
+  test('endpoints named after Object.prototype members take an inline map, with or without them', () => {
+    const odd = defineContract()({
+      toString: endpoint.get('/t'), valueOf: endpoint.get('/v'), hasOwnProperty: endpoint.get('/h'), isPrototypeOf: endpoint.get('/i'),
+      propertyIsEnumerable: endpoint.get('/p'), toLocaleString: endpoint.get('/l'), constructor: endpoint.get('/c'), index: endpoint.get('/'),
+    })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    class OddController extends Controller {
+      toString() {} valueOf() {} hasOwnProperty() {} isPrototypeOf() {} propertyIsEnumerable() {} toLocaleString() {} index() {}
+    }
+    const audit = (r: EndpointRouteBuilder) => r.middleware(Audit)
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, { endpoints: { index: (r) => r.middleware(Audit) } })])
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, { endpoints: { index: audit } })])
+    // `r` keeps its contextual type on every colliding key
+    Route.api(oddApi, (r) => [r.contract(odd, OddController as never, {
+      endpoints: {
+        toString: (r) => r.middleware(Audit), valueOf: (r) => r.middleware(Audit), hasOwnProperty: (r) => r.middleware(Audit),
+        isPrototypeOf: (r) => r.middleware(Audit), propertyIsEnumerable: (r) => r.middleware(Audit),
+        toLocaleString: (r) => r.middleware(Audit), constructor: (r) => r.middleware(Audit),
+      },
+    })])
+    Route.api(oddApi, (r) => [
+      // @ts-expect-error the callback of a non-colliding key still returns the builder
+      r.contract(odd, OddController as never, { endpoints: { index: () => [Audit] } }),
+      // @ts-expect-error so does the callback of a colliding key whose Object.prototype member takes no parameter
+      r.contract(odd, OddController as never, { endpoints: { toString: () => [Audit] } }),
+      // @ts-expect-error a middleware class is not a callback
+      r.contract(odd, OddController as never, { endpoints: { valueOf: Audit } }),
+    ] as never)
   })
 
   test('an unknown endpoint, a callback that does not return the builder, or a policy that is not a class is an error', () => {

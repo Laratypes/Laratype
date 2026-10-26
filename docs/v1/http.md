@@ -161,6 +161,7 @@ interface ApiRouteBuilder<A> {
 - **Options:** `r.contract(c, Ctrl, { policy, endpoints: {...} })`, merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105), see [Router v2](#router-v2)).
   - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It is recorded, not run: running it is planned → [#121](https://github.com/Laratypes/Laratype/issues/121). The compile check that an `.authorize()` endpoint has one is merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
   - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(audit()) }`. Their extensions count for that endpoint only (typed middleware is planned → [#117](https://github.com/Laratypes/Laratype/issues/117)). Endpoint names can't collide with option keys.
+  - `options` and `endpoints` have `Object.prototype` or `null` as their prototype, with no inherited enumerable key: `r.contract()` throws otherwise (for example on a class instance or an `Object.create(base)` object), since a callback under an inherited key would be dropped (H22 [#271](https://github.com/Laratypes/Laratype/issues/271)). When its builder has no tree entry for the contract, `r.contract()` cannot name it, so `Route.api` throws when the item is mounted, with the same message. `r.contract()` copies every own key of both, non-enumerable ones included (so those are checked as unknown options or endpoint names too), into frozen objects with a `null` prototype: mutating the originals afterward changes no route, and nothing inherited is read.
 - **Return check, errors:** errors are thrown, so the return check covers the response schema only.
 - **Readable errors:** when the controller is valid, the controller parameter's type is `K & unknown`. Otherwise it is an object type whose **property names are the diagnosis**, because tsc prints missing property names in full but truncates property types.
 
@@ -231,8 +232,15 @@ interface ApiRouteBuilder<A> {
 
 interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
   readonly policy?: P;                 // recorded; running it is #121
-  readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
 }
+type EndpointCallback<K> = K extends keyof Object       // not exported; a key named after an Object.prototype member
+  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
+  : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
+// A map that leaves such a key out still has the inherited member, which TypeScript compares with the callback type,
+// so the member's type is accepted too: toString, valueOf and toLocaleString take their own signature, constructor,
+// hasOwnProperty, isPrototypeOf and propertyIsEnumerable any Function. A wrong callback there (a class, or one that does
+// not return the builder) is a mount error, not a compile error
 
 interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
@@ -321,8 +329,11 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
 - `<route name>: endpoint has .authorize() but r.contract() has no { policy }`
 - `contract "<tree name>": r.contract() options must be { policy?, endpoints? }`
+- `contract "<tree name>": r.contract() options must be { policy?, endpoints? }, not options.<key>`
 - `contract "<tree name>": { policy } must be a policy class`
 - `contract "<tree name>": { endpoints } must map endpoint names to (r) => r.middleware(...)`
+- `contract "<tree name>": options.<key> is inherited: options must have own keys only` (and `endpoints.<key> is inherited: endpoints must have own keys only`)
+- `contract "<tree name>": options must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object` (and `endpoints must have ...`)
 - `contract "<tree name>": endpoints.<key> is not an endpoint of the contract (endpoints: "<key>", ...)`
 - `contract "<tree name>": endpoints.<key> must be a callback, (r) => r.middleware(...)`
 - `<route name>: endpoints.<key> must return the builder it gets, (r) => r.middleware(...)`
