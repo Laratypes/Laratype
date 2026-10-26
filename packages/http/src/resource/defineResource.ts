@@ -24,23 +24,21 @@ type IsAny<X> = 0 extends 1 & X ? true : false;
 
 /**
  * Every concrete value type: `unknown` is not assignable to any of them, so it does not satisfy the constraint of
- * `when()`. A conditional (`unknown extends V`) would be deferred for a generic `V`, and `V & <deferred>` does not
- * accept `V`; a constraint is checked on `V`'s own constraint, so a generic `T` works.
+ * `when()`. Spelled out rather than `{} | null | undefined`, which every value satisfies, `unknown` included. The check
+ * is a constraint, not a conditional on `V`: a conditional is deferred for a generic `V`, and `V & <deferred>` rejects
+ * it. `any` satisfies every type, so it passes, as it does every other route check.
  */
 type ConcreteValue = object | string | number | boolean | bigint | symbol | null | undefined;
-
-/** `never` for an `any` value: `V | MissingValue` would collapse to it, and the key would look required. */
-type KnownValue<V> = IsAny<V> extends true ? never : unknown;
 
 /**
  * The value, or no key at all when `condition` is false. The value is kept as it is (a function too): use a
  * conditional expression to compute it only when needed. Only the top-level keys of a resource are dropped: a nested
- * `when()` keeps `MissingValue` in the type. The value needs a concrete type, a generic `T` included: an `any` or
- * `unknown` value does not compile.
+ * `when()` keeps `MissingValue` in the type. The value needs a concrete type, a generic `T` included: `unknown` does
+ * not compile, `any` does (and then the key looks required, like any other `any` key).
  *
  *   email: when(user.isAdmin, user.email),
  */
-export function when<V extends ConcreteValue>(condition: boolean, value: V & KnownValue<V>): V | MissingValue {
+export function when<V extends ConcreteValue>(condition: boolean, value: V): V | MissingValue {
   return condition ? value : MISSING;
 }
 
@@ -96,8 +94,8 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
  * contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` send the body as text/html.
  */
 const RESERVED_KEYS: ReadonlyMap<string, string> = new Map([
-  ["toJSON", "JSON.stringify would send its result instead of the resource data"],
-  ["constructor", "the body would be sent as text/html instead of JSON"],
+  ["toJSON", "the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data"],
+  ["constructor", "the resource function must not return a constructor key: the body would be sent as text/html instead of JSON"],
 ]);
 
 /**
@@ -123,10 +121,9 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     }
     const keys = Reflect.ownKeys(data).filter((key) => Object.prototype.propertyIsEnumerable.call(data, key));
     for (const key of keys) {
-      const reason = typeof key === "string" ? RESERVED_KEYS.get(key) : undefined;
-      if (reason !== undefined) {
-        throw new TypeError(`[@laratype/http] ${model.name}: the resource function must not return a ${String(key)} key: ${reason}`);
-      }
+      if (typeof key !== "string") continue;
+      const message = RESERVED_KEYS.get(key);
+      if (message !== undefined) throw new TypeError(`[@laratype/http] ${model.name}: ${message}`);
     }
     // fromEntries defines own properties, so a `__proto__` key stays a key; own keys include symbol keys
     const entries = keys.map((key) => [key, data[key]] as const).filter(([, value]) => !isMissing(value));

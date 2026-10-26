@@ -42,17 +42,24 @@ describe('the inferred output', () => {
     expectTypeOf(Fn.make).returns.toEqualTypeOf<{ format?: (id: number) => string }>()
   })
 
-  test('when() refuses an any or unknown value, whose key would look required', () => {
-    // @ts-expect-error V | MissingValue would be any
-    when(true, {} as any)
-    // @ts-expect-error V | MissingValue would be unknown
+  test('when() refuses an unknown value, whose key would look required', () => {
+    // @ts-expect-error unknown is in no ConcreteValue member: V | MissingValue would be unknown
     when(true, {} as unknown)
   })
 
-  test('when() accepts a generic value whose constraint is concrete', () => {
-    const generic = <T extends string>(t: T, condition: boolean) => when(condition, t)
+  test('when() accepts a generic value, whose constraint is concrete', () => {
+    const string_ = <T extends string>(t: T, condition: boolean) => when(condition, t)
+    const number_ = <T extends number>(t: T, condition: boolean) => when(condition, t)
+    const model = <T extends User>(t: T, condition: boolean) => when(condition, t)
     const email: string = 'ada@example.com'
-    expectTypeOf(generic(email, true)).toEqualTypeOf<string | MissingValue>()
+    const id: number = 1
+    expectTypeOf(string_(email, true)).toEqualTypeOf<string | MissingValue>()
+    expectTypeOf(number_(id, true)).toEqualTypeOf<number | MissingValue>()
+    expectTypeOf(model(user(), true)).toEqualTypeOf<User | MissingValue>()
+  })
+
+  test('when() does not refuse an any value, as no route check does; it is left to the runtime', () => {
+    expectTypeOf(when(true, {} as any)).toEqualTypeOf<any>()
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {

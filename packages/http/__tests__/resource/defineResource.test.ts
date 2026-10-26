@@ -89,7 +89,9 @@ describe('defineResource', () => {
     expect(() => ToJson.make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data',
     )
-    // Only the resource's top-level keys are checked: a nested object keeps its own toJSON
+  })
+
+  it('make leaves a nested toJSON to the nested object: only the top-level keys are checked', () => {
     const Nested = defineResource(User, (user) => ({ meta: { toJSON: () => ({ id: user.id }) } }))
     expect(JSON.parse(JSON.stringify(Nested.make(new User(1, 'ada'))))).toEqual({ meta: { id: 1 } })
   })
