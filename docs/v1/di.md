@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
 | [Bun build plugin](#bun-build-plugin) | planned → #116 |
@@ -518,7 +518,7 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-proposed (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
+proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Public API
 [`container.ts`](../../packages/core/src/container.ts) · [`Request.ts`](../../packages/http/src/request/Request.ts) (`RequestKernel.boot()`)

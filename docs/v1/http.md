@@ -19,7 +19,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `params`, `query`, `body` planned → #106 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
-| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: D6 [#112](https://github.com/Laratypes/Laratype/issues/112); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
 | [Exceptions](#exceptions) | current error handling merged (#267, #272, #275); planned → #108 |
@@ -364,7 +364,7 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ## Controller resolution
 
 ### Status
-merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The request scope is proposed: D6 [#112](https://github.com/Laratypes/Laratype/issues/112), specified in [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
+merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The request scope is proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)), specified in [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Invariants
 - **Resolution:** `Request.controllerKernel` resolves the controller with `Request.container().make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
