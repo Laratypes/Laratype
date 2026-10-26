@@ -1,6 +1,6 @@
 // docs/v1/auth.md: guards in the container (A4 #151, proposed).
 import { AUTH_CONFIG, AuthManager, Auth } from '@laratype/auth'
-import { Middleware, type NextHandler, type Request, type Response } from '@laratype/http'
+import { Middleware, type MiddlewareHandler } from '@laratype/http'
 import { ContextApi, ServiceProvider } from '@laratype/support'
 
 declare class User { id: number; email: string }
@@ -17,7 +17,7 @@ export class AuditServiceProvider extends ServiceProvider {
 
 // A middleware that authenticates with a named guard, like AuthGuard does with the default one.
 export class AdminGuard extends Middleware {
-  async handle(request: Request, res: Response, next: NextHandler) {
+  handle: MiddlewareHandler = async (request, res, next) => {
     const container = ContextApi.getContainer()
     if (!container) throw new Error('No app container: serve the route through RequestKernel')
     const user = await container.make(AuthManager).guard<User>('admin').user(request)
