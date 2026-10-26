@@ -12,8 +12,8 @@ const usersUser = defineScope<ContractPrefix<'/api/users/:user', [typeof root]>>
 const users = defineContract()({ index: endpoint.get('/') });
 const posts = defineContract()({ destroy: endpoint.delete('/:post') });
 const appApi = defineApi({
-  users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
+  users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [{ scope: root, dir: '' }, { scope: usersUser, dir: 'users/[user]' }] },
 });
 
 class UserController extends Controller { index() {} }

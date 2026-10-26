@@ -139,7 +139,7 @@ describe('createClient', () => {
   })
 
   test('only the four inputs type-check: the appApi root, an API node, a contract or the manifest', () => {
-    // @ts-expect-error a hand-made object: the node's own name ("users.posts") is not its key
+    // @ts-expect-error a hand-made object: only the root that defineApi returns carries the root brand
     createClient({ posts: appApi.users.posts })
     // @ts-expect-error a contract inside an object
     createClient({ users: usersContract })
@@ -147,8 +147,8 @@ describe('createClient', () => {
     createClient(usersContract.show)
     // @ts-expect-error anything else
     createClient({ nope: 1 })
-    // a subset of the root's own nodes keeps the root shape
-    expectTypeOf(createClient({ users: appApi.users }).users.show).toEqualTypeOf(api.users.show)
+    // @ts-expect-error even with the root's own nodes under their own names
+    createClient({ users: appApi.users })
   })
 
   test('a single contract declares the errors of its own options, as the runtime does', async () => {

@@ -8,8 +8,8 @@ import c1 from '../../app/api/users/[user]/posts'
 import c2 from '../../app/api/v1/health/index'
 
 export const appApi = defineApi({
-  'users': { contract: c0, path: '/api/users', scopes: [s0], dirs: [''] },
-  'users.posts': { contract: c1, path: '/api/users/:user/posts', scopes: [s0, s1], dirs: ['', 'users/[user]'] },
-  'v1.health': { contract: c2, path: '/api/v1/health', scopes: [s0], dirs: [''] },
+  'users': { contract: c0, path: '/api/users', scopes: [{ scope: s0, dir: '' }] },
+  'users.posts': { contract: c1, path: '/api/users/:user/posts', scopes: [{ scope: s0, dir: '' }, { scope: s1, dir: 'users/[user]' }] },
+  'v1.health': { contract: c2, path: '/api/v1/health', scopes: [{ scope: s0, dir: '' }] },
 })
 export type AppApi = typeof appApi

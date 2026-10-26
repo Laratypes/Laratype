@@ -14,9 +14,9 @@ const users = defineContract()({ index: endpoint.get('/'), show: endpoint.get('/
 const posts = defineContract()({ index: endpoint.get('/'), store: endpoint.post('/') })
 const health = defineContract()({ check: endpoint.get('/') })
 const appApi = defineApi({
-  users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
-  'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] },
+  users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [{ scope: root, dir: '' }, { scope: usersUser, dir: 'users/[user]' }] },
+  'v1.health': { contract: health, path: '/api/v1/health', scopes: [] },
 })
 
 // The endpoints declare no response schema, so the handlers return nothing (the route proof checks it)
@@ -35,6 +35,13 @@ describe('reading the tree', () => {
 })
 
 describe('Route.api', () => {
+  test('takes the root that defineApi returns only, told by its brand (C10 #258)', () => {
+    // @ts-expect-error a hand-made object of the root's own nodes
+    Route.api({ users: appApi.users }, () => [])
+    // @ts-expect-error an API node
+    Route.api(appApi.users, () => [])
+  })
+
   test('every contract once, and a policy on the authorize scope', () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(users, UserController),
@@ -139,8 +146,8 @@ describe('Route.api', () => {
     const postsOnly = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
     const comments = defineContract<Prefix>()({ index: endpoint.get('/').response(dto) })
     const twins = defineApi({
-      posts: { contract: postsOnly, path: '/api/posts', scopes: [], dirs: [] },
-      comments: { contract: comments, path: '/api/comments', scopes: [], dirs: [] },
+      posts: { contract: postsOnly, path: '/api/posts', scopes: [] },
+      comments: { contract: comments, path: '/api/comments', scopes: [] },
     })
     class Ctrl extends Controller { index() { return [] } }
     // @ts-expect-error Route.api: contract "posts" | "comments" has the type of another contract of the tree
@@ -157,7 +164,7 @@ describe('Route.api', () => {
   test('the error names the problem', () => {
     const a = defineContract()({ index: endpoint.get('/') })
     const b = defineContract()({ index: endpoint.get('/') })
-    const twins = defineApi({ a: { contract: a, path: '/a', scopes: [], dirs: [] }, b: { contract: b, path: '/b', scopes: [], dirs: [] } })
+    const twins = defineApi({ a: { contract: a, path: '/a', scopes: [] }, b: { contract: b, path: '/b', scopes: [] } })
     type Items = [MountedContract<typeof a>]
     expectTypeOf<CheckApiRoutes<typeof twins, Items>>().toEqualTypeOf<{
       error:
@@ -195,7 +202,7 @@ describe('r.contract() options and ctx.endpoint (H2a #105)', () => {
       toString: endpoint.get('/t'), valueOf: endpoint.get('/v'), hasOwnProperty: endpoint.get('/h'), isPrototypeOf: endpoint.get('/i'),
       propertyIsEnumerable: endpoint.get('/p'), toLocaleString: endpoint.get('/l'), constructor: endpoint.get('/c'), index: endpoint.get('/'),
     })
-    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [] } })
     class OddController extends Controller {
       toString() {} valueOf() {} hasOwnProperty() {} isPrototypeOf() {} propertyIsEnumerable() {} toLocaleString() {} index() {}
     }
