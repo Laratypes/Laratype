@@ -669,7 +669,9 @@ interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the reg
 - **Domain and registry.** `.domain()` applies to the ad-hoc routes too. `mount()` returns the contract entries, then the ad-hoc ones; `sauf route:list` shows an ad-hoc route with the controller `Closure`.
 
 ### Diagnostics
-Type errors: a path without a leading `/` is an argument type error; a param name not in the path is a property error on `params`.
+Type errors (`packages/http/__tests__/routing/adHocRoutes.test-d.ts`):
+- a path without a leading `/`: `TS2345: Argument of type '"health"' is not assignable to parameter of type '`/${string}`'.`
+- a param name not in the path: `TS2339: Property 'slug' does not exist on type '{ id: string; }'.`
 
 Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `r.<method>('<path>'): the path must start with "/"`
