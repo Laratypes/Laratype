@@ -8,6 +8,9 @@ import { Controller, RequestKernel } from '../../src/index'
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5))
 
+/** The process-wide set of keys already warned about; reset per test so the bubbling warning always fires. */
+const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
+
 let nextId = 0
 class RequestId {
   readonly id = ++nextId
@@ -52,6 +55,7 @@ beforeAll(() => {
 })
 
 afterEach(() => {
+  delete (globalThis as { [BUBBLE_WARNED]?: unknown })[BUBBLE_WARNED]
   vi.restoreAllMocks()
 })
 
