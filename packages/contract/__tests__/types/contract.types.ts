@@ -1,8 +1,11 @@
 // Type tests: compiled by ../typecheck.test.ts with tsc, so a broken expectation fails `vitest run`.
 import { expectTypeOf } from 'vitest'
 import * as z from 'zod'
-import { apiEndpoint, apiRoutes, defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
+import { API_ROOT, apiEndpoint, apiRoutes, defineApi, defineContract, defineScope, endpoint, isApiNode, isApiRoot, isContract } from '@laratype/contract'
 import type {
+  AnyApiNode,
+  AnyContract,
+  Api,
   ApiEndpoint,
   ApiRoute,
   ApiRouteName,
@@ -52,7 +55,7 @@ expectTypeOf(inline.a.__types.status).toEqualTypeOf<200>()
 // --- defineApi: flat tree names → nested tree
 expectTypeOf(appApi.users.show).toEqualTypeOf<typeof users.show>()
 expectTypeOf(appApi.users.posts.store).toEqualTypeOf<typeof posts.store>()
-expectTypeOf<keyof typeof appApi>().toEqualTypeOf<'users'>()
+expectTypeOf<keyof typeof appApi & string>().toEqualTypeOf<'users'>()
 expectTypeOf<keyof typeof appApi.users & string>().toEqualTypeOf<'index' | 'show' | 'store' | 'destroy' | 'stats' | 'posts'>()
 
 // route names: the folder names plus the endpoint key
@@ -71,36 +74,36 @@ expectTypeOf(apiRoutes(appApi)[0]!).toEqualTypeOf<ApiRoute<ApiRouteName<AppApi>>
 
 // pure folder nodes (`v1` in `v1.health`) and inline contracts
 const health = defineContract()({ check: endpoint.get('/').response(z.object({ ok: z.boolean() })) })
-const v1 = defineApi({ 'v1.health': { contract: health, path: '/api/v1/health', scopes: [], dirs: [] } })
+const v1 = defineApi({ 'v1.health': { contract: health, path: '/api/v1/health', scopes: [] } })
 expectTypeOf<ApiRouteName<typeof v1>>().toEqualTypeOf<'v1.health.check'>()
 expectTypeOf<ApiTypes<typeof v1>['v1']['health']['check']['path']>().toEqualTypeOf<'/api/v1/health'>()
 
 // --- defineApi diagnostics
 defineApi({
   // @ts-expect-error defineApi: "users.posts" path must start with its folder prefix "/api/users/:user"
-  'users.posts': { contract: posts, path: '/api/posts', scopes: [usersUser], dirs: ['users/[user]'] },
+  'users.posts': { contract: posts, path: '/api/posts', scopes: [{ scope: usersUser, dir: 'users/[user]' }] },
 })
 defineApi({
   // @ts-expect-error defineApi: "users" has an endpoint and a child contract with the same name
-  users: { contract: users, path: '/api/users', scopes: [], dirs: [] },
-  'users.show': { contract: health, path: '/api/users/show', scopes: [], dirs: [] },
+  users: { contract: users, path: '/api/users', scopes: [] },
+  'users.show': { contract: health, path: '/api/users/show', scopes: [] },
 })
 // @ts-expect-error defineApi: invalid tree name
-defineApi({ 'users..x': { contract: health, path: '/x', scopes: [], dirs: [] } })
-// @ts-expect-error entries are { contract, path, scopes, dirs }
+defineApi({ 'users..x': { contract: health, path: '/x', scopes: [] } })
+// @ts-expect-error entries are { contract, path, scopes: [{ scope, dir }] }
 defineApi({ users })
-// @ts-expect-error defineApi: "x" needs dirs: the folder of each scope ("" for the root)
-defineApi({ x: { contract: health, path: '/x', scopes: [] } })
-defineApi({
-  // @ts-expect-error defineApi: "users.posts" dirs must hold one folder per scope
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [usersUser], dirs: [] },
-})
-defineApi({
-  // @ts-expect-error defineApi: "users.posts" dirs must hold one folder per scope
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [usersUser], dirs: ['', 'users/[user]'] },
-})
+// @ts-expect-error each scope comes with its folder: [{ scope, dir }]
+defineApi({ 'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [usersUser] } })
+
+// --- isApiRoot / isApiNode: the root carries its own brand, so a hand-made object of nodes is no root
+expectTypeOf(appApi).toMatchTypeOf<{ readonly [API_ROOT]: true }>()
+expectTypeOf({ users: appApi.users }).not.toMatchTypeOf<{ readonly [API_ROOT]: true }>()
+expectTypeOf(appApi.users).toMatchTypeOf<AnyApiNode>()
+expectTypeOf(isApiRoot).guards.toEqualTypeOf<Api>()
+expectTypeOf(isApiNode).guards.toEqualTypeOf<AnyApiNode>()
+expectTypeOf(isContract).guards.toEqualTypeOf<AnyContract>()
 // @ts-expect-error scopes must be scopes
-defineApi({ x: { contract: health, path: '/x', scopes: [{ auth: true }], dirs: [''] } })
+defineApi({ x: { contract: health, path: '/x', scopes: [{ scope: { auth: true }, dir: '' }] } })
 
 // --- ApiTypes / EndpointTypes: schema-free projection
 type T = ApiTypes<AppApi>
