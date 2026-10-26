@@ -54,7 +54,7 @@ interface TreeState {
   /** Singletons currently being built, so a request-scoped dep bubbles to all of them. */
   singletons: SingletonFrame[]
   /** Request scopes of the `make()` calls in progress: a singleton's owner builds it outside its request scope. */
-  requestScopes: Container[]
+  scopeStack: Container[]
 }
 
 const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('Symbol.asyncDispose')
@@ -141,7 +141,7 @@ export class Container {
   constructor(options: ContainerOptions = {}, parent?: Container) {
     this.parent = parent
     this.deps = options.deps ?? parent?.deps ?? noDeps
-    this.tree = parent?.tree ?? { resolving: [], singletons: [], requestScopes: [] }
+    this.tree = parent?.tree ?? { resolving: [], singletons: [], scopeStack: [] }
   }
 
   /**
@@ -194,11 +194,11 @@ export class Container {
     if (!scope) return this.resolve(token) as T
     if (scope.disposed) throw new DiError('Request scope already disposed.')
     // Resolution is synchronous, so concurrent requests never interleave on this stack.
-    this.tree.requestScopes.push(scope)
+    this.tree.scopeStack.push(scope)
     try {
       return this.resolve(token) as T
     } finally {
-      this.tree.requestScopes.pop()
+      this.tree.scopeStack.pop()
     }
   }
 
@@ -316,7 +316,7 @@ export class Container {
 
   /** The current request scope: this container's, else the one of the `make()` in progress (a singleton's owner sits above it). */
   protected currentRequestScope(): Container | undefined {
-    return this.requestScope() ?? this.tree.requestScopes.at(-1)
+    return this.requestScope() ?? this.tree.scopeStack.at(-1)
   }
 
   /** The value of a request-scoped `key`, built once per request scope and cached there under `cacheKey`. */
