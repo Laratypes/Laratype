@@ -111,7 +111,7 @@ describe('emit', () => {
     const file = emitApiIndex(tree, options);
     expect(file.path).toBe('.laratype/api/index.gen.ts');
     expect(file.content).toContain("import s1 from '../../app/api/users/[user]/_scope'");
-    expect(file.content).toContain("  'users.posts': { contract: c1, path: '/api/users/:user/posts', scopes: [s0, s1], dirs: ['', 'users/[user]'] },");
+    expect(file.content).toContain("  'users.posts': { contract: c1, path: '/api/users/:user/posts', scopes: [{ scope: s0, dir: '' }, { scope: s1, dir: 'users/[user]' }] },");
     expect(file.content).toContain('export type AppApi = typeof appApi');
     expect(emitApiIndex(scanFiles([], '/api'), options).content).toContain('export const appApi = defineApi({})');
   });

@@ -8,6 +8,7 @@ export type {
   ClientFailure,
   ClientOf,
   ClientOptions,
+  ClientRequest,
   ClientResult,
   ClientSuccess,
   EndpointCall,

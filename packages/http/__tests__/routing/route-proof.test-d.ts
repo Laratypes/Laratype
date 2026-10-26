@@ -15,7 +15,7 @@ const posts = defineContract()({
   show: endpoint.get('/:post').response(Post).throws(PostLocked),
   destroy: endpoint.delete('/:post').auth().authorize(),
 })
-const appApi = defineApi({ 'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [], dirs: [] } })
+const appApi = defineApi({ 'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [] } })
 
 type Path = '/api/users/:user/posts'
 type Post = z.infer<typeof Post>

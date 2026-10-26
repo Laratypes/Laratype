@@ -2,7 +2,7 @@ import passport from "passport";
 import { BaseEntity } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { ServiceProvider, LaratypeConfig as Config, ContextApi, RedirectStatusCode, manifestEntry, loadDefault } from "@laratype/support";
+import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import Authentication from "./Authentication";
