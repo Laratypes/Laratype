@@ -250,8 +250,9 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   credentials?: RequestCredentials;
   /**
    * The `redirect` mode of every call. Default `"error"`: a redirect makes `fetch` reject, and the call resolves as the
-   * status-0 unexpected result. `"follow"` restores fetch's own default; `"manual"` gives an opaque status-0 result with
-   * `response` set. A per-call `init.redirect` set by `onRequest` wins.
+   * status-0 unexpected result. `"follow"` restores fetch's own default; `"manual"` gives a browser's opaque status-0 result
+   * with `response` set, while Node's `fetch` (Undici) returns the 3xx response itself. A per-call `init.redirect` set by
+   * `onRequest` wins.
    */
   redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
