@@ -670,7 +670,7 @@ interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the reg
 
 ### Diagnostics
 Type errors (`packages/http/__tests__/routing/adHocRoutes.test-d.ts`):
-- a path without a leading `/`: `TS2345: Argument of type '"health"' is not assignable to parameter of type '`/${string}`'.`
+- a path without a leading `/`: `` TS2345: Argument of type '"health"' is not assignable to parameter of type '`/${string}`'. ``
 - a param name not in the path: `TS2339: Property 'slug' does not exist on type '{ id: string; }'.`
 
 Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
