@@ -71,6 +71,22 @@ describe('request scope', () => {
     expect(scope.createChild().make(RequestId)).toBe(scope.make(RequestId))
   })
 
+  it('a request scope started from a live one has its own cache, and neither disposes the other values', async () => {
+    let disposed = 0
+    class Db {
+      [Symbol.dispose]() { disposed++ }
+    }
+    const outer = new Container().scoped(Db).createRequestScope()
+    const inner = outer.createRequestScope()
+    expect(inner.make(Db)).not.toBe(outer.make(Db))
+    await outer.dispose()
+    expect(disposed).toBe(1)
+    // the inner scope is independent: still usable, its value not disposed with the outer one
+    expect(inner.make(Db)).toBe(inner.make(Db))
+    await inner.dispose()
+    expect(disposed).toBe(2)
+  })
+
   it('transient and singleton bindings keep their lifetime inside a request scope', () => {
     class Clock {}
     class Config {}
