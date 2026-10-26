@@ -354,7 +354,7 @@ export default class Request extends AppServiceProvider {
   }
 
   /** The response is already resolved, so a failed disposal is logged once, never turned into an error response. */
-  protected static async disposeRequestScope(scope: Container, ctx: Context) {
+  protected static async disposeRequestScope(scope: Container, ctx: Context): Promise<void> {
     try {
       await scope.dispose();
     } catch (error) {
