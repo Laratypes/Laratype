@@ -547,13 +547,13 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
-- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)).
+- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/auth/src/support/Auth.ts)
+[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · `Auth.ts` (A4 #151, not on `b1ca24d`)
 
 ```ts
 // @laratype/core

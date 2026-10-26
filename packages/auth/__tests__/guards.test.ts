@@ -140,6 +140,7 @@ afterEach(() => {
 afterAll(() => {
   delete (globalThis as any).__laratype_manifest
   delete (globalThis as any).__laratype_config
+  delete (globalThis as any).__laratype_configs
   delete (globalThis as any).__laratype_db
 })
 
@@ -151,7 +152,7 @@ describe('PassportServiceProvider', () => {
     expect(container.make(AuthManager).config).toBe(authConfig)
   })
 
-  it('loads the env file before app/config/auth.ts, which K1 loads later for config()', async () => {
+  it('loads the env file before app/config/auth.ts', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'laratype-auth-env-'))
     writeFileSync(join(dir, '.env'), 'A4_AUTH_ENV=loaded\n')
     vi.spyOn(process, 'cwd').mockReturnValue(dir)
@@ -168,15 +169,9 @@ describe('PassportServiceProvider', () => {
           },
         }, entry('config', { name: 'app' })],
       })
-      // Every register() runs before any boot(), so registering PassportServiceProvider only binds auth.ts here:
-      // K1's ConfigLoadServiceProvider has not filled config('auth') yet
-      expect(() => config('auth')).toThrow('ran before the configs were loaded')
       const container = new Container({ deps: depsRegistry })
       await bootProviders(container, [EnvLoadServiceProvider, ConfigLoadServiceProvider, PassportServiceProvider])
       expect(seen).toBe('loaded')
-      // ... and the two get the same auth config, once auth.ts has been evaluated
-      expect(container.make(AUTH_CONFIG)).toBe(authConfig)
-      expect(config('auth')).toBe(authConfig)
     }
     finally {
       delete process.env.A4_AUTH_ENV
@@ -184,6 +179,23 @@ describe('PassportServiceProvider', () => {
       delete (globalThis as any).__laratype_configs
       delete (globalThis as any).__laratype_config
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("binds app/config/auth.ts before K1's config store fills config('auth')", async () => {
+    setAppManifest({ ...manifest(), configs: [entry('auth', authConfig), entry('config', { name: 'app' })] })
+    try {
+      // Every register() runs before any boot(), so at this point ConfigLoadServiceProvider has not run
+      expect(() => config('auth')).toThrow('ran before the configs were loaded')
+      const container = new Container({ deps: depsRegistry })
+      await bootProviders(container, [EnvLoadServiceProvider, ConfigLoadServiceProvider, PassportServiceProvider])
+      // ... and both hold the one auth config once auth.ts is evaluated
+      expect(container.make(AUTH_CONFIG)).toBe(authConfig)
+      expect(config('auth')).toBe(authConfig)
+    }
+    finally {
+      delete (globalThis as any).__laratype_configs
+      delete (globalThis as any).__laratype_config
     }
   })
 

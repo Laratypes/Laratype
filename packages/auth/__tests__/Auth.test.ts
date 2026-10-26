@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Container, Facade } from '@laratype/core'
 import { ContextApi } from '@laratype/support'
 import type { Model } from '@laratype/database'
-import { Auth, AuthService, type Authenticated } from '../src'
+import { Auth, AuthService } from '../src'
+import type { Authenticated } from '../src/verifications/AuthVerification'
 
 /** Answers every call with a marker instead of reading the guards. */
 class FakeAuth extends AuthService {
