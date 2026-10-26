@@ -1,6 +1,6 @@
 // docs/v1/auth.md: guards in the container (A4 #151, proposed).
 import { AUTH_CONFIG, AuthManager, Auth } from '@laratype/auth'
-import { Middleware, type NextHandler, type Request } from '@laratype/http'
+import { Middleware, type NextHandler, type Request, type Response } from '@laratype/http'
 import { ContextApi, ServiceProvider } from '@laratype/support'
 
 declare class User { id: number; email: string }
