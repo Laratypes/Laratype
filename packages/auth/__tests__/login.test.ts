@@ -12,7 +12,7 @@ const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf
 type Row = { id: number; [key: string]: any }
 
 /** The slice of a typeorm Model that login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { column = 'password', select = false } = {}) => {
+const fakeModel = (rows: Row[], { column = 'password', select = false, failUpdate = false } = {}) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
   class User {
     static getRepository() {
@@ -22,6 +22,7 @@ const fakeModel = (rows: Row[], { column = 'password', select = false } = {}) =>
         },
         update: async (id: number, data: Partial<Row>) => {
           calls.update.push([id, data])
+          if (failUpdate) throw new Error('the database is down')
           Object.assign(rows.find((row) => row.id === id)!, data)
         },
       }
@@ -110,12 +111,28 @@ describe('Authentication.login', () => {
     expect(Hash.check('secret', user.password)).toBe(true)
   })
 
+  it('logs in when the rehash update fails: the stored hash still verifies', async () => {
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, { failUpdate: true })
+    expect(await Authentication.login(guardOf(User), { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
+    expect(calls.update).toHaveLength(1)
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
   it('never queries without a password or a lookup field', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await Authentication.login(guardOf(User), { email: 'ada@example.com' })).toBeNull()
     expect(await Authentication.login(guardOf(User), { password: 'secret' })).toBeNull()
     expect(await Authentication.login(guardOf(User), { email: undefined, password: 'secret' })).toBeNull()
     expect(await Authentication.login(guardOf(User), { email: 'ada@example.com', password: 42 })).toBeNull()
+    expect(calls.where).toEqual([])
+  })
+
+  it('refuses a lookup value that is not a string before any query', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    for (const email of [{ $ne: null }, ['ada@example.com'], 42, null]) {
+      expect(await Authentication.login(guardOf(User), { email, password: 'secret' })).toBeNull()
+    }
     expect(calls.where).toEqual([])
   })
 

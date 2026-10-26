@@ -17,9 +17,9 @@ export default class Authentication {
     const model: typeof Model = guard.provider
     const passwordField: string = guard.options?.passwordField ?? "password"
     const { [passwordField]: password, ...where } = fields
-    // An empty or undefined lookup field would match any user
+    // A lookup field that is not a string (an object or an array, say) would reach the query as a value, not a credential
     const values = Object.values(where)
-    if (typeof password !== "string" || values.length === 0 || values.some((value) => value === undefined || value === null)) {
+    if (typeof password !== "string" || values.length === 0 || values.some((value) => typeof value !== "string")) {
       return null
     }
 
@@ -37,9 +37,14 @@ export default class Authentication {
     if (!column.isSelect) delete user[passwordField]
     if (!Hash.check(password, hashed)) return null
     if (Hash.needsRehash(hashed)) {
-      const rehashed = Hash.make(password)
-      await model.getRepository().update(model.getId(user), { [passwordField]: rehashed })
-      if (column.isSelect) user[passwordField] = rehashed
+      // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
+      try {
+        const rehashed = Hash.make(password)
+        await model.getRepository().update(model.getId(user), { [passwordField]: rehashed })
+        if (column.isSelect) user[passwordField] = rehashed
+      } catch {
+        // swallowed on purpose
+      }
     }
     return user
   }
