@@ -21,8 +21,8 @@ const posts = defineContract<ContractPrefix<'/api', [typeof root]>>()({
 })
 const users = defineContract()({ index: endpoint.get('/').response(anything) })
 const appApi = defineApi({
-  posts: { contract: posts, path: '/api/posts', scopes: [root], dirs: [''] },
-  users: { contract: users, path: '/users', scopes: [], dirs: [] },
+  posts: { contract: posts, path: '/api/posts', scopes: [{ scope: root, dir: '' }] },
+  users: { contract: users, path: '/users', scopes: [] },
 })
 
 class PostController extends Controller {
