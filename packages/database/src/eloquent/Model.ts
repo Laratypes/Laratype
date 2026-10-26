@@ -89,6 +89,12 @@ export default class Model extends BaseEntity {
   
   // Not cast: a salted password hash never matches in a where clause; check it with Hash.check() after the lookup
   static findOneBy(where: any) {
+    // A 0.5 caller's { email, password } would put a plain password in the SQL parameters and never match a hash
+    if (where && typeof where === 'object' && Object.prototype.hasOwnProperty.call(where, 'password')) {
+      throw new Error(
+        "[@laratype/database] findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()",
+      );
+    }
     return super.findOneBy(where);
   }
 }

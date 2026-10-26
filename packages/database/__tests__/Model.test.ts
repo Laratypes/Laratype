@@ -1,4 +1,4 @@
-// A password value is hashed once on save/update, a stored hash is kept, and findOneBy() never hashes it
+// A password value is hashed once on save/update, a stored make() hash is kept, and findOneBy() refuses a password key
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
 import { Hash } from '@laratype/support'
@@ -58,10 +58,25 @@ describe('Model password cast', () => {
     expect(updates[1]![1].password).toBe(hashed)
   })
 
-  it('passes a findOneBy() password through: a salted hash cannot be matched in the query', async () => {
+  it('hashes a $scrypt$ value at another cost as a plain password, since cast only keeps what make() writes', async () => {
+    const { User, saved } = model()
+    const [, , , salt, key] = Hash.make('secret').split('$')
+    for (const N of [32768, 8192]) {
+      const value = `$scrypt$N=${N},r=8,p=1$${salt}$${key}`
+      await User.save({ email: `${N}@example.com`, password: value })
+      const stored = saved.at(-1)!.password
+      expect(stored).not.toBe(value)
+      expect(Hash.isHashed(stored)).toBe(true)
+      expect(Hash.check(value, stored)).toBe(true)
+    }
+  })
+
+  it('throws a findOneBy() that carries a password, instead of matching a plain password in the query', async () => {
     const { User, lookups } = model()
-    const hashed = Hash.make('secret')
-    await User.findOneBy({ email: 'ada@example.com', password: hashed })
-    expect(lookups).toEqual([{ email: 'ada@example.com', password: hashed }])
+    expect(() => User.findOneBy({ email: 'ada@example.com', password: 'secret' })).toThrow(
+      'findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()',
+    )
+    expect(() => User.findOneBy({ email: 'ada@example.com', password: Hash.make('secret') })).toThrow()
+    expect(lookups).toEqual([])
   })
 })
