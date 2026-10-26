@@ -9,7 +9,7 @@ import type { AdHocRouteEntry, MountedRoute, Request, RouteEntry } from '../../s
 import type { Hono } from 'hono'
 
 const users = defineContract()({ index: endpoint.get('/') })
-const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
+const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
 class UserController extends Controller { index() {} }
 class Audit extends Middleware {}

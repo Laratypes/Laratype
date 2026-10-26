@@ -9,7 +9,7 @@ import type { ApiRoutes } from '../../src/index'
 // Ad-hoc routes (H12 #139): `r.get('/health', () => 'ok')` next to the contract routes of a Route.api group
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const users = defineContract()({ show: endpoint.get('/:id').response(anything) })
-const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
+const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
 class UserController extends Controller {
   show(req: { param(key: string): string }) { return { id: req.param('id') } }
