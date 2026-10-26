@@ -47,7 +47,9 @@ const isSuccess = (status: number) => status >= 200 && status <= 299;
  * The handler may return the 0.5 `Response` for its headers and content; a 2xx status set on it must be the
  * endpoint's. A redirect or a non-2xx one (a middleware answering 401 or 429 without calling next) is not the
  * endpoint's success and keeps the 0.5 response. Its body or redirect headers (`BODY_HEADERS`) are dropped: the body
- * sent here is the server's serialization, not the one they describe.
+ * sent here is the server's serialization, not the one they describe. The `Location` of a `201 Created` is the one
+ * exception: it names the created resource, not the body (RFC 9110 §15.3.2). An endpoint cannot declare a 3xx (its
+ * status is checked to be 2xx), so a redirect is a 0.5 `Response`, sent as it is above.
  */
 export const resolveContractResponse = async (ctx: Context, result: unknown, endpoint: AnyEndpoint, route: string) => {
   const support = result instanceof ResponseSupport ? result : undefined;
@@ -71,8 +73,10 @@ export const resolveContractResponse = async (ctx: Context, result: unknown, end
   const headers = support?.getHeaders() ?? {};
   for (const name in headers) {
     // The body is JSON or nothing: the handler's Content-Type, Content-Length or Content-Encoding describes its own
-    // body, not the one sent here (H4 #107, the BODY_HEADERS of #272)
-    if (!isBodyHeader(name)) ctx.header(name, headers[name]);
+    // body, not the one sent here (H4 #107, the BODY_HEADERS of #272). A 201's Location is not about the body: it
+    // names the created resource (RFC 9110 §15.3.2)
+    if (isBodyHeader(name) && !(status === 201 && name.toLowerCase() === "location")) continue;
+    ctx.header(name, headers[name]);
   }
 
   if (text === undefined) {

@@ -18,6 +18,7 @@ const users = defineContract()({
   reset: endpoint.post('/:id/reset').status(205),
   joined: endpoint.get('/:id/joined').response(z.object({ at: z.date() })),
   update: endpoint.put('/:id').response(User),
+  create: endpoint.post('/create').response(User, 201),
 })
 const usersApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
 
@@ -31,15 +32,17 @@ class UserController extends Controller {
   reset() { return undefined }
   joined() { return { at: new Date('2026-10-22T00:00:00.000Z') } }
   update() { return result }
+  create() { return result }
 }
 
 /** An app booted like `sauf dev`: RequestKernel puts the container on each request, ResponseKernel handles errors. */
-const bootApp = () => {
+const bootApp = (use?: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
+  use?.(app)
   Route.api(usersApi, (r) => [r.contract(users, UserController)]).mount(app)
   return app
 }
@@ -188,6 +191,42 @@ describe('status from the contract', () => {
     expect(response.headers.get('content-encoding')).toBeNull()
     expect(response.headers.get('x-foo')).toBe('bar')
     expect(await response.text()).toBe('')
+  })
+})
+
+describe('Location on a contract response', () => {
+  // RFC 9110 §15.3.2: a 201 Created names the created resource in Location, which is not about the body
+  it('a 201 Created keeps the handler\'s Location', async () => {
+    // a header name is case-insensitive
+    result = new LaratypeResponse({ id: 6, name: 'Ada' }, 201, { location: '/api/users/6' })
+    const response = await bootApp().request('/api/users/create', { method: 'POST' })
+    expect(response.status).toBe(201)
+    expect(response.headers.get('location')).toBe('/api/users/6')
+    expect(await response.json()).toEqual({ id: 6, name: 'Ada' })
+  })
+
+  it('a 200 drops it with the other body headers', async () => {
+    result = new LaratypeResponse({ id: 1, name: 'Ada' }, 200, { Location: '/api/users/1', 'X-Foo': 'bar' })
+    const response = await bootApp().request('/api/users/1')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('x-foo')).toBe('bar')
+    expect(await response.json()).toEqual({ id: 1, name: 'Ada' })
+  })
+
+  it('an error response drops the Location a 201 had set', async () => {
+    // a middleware that throws after the route answered through resolveContractResponse
+    const app = bootApp((app) => {
+      app.use(async (_c, next) => {
+        await next()
+        throw new Error('secret detail')
+      })
+    })
+    result = new LaratypeResponse({ id: 6, name: 'Ada' }, 201, { Location: '/api/users/6' })
+    const response = await app.request('/api/users/create', { method: 'POST' })
+    expect(response.status).toBe(500)
+    expect(response.headers.get('location')).toBeNull()
+    expect(await response.json()).toEqual({ message: 'Server Error' })
   })
 })
 
