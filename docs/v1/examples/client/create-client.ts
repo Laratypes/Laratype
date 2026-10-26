@@ -3,7 +3,7 @@
 import { expectTypeOf } from 'vitest'
 import { createClient } from '@laratype/client'
 import { buildUrl } from '@laratype/contract'
-import { appApi } from '../contract/contracts'
+import { appApi } from '../contract/proposed/contracts'
 
 // Contract paths are full ("/api/users/:user/posts"): baseUrl is only the origin, "" (same origin) by default.
 const api = createClient(appApi, { baseUrl: 'https://example.com', headers: { authorization: 'Bearer token' } })

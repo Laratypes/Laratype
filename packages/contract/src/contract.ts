@@ -125,20 +125,26 @@ export const contractEndpoints = <C extends AnyContract>(contract: C): Array<[En
 /** Brand of each API tree node, holding its tree name and its entry (none for a pure folder). */
 export const API_NODE: unique symbol = Symbol.for("laratype.api");
 
+/** Brand of the root that `defineApi` returns. */
+export const API_ROOT: unique symbol = Symbol.for("laratype.api.root");
+
+/** One `_scope.ts` of a contract's chain, with its folder: root-relative, `""` for the root (`users/[user]`). */
+export interface ApiEntryScope<S extends AnyScope = AnyScope, D extends string = string> {
+  readonly scope: S;
+  readonly dir: D;
+}
+
 /** One contract of the folder tree, as the generated `.laratype/api/index.gen.ts` mounts it. */
 export interface ApiEntry<
   C extends AnyContract = AnyContract,
   Path extends string = string,
-  S extends readonly AnyScope[] = readonly AnyScope[],
-  D extends readonly string[] = readonly string[],
+  S extends readonly ApiEntryScope[] = readonly ApiEntryScope[],
 > {
   readonly contract: C;
   /** Full URL prefix, file segment included: `/api/users/:user/posts`. */
   readonly path: Path;
-  /** The `_scope.ts` chain, outer to inner. */
+  /** The `_scope.ts` chain with the folder of each scope, outer to inner. */
   readonly scopes: S;
-  /** The folder of each scope, aligned with `scopes`: root-relative, `""` for the root (`["", "users/[user]"]`). */
-  readonly dirs: D;
 }
 
 /** Flat map keyed by tree name: `{ 'users': {...}, 'users.posts': {...} }`. */
@@ -151,22 +157,18 @@ export interface ApiNodeInfo<N extends string = string, En = ApiEntry | undefine
 
 type BadName<K extends string> = K extends "" | `.${string}` | `${string}.` | `${string}..${string}` ? true : false;
 
-/** Per key: the entry, or `{ error }` (bad name, path outside the folder prefix, endpoint/child name clash, missing or misaligned dirs). */
+/** Per key: the entry, or `{ error }` (bad name, path outside the folder prefix, endpoint/child name clash). */
 export type CheckApi<A> = {
   [K in keyof A]: K extends string
     ? BadName<K> extends true
       ? { error: `defineApi: invalid tree name "${K}"` }
-      : A[K] extends ApiEntry<infer C, infer Path, infer S, infer D>
+      : A[K] extends ApiEntry<infer C, infer Path>
         ? Path extends `${PrefixPath<ContractPrefixOf<C>>}${string}`
           ? [Extract<keyof A, `${K}.${EndpointKeys<C>}` | `${K}.${EndpointKeys<C>}.${string}`>] extends [never]
-            ? S["length"] extends D["length"]
-              ? A[K]
-              : { error: `defineApi: "${K}" dirs must hold one folder per scope` }
+            ? A[K]
             : { error: `defineApi: "${K}" has an endpoint and a child contract with the same name` }
           : { error: `defineApi: "${K}" path must start with its folder prefix "${PrefixPath<ContractPrefixOf<C>>}"` }
-        : A[K] extends { readonly contract: AnyContract; readonly path: string; readonly scopes: readonly AnyScope[] }
-          ? { error: `defineApi: "${K}" needs dirs: the folder of each scope ("" for the root)` }
-          : { error: `defineApi: "${K}" must be { contract, path, scopes, dirs }` }
+        : { error: `defineApi: "${K}" must be { contract, path, scopes: [{ scope, dir }] }` }
     : A[K];
 };
 
@@ -181,8 +183,21 @@ type Tree<A, Base extends string> = { readonly [H in Head<keyof A & string>]: Ap
 export type ApiNode<A, H extends string, Name extends string> = EndpointsOf<EntryAt<A, H>> &
   Tree<Sub<A, H>, `${Name}.`> & { readonly [API_NODE]: ApiNodeInfo<Name, EntryAt<A, H>> };
 
-/** The nested API tree built from the flat entries: `appApi.users.posts.update`. */
-export type Api<A extends ApiDef = ApiDef> = Tree<A, "">;
+/** The nested API tree built from the flat entries: `appApi.users.posts.update`. Its root carries the `API_ROOT` brand. */
+export type Api<A extends ApiDef = ApiDef> = Tree<A, ""> & { readonly [API_ROOT]: true };
+
+/** Any API node (`appApi.users`), as `isApiNode` narrows it. */
+export type AnyApiNode = { readonly [API_NODE]: ApiNodeInfo };
+
+/** Whether `value` is a node of a `defineApi` tree (`appApi.users`), told by its brand. The root is not a node. */
+export const isApiNode = (value: unknown): value is AnyApiNode => {
+  const info = typeof value === "object" && value !== null ? (value as Record<symbol, unknown>)[API_NODE] : undefined;
+  return typeof info === "object" && info !== null;
+};
+
+/** Whether `value` is the root that `defineApi` returns, told by its brand: a hand-made object of API nodes is not. */
+export const isApiRoot = (value: unknown): value is Api =>
+  typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[API_ROOT] === true;
 
 type NodeName<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, any> } ? Name : never;
 
@@ -220,7 +235,7 @@ const isDir = (dir: unknown): dir is string => typeof dir === "string" && !dir.s
 
 /**
  * Builds the API tree from the flat entries that `.laratype/api/index.gen.ts` emits:
- * `defineApi({ 'users.posts': { contract, path: '/api/users/:user/posts', scopes: [usersUser], dirs: ['users/[user]'] } })`.
+ * `defineApi({ 'users.posts': { contract, path: '/api/users/:user/posts', scopes: [{ scope: usersUser, dir: 'users/[user]' }] } })`.
  * The FE imports this module only, never `typeof routes`, so its type-check never loads server code.
  */
 export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api<A> {
@@ -246,32 +261,34 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
 
   for (const [name, entry] of Object.entries(entries as ApiDef)) {
     if (name.split(".").some((s) => s === "")) fail(`defineApi: invalid tree name "${name}"`);
-    if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes, dirs }`);
+    if (typeof entry !== "object" || entry === null || !isContract(entry.contract)) fail(`defineApi: "${name}" must be { contract, path, scopes: [{ scope, dir }] }`);
     // an endpoint path's rule, plus no trailing "/" like the scan's base: "/" + "/users" would be "//users", another host
     checkPath(entry.path, `defineApi: "${name}"`);
     if (/[/\\]$/.test(entry.path)) fail(`defineApi: "${name}": the path must not end with "/" or "\\", got ${JSON.stringify(entry.path)}`);
-    if (!Array.isArray(entry.scopes) || !entry.scopes.every(isScope)) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
-    if (entry.dirs === undefined) fail(`defineApi: "${name}" needs dirs: the folder of each scope ("" for the root)`);
-    if (!Array.isArray(entry.dirs) || !entry.dirs.every(isDir)) fail(`defineApi: "${name}" dirs must be root-relative folders ("" for the root)`);
-    const dup = entry.dirs.find((dir, i) => entry.dirs.indexOf(dir) !== i);
-    if (dup !== undefined) fail(`defineApi: "${name}" dirs must not repeat a folder ("${dup}")`);
-    if (entry.dirs.length !== entry.scopes.length) fail(`defineApi: "${name}" dirs must hold one folder per scope (${entry.scopes.length} scopes, ${entry.dirs.length} dirs)`);
-    entry.scopes.forEach((scope, i) => {
-      if (scope.authorize === true && !entry.scopes.slice(0, i + 1).some((s) => s.auth)) {
+    // each item is { scope, dir }, not a bare scope as in the parallel `scopes` / `dirs` lists this replaces; the
+    // spread turns the holes of a sparse array, which `every` would skip, into undefined items
+    const items: unknown[] = Array.isArray(entry.scopes) ? [...entry.scopes] : [];
+    if (!Array.isArray(entry.scopes) || !items.every((s) => typeof s === "object" && s !== null && !isScope(s))) {
+      fail(`defineApi: "${name}" scopes must be [{ scope, dir }], outer to inner`);
+    }
+    const chain = (items as ApiEntryScope[]).map(({ scope, dir }) => Object.freeze({ scope, dir }));
+    if (!chain.every((s) => isScope(s.scope))) fail(`defineApi: "${name}" scopes must be scopes (use defineScope)`);
+    if (!chain.every((s) => isDir(s.dir))) fail(`defineApi: "${name}" scope dirs must be root-relative folders ("" for the root)`);
+    const dup = chain.find((s, i) => chain.findIndex((t) => t.dir === s.dir) !== i);
+    if (dup !== undefined) fail(`defineApi: "${name}" scope dirs must not repeat a folder ("${dup.dir}")`);
+    chain.forEach(({ scope }, i) => {
+      if (scope.authorize === true && !chain.slice(0, i + 1).some((s) => s.scope.auth)) {
         fail(`defineApi: "${name}": scope ${i} has authorize but no auth in it or an outer scope`);
       }
     });
     const node = nodeAt(name);
-    infos.get(node)!.entry = Object.freeze({
-      contract: entry.contract,
-      path: entry.path,
-      scopes: Object.freeze([...entry.scopes]),
-      dirs: Object.freeze([...entry.dirs]),
-    });
+    const mounted: ApiEntry = Object.freeze({ contract: entry.contract, path: entry.path, scopes: Object.freeze(chain) });
+    infos.get(node)!.entry = mounted;
+    const ctx = contextOf(mounted);
     for (const [key, endpoint] of contractEndpoints(entry.contract)) {
       if (node[key] !== undefined) fail(`defineApi: "${name}.${key}" is both an endpoint and a contract`);
       node[key] = endpoint;
-      resolveCapabilities(endpoint.def, contextOf(infos.get(node)!.entry!), `${name}.${key}`);
+      resolveCapabilities(endpoint.def, ctx, `${name}.${key}`);
     }
   }
 
@@ -279,10 +296,15 @@ export function defineApi<const A extends ApiDef>(entries: A & CheckApi<A>): Api
     Object.defineProperty(node, API_NODE, { value: Object.freeze(info), enumerable: false });
     Object.freeze(node);
   }
+  Object.defineProperty(root, API_ROOT, { value: true, enumerable: false });
   return Object.freeze(root) as Api<A>;
 }
 
-const contextOf = (entry: ApiEntry) => ({ path: entry.path, scopes: entry.scopes, options: entry.contract[CONTRACT].options });
+const contextOf = (entry: ApiEntry): { path: string; scopes: readonly AnyScope[]; options: ContractOptions } => ({
+  path: entry.path,
+  scopes: Object.freeze(entry.scopes.map((s) => s.scope)),
+  options: entry.contract[CONTRACT].options,
+});
 
 /** One route of an API without its capabilities: tree name, method, full path and where it sits. */
 export interface ApiPath<N extends string = string> {
@@ -306,8 +328,12 @@ export interface ApiRoute<N extends string = string> extends ResolvedCapabilitie
   readonly scopes: readonly AnyScope[];
 }
 
-/** The one walk over an API: each route with the context it is mounted in (the contract's URL prefix, scopes, options). */
-function walkRoutes(api: object, visit: (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>) => void): void {
+/**
+ * The one walk over an API: each route with the context it is mounted in (the contract's URL prefix, scopes, options).
+ * It takes the root, a node or a contract, told by their brands; anything else throws.
+ */
+function walkRoutes(api: unknown, label: string, visit: (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>) => void): void {
+  if (!isApiRoot(api) && !isApiNode(api) && !isContract(api)) fail(`${label}: expected the appApi from defineApi, an API node or a contract`);
   if (isContract(api)) {
     const ctx = { path: "", scopes: [] as readonly AnyScope[], options: api[CONTRACT].options };
     for (const [key, endpoint] of contractEndpoints(api)) visit(key, endpoint, api, ctx);
@@ -315,13 +341,16 @@ function walkRoutes(api: object, visit: (name: string, endpoint: AnyEndpoint, co
   }
   const walk = (current: TreeNode) => {
     const info = current[API_NODE] as ApiNodeInfo | undefined;
+    // one context per node: its endpoints share the frozen scope list
+    const ctx = info?.entry && contextOf(info.entry);
     for (const [key, value] of Object.entries(current)) {
       if (!isEndpoint(value)) {
         walk(value as TreeNode);
         continue;
       }
-      const entry = info!.entry!;
-      visit(`${info!.name}.${key}`, value, entry.contract, contextOf(entry));
+      // a forged node: an endpoint under a node with no entry
+      if (!ctx) return fail(`${label}: expected the appApi from defineApi, an API node or a contract`);
+      visit(`${info!.name}.${key}`, value, info!.entry!.contract, ctx);
     }
   };
   walk(api as TreeNode);
@@ -345,7 +374,7 @@ export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<Endp
 export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;
 export function apiPaths(api: object): ApiPath[] {
   const paths: ApiPath[] = [];
-  walkRoutes(api, (name, endpoint, contract, ctx) => paths.push(Object.freeze(routeOf(name, endpoint, contract, ctx))));
+  walkRoutes(api, "apiPaths", (name, endpoint, contract, ctx) => paths.push(Object.freeze(routeOf(name, endpoint, contract, ctx))));
   return paths;
 }
 
@@ -366,7 +395,7 @@ export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<En
 export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
 export function apiRoutes(api: object): ApiRoute[] {
   const routes: ApiRoute[] = [];
-  walkRoutes(api, (name, endpoint, contract, ctx) =>
+  walkRoutes(api, "apiRoutes", (name, endpoint, contract, ctx) =>
     routes.push(Object.freeze({ ...routeOf(name, endpoint, contract, ctx), ...resolveCapabilities(endpoint.def, ctx, name) })),
   );
   return routes;
@@ -374,6 +403,7 @@ export function apiRoutes(api: object): ApiRoute[] {
 
 /** `apiEndpoint(appApi, "users.posts.update")` → that endpoint (throws on an unknown name). */
 export function apiEndpoint<A extends ApiDef, Name extends ApiRouteName<Api<A>> & string>(api: Api<A>, name: Name): ApiEndpoint<Api<A>, Name> {
+  if (!isApiRoot(api) && !isApiNode(api)) fail("apiEndpoint: expected the appApi from defineApi or an API node");
   let value: unknown = api;
   for (const segment of name.split(".")) {
     value = typeof value === "object" && value !== null && !isEndpoint(value) ? (value as TreeNode)[segment] : undefined;
