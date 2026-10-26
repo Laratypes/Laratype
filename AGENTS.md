@@ -6,7 +6,7 @@ Guide for AI coding agents (Claude Code, Codex, Orca workers) working in this re
 
 - Agents never merge PRs, never push to `master`, and never force-push without the user's explicit approval for that branch. When it is approved, use `git push --force-with-lease=<branch>:<expected-old-sha>`.
 - Pushing a branch, opening a PR and posting on GitHub (comments, issue edits) need approval from the user, or from the coordinator session that relays it. Until then, commit locally. A worker started by a coordinator reports through the channel its task names and leaves pushing to the coordinator.
-- Read every change to `.github/`, `.claude/**`, `**/AGENTS.md`, `**/CLAUDE.md`, `.mcp.json`, `opencode.json` and `.opencode/**` in a diff before basing work on that branch. These files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10.
+- Read every change to `.github/`, `.claude/**`, `**/AGENTS.md`, `**/CLAUDE.md`, `.mcp.json`, `opencode.json` and `.opencode/**` in a diff before basing work on that branch or reviewing a PR. These files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10.
 - Never run `git stash pop`, `git stash drop` or `git stash clear`. Worktrees share the stash, and it holds the user's WIP.
 - Never print, commit or send secrets (tokens, `.env` values). Do not add workflows that use secrets, or trigger `workflow_dispatch` runs, without the user.
 
