@@ -54,7 +54,19 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 6899661 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Public API
-No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`packages/http/src/request/input.ts`](../../packages/http/src/request/input.ts).
+No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`request/input.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/request/input.ts), [`request/Request.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/request/Request.ts#L279) (`RequestKernel`), [`routing/api/proof.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/routing/api/proof.ts#L23-L45).
+
+```ts
+// @laratype/http (RequestKernel is the default export of request/Request.ts)
+class RequestKernel { static handle(routeOption: RouteParams): (ctx: Context) => Promise<void> }   // throws a TypeError for a contract route with a request class
+export type BaseCtx<E extends AnyEndpoint, P = PathParams<E path>> = {
+  readonly endpoint: E;
+  params: P;                        // raw path params (strings)
+  query: InferOut<E query schema>;  // undefined without one
+  body: InferOut<E body schema>;    // undefined without one
+};
+export type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // BaseCtx<E> merged with Requires, params one level deep
+```
 
 ### Invariants
 - **Body by media type:** `application/json` and `application/*+json`, with any parameters (`; charset=utf-8`) and in any case, are read as JSON: Hono's `validator('json')` media type, with the `i` flag and digits in the vendor prefix too (`application/vnd.github.v3+json`). Anything else goes to Hono's `parseBody({ dot: true })`: `multipart/form-data` and `x-www-form-urlencoded` fields (`user.age` becomes `{ user: { age } }`), `{}` for other types. A multipart file field is the standard web `File`, so contracts stay browser-safe.
