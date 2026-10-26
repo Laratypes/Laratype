@@ -16,6 +16,7 @@ export type {
   HeaderValues,
   Manifest,
   ManifestRoute,
+  ProvidedHeaders,
   ResponseData,
   UnexpectedResult,
 } from './types'

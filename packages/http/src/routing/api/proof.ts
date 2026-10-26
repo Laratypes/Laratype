@@ -49,7 +49,7 @@ export type Result<E extends AnyEndpoint> = T<E>["response"] extends undefined ?
 
 /**
  * What the runtime also takes from a handler, unchecked against the schema: a `response()` / `redirect()` value, whose
- * own status still wins, and a 0.5 `JsonResource` (its schema typing is H9 #123).
+ * own status still wins, and a 0.5 `JsonResource`. A v2 resource (H9 #123) returns plain data, which the check covers.
  */
 export type ResponseEscape = ResponseSupport | JsonResource;
 

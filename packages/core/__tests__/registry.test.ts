@@ -97,6 +97,46 @@ describe('inheritance', () => {
   })
 })
 
+describe('untransformed subclass of a registered class (T4 #116)', () => {
+  class UserService {}
+  class Controller {
+    constructor() {}
+  }
+  __laratype_deps(Controller, [], { params: [] })
+  // `sauf build` runs no transform yet (B2 #126), so an app subclass can have an own constructor and no entry.
+  class UserController extends Controller {
+    constructor(public users: UserService) {
+      super()
+    }
+  }
+
+  it('has no applicable entry when the ancestor entry has fewer slots than the constructor params', () => {
+    expect(getDeps(UserController)).toBeUndefined()
+    expect(depsRegistry.get(UserController)).toBeUndefined()
+  })
+
+  it('throws the no-metadata error instead of building it with the ancestor arguments', () => {
+    expect(() => new Container({ deps: depsRegistry }).make(UserController))
+      .toThrow('Cannot autowire UserController: its constructor takes 1 param(s) but no dependency metadata was found.')
+  })
+
+  it('still inherits for a subclass without an own constructor', () => {
+    class Child extends Controller {}
+    expect(depsRegistry.get(Child)).toEqual({ slots: [], meta: { params: [] } })
+    expect(new Container({ deps: depsRegistry }).make(Child)).toBeInstanceOf(Child)
+  })
+
+  it('keeps the own entry of a registered subclass', () => {
+    class RegisteredChild extends Controller {
+      constructor(public users: UserService) {
+        super()
+      }
+    }
+    __laratype_deps(RegisteredChild, [() => UserService], { params: ['users'] })
+    expect(new Container({ deps: depsRegistry }).make(RegisteredChild).users).toBeInstanceOf(UserService)
+  })
+})
+
 describe('abstract flag (DOC10 Q9)', () => {
   it('flags the class itself, never a subclass', () => {
     abstract class Port {
