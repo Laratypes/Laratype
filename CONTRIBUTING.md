@@ -90,6 +90,6 @@ After the parent PR merges:
 
 ## Security
 
-- **Review `.github/` changes.** Workflows run with the repo's secrets, and a malicious workflow was pushed to this repo in 2026-10. Before you base work on someone else's branch, or review a PR, read every `.github/` change in its diff.
+- **Review `.github/` and agent-instruction changes.** Workflows run with the repo's secrets, `.claude/**`, `AGENTS.md` and `CLAUDE.md` steer what agents do, and a malicious workflow was pushed to this repo in 2026-10. Before you base work on someone else's branch, or review a PR, read every change to these files in its diff.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.
 - Don't add workflows that use secrets, or trigger `workflow_dispatch` runs, without the maintainer's approval.
