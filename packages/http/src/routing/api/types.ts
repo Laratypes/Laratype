@@ -20,10 +20,21 @@ export interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
+/**
+ * The callback of one `endpoints` key. For an endpoint named after an `Object.prototype` member (`toString`), a map that
+ * leaves it out still has the inherited member, which TypeScript compares with the callback type, so that member's type
+ * is accepted too. A member with parameters (`hasOwnProperty`) widens to `Function` instead, which has no call signature,
+ * so `r` keeps its contextual type. The runtime reads own keys only and rejects a callback that does not return the
+ * builder.
+ */
+type EndpointCallback<K> = K extends keyof Object
+  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
+  : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
+
 /** `r.contract(contract, Controller, { policy, endpoints })`. */
 export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> = {
   /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
-  readonly endpoints?: { readonly [K in EndpointKey<C>]?: (r: EndpointRouteBuilder) => EndpointRouteBuilder };
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
 } & (
   // A required `policy` member, so `P` keeps the `undefined` of `cond ? Policy : undefined` (inference from an
   // optional property drops it) and the route proof reports the missing policy
@@ -69,10 +80,10 @@ export interface ScopeRouteOptions {
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 
 type NodeEntry<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, infer En> }
-  ? En extends ApiEntry<infer C, infer Path, infer S, infer D> ? { name: Name; contract: C; path: Path; scopes: S; dirs: D; node: N } : never
+  ? En extends ApiEntry<infer C, infer Path, infer S> ? { name: Name; contract: C; path: Path; scopes: S; node: N } : never
   : never;
 
-/** Every mounted contract of an API tree: `{ name, contract, scopes, dirs, node }`, one member per tree name. */
+/** Every mounted contract of an API tree: `{ name, contract, path, scopes, node }`, one member per tree name. */
 export type ApiTreeEntry<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? never : NodeEntry<A[K]> | ApiTreeEntry<A[K]> }[keyof A & string];
 
 /** Tree names of the contracts: `"users" | "users.posts"`. */
@@ -84,8 +95,8 @@ export type ApiTreeContract<A> = ApiTreeEntry<A> extends infer E ? (E extends { 
 /** The tree nodes that hold a contract: `typeof appApi.users | typeof appApi.users.posts`. */
 export type ApiTreeNode<A> = ApiTreeEntry<A> extends infer E ? (E extends { node: infer N } ? N : never) : never;
 
-type ScopePairs<E> = E extends { scopes: infer S extends readonly unknown[]; dirs: infer D extends readonly string[] }
-  ? { [I in keyof S]: { dir: D[I & keyof D]; authorize: S[I] extends { readonly authorize: true } ? true : false } }[number]
+type ScopePairs<E> = E extends { scopes: readonly (infer P)[] }
+  ? P extends { readonly scope: infer S; readonly dir: infer D } ? { dir: D; authorize: S extends { readonly authorize: true } ? true : false } : never
   : never;
 
 /** The scope folders of an API tree: `"" | "users/[user]"`. */
