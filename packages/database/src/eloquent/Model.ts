@@ -5,7 +5,7 @@ const cast = (input: Record<string, any>) => {
   const result: Record<string, any> = {};
   for (const key in input) {
     result[key] = input[key];
-    // A value that is already a hash (a loaded model saved again) is stored as it is
+    // A value that is already a hash is stored as it is, not hashed again
     if (key === 'password' && !Hash.isHashed(input[key])) {
       result[key] = Hash.make(input[key]);
     }
