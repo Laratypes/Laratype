@@ -594,14 +594,14 @@ interface Resource<M, Out> {
 }
 
 function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue;   // the value as it is (a function too); KnownValue refuses any and unknown
-type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue
+type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue; one object per member of a union
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
 
 ### Invariants
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
-- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required.
+- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required. A union return gives one output object per member; a discriminated union's output narrows per member.
 - **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).

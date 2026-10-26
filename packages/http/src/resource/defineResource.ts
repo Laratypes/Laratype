@@ -39,12 +39,19 @@ export function when<V>(condition: boolean, value: V & KnownValue<V>): V | Missi
 type ModelClass = abstract new (...args: any) => any;
 type MayBeMissing<V> = IsAny<V> extends true ? false : [Extract<V, MissingValue>] extends [never] ? false : true;
 
-/** The data `fn` returns, with each `when()` key optional and without `MissingValue`. */
-export type ResourceOutput<R> = {
-  [K in keyof R as MayBeMissing<R[K]> extends true ? never : K]: R[K];
-} & {
-  [K in keyof R as MayBeMissing<R[K]> extends true ? K : never]?: Exclude<R[K], MissingValue>;
-} extends infer O ? { [K in keyof O]: O[K] } : never;
+/**
+ * The data `fn` returns, with each `when()` key optional and without `MissingValue`. A union return keeps one output
+ * object per member, so a discriminated union's output narrows per member.
+ */
+export type ResourceOutput<R> = R extends unknown
+  ? {
+      [K in keyof R as MayBeMissing<R[K]> extends true ? never : K]: R[K];
+    } & {
+      [K in keyof R as MayBeMissing<R[K]> extends true ? K : never]?: Exclude<R[K], MissingValue>;
+    } extends infer O
+    ? { [K in keyof O]: O[K] }
+    : never
+  : never;
 
 /**
  * What `fn` returns: a plain object (checked at runtime), never an array or a promise (load relations before `make`).

@@ -73,6 +73,39 @@ describe('the inferred output', () => {
     expectTypeOf(UserResource.paginate({} as Page)).toEqualTypeOf<{ total: number; data: UserOut[] } | { cursor: string; data: UserOut[] }>()
   })
 
+  test('a union return gives one output per member, and narrows', () => {
+    // An annotated union, so R is exactly its two members (an inferred ternary adds `?: undefined` keys to each one)
+    type KindData = { kind: 'admin'; email: string | MissingValue } | { kind: 'member'; name: string | MissingValue }
+    const Kind = defineResource(User, (user): KindData =>
+      user.isAdmin
+        ? { kind: 'admin', email: when(user.isAdmin, user.email) }
+        : { kind: 'member', name: when(!user.isAdmin, user.name) })
+    expectTypeOf(Kind.make).returns.toEqualTypeOf<
+      { kind: 'admin'; email?: string } | { kind: 'member'; name?: string }
+    >()
+    const out = Kind.make(user())
+    if (out.kind === 'admin') {
+      expectTypeOf(out.email).toEqualTypeOf<string | undefined>()
+      // @ts-expect-error the member's output has no name
+      out.name
+    } else {
+      expectTypeOf(out.name).toEqualTypeOf<string | undefined>()
+    }
+
+    // The same as an inferred ternary: one output per member, the two key sets never cross
+    const Inferred = defineResource(User, (user) =>
+      user.isAdmin
+        ? { kind: 'admin' as const, email: when(user.isAdmin, user.email) }
+        : { kind: 'member' as const, id: user.id })
+    const data = Inferred.make(user())
+    if (data.kind === 'admin') expectTypeOf(data.email).toEqualTypeOf<string | undefined>()
+    else expectTypeOf(data.id).toEqualTypeOf<number>()
+  })
+
+  test('a single object is still one output', () => {
+    expectTypeOf(PostResource.make).returns.toEqualTypeOf<{ id: number; title: string }>()
+  })
+
   test('make, collection and paginate take the model, and fn returns an object', () => {
     // @ts-expect-error a Post is not a User
     UserResource.make(new Post())
@@ -131,6 +164,29 @@ describe('checked against the contract response schema', () => {
     expectTypeOf<Proof<With<{ show(): ReturnType<typeof NoName.make> }>>>().toHaveProperty('users.show: return type does not match the response schema')
     expectTypeOf<Proof<With<{ index(): ReturnType<typeof UserResource.make> }>>>().toHaveProperty('users.index: return type does not match the response schema')
     expectTypeOf<Proof<With<{ page(): ReturnType<typeof UserResource.collection> }>>>().toHaveProperty('users.page: return type does not match the response schema')
+  })
+
+  test('a union output is checked against the response schema, per member', () => {
+    const UserKindDto = z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('admin'), email: z.string() }),
+      z.object({ kind: z.literal('member'), id: z.number() }),
+    ])
+    const kinds = defineContract()({ show: endpoint.get('/').response(UserKindDto) })
+    const Kind = defineResource(User, (user) =>
+      user.isAdmin
+        ? { kind: 'admin' as const, email: user.email }
+        : { kind: 'member' as const, id: user.id })
+    class KindCtrl extends Controller { show() { return Kind.make(user()) } }
+    type P = VerifyController<'kinds', typeof kinds, '/', KindCtrl>
+    expectTypeOf<P>().toEqualTypeOf<unknown>()
+
+    const WrongKind = defineResource(User, (user) =>
+      user.isAdmin
+        ? { kind: 'admin' as const, email: user.email }
+        : { kind: 'member' as const, id: String(user.id) })
+    class WrongKindCtrl extends Controller { show() { return WrongKind.make(user()) } }
+    type Q = VerifyController<'kinds', typeof kinds, '/', WrongKindCtrl>
+    expectTypeOf<Q>().toHaveProperty('kinds.show: return type does not match the response schema')
   })
 
   test('a mismatch is reported at r.contract()', () => {
