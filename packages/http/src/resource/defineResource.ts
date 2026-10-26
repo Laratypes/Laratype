@@ -22,17 +22,25 @@ const isMissing = (value: unknown): boolean =>
 
 type IsAny<X> = 0 extends 1 & X ? true : false;
 
-/** `never` for an `any` or `unknown` value: `V | MissingValue` would collapse to it, and the key would look required. */
-type KnownValue<V> = IsAny<V> extends true ? never : unknown extends V ? never : unknown;
+/**
+ * Every concrete value type: `unknown` is not assignable to any of them, so it does not satisfy the constraint of
+ * `when()`. A conditional (`unknown extends V`) would be deferred for a generic `V`, and `V & <deferred>` does not
+ * accept `V`; a constraint is checked on `V`'s own constraint, so a generic `T` works.
+ */
+type ConcreteValue = object | string | number | boolean | bigint | symbol | null | undefined;
+
+/** `never` for an `any` value: `V | MissingValue` would collapse to it, and the key would look required. */
+type KnownValue<V> = IsAny<V> extends true ? never : unknown;
 
 /**
  * The value, or no key at all when `condition` is false. The value is kept as it is (a function too): use a
  * conditional expression to compute it only when needed. Only the top-level keys of a resource are dropped: a nested
- * `when()` keeps `MissingValue` in the type. An `any` or `unknown` value does not compile: give it its type.
+ * `when()` keeps `MissingValue` in the type. The value needs a concrete type, a generic `T` included: an `any` or
+ * `unknown` value does not compile.
  *
  *   email: when(user.isAdmin, user.email),
  */
-export function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue {
+export function when<V extends ConcreteValue>(condition: boolean, value: V & KnownValue<V>): V | MissingValue {
   return condition ? value : MISSING;
 }
 
@@ -84,6 +92,15 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
   value != null && typeof (value as Iterable<unknown>)[Symbol.iterator] === "function";
 
 /**
+ * The keys `make` refuses, and why: a `toJSON` key makes JSON.stringify send its result instead of the mapped data the
+ * contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` send the body as text/html.
+ */
+const RESERVED_KEYS: ReadonlyMap<string, string> = new Map([
+  ["toJSON", "JSON.stringify would send its result instead of the resource data"],
+  ["constructor", "the body would be sent as text/html instead of JSON"],
+]);
+
+/**
  * A resource for `Model`: `fn` maps one instance to plain data, and its return type is the output type.
  * The model class types `fn`'s argument; it is not checked at runtime.
  *
@@ -104,11 +121,15 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     if (!isPlainObject(data)) {
       throw new TypeError(`[@laratype/http] ${model.name}: the resource function must return a plain object, got ${describe(data)}`);
     }
+    const keys = Reflect.ownKeys(data).filter((key) => Object.prototype.propertyIsEnumerable.call(data, key));
+    for (const key of keys) {
+      const reason = typeof key === "string" ? RESERVED_KEYS.get(key) : undefined;
+      if (reason !== undefined) {
+        throw new TypeError(`[@laratype/http] ${model.name}: the resource function must not return a ${String(key)} key: ${reason}`);
+      }
+    }
     // fromEntries defines own properties, so a `__proto__` key stays a key; own keys include symbol keys
-    const entries = Reflect.ownKeys(data)
-      .filter((key) => Object.prototype.propertyIsEnumerable.call(data, key))
-      .map((key) => [key, data[key]] as const)
-      .filter(([, value]) => !isMissing(value));
+    const entries = keys.map((key) => [key, data[key]] as const).filter(([, value]) => !isMissing(value));
     return Object.fromEntries(entries) as Out;
   };
 

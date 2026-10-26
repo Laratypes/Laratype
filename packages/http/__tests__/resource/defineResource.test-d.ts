@@ -49,6 +49,12 @@ describe('the inferred output', () => {
     when(true, {} as unknown)
   })
 
+  test('when() accepts a generic value whose constraint is concrete', () => {
+    const generic = <T extends string>(t: T, condition: boolean) => when(condition, t)
+    const email: string = 'ada@example.com'
+    expectTypeOf(generic(email, true)).toEqualTypeOf<string | MissingValue>()
+  })
+
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {
     const R = defineResource(User, (user) => ({ id: user.id, raw: user as any, meta: {} as unknown, tags: {} as object }) as {
       readonly id: number; raw: any; meta: unknown; tags: object
