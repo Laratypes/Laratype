@@ -45,7 +45,7 @@ describe('a contract route', () => {
     store: endpoint.post('/').query(z.object({ draft: z.enum(['yes', 'no']).optional() })).body(Post).response(z.unknown(), 201),
     show: endpoint.get('/:post').response(z.unknown()),
   })
-  const appApi = defineApi({ 'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [], dirs: [] } })
+  const appApi = defineApi({ 'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [] } })
   const seen: unknown[] = []
 
   class PostController {
@@ -122,7 +122,7 @@ describe('a contract route', () => {
     const risky = defineContract()({ store: endpoint.post('/').body(z.object({ name: z.string() }).superRefine(() => { throw failure })) })
     class Risky { store() {} }
     const served = bootApp()
-    Route.api(defineApi({ risky: { contract: risky, path: '/risky', scopes: [], dirs: [] } }), (r) => [r.contract(risky, Risky)]).mount(served)
+    Route.api(defineApi({ risky: { contract: risky, path: '/risky', scopes: [] } }), (r) => [r.contract(risky, Risky)]).mount(served)
     const response = await served.request('/risky', json({ name: 'ada' }))
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual({ message: 'Server Error' })
@@ -134,7 +134,7 @@ describe('a contract route', () => {
     const mails = defineContract()({ send: endpoint.post('/').body(v.object({ email: v.pipe(v.string(), v.email()) })) })
     class Mails { send() {} }
     const served = bootApp()
-    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
     const response = await served.request('/mails', json({ email: 'alice.s3cr3t' }))
     const text = await response.text()
     expect(response.status).toBe(422)
@@ -150,7 +150,7 @@ describe('a contract route', () => {
     const mails = defineContract()({ send: endpoint.post('/').body(schema) })
     class Mails { send() {} }
     const served = bootApp()
-    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
     const response = await served.request('/mails', json({ email: 'İİİİİ' }))
     expect(response.status).toBe(422)
     expect((await response.json()).errors).toEqual({ email: ['Invalid email'] })
@@ -180,7 +180,7 @@ describe('a contract route', () => {
     const mails = defineContract()({ send: endpoint.post('/').body(schema) })
     class Mails { send() {} }
     const served = bootApp()
-    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [], dirs: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
+    Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
     const response = await served.request('/mails', json({ email: 'x' }))
     expect((await response.json()).errors).toEqual({ email: [message] })
   })
@@ -192,7 +192,7 @@ describe('a contract route', () => {
     const slow = defineContract()({ send: endpoint.post('/').body(schema) })
     class Slow { send() {} }
     const served = bootApp()
-    Route.api(defineApi({ slow: { contract: slow, path: '/slow', scopes: [], dirs: [] } }), (r) => [r.contract(slow, Slow)]).mount(served)
+    Route.api(defineApi({ slow: { contract: slow, path: '/slow', scopes: [] } }), (r) => [r.contract(slow, Slow)]).mount(served)
     const started = performance.now()
     const response = await served.request('/slow', json({ n: 1 }))
     expect((await response.json()).errors).toEqual({ n: ['x'] })
@@ -204,7 +204,7 @@ describe('a contract route', () => {
     const forms = defineContract()({ send: endpoint.post('/').body(v.object({ age: v.pipe(v.string(), v.transform(Number)) })).response(z.unknown()) })
     class Forms { send(ctx: Ctx<typeof forms.send>) { return { age: ctx.body.age } } }
     const served = bootApp()
-    Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]).mount(served)
+    Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [] } }), (r) => [r.contract(forms, Forms)]).mount(served)
     expect(await (await served.request('/forms', json({ age: '42' }))).json()).toEqual({ age: 42 })
     const invalid = await served.request('/forms', json({ age: 7 }))
     expect(invalid.status).toBe(422)
@@ -259,7 +259,7 @@ describe('the body by media type (H26 #287)', () => {
     const upload = defineContract()({ store: endpoint.post('/').body(z.object({ avatar: z.instanceof(File) })).response(z.unknown(), 201) })
     class Uploads { store(ctx: Ctx<typeof upload.store>) { return { name: ctx.body.avatar.name, size: ctx.body.avatar.size } } }
     const app = bootApp()
-    Route.api(defineApi({ uploads: { contract: upload, path: '/uploads', scopes: [], dirs: [] } }), (r) => [r.contract(upload, Uploads)]).mount(app)
+    Route.api(defineApi({ uploads: { contract: upload, path: '/uploads', scopes: [] } }), (r) => [r.contract(upload, Uploads)]).mount(app)
     const form = new FormData()
     form.append('avatar', new File(['abc'], 'a.png', { type: 'image/png' }))
     expect(await (await app.request('/uploads', { method: 'POST', body: form })).json()).toEqual({ name: 'a.png', size: 3 })
