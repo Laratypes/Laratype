@@ -62,6 +62,10 @@
         "jsonwebtoken": "^9.0.2",
         "passport": "^0.7.0",
       },
+      "devDependencies": {
+        "hono": "catalog:",
+        "passport-local": "^1.0.0",
+      },
     },
     "packages/broadcast": {
       "name": "@laratype/broadcast",

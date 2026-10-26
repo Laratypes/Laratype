@@ -553,7 +553,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · `Auth.ts` (A4 #151, not on `b1ca24d`)
+[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts` @ d085733](https://github.com/Laratypes/Laratype/blob/d085733be76dd9af8bc7b7a540c492280cda56cf/packages/auth/src/support/Auth.ts) (A4 PR #330)
 
 ```ts
 // @laratype/core

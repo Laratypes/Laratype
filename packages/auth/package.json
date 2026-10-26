@@ -48,5 +48,9 @@
     "external": [
       "passport"
     ]
+  },
+  "devDependencies": {
+    "hono": "catalog:",
+    "passport-local": "^1.0.0"
   }
 }
