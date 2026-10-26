@@ -2,7 +2,7 @@ import passport from "passport";
 import type { Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault } from "@laratype/support";
+import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault, loadEnv } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import AuthManager from "../guard/AuthManager";
@@ -79,6 +79,9 @@ export default class PassportServiceProvider extends ServiceProvider {
 
   /** Binds `AUTH_CONFIG` and the `AuthManager` singleton from app/config/auth.ts (A4 #151). */
   public async register() {
+    // app/config/auth.ts reads Env.get(), and EnvLoadServiceProvider loads the env file only in boot(), after every register()
+    loadEnv();
+
     // app/config/auth.ts and the PersonalAccessToken model, from the app manifest (docs/v1/build.md › Plugin chain)
     const authEntry = manifestEntry('configs', 'auth');
     if(!authEntry) throw new Error("app/config/auth.ts not found: the app manifest has no auth config");
