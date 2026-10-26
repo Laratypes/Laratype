@@ -1,7 +1,7 @@
 ---
 area: contract
 packages: ["@laratype/contract"]
-issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228]
+issues: [89, 90, 91, 92, 93, 94, 109, 133, 162, 228, 255]
 verified-against: Laratype@e2eac4b
 last-verified: 2026-10-14
 ---
@@ -20,7 +20,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
-| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
+| [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; root brand, `isApiRoot`/`isApiNode` and entry `scopes: [{ scope, dir }]` proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
@@ -301,6 +301,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
+- **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date()` (zod 3) or `z.coerce.date<Date>()` (zod 4). A handler that wants the ISO string itself uses `z.string().datetime()` (zod 3) or `z.iso.datetime()` (zod 4). A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
 - `TypeError: validateSync: the <vendor> schema is async, use validate() instead` (for example `the zod schema`).
@@ -370,7 +371,7 @@ Runtime `TypeError`s, all prefixed `[@laratype/contract] `:
 Type-level: a plain record of endpoints is not assignable to `Contract`. An endpoint with inconsistent capabilities gets `{ error: "<key>: <problem>" }` ([Capabilities and derived errors](#capabilities-and-derived-errors)). `authorize` and `auth: false` are not contract options.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts).
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts).
 
 ### Non-goals
 - No routes, controllers or middleware. Binding a contract to a controller is `r.contract()` in H2 [#105](https://github.com/Laratypes/Laratype/issues/105).
@@ -386,24 +387,31 @@ Type-level: a plain record of endpoints is not assignable to `Contract`. An endp
 ## defineApi and route names
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The entry path shape check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) is proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the API tree built from flat tree names, replacing the hand-written `defineApi({ users, posts })` of C5 ([#93](https://github.com/Laratypes/Laratype/issues/93), e2eac4b). The generated `appApi` module (`.laratype/api/index.gen.ts`) is merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The entry `dirs` (scope folders) is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The entry path shape check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) is proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The root brand, the `isApiRoot`/`isApiNode` guards and the entry `scopes: [{ scope, dir }]` list, which replaces the parallel `scopes` and `dirs` lists, are proposed (C10 [#258](https://github.com/Laratypes/Laratype/issues/258)): PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe.
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts)
 
 ```ts
 export const API_NODE: unique symbol;                 // Symbol.for("laratype.api")
-export interface ApiEntry<C extends AnyContract = AnyContract, Path extends string = string, S extends readonly AnyScope[] = readonly AnyScope[], D extends readonly string[] = readonly string[]> {
+export const API_ROOT: unique symbol;                 // Symbol.for("laratype.api.root")
+export interface ApiEntryScope<S extends AnyScope = AnyScope, D extends string = string> {
+  readonly scope: S;
+  readonly dir: D;                                    // its folder: root-relative, "" for the root ("users/[user]")
+}
+export interface ApiEntry<C extends AnyContract = AnyContract, Path extends string = string, S extends readonly ApiEntryScope[] = readonly ApiEntryScope[]> {
   readonly contract: C;
   readonly path: Path;                                // full URL prefix, file segment included: "/api/users/:user/posts"
-  readonly scopes: S;                                 // the _scope.ts chain, outer to inner
-  readonly dirs: D;                                   // the folder of each scope, aligned with scopes: ["", "users/[user]"]
+  readonly scopes: S;                                 // the _scope.ts chain with each folder, outer to inner
 }
 export type ApiDef = Record<string, ApiEntry>;        // keyed by tree name: "users", "users.posts"
 export interface ApiNodeInfo<N extends string = string, En = ApiEntry | undefined> { readonly name: N; readonly entry: En }
 export type CheckApi<A>;                              // per key: the entry, or { error: "defineApi: ..." }
-export type Api<A extends ApiDef = ApiDef>;           // the nested tree: api.users.posts.update
+export type Api<A extends ApiDef = ApiDef>;           // the nested tree: api.users.posts.update, & { [API_ROOT]: true }
 export type ApiNode<A, H extends string, Name extends string>;   // endpoints & child nodes & { [API_NODE]: ApiNodeInfo }
+export type AnyApiNode = { readonly [API_NODE]: ApiNodeInfo };
+export const isApiRoot: (value: unknown) => value is Api;          // the root that defineApi returns
+export const isApiNode: (value: unknown) => value is AnyApiNode;   // a node of it (appApi.users); the root is not one
 export type ApiRouteName<A>;                          // "users.index" | "users.posts.update" | ...
 export type ApiEndpoint<A, Name extends string>;     // the endpoint behind a route name
 export type EntryContext<En>;                         // { path, scopes, options } of a mounted contract
@@ -439,8 +447,8 @@ The module `.laratype/api/index.gen.ts`, written by `sauf types:generate`, calls
 
 ```ts
 export const appApi = defineApi({
-  'users':       { contract: users, path: '/api/users', scopes: [], dirs: [] },
-  'users.posts': { contract: usersPosts, path: '/api/users/:user/posts', scopes: [usersUserScope], dirs: ['users/[user]'] },
+  'users':       { contract: users, path: '/api/users', scopes: [] },
+  'users.posts': { contract: usersPosts, path: '/api/users/:user/posts', scopes: [{ scope: usersUserScope, dir: 'users/[user]' }] },
 })
 export type AppApi = typeof appApi
 ```
@@ -449,36 +457,37 @@ export type AppApi = typeof appApi
 - **Tree names.** A key is the folder names plus the file name, joined with `.` (`users.posts`). `[x]` folders are dropped. The result is nested: `appApi.users.posts.update`. Folders without a contract file become pure nodes (`v1` in `v1.health`).
 - **Route names** are the tree name plus the endpoint key (`users.posts.update`). The router, the client, typegen and the [URL builder](#url-builder) use this convention.
 - **Nodes.** Each node is frozen, has a null prototype, and holds its contract's endpoints and its child nodes in definition order. A non-enumerable `[API_NODE]` holds `{ name, entry }`, and `entry` is `undefined` for a pure folder.
+- **Root brand.** The root is frozen, has a null prototype, and carries a non-enumerable `[API_ROOT]: true`, also in its type. `isApiRoot`, `isApiNode` and `isContract` tell the root, a node and a contract apart by their `Symbol.for` brands, never by shape: a hand-made object (`{}`, `{ users: appApi.users }`, a spread `{ ...appApi }`) is not a root at runtime. A spread keeps the brand in its type, since TypeScript copies symbol keys through spreads, so the type level does not catch that one. The client, the router (`Route.api`), typegen, `apiPaths()`, `apiRoutes()` and `apiEndpoint()` use them ([#258](https://github.com/Laratypes/Laratype/issues/258)).
 - **Name clashes.** An endpoint key and a child node with the same name are an error, at the type level (`CheckApi`) and at runtime.
 - **Folder prefix.** At the type level, the entry `path` must start with the contract's `Prefix` path.
 - **Entry path shape.** At runtime the entry `path` follows the [endpoint path](#endpoint-builder) rule (one leading `/`, no control characters) and doesn't end with `/` or `\` (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)), like the scan's `base`, but stricter: `checkBase` still accepts `//api` or a control character, which then throws here when the generated index is imported. The type level doesn't check this shape. `""` is refused: unlike a base, an entry always has a name, so the scan always gives it at least one segment (`/users`).
-- **Scope folders.** `dirs` holds the folder of each scope in `scopes`, in the same order: root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). It is required, and its length must match `scopes`, at the type level and at runtime. A folder can appear only once (runtime check). The node info keeps it, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
+- **Scope folders.** Each item of `scopes` is `{ scope, dir }`, outer to inner: the scope and its folder, root-relative, `""` for the root, with no leading or trailing `/` (`users/[user]`). One list, so a scope never lacks its folder. A folder can appear only once (runtime check). The node info keeps the list, frozen, so the router can mount a policy on a folder with `r.scope('<folder>', { policy })` ([http.md › Router v2](./http.md#router-v2), [#104](https://github.com/Laratypes/Laratype/issues/104)).
 - **Capability re-check.** `defineApi` re-checks the [capability rules](#capabilities-and-derived-errors) against the runtime scope chain, so a `.public()` endpoint under a scope with `authorize` fails here too.
-- **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix). It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it. `routeErrors(route)` gives one route's errors (`endpointErrors` on its full path) without the consistency check, for the client.
+- **`apiPaths()`** lists every route depth-first in definition order with its name, method and full path, and resolves no capabilities. It takes the API root, an API node (`appApi.users`, full route names) or a single contract (route names are its endpoint keys, paths have no folder prefix), told by their brands; anything else throws. It is the one source of route names and paths: `apiRoutes()` and `@laratype/client` build on it. `routeErrors(route)` gives one route's errors (`endpointErrors` on its full path) without the consistency check, for the client.
 - **`apiRoutes()`** is `apiPaths()` plus `resolveCapabilities` per route, so it takes the same inputs. A single contract is resolved with its own options only, so a contract that relies on a folder scope (an `.authorize()` whose `auth` comes from a `_scope.ts`) throws there; resolve it through the `appApi`. Each route has its full path and its resolved capabilities: `auth`, `authorize`, `throttle`, and `errors`, which holds the derived errors plus `throws` from every level, unique by code and status. The router (H1), the policies (H2), the exception filter (H5) and the undeclared-error check (X3) read it.
 - **The FE imports the `appApi` module only**, never `typeof routes`. The negative-control fixture `fe/bad.ts` shows `typeof routes` pulling server code into the FE program.
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `defineApi: invalid tree name "<name>"`
-- `defineApi: "<name>" must be { contract, path, scopes, dirs }`
+- `defineApi: "<name>" must be { contract, path, scopes: [{ scope, dir }] }`
 - `defineApi: "<name>": the path must start with one "/", got <path>` (also for `""`, `//api` and `/\api`) and `defineApi: "<name>": the path must not contain control characters, got <path>`: the [endpoint path](#endpoint-builder) rule
 - `defineApi: "<name>": the path must not end with "/" or "\", got <path>` (`/`, `/api/`, `/api\`; the scan never generates one)
+- `defineApi: "<name>" scopes must be [{ scope, dir }], outer to inner` (also for a bare scope as an item)
 - `defineApi: "<name>" scopes must be scopes (use defineScope)`
-- `defineApi: "<name>" needs dirs: the folder of each scope ("" for the root)`
-- `defineApi: "<name>" dirs must be root-relative folders ("" for the root)`
-- `defineApi: "<name>" dirs must hold one folder per scope (<n> scopes, <m> dirs)`
-- `defineApi: "<name>" dirs must not repeat a folder ("<folder>")`
+- `defineApi: "<name>" scope dirs must be root-relative folders ("" for the root)`
+- `defineApi: "<name>" scope dirs must not repeat a folder ("<folder>")`
 - `defineApi: "<name>": scope <i> has authorize but no auth in it or an outer scope`
 - `defineApi: "<name>" is both an endpoint and a contract`
 - `<route name>: .public() under a scope with authorize: add .authorize(false) or move the contract out of the scope`
 - `<route name>: .authorize() needs auth on the endpoint, its contract or a scope`
 - `apiEndpoint: unknown route name "<name>"`
+- `apiPaths: expected the appApi from defineApi, an API node or a contract` (and `apiRoutes: ...`), `apiEndpoint: expected the appApi from defineApi or an API node`
 
-Type-level, as the `error` property of the offending key: `defineApi: invalid tree name "<name>"`, `defineApi: "<name>" path must start with its folder prefix "<prefix>"`, `defineApi: "<name>" has an endpoint and a child contract with the same name`, `defineApi: "<name>" needs dirs: the folder of each scope ("" for the root)`, `defineApi: "<name>" dirs must hold one folder per scope`, `defineApi: "<name>" must be { contract, path, scopes, dirs }`. `apiEndpoint(appApi, 'users.nope')` and `apiEndpoint(appApi, 'users.posts')` (a node) are type errors.
+Type-level, as the `error` property of the offending key: `defineApi: invalid tree name "<name>"`, `defineApi: "<name>" path must start with its folder prefix "<prefix>"`, `defineApi: "<name>" has an endpoint and a child contract with the same name`, `defineApi: "<name>" must be { contract, path, scopes: [{ scope, dir }] }`. `apiEndpoint(appApi, 'users.nope')` and `apiEndpoint(appApi, 'users.posts')` (a node) are type errors.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
 - No server registration. The router reads `apiRoutes()` (H1/H2).
@@ -531,10 +540,10 @@ export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? En
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.
 
 ### Example
-[`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
-- The projection keeps the schema output (`Date` stays `Date`). The client applies `Jsonify<>` to it ([#110](https://github.com/Laratypes/Laratype/issues/110)).
+- The projection keeps the schema input and output (`Date` stays `Date`). The client applies `Jsonify<>` to the response ([#110](https://github.com/Laratypes/Laratype/issues/110)), and types the body as its JSON-safe input and a `Date` query value as `Date | string` ([client.md › createClient](./client.md#json-safe-request-input), [#255](https://github.com/Laratypes/Laratype/issues/255)).
 
 ### Open questions
 - Resolved: the response wire type is `Jsonify<output>` ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
@@ -653,7 +662,7 @@ export default defineScope<ScopePrefix>()({ auth: true, authorize: true })
 - Runtime, prefixed `[@laratype/contract] `: `defineScope: unknown option "<option>"`, `defineScope: authorize must be a boolean`, and the shared option checks (see [defineContract](#definecontract)).
 
 ### Design (non-binding)
-- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })`, the folder written as in the entry `dirs` ([http.md › Router v2](./http.md#router-v2)). A missing policy is a compile error in `Route.api` and a runtime error (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The policy is recorded on the routes; running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
+- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })`, the folder written as in the entry's `{ scope, dir }` ([http.md › Router v2](./http.md#router-v2)). A missing policy is a compile error in `Route.api` and a runtime error (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The policy is recorded on the routes; running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
 
 ### Acceptance
 [#228 Done when](https://github.com/Laratypes/Laratype/issues/228) · [#104 Done when](https://github.com/Laratypes/Laratype/issues/104)
@@ -728,7 +737,7 @@ Inheritance runs scope → nested scope → contract → endpoint:
 - **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names are the keys of `GuardRegistry`, an empty interface the app augments ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract); A1 [#119](https://github.com/Laratypes/Laratype/issues/119) will feed it from the auth `Register`). A 401 can only come from `auth`; it can't be declared directly.
 - **`authorize`:** `authorize: true` on a [scope](#folder-scopes), or `.authorize()` on an endpoint. It requires `auth` at the same level or an outer one, because a policy checks a signed-in user.
 - **`.public()` under a scope with `authorize`** is a compile error, unless the endpoint also has `.authorize(false)`: `.public().authorize(false)` runs no guard and no policy.
-- **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)). `per` is a number of seconds or a string such as `'30s'`, `'1m'`, `'1h'` or `'1d'`.
+- **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)). `per` is a number of seconds or a string such as `'30s'`, `'1m'`, `'1h'` or `'1d'`, from 1 second to `Number.MAX_SAFE_INTEGER` ms (`'0s'`, `0.5`, `NaN` and `Infinity` are rejected; proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2).
 - **`throws`:** `.throws(...errors)` on an endpoint, and `throws: [...]` in the options of a contract or a scope ([Domain errors](#domain-errors)). Built-in catalog errors are accepted.
 - **Opt-outs are endpoint methods:** `.public()`, `.throttle(false)` and `.authorize(false)`. A contract or a scope never removes a capability it inherits. A contract that must be public as a whole sits outside the authenticated scope.
 - **`.authorize(false)`** skips every inherited `authorize` check for that endpoint, and its derived 403 goes away.
@@ -745,7 +754,7 @@ Inheritance runs scope → nested scope → contract → endpoint:
 Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `auth: false` in contract options, `throttle: false` in scope options, and non-factory `throws`.
 
 ### Example
-[`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) · [`examples/contract/contracts.ts`](./examples/contract/contracts.ts)
+[`examples/contract/endpoint.ts`](./examples/contract/endpoint.ts) · [`examples/contract/proposed/contracts.ts`](./examples/contract/proposed/contracts.ts)
 
 ### Non-goals
 - No middleware in the contract.

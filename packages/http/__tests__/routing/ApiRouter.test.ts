@@ -19,8 +19,8 @@ const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: 
 const users = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
 const posts = defineContract()({ index: endpoint.get('/').response(anything), store: endpoint.post('/').response(anything, 201) })
 const appApi = defineApi({
-  users: { contract: users, path: '/api/users', scopes: [root], dirs: [''] },
-  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [root, usersUser], dirs: ['', 'users/[user]'] },
+  users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+  'users.posts': { contract: posts, path: '/api/users/:user/posts', scopes: [{ scope: root, dir: '' }, { scope: usersUser, dir: 'users/[user]' }] },
 })
 
 class UserController extends Controller {
@@ -75,8 +75,8 @@ describe('Route.api', () => {
     const usersShow = defineContract()({ show: endpoint.get('/:user').response(anything) })
     const usersMe = defineContract()({ index: endpoint.get('/').response(anything) })
     const tree = defineApi({
-      users: { contract: usersShow, path: '/api/users', scopes: [], dirs: [] },
-      'users.me': { contract: usersMe, path: '/api/users/me', scopes: [], dirs: [] },
+      users: { contract: usersShow, path: '/api/users', scopes: [] },
+      'users.me': { contract: usersMe, path: '/api/users/me', scopes: [] },
     })
     class UsersController extends Controller { show(_req: unknown, { user }: { user: string }) { return { show: user } } }
     class MeController extends Controller { index() { return { me: true } } }
@@ -93,8 +93,8 @@ describe('Route.api', () => {
     const files = defineContract()({ show: endpoint.get('/:path{.+}').response(anything) })
     const raw = defineContract()({ index: endpoint.get('/').response(anything) })
     const tree = defineApi({
-      files: { contract: files, path: '/api/files', scopes: [], dirs: [] },
-      'files.raw': { contract: raw, path: '/api/files/:id/raw', scopes: [], dirs: [] },
+      files: { contract: files, path: '/api/files', scopes: [] },
+      'files.raw': { contract: raw, path: '/api/files/:id/raw', scopes: [] },
     })
     class FilesController extends Controller { show(_req: unknown, { path }: { path: string }) { return { path } } }
     class RawController extends Controller { index(_req: unknown, { id }: { id: string }) { return { raw: id } } }
@@ -108,8 +108,8 @@ describe('Route.api', () => {
     const bySlug = defineContract()({ show: endpoint.get('/:slug').response(anything) })
     const byId = defineContract()({ show: endpoint.get('/:id{[0-9]+}').response(anything) })
     const tree = defineApi({
-      slugs: { contract: bySlug, path: '/api/posts', scopes: [], dirs: [] },
-      ids: { contract: byId, path: '/api/posts', scopes: [], dirs: [] },
+      slugs: { contract: bySlug, path: '/api/posts', scopes: [] },
+      ids: { contract: byId, path: '/api/posts', scopes: [] },
     })
     class SlugController extends Controller { show(_req: unknown, { slug }: { slug: string }) { return { slug } } }
     class IdController extends Controller { show(_req: unknown, { id }: { id: string }) { return { id } } }
@@ -122,8 +122,8 @@ describe('Route.api', () => {
     const postsOnly = defineContract()({ index: endpoint.get('/').response(anything) })
     const comments = defineContract()({ index: endpoint.get('/').response(anything) })
     const twins = defineApi({
-      posts: { contract: postsOnly, path: '/api/posts', scopes: [], dirs: [] },
-      comments: { contract: comments, path: '/api/comments', scopes: [], dirs: [] },
+      posts: { contract: postsOnly, path: '/api/posts', scopes: [] },
+      comments: { contract: comments, path: '/api/comments', scopes: [] },
     })
     class PostsController extends Controller { index() { return { from: 'posts' } } }
     class CommentsController extends Controller { index() { return { from: 'comments' } } }
@@ -137,8 +137,8 @@ describe('Route.api', () => {
   })
 
   it('a folder node or a node of another tree is not in the API tree', () => {
-    const other = defineApi({ users: { contract: users, path: '/api/users', scopes: [], dirs: [] } })
-    const folders = defineApi({ 'v1.health': { contract: posts, path: '/api/v1/health', scopes: [], dirs: [] } })
+    const other = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
+    const folders = defineApi({ 'v1.health': { contract: posts, path: '/api/v1/health', scopes: [] } })
     expect(() => Route.api(appApi, (r) => [r.contract(other.users, UserController)] as never)).toThrow('a mounted contract is not in the API tree')
     expect(() => Route.api(folders, (r) => [r.contract(folders.v1, PostController)] as never)).toThrow('a mounted contract is not in the API tree')
   })
@@ -152,7 +152,7 @@ describe('Route.api', () => {
     })
     class Gone extends Controller { destroy() { return { ok: true } } store() { return { ok: true } } ping() { return { ignored: true } } queue() { return { queued: true } } }
     vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [], dirs: [] } }), (r) => [r.contract(gone, Gone as never)]))
+    const { app } = mount(Route.api(defineApi({ gone: { contract: gone, path: '/gone', scopes: [] } }), (r) => [r.contract(gone, Gone as never)]))
     // the 0.5 kernel would guess 204 for destroy and 201 for store
     expect((await app.request('/gone/1', { method: 'DELETE' })).status).toBe(200)
     expect((await app.request('/gone', { method: 'POST' })).status).toBe(200)
@@ -164,7 +164,7 @@ describe('Route.api', () => {
     // 205 Reset Content has no body either
     const reset = defineContract()({ clear: endpoint.post('/').status(205) })
     class Reset extends Controller { clear() { return { ignored: true } } }
-    const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [], dirs: [] } }), (r) => [r.contract(reset, Reset as never)]))
+    const { app: resetApp } = mount(Route.api(defineApi({ reset: { contract: reset, path: '/reset', scopes: [] } }), (r) => [r.contract(reset, Reset as never)]))
     const cleared = await resetApp.request('/reset', { method: 'POST' })
     expect(cleared.status).toBe(205)
     expect(await cleared.text()).toBe('')
@@ -176,7 +176,7 @@ describe('Route.api', () => {
 
   it('checks a status decorator against the 204 default and .status(n)', () => {
     const quiet = defineContract()({ remove: endpoint.delete('/:id'), accept: endpoint.post('/').status(202) })
-    const quietApi = defineApi({ quiet: { contract: quiet, path: '/quiet', scopes: [], dirs: [] } })
+    const quietApi = defineApi({ quiet: { contract: quiet, path: '/quiet', scopes: [] } })
     class Quiet extends Controller { remove() {} accept() {} }
     // a decorator saying 204 matches the schema-less default
     Reflect.defineMetadata('laratype:controller_status_code', 204, Quiet.prototype, 'remove')
@@ -204,7 +204,7 @@ describe('Route.api', () => {
       // the handler's second argument is the raw params object
       const member = defineContract()({ show: endpoint.get('/').response(anything) })
       class Member extends Controller { show(_req: unknown, params: { user: string }) { return { user: params.user } } }
-      const memberApp = mount(Route.api(defineApi({ member: { contract: member, path: '/members/:user', scopes: [], dirs: [] } }), (r) => [r.contract(member, Member)])).app
+      const memberApp = mount(Route.api(defineApi({ member: { contract: member, path: '/members/:user', scopes: [] } }), (r) => [r.contract(member, Member)])).app
       expect(await (await memberApp.request('/members/7')).json()).toEqual({ user: '7' })
       expect(lookups).toEqual([])
     } finally {
@@ -308,9 +308,9 @@ describe('auth and authorize are not enforced yet', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     mount(build().domain('api.example.test'))
     expect(warn).toHaveBeenCalledTimes(1)
-    const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
+    const open = defineContract()({ ping: endpoint.get('/').auth() })
     class Ping extends Controller { ping() {} }
-    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
+    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).toHaveBeenCalledTimes(2)
     // the first list is still remembered
     mount(build())
@@ -319,11 +319,11 @@ describe('auth and authorize are not enforced yet', () => {
 
   it('two Route.api groups warn once each, across restarts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const open = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
+    const open = defineContract()({ ping: endpoint.get('/').auth() })
     class Ping extends Controller { ping() {} }
     const groups = () => [
       Route.api(appApi, (r) => [r.contract(users, UserController), r.scope('users/[user]', { policy: UserScopePolicy }), r.contract(posts, PostController)]),
-      Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]).domain('api.example.test'),
+      Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [] } }), (r) => [r.contract(open, Ping)]).domain('api.example.test'),
     ]
     for (const restart of [1, 2, 3]) for (const group of groups()) mount(group)
     expect(warn).toHaveBeenCalledTimes(2)
@@ -333,8 +333,8 @@ describe('auth and authorize are not enforced yet', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     class Ping extends Controller { ping() {} }
     const group = (i: number) => {
-      const c = defineContract()({ ping: endpoint.get('/').throttle({ limit: 1, per: 1 }) })
-      return Route.api(defineApi({ [`p${i}`]: { contract: c, path: `/p${i}`, scopes: [], dirs: [] } }), (r) => [r.contract(c, Ping)])
+      const c = defineContract()({ ping: endpoint.get('/').auth() })
+      return Route.api(defineApi({ [`p${i}`]: { contract: c, path: `/p${i}`, scopes: [] } }), (r) => [r.contract(c, Ping)])
     }
     for (let i = 0; i < 40; i++) mount(group(i))
     expect(warn).toHaveBeenCalledTimes(40)
@@ -354,10 +354,10 @@ describe('auth and authorize are not enforced yet', () => {
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
-    expect(UNENFORCED_NOTICE).toBe('auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106)')
+    expect(UNENFORCED_NOTICE).toBe('auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
-      '[@laratype/http] Route.api: auth, authorize, throttle and input schema validation are not enforced yet (planned → #105, #121, #229, #106), so these routes skip those checks: ' +
+      '[@laratype/http] Route.api: auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106), so these routes skip those checks: ' +
         'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
     )
   })
@@ -373,18 +373,18 @@ describe('auth and authorize are not enforced yet', () => {
       slow: endpoint.get('/slow').throttle({ limit: 1, per: 60 }),
     })
     class Forms extends Controller { list() {} send() {} head() {} ping() {} slow() {} }
-    const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [], dirs: [] } }), (r) => [r.contract(forms, Forms)]))
+    const { entries } = mount(Route.api(defineApi({ forms: { contract: forms, path: '/forms', scopes: [] } }), (r) => [r.contract(forms, Forms)]))
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
-      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', ['throttle']],
+      ['forms.list', ['validation']], ['forms.send', ['validation']], ['forms.head', ['validation']], ['forms.ping', []], ['forms.slow', []],
     ])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation), forms.slow (throttle)'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.list (validation), forms.send (validation), forms.head (validation)'))
   })
 
   it('no warning without auth or authorize', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const open = defineContract()({ ping: endpoint.get('/') })
     class Ping extends Controller { ping() {} }
-    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [], dirs: [] } }), (r) => [r.contract(open, Ping)]))
+    mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).not.toHaveBeenCalled()
   })
 })
@@ -431,11 +431,11 @@ describe('Route.api runtime checks', () => {
 
   it('constructor, Object.prototype and base Controller methods are not handlers', () => {
     const odd = defineContract()({ constructor: endpoint.get('/c'), exposed: endpoint.get('/e'), toString: endpoint.get('/t') })
-    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [], dirs: [] } })
+    const oddApi = defineApi({ odd: { contract: odd, path: '/odd', scopes: [] } })
     class Plain extends Controller {}
     for (const key of ['constructor', 'exposed', 'toString']) {
       const only = defineContract()({ [key]: endpoint.get('/x') } as Record<string, ReturnType<typeof endpoint.get>>)
-      const onlyApi = defineApi({ only: { contract: only, path: '/only', scopes: [], dirs: [] } } as never)
+      const onlyApi = defineApi({ only: { contract: only, path: '/only', scopes: [] } } as never)
       expect(() => Route.api(onlyApi as any, ((r: any) => [r.contract(only, Plain)]) as never)).toThrow(`only.${key}: Plain has no method "${key}"`)
     }
     // methods of the controller and of classes between it and Controller do count; an own exposed() override too
@@ -444,14 +444,14 @@ describe('Route.api runtime checks', () => {
     expect(() => Route.api(oddApi as any, ((r: any) => [r.contract(odd, Own)]) as never)).toThrow('odd.constructor: Own has no method "constructor"')
     const fine = defineContract()({ exposed: endpoint.get('/e'), toString: endpoint.get('/t') })
     // the runtime's handler rules for these odd keys, outside the route proof (which reads only the controller's own type)
-    expect(() => Route.api(defineApi({ fine: { contract: fine, path: '/fine', scopes: [], dirs: [] } }), (r) => [r.contract(fine, Own as never)])).not.toThrow()
+    expect(() => Route.api(defineApi({ fine: { contract: fine, path: '/fine', scopes: [] } }), (r) => [r.contract(fine, Own as never)])).not.toThrow()
   })
 
   it('a middleware mounted twice runs once, at its first position', () => {
     const tree = defineScope()({ throws: [] })
     const inner = defineScope<ContractPrefix<'/a/:x', [typeof tree]>>()({ throws: [] })
     const deep = defineContract()({ index: endpoint.get('/') })
-    const nested = defineApi({ 'a.b': { contract: deep, path: '/a/:x/b', scopes: [tree, inner], dirs: ['', 'a/[x]'] } })
+    const nested = defineApi({ 'a.b': { contract: deep, path: '/a/:x/b', scopes: [{ scope: tree, dir: '' }, { scope: inner, dir: 'a/[x]' }] } })
     class Deep extends Controller { index() {} }
     class Web extends Middleware {}
     const { entries } = mount(Route.api(nested, (r) => {
@@ -467,7 +467,7 @@ describe('Route.api runtime checks', () => {
 
   it('a 0.5 status decorator that disagrees with the endpoint status fails, naming both', () => {
     const shop = defineContract()({ store: endpoint.post('/').response(anything, 201), show: endpoint.get('/') })
-    const shopApi = defineApi({ shop: { contract: shop, path: '/shop', scopes: [], dirs: [] } })
+    const shopApi = defineApi({ shop: { contract: shop, path: '/shop', scopes: [] } })
     class Shop extends Controller { store() { return {} } show() {} }
     Reflect.defineMetadata('laratype:controller_status_code', 202, Shop.prototype, 'store')
     expect(() => Route.api(shopApi, (r) => [r.contract(shop, Shop)])).toThrow(
@@ -501,6 +501,10 @@ describe('Route.api runtime checks', () => {
   it('a value that is not a defineApi tree', () => {
     expect(() => Route.api({ users: { index: 1 } } as any, (() => []) as never)).toThrow('expected the appApi tree built with defineApi')
     expect(() => Route.api({ users } as any, (() => []) as never)).toThrow('expected the appApi tree built with defineApi')
+    // hand-made objects of real nodes carry no root brand (C10 #258)
+    for (const fake of [{}, { users: appApi.users }, { ...appApi }, appApi.users]) {
+      expect(() => Route.api(fake as any, (() => []) as never)).toThrow('[@laratype/http] Route.api: expected the appApi tree built with defineApi')
+    }
   })
 
   it('an empty tree mounts nothing', () => {

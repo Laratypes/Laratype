@@ -50,7 +50,8 @@ afterAll(() => {
 });
 
 describe('writeDistManifest', () => {
-  it('the 0.5 build (include app/**, no rootDir: tsc roots at app/): dist/x.js, appDir ""', async () => {
+  it('the 0.5 build on TypeScript 5 (include app/**, no rootDir: tsc roots at app/): dist/x.js, appDir ""', async () => {
+    expect(Number(ts.versionMajorMinor.split('.')[0])).toBe(5);
     const dir = project('legacy', {});
     expect(existsSync(join(dir, 'dist/config/config.js'))).toBe(true);
     const { file, omitted } = writeDistManifest(ts, dir);
@@ -61,6 +62,26 @@ describe('writeDistManifest', () => {
     const manifest = await load(file);
     expect((await manifest.configs[0]!.load()).default).toEqual({ name: 'demo' });
     expect(manifest.appDir).toBe('');
+  });
+
+  it('TypeScript 6 without rootDir roots at the config folder, not at app/: dist/app/x.js, appDir "app"', async () => {
+    // Emitted as TypeScript 6 does (rootDir defaults to the config folder), then rootDir removed from the config
+    const dir = project('ts6', { rootDir: '.' });
+    const config = JSON.parse(readFileSync(join(dir, 'tsconfig.build.json'), 'utf8'));
+    delete config.compilerOptions.rootDir;
+    write(dir, 'tsconfig.build.json', JSON.stringify(config));
+    write(dir, 'dist/config/config.js', 'export default { name: "stale" };\n');   // the 5.x layout: never picked
+    const { file, appDir } = writeDistManifest({ ...ts, versionMajorMinor: '6.0' } as typeof ts, dir);
+    expect(appDir).toBe('app');
+    expect(readFileSync(file, 'utf8')).toContain("path: 'app/config/config.ts', load: () => import('./app/config/config.js')");
+    expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'demo' });
+  });
+
+  it('TypeScript 6 with an explicit rootDir keeps it: "rootDir": "app" is dist/x.js, appDir ""', async () => {
+    const dir = project('ts6-rootdir', { rootDir: 'app' });
+    const { file, appDir } = writeDistManifest({ ...ts, versionMajorMinor: '6.0' } as typeof ts, dir);
+    expect(appDir).toBe('');
+    expect(readFileSync(file, 'utf8')).toContain("load: () => import('./config/config.js')");
   });
 
   it('"rootDir": "." with database/** included: dist/app/x.js and dist/database/x.js, appDir "app"', async () => {
@@ -101,7 +122,59 @@ describe('writeDistManifest', () => {
   it('a source in the program whose output is missing is an error', () => {
     const dir = project('missing', {});
     unlinkSync(join(dir, 'dist/src/models/User.js'));
-    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsc emitted no file for app/src/models/User.ts (dist/src/models/User.js): run tsc -b tsconfig.build.json first');
+    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsc emitted no file for app/src/models/User.ts (dist/src/models/User.js): run tsc -b tsconfig.build.json first (its "include": ["app/**/*"])');
+  });
+
+  it('an include that matches nothing (a typo) is an error, not an empty manifest', () => {
+    const dir = join(tmp, 'typo');
+    write(dir, 'app/config/config.ts');
+    write(dir, 'tsconfig.build.json', JSON.stringify({ compilerOptions: { outDir: './dist' }, include: ['apps/**/*'] }));
+    mkdirSync(join(dir, 'dist'));
+    expect(() => writeDistManifest(ts, dir)).toThrow(/^sauf build: tsconfig\.build\.json: No inputs were found in config file .*"apps\/\*\*\/\*"/);
+    expect(existsSync(join(dir, 'dist', MANIFEST_FILE))).toBe(false);
+  });
+
+  it('a program of declaration files only is an error, naming the include', () => {
+    const dir = join(tmp, 'declarations-only');
+    write(dir, 'types/env.d.ts', 'declare const env: string;\n');
+    write(dir, 'app/config/config.ts');
+    write(dir, 'tsconfig.build.json', JSON.stringify({ compilerOptions: { outDir: './dist' }, include: ['types/**/*'] }));
+    mkdirSync(join(dir, 'dist'));
+    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsconfig.build.json has no source file to build (its "include": ["types/**/*"])');
+  });
+
+  it('the root is the one tsc uses: a source importing a file outside include (.laratype/) moves it up, whatever dist holds', async () => {
+    const dir = join(tmp, 'outside-include');
+    // Stale outputs of an earlier build rooted at app/: never picked
+    write(dir, 'dist/config/config.js', 'export default { name: "stale" };\n');
+    write(dir, 'dist/src/models/User.js', 'export default class User {};\n');
+    write(dir, '.laratype/api.ts', 'export const api = "api";\n');
+    write(dir, 'app/config/config.ts', 'import { api } from "../../.laratype/api";\nexport default { name: api };\n');
+    write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
+    write(dir, 'tsconfig.build.json', JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ES2022', moduleResolution: 'node', skipLibCheck: true, types: [], outDir: './dist' },
+      include: ['app/**/*'],
+    }));
+    const parsed = ts.getParsedCommandLineOfConfigFile(join(dir, 'tsconfig.build.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })!;
+    expect(ts.createProgram(parsed.fileNames, parsed.options).emit().emitSkipped).toBe(false);
+    // tsc rooted at the project, not at app/ (the common folder of include)
+    expect(existsSync(join(dir, 'dist/app/config/config.js'))).toBe(true);
+    const { file, appDir } = writeDistManifest(ts, dir);
+    expect(appDir).toBe('app');
+    expect(readFileSync(file, 'utf8')).toContain("load: () => import('./app/config/config.js')");
+    expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'api' });
+  });
+
+  it('without outDir (outputs next to the sources): the .js next to each .ts is not a duplicate, and is what ships', async () => {
+    const dir = project('no-outdir', { outDir: undefined });
+    expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);
+    expect(existsSync(join(dir, 'dist'))).toBe(false);                      // created for the manifest
+    const { file, appDir } = writeDistManifest(ts, dir);
+    expect(appDir).toBe('../app');
+    const code = readFileSync(file, 'utf8');
+    expect(code).toContain("path: 'app/src/models/User.ts', load: () => import('../app/src/models/User.js')");
+    expect(code).not.toContain("path: 'app/src/models/User.js'");
+    expect(new ((await (await load(file)).models[0]!.load()).default)()).toBeInstanceOf(Object);
   });
 });
 

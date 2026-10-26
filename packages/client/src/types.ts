@@ -37,19 +37,80 @@ export type Jsonify<T> = unknown extends T
             ? { -readonly [K in keyof T]: JsonItem<T[K]> }
             : JsonObject<T>;
 
+/**
+ * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
+ * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string; a
+ * `toJSON` result JSON can't carry (`toJSON(): bigint`) makes the value `never` too, since `JSON.stringify` throws.
+ * `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols become `never`, so a
+ * schema input JSON can't carry is a type error at the call; so is an `undefined` array item, which is sent as `null`.
+ * The server validates the parsed JSON, so a field typed `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
+ */
+type JsonInput<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? [J] extends [JsonInput<J>]
+      ? T | JsonInput<J>
+      : JsonInput<J>
+    : T extends string | number | boolean | null | undefined
+      ? T
+      : T extends NotJson | bigint | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+        ? never
+        : T extends readonly unknown[]
+          ? { [K in keyof T]: Exclude<JsonInput<T[K]>, undefined> }
+          : { [K in keyof T]: JsonInput<T[K]> };
+
+/** A query value as a call passes it: `buildUrl` sends a `Date` as its ISO string, so the string is accepted too. */
+type QueryValue<T> = T extends Date ? T | string : T extends readonly unknown[] ? { [K in keyof T]: QueryValue<T[K]> } : T;
+
+type QueryInput<T> = unknown extends T ? T : { [K in keyof T]: QueryValue<T[K]> };
+
 /** Headers a call can send; a `headers` schema types its keys on top. */
 export type HeaderValues = Record<string, string>;
 
-/** `{ [K]: T }`, optional when `T` accepts `{}` (all keys optional), and nothing when the endpoint has no such schema. */
-type Part<K extends string, T> = [T] extends [undefined] ? {} : {} extends T ? { [_ in K]?: T } : { [_ in K]: T };
+/**
+ * `{ [K]: T }`, optional when `T` accepts `{}` (all keys optional), and nothing when the endpoint has no such schema.
+ * A `never` part (a body JSON can't carry at all) stays required, so the call is a type error.
+ */
+type Part<K extends string, T> = [T] extends [never]
+  ? { [_ in K]: never }
+  : [T] extends [undefined]
+    ? {}
+    : {} extends T
+      ? { [_ in K]?: T }
+      : { [_ in K]: T };
 
 type ParamsPart<P> = [keyof P] extends [never] ? {} : Part<"params", { [K in keyof P]: string | number }>;
 
-type HeadersPart<H> = [H] extends [undefined] ? { headers?: HeaderValues } : {} extends H ? { headers?: H & HeaderValues } : { headers: H & HeaderValues };
+/** The value `P` sends for header `K` (header names are case-insensitive), or `never`. */
+type ProvidedValue<P, K> = { [PK in keyof P]: Lowercase<PK & string> extends Lowercase<K & string> ? P[PK] : never }[keyof P];
 
-/** The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. */
-export type CallInput<E extends EndpointShape> = Prettify<
-  ParamsPart<E["params"]> & Part<"query", E["query"]> & Part<"body", E["body"]> & HeadersPart<E["headers"]> & { signal?: AbortSignal }
+/** Whether `P` sends header `K` with a value the schema accepts (`V`). */
+type Provides<P, K, V> = [ProvidedValue<P, K>] extends [never] ? false : [ProvidedValue<P, K>] extends [V] ? true : false;
+
+/** The schema headers, with those `options.headers` provides (`P`) optional. */
+type WithProvided<H, P> = [keyof P] extends [never]
+  ? H
+  : Prettify<
+      { [K in keyof H as Provides<P, K, H[K]> extends true ? never : K]: H[K] } & {
+        [K in keyof H as Provides<P, K, H[K]> extends true ? K : never]?: H[K];
+      }
+    >;
+
+type HeadersPart<H, P, W = WithProvided<H, P>> = [H] extends [undefined]
+  ? { headers?: HeaderValues }
+  : {} extends W
+    ? { headers?: W & HeaderValues }
+    : { headers: W & HeaderValues };
+
+/**
+ * The argument of an endpoint call: path params, query, JSON body, headers and an `AbortSignal`. `P` holds the
+ * headers `options.headers` sends for the whole client (`ProvidedHeaders`), which a call may then leave out.
+ */
+export type CallInput<E extends EndpointShape, P = {}> = Prettify<
+  ParamsPart<E["params"]> &
+    Part<"query", QueryInput<E["query"]>> &
+    Part<"body", JsonInput<E["body"]>> &
+    HeadersPart<E["headers"], P> & { signal?: AbortSignal }
 >;
 
 /**
@@ -108,15 +169,45 @@ export interface UnexpectedResult {
 export type ClientResult<E extends EndpointShape> = ClientSuccess<E> | ClientFailure<E> | UnexpectedResult;
 
 /** One endpoint call. The argument is optional when nothing in it is required. */
-export type EndpointCall<E extends EndpointShape> = {} extends CallInput<E>
-  ? (input?: CallInput<E>) => Promise<ClientResult<E>>
-  : (input: CallInput<E>) => Promise<ClientResult<E>>;
+export type EndpointCall<E extends EndpointShape, P = {}> = {} extends CallInput<E, P>
+  ? (input?: CallInput<E, P>) => Promise<ClientResult<E>>
+  : (input: CallInput<E, P>) => Promise<ClientResult<E>>;
 
-/** The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per endpoint. */
-export type Client<T> = { readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K]> : Client<T[K]> };
+/**
+ * The client for an API projection (`ApiTypes<AppApi>` or a generated `AppApi`): the same tree, with a call per
+ * endpoint. `P` holds the headers `options.headers` provides.
+ */
+export type Client<T, P = {}> = {
+  readonly [K in keyof T]: T[K] extends EndpointShape ? EndpointCall<T[K], P> : Client<T[K], P>;
+};
 
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
-export type ClientOf<A> = Client<ApiTypes<A>>;
+export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
+
+/** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
+type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;
+
+/** The literal keys of every member of `Hd`: an index signature next to them is left out, not the keys. */
+type LiteralKeys<Hd> = keyof { [K in keyof Hd as LiteralKey<K>]: 0 };
+
+/**
+ * Whether some member of `Hd` may leave out `K`: an optional key (also under `exactOptionalPropertyTypes`, where its
+ * value type has no `undefined`) or a value that may be `undefined`.
+ */
+type MayOmit<Hd, K> = true extends (Hd extends unknown ? ({} extends Pick<Hd, K & keyof Hd> ? true : undefined extends Hd[K & keyof Hd] ? true : false) : never)
+  ? true
+  : false;
+
+/** The literal keys an `options.headers` object always sends: required in every member of a union. */
+type ProvidedKeys<Hd> = [Hd] extends [Record<string, string>]
+  ? { [K in LiteralKeys<Hd>]: MayOmit<Hd, K> extends true ? never : K }[LiteralKeys<Hd>]
+  : never;
+
+/**
+ * The headers an `options.headers` object always sends, with their value types: `{}` for a `Headers`, an array of
+ * pairs or a `Record<string, string>`. A schema header is optional in a call when this sends a value it accepts.
+ */
+export type ProvidedHeaders<Hd> = { [K in ProvidedKeys<Hd>]: Hd[K & keyof Hd] };
 
 /** One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, error codes. */
 export interface ManifestRoute {
@@ -130,11 +221,37 @@ export type Manifest = Readonly<Record<string, ManifestRoute>>;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-export interface ClientOptions {
+/**
+ * The request a call is about to send, as `fetch` gets it: `fetch(url, init)`. `init.headers` is a `Headers`, already
+ * merged (`options.headers`, the call's `headers`, the JSON `content-type`).
+ */
+export interface ClientRequest {
+  readonly url: string;
+  readonly init: RequestInit & { headers: Headers };
+}
+
+export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /** Origin the contract paths are appended to. Default `""`: same origin, since contract paths are full (`/api/...`). */
   baseUrl?: string;
   /** The fetch to call. Default: the global `fetch`, read at call time. */
   fetch?: FetchLike;
-  /** Headers sent with every call; a call's own `headers` override them. */
-  headers?: HeadersInit;
+  /**
+   * Headers sent with every call; a call's own `headers` override them. Given as an object, the names it always sends
+   * (`ProvidedHeaders<Hd>`, inferred by `createClient`) are optional in each call's `headers`, even when the
+   * endpoint's headers schema requires them. A function is called at each call, so it can return a fresh auth token;
+   * it may be async. Its headers are known only when it runs, so it provides none to the types.
+   */
+  headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
+  /**
+   * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
+   * Redirects are followed, so set `init.redirect = "error"` in `onRequest` if a redirect must not carry them elsewhere.
+   */
+  credentials?: RequestCredentials;
+  /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
+  onRequest?: (request: ClientRequest) => void | Promise<void>;
+  /**
+   * Called with every response, before the client reads its body (read a `response.clone()` to see it); not called
+   * when `fetch` rejects. A throw rejects the call.
+   */
+  onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
 }

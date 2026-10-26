@@ -8,6 +8,7 @@ export type {
   ClientFailure,
   ClientOf,
   ClientOptions,
+  ClientRequest,
   ClientResult,
   ClientSuccess,
   EndpointCall,
@@ -15,6 +16,7 @@ export type {
   HeaderValues,
   Manifest,
   ManifestRoute,
+  ProvidedHeaders,
   ResponseData,
   UnexpectedResult,
 } from './types'
