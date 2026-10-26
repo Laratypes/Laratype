@@ -130,10 +130,14 @@ function createPrinter(ts: typeof TS, program: TS.Program, checker: TS.TypeCheck
 export function generateApiFile(ts: typeof TS, options: ApiFileOptions): GeneratedFile & { manifest: Record<string, ManifestEntry> } {
   const entryFile = resolve(dirname(options.indexFile), ENTRY_NAME);
   const indexSpecifier = `./${options.indexFile.slice(dirname(options.indexFile).length + 1).replace(/\.ts$/, "")}`;
+  // `Kind` marks each member as `ApiTypes` reads it: `true` for an endpoint, else a node's members. It is `never` when
+  // `AppApi` is not a `defineApi` root, told by its brand as `isApiRoot` does at runtime (`any` included).
   const entrySource = lines([
-    "import type { ApiTypes } from '@laratype/contract'",
+    "import type { API_ROOT, AnyEndpoint, ApiTypes } from '@laratype/contract'",
     `import type { AppApi } from '${indexSpecifier}'`,
     "export type Flat = ApiTypes<AppApi>",
+    "type Kinds<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? true : Kinds<A[K]> }",
+    "export type Kind = 0 extends 1 & AppApi ? never : AppApi extends { readonly [API_ROOT]: true } ? Kinds<AppApi> : never",
   ]);
 
   const compilerOpts = compilerOptions(ts, options);
@@ -157,7 +161,10 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
 
   const checker = program.getTypeChecker();
   const source = program.getSourceFile(entryFile)!;
-  const alias = source.statements.find((s): s is TS.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === "Flat")!;
+  const aliasOf = (name: string) => source.statements.find((s): s is TS.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === name)!;
+  const alias = aliasOf("Flat");
+  const kind = checker.getTypeAtLocation(aliasOf("Kind").name);
+  if (kind.flags & ts.TypeFlags.Never) throw new ApiGenerationError(`AppApi in ${options.indexFile} must be the type of the appApi from defineApi`);
   const print = createPrinter(ts, program, checker, alias);
   const propType = (type: TS.Type, name: string) => {
     const symbol = type.getProperty(name);
@@ -166,14 +173,15 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   const literal = (type: TS.Type | undefined) => (type && type.flags & ts.TypeFlags.StringLiteral ? (type as TS.StringLiteralType).value : undefined);
 
   const manifest: Record<string, ManifestEntry> = {};
-  const walk = (type: TS.Type, prefix: string, indent: string): string => {
+  const walk = (type: TS.Type, kinds: TS.Type, prefix: string, indent: string): string => {
     const inner = `${indent}  `;
     const lines: string[] = [];
     for (const member of type.getProperties()) {
       const memberType = checker.getTypeOfSymbolAtLocation(member, alias);
+      const memberKinds = propType(kinds, member.name)!;
       const name = prefix ? `${prefix}.${member.name}` : member.name;
-      if (!propType(memberType, "method")) {
-        lines.push(`${inner}${key(member.name)}: ${walk(memberType, name, inner)};`);
+      if (!(memberKinds.flags & ts.TypeFlags.BooleanLiteral)) {
+        lines.push(`${inner}${key(member.name)}: ${walk(memberType, memberKinds, name, inner)};`);
         continue;
       }
       const fields = FIELDS.map((f) => {
@@ -191,7 +199,7 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
     }
     return lines.length ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
   };
-  const appApi = walk(checker.getTypeAtLocation(alias.name), "", "");
+  const appApi = walk(checker.getTypeAtLocation(alias.name), kind, "", "");
 
   const manifestLines = Object.entries(manifest)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
