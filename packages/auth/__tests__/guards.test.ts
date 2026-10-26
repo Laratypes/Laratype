@@ -1,5 +1,8 @@
 // A4 #151: guards resolved from the app container, booted like `sauf dev` with the auth flows of examples/basic
 import 'reflect-metadata'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import LocalStrategy from 'passport-local'
@@ -146,6 +149,34 @@ describe('PassportServiceProvider', () => {
     expect(container.make(AUTH_CONFIG)).toBe(authConfig)
     expect(container.make(AuthManager)).toBe(container.make(AuthManager))
     expect(container.make(AuthManager).config).toBe(authConfig)
+  })
+
+  it('loads the env file before importing app/config/auth.ts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'laratype-auth-env-'))
+    writeFileSync(join(dir, '.env'), 'A4_AUTH_ENV=loaded\n')
+    vi.spyOn(process, 'cwd').mockReturnValue(dir)
+    try {
+      let seen: string | undefined
+      setAppManifest({
+        ...manifest(),
+        configs: [{
+          name: 'auth',
+          path: 'app/config/auth.ts',
+          load: async () => {
+            seen = process.env.A4_AUTH_ENV
+            return { default: authConfig }
+          },
+        }],
+      })
+      const container = new Container({ deps: depsRegistry })
+      await bootProviders(container, [PassportServiceProvider])
+      expect(seen).toBe('loaded')
+    }
+    finally {
+      delete process.env.A4_AUTH_ENV
+      delete (globalThis as any).__laratype_env_file
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('registers the strategy of each passport guard under its name', async () => {
