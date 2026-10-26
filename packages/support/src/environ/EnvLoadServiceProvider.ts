@@ -7,9 +7,10 @@ import { resolve } from "path";
 
 /**
  * Loads the project's env file into `process.env`: `.env`, else `.env.local`, else the first `.env.*`. Values already
- * set are kept. Shared by `EnvLoadServiceProvider` and the `sauf` contract-tree scan, which reads the config before the
- * providers boot. Returns the file it loaded. With `projectDir` and no env file there, nothing is loaded: dotenv's own
- * fallback would read `.env` from the current directory, another project's.
+ * set are kept. Shared by `EnvLoadServiceProvider`, `PassportServiceProvider.register()` (which imports app/config/auth.ts,
+ * a config that reads `Env.get()`, before the providers boot) and the `sauf` contract-tree scan, which reads the config
+ * before the providers boot. Returns the file it loaded. With `projectDir` and no env file there, nothing is loaded:
+ * dotenv's own fallback would read `.env` from the current directory, another project's.
  */
 export function loadEnv(projectDir?: string): string | undefined {
   const at = (file: string) => (projectDir ? resolve(projectDir, file) : getProjectPath(file, false));

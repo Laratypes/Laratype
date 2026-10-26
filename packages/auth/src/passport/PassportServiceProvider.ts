@@ -79,12 +79,12 @@ export default class PassportServiceProvider extends ServiceProvider {
 
   /** Binds `AUTH_CONFIG` and the `AuthManager` singleton from app/config/auth.ts (A4 #151). */
   public async register() {
-    // app/config/auth.ts reads Env.get(), and EnvLoadServiceProvider loads the env file only in boot(), after every register()
-    loadEnv();
-
     // app/config/auth.ts and the PersonalAccessToken model, from the app manifest (docs/v1/build.md › Plugin chain)
     const authEntry = manifestEntry('configs', 'auth');
     if(!authEntry) throw new Error("app/config/auth.ts not found: the app manifest has no auth config");
+
+    // app/config/auth.ts may read Env.get(), and EnvLoadServiceProvider loads the env file only in boot(), after every register()
+    loadEnv();
     const authConfig = await loadDefault<Config.Auth>(authEntry);
 
     const personalModel = manifestEntry('models', 'PersonalAccessToken');
