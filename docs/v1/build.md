@@ -228,7 +228,7 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8).
 proposed (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Invariants
-- `bun.build.js` runs `laratypeDiBun()` (`packages/sauf/src/di/bun.ts`), the same core transform as `laratype:di`, on the ESM and CJS builds of every package that depends on `@laratype/core` (not `@laratype/core` itself), on its own `src/` only. Framework classes resolved by the container then work from `dist/`. API and invariants: [di.md › Bun build plugin](./di.md#bun-build-plugin).
+- `bun.build.js` runs `laratypeDiBun()` (`packages/sauf/src/di/bun.ts`), the same core transform as `laratype:di`, on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (not `@laratype/core` itself; today `@laratype/http`, `@laratype/support`, `@laratype/auth`, `@laratype/log` and `laratype`), on its own `src/` only. Framework classes resolved by the container then work from `dist/`. API and invariants: [di.md › Bun build plugin](./di.md#bun-build-plugin).
 
 ### Acceptance
 [#116 Done when](https://github.com/Laratypes/Laratype/issues/116)
