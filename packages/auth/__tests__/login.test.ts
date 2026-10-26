@@ -11,14 +11,14 @@ const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf
 
 type Row = { id: number; email: string; password: string }
 
-/** The slice of a typeorm Model that login uses, over rows in memory; the password column is { select: false }. */
-const fakeModel = (rows: Row[]) => {
+/** The slice of a typeorm Model that login uses, over rows in memory; the password column is { select: false } by default. */
+const fakeModel = (rows: Row[], { select = false } = {}) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
   class User {
     static getRepository() {
       return {
         metadata: {
-          findColumnWithPropertyName: (name: string) => (name === 'password' ? { propertyPath: 'password', isSelect: false } : undefined),
+          findColumnWithPropertyName: (name: string) => (name === 'password' ? { propertyPath: 'password', isSelect: select } : undefined),
         },
         update: async (id: number, data: Partial<Row>) => {
           calls.update.push([id, data])
@@ -69,6 +69,17 @@ describe('Authentication.login', () => {
     const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await Authentication.login(guardOf(User), { email: 'ada@example.com', password: 'wrong' })).toBeNull()
     expect(await Authentication.login(guardOf(User), { email: 'bob@example.com', password: 'secret' })).toBeNull()
+  })
+
+  it('keeps the password on the user when the column is selectable, as a plain lookup does', async () => {
+    const hashed = Hash.make('secret')
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: hashed }], { select: true })
+    expect(await Authentication.login(guardOf(User), { email: 'ada@example.com', password: 'secret' })).toEqual({
+      id: 1,
+      email: 'ada@example.com',
+      password: hashed,
+    })
+    expect(calls.update).toEqual([])
   })
 
   it('logs in a 0.5 sha256 user once and replaces the hash with a scrypt one', async () => {
