@@ -522,7 +522,7 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Public API
-[`container.ts`](../../packages/core/src/container.ts) · [`Request.ts`](../../packages/http/src/request/Request.ts) (`RequestKernel.boot()`)
+[`container.ts` @ 0c024de](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L210-L243) · [`Request.ts` @ 0c024de](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/http/src/request/Request.ts#L341-L363) (`RequestKernel.boot()`)
 
 ```ts
 export type Scope = 'transient' | 'request' | 'singleton';
@@ -549,7 +549,7 @@ export class Container {
   - It is still built by the container that owns its binding (the root for an autowired class), so a request scope's overrides of its other dependencies don't apply.
   - Outside a request scope it then throws like any request-scoped key.
   - In dev the container prints one `console.warn` per key per process. Copies of `@laratype/core` share the set through `Symbol.for('laratype.di.bubbleWarned')`. It is silent when `globalThis.__PROD__` is `true`, or when `__PROD__` is unset and `NODE_ENV` is `production`: the same check as the http fallback-container warning.
-- **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. It runs every disposer, then rethrows the failures as one `AggregateError`.
+- **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. A value cached under two keys (a factory that returns another request-scoped value) is disposed once, where it was first built. It runs every disposer, then rethrows the failures as one `AggregateError`.
   - It never disposes a transient, a plain singleton or an `instance()` value; a singleton that bubbled is a request-scoped value, so it is disposed. It doesn't call a dispose method under another name (`dispose()`, `close()`).
   - A second `dispose()` does nothing. `make()` on a disposed request scope, or on a child container of one, throws, and a disposed scope can't start a new one with `createRequestScope()`.
 - **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope when the handler settles: after its response, or after it throws and the app's error handler has built the error response (that handler runs outside the request store). A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
