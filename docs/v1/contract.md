@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
+| [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
 | [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
@@ -773,10 +773,10 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 ## Domain errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. Throwing and mapping to responses is planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)).
 
 ### Public API
-[`packages/contract/src/errors.ts`](../../packages/contract/src/errors.ts)
+[`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
 
 ```ts
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
@@ -791,6 +791,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   readonly code: Code;
   is(error: unknown): error is ContractError<St, Code, Body>;   // a ContractError (brand) with this code and status
 }
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and an object body without its own code (#108)
 export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
 export type ErrorCode<E>;
