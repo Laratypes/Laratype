@@ -14,7 +14,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 - **Dev** (`sauf dev`) uses Vite SSR with `laratype:di` ([di.md › Vite plugin](./di.md#vite-plugin-laratypedi)) then `RollupPluginSwc` (`packages/sauf/src/bin/warmup.ts`, `utils/plugin.ts`), and an HMR restart (`commands/dev.ts`).
 - **Production** builds run `sauf types:generate`, compile with `tsc -b tsconfig.build.json`, then `sauf build` copies the `cli.js` / node adapter entries, runs `tsc-alias` and writes `dist/app.manifest.js` (`commands/build.ts`).
 - **Discovery:** the app manifest (`virtual:laratype/app` in dev, `dist/app.manifest.js` in production) lists the app's modules; the framework no longer finds them by file path ([Plugin chain](#plugin-chain), [#125](https://github.com/Laratypes/Laratype/issues/125)).
-- **Framework packages** build with `bun.build.js` (ESM + CJS), then `tsc` + `rollup-plugin-dts`.
+- **Framework packages** build with `bun.build.js` (ESM + CJS), then `tsc` + `rollup-plugin-dts`. The packages that depend on `@laratype/core` run the DI transform as a Bun plugin ([Bun DI plugin](#bun-di-plugin), proposed).
 
 | Section | Status |
 |---|---|
@@ -24,7 +24,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [sauf build steps](#sauf-build-steps) | planned → #127, #128, #129, #130, #172, #173, #155, #156 |
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
-| [Bun DI plugin](#bun-di-plugin) | planned → #116 |
+| [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
 | [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); planned → #189, #190 |
 
 ---
@@ -225,10 +225,10 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8).
 ## Bun DI plugin
 
 ### Status
-planned → [#116](https://github.com/Laratypes/Laratype/issues/116) (T4).
+proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
-### Design (non-binding)
-Exposes the same core transform as a Bun plugin in `bun.build.js`, so framework classes resolved by the container work from `dist/` ([di.md › Bun build plugin](./di.md#bun-build-plugin)).
+### Invariants
+- `bun.build.js` runs `laratypeDiBun()` (`packages/sauf/src/di/bun.ts`), the same core transform as `laratype:di`, on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (not `@laratype/core` itself; today `@laratype/http`, `@laratype/support`, `@laratype/auth`, `@laratype/log` and `laratype`), on its own `src/` only. Framework classes resolved by the container then work from `dist/`. Public API, invariants, diagnostics, example and non-goals: [di.md › Bun build plugin](./di.md#bun-build-plugin); this section only records the build wiring.
 
 ### Acceptance
 [#116 Done when](https://github.com/Laratypes/Laratype/issues/116)

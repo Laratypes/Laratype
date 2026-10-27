@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet, and the other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed. The other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -28,7 +28,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
-| [Bun build plugin](#bun-build-plugin) | planned → #116 |
+| [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
 
@@ -121,6 +121,7 @@ export class Container {
 - **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
 - **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
+- **Inherited metadata stops at a longer constructor:** when the entry that applies to a class was declared on an ancestor and the class declares more params than the entry has slots (`cls.length > entry.slots.length`), the class counts as having no metadata and `make()` throws `Cannot autowire`. That is a subclass with its own constructor that no transform has seen (`sauf build` runs none yet, B2 [#126](https://github.com/Laratypes/Laratype/issues/126)), for example an app controller extending a framework class that carries its own `[]` entry. A subclass without its own constructor (`cls.length === 0`) keeps inheriting.
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
 - Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag ([#101](https://github.com/Laratypes/Laratype/issues/101)) and the error ([#100](https://github.com/Laratypes/Laratype/issues/100)) are merged.
 
@@ -134,7 +135,7 @@ export class Container {
 - `Cannot resolve <C> constructor param #<i> \`<name>\`: its type resolved to undefined at runtime.`
 - `Circular dependency: A -> B -> A`
 
-The `` `<name>` `` part appears only when `meta.params` has a name. Each message above is the first sentence of the thrown text: resolution errors append a fix hint, listed under [Resolution errors with fix hints](#resolution-errors-with-fix-hints).
+The `` `<name>` `` part appears only when `meta.params` has a name. Each message above is the first sentence of the thrown text: resolution errors append a fix hint, listed under [Resolution errors with fix hints](#resolution-errors-with-fix-hints). `Cannot autowire <C>` also covers an entry inherited from an ancestor with fewer slots than `C`'s own constructor params ([Container](#container)).
 
 Type-only (`container.types.test.ts`): binding an unrelated class, a factory with the wrong return type, `instance()` with the wrong value type, self-binding an abstract class or a token.
 
@@ -176,7 +177,7 @@ export const noDeps: DepsLookup;                          // default: no metadat
 ### Invariants
 - There is one slot per constructor param and slots are never skipped, so `slots[i]` is param `i`. A trailing rest param gets no slot.
 - Thunks are evaluated only at resolve time. That is why circular module imports work without `forwardRef`.
-- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the one inherited when `cls` has no own constructor.
+- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the nearest ancestor's while `cls` declares no more params than that entry has slots (`cls.length <= entry.slots.length`; a subclass without its own constructor has `cls.length === 0`). A class with its own constructor and more params than the inherited entry has slots has no applicable entry, so the container throws `Cannot autowire` instead of building it with the ancestor's arguments ([Container](#container)).
 - `new Container()` without `deps` uses `noDeps`. Production code passes `{ deps: depsRegistry }` (see [Deps registry](#deps-registry)).
 
 ### Diagnostics
@@ -222,7 +223,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
   2. otherwise its own `design:paramtypes`, for third-party decorated classes, only when `reflect-metadata` is loaded;
   3. otherwise it moves to the parent.
 
-  So a class with its own constructor uses only its own params, and a class without one inherits the nearest ancestor's.
+  So a class with its own constructor uses only its own params, and a class without one inherits the nearest ancestor's. An entry found on an ancestor is returned only while `cls.length <= entry.slots.length`; with a longer constructor `getDeps` returns `undefined`, the [fail-closed rule](#container).
 - In the `design:paramtypes` fallback, `undefined`, `Object`, `String`, `Number`, `Boolean`, `Symbol`, `BigInt`, `Function`, `Array` and `Promise` become `{ unresolved }` slots (interfaces erase to `Object`). That entry has `meta.params = []`.
 - `virtual:laratype/di` (the transform's helper import) maps to `@laratype/core` through the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 - `reflect-metadata` is a devDependency of `@laratype/core` (tests only). The package never imports it.
@@ -247,7 +248,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (planned → [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126)). The framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed ([#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -639,10 +640,48 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ## Bun build plugin
 
 ### Status
-planned → [#116](https://github.com/Laratypes/Laratype/issues/116) (T4).
+proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
 
-### Design (non-binding)
-Exposes the same core transform as a Bun plugin in `bun.build.js`, so that framework classes resolved by the container work from `dist/`.
+### Public API
+[`sauf/src/di/bun.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/bun.ts), exported from [`sauf/src/di/index.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/index.ts) next to the [Vite plugin](#vite-plugin-laratypedi) (internal to the repo: the `sauf` package entry does not export it).
+
+```ts
+export interface DiBunPluginOptions extends DiTransformOptions {
+  include?: (path: string) => boolean;   // further filter, path with forward slashes; default: every file the checks let through
+}
+export interface DiBunPlugin {           // the subset of Bun's `BunPlugin` it uses, so sauf builds without bun-types
+  name: string;
+  setup(build: DiBunPluginBuilder): void;
+}
+export interface DiBunPluginBuilder {
+  onLoad(
+    options: { filter: RegExp },
+    callback: (args: { path: string }) => Promise<{ contents: string; loader: 'ts' | 'tsx' } | undefined>,
+  ): unknown;
+}
+export function laratypeDiBun(options?: DiBunPluginOptions): DiBunPlugin;   // name: 'laratype:di'
+```
+
+### Invariants
+- **Same transform:** `onLoad` runs [`transformDi`](#di-transform) on the raw TypeScript, before Bun transpiles it, so the param types are still there. An app file gets the same calls from the [Vite plugin](#vite-plugin-laratypedi) under `sauf dev`. Monorepo `sauf dev` loads the framework packages from `src/`, outside the app root, and does not transform them, so there a framework class with constructor params still needs a binding.
+- **Helper import:** `helperId` defaults to `@laratype/core` (`DI_RUNTIME_ID`), imported directly: no `virtual:laratype/di` to resolve, and `@laratype/core` stays an external of the package build. A `helperId` other than `undefined` wins.
+- **Which files:** `.ts`, `.tsx`, `.mts` and `.cts`, except `.d.ts` files, `node_modules` and files `include` rejects; those fall through to Bun's own loader. A file with nothing to emit is returned unchanged.
+- **`bun.build.js`:** the plugin runs on the ESM and CJS builds of every package that lists `@laratype/core` in `dependencies` (today `@laratype/http`, `@laratype/support`, `@laratype/auth`, `@laratype/log` and `laratype`; `usesDi()` is the check), on that package's own `src/` only. Other packages are built without it, so their `dist/` never imports a package they don't declare. `@laratype/core` is skipped, so it never imports itself.
+- **Result:** a framework class with an own constructor carries its metadata in `dist/`. For example `@laratype/http`'s `Request` is registered with `[() => HonoRequest]`, so `container.make(Request)` autowires it from `dist/` once `HonoRequest` is bound; without the plugin it throws `Cannot autowire`.
+- **No source maps:** `bun.build.js` emits none, so the plugin returns no map.
+
+### Diagnostics
+None of its own: the plugin only reads the source and hands it back. A transform error carries the transform's own `[laratype:di]` message and fails the package build, and resolve-time failures are [Container](#container) `DiError`s. The package builds are minified, so a class in a `DiError` message from `dist/` shows its minified name.
+
+### Example
+`packages/sauf/__tests__/di/bun.test.ts`: the plugin hooks, then `container.make(Request)` against the built `@laratype/http` and `@laratype/core` (ESM and CJS) in a plain Node process. Run `bun run build` first.
+
+### Non-goals
+- Not the app build: `sauf build` and the test preset share the chain of B2 [#126](https://github.com/Laratypes/Laratype/issues/126).
+- Packages that don't depend on `@laratype/core` get no metadata until they do.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#116 Done when](https://github.com/Laratypes/Laratype/issues/116)

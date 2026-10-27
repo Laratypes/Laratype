@@ -425,7 +425,6 @@ export class ApiRoutes {
         method: route.method,
         path: route.path,
         name: route.name,
-        status: route.endpoint.def.status,
         modelBinding: false,
         endpoint: route.endpoint,
         controller: route.controller as unknown as RouteParams["controller"],

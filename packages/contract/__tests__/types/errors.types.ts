@@ -1,6 +1,6 @@
 // Type tests: compiled by ../typecheck.test.ts with tsc, so a broken expectation fails `vitest run`.
 import { expectTypeOf } from 'vitest'
-import { ContractError, defineError, endpoint, errors } from '@laratype/contract'
+import { ContractError, defineError, endpoint, errors, isContractError } from '@laratype/contract'
 import type { ErrorBag, ErrorBody, ErrorCode, ErrorDef, ErrorResponse, ErrorStatus, MessageBody, ValidationErrorBody } from '@laratype/contract'
 
 // --- defineError: status and code literals inferred, body defaults to { message }
@@ -30,6 +30,14 @@ if (EmailTaken.is(caught)) {
 }
 if (errors.validation.is(caught)) {
   expectTypeOf(caught.body).toEqualTypeOf<ValidationErrorBody>()
+}
+
+// --- isContractError narrows to a ContractError of any def
+if (isContractError(caught)) {
+  expectTypeOf(caught).toEqualTypeOf<ContractError<number, string, object>>()
+  expectTypeOf(caught.status).toEqualTypeOf<number>()
+  expectTypeOf(caught.code).toEqualTypeOf<string>()
+  expectTypeOf(caught.body).toEqualTypeOf<object>()
 }
 
 // --- built-ins: the errors the framework derives
