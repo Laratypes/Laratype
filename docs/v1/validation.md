@@ -13,7 +13,7 @@ v1 validates requests against the contract's Standard Schema slots: query and bo
 | Section | Status |
 |---|---|
 | [Standard Schema adapter](#standard-schema-adapter) | merged @ 883a8e2 |
-| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 6899661 |
+| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
 | [FormRequest v2](#formrequest-v2) | planned → #137 |
 
 ---
@@ -51,10 +51,10 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 ## Pipeline validation and 422
 
 ### Status
-proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 6899661 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
+proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Public API
-No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`request/input.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/request/input.ts), [`request/Request.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/request/Request.ts#L279) (`RequestKernel`), [`routing/api/proof.ts` @ 6899661](https://github.com/Laratypes/Laratype/blob/68996613c2c119680a19b3a7eedecd61196a58ac/packages/http/src/routing/api/proof.ts#L23-L45).
+No new export: `RequestKernel.handle` runs it for every `Route.api` route, and the handler gets the ctx typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`request/input.ts` @ 4ea9155](https://github.com/Laratypes/Laratype/blob/4ea91557e6d6229c23e8d10a1ae704f70dc297b7/packages/http/src/request/input.ts), [`request/Request.ts` @ 4ea9155](https://github.com/Laratypes/Laratype/blob/4ea91557e6d6229c23e8d10a1ae704f70dc297b7/packages/http/src/request/Request.ts#L279) (`RequestKernel`), [`routing/api/proof.ts` @ 4ea9155](https://github.com/Laratypes/Laratype/blob/4ea91557e6d6229c23e8d10a1ae704f70dc297b7/packages/http/src/routing/api/proof.ts#L23-L45).
 
 ```ts
 // @laratype/http (RequestKernel is the default export of request/Request.ts)
