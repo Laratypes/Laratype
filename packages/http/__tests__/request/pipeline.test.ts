@@ -4,6 +4,7 @@ import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { validator } from 'hono/validator'
 import type { MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import * as v from 'valibot'
@@ -13,10 +14,12 @@ import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { Ctx } from '../../src/index'
 
-/** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. */
-const bootApp = () => {
+/** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. Middleware is
+ * mounted with `app.use()` before the kernel, the only place a `bodyLimit` keeps its 413. */
+const bootApp = (...middleware: MiddlewareHandler[]) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
+  if (middleware.length > 0) app.use(...middleware)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
@@ -231,14 +234,15 @@ describe('a contract route', () => {
 
 describe('the body by media type (H26 #287)', () => {
   /** A 0.5 route whose request class validates `{ name }`: what reaches the controller and `validated()`. */
-  const serve = (...middleware: MiddlewareHandler[]) => {
+  const mount = (global: MiddlewareHandler[], middleware: MiddlewareHandler[]) => {
     let validated: unknown
     class NameRequest extends LaratypeRequest { rules() { return z.object({ name: z.string(), user: z.object({ age: z.string() }).optional() }) } }
     class Users extends Controller { store(req: NameRequest) { validated = req.validated(); return { ok: true } } }
-    const app = bootApp()
+    const app = bootApp(...global)
     app.post('/users', ...middleware, RequestKernel.handle({ method: 'post', path: '/users', request: NameRequest, controller: [Users, 'store'] }))
     return { app, validated: () => validated }
   }
+  const serve = (...middleware: MiddlewareHandler[]) => mount([], middleware)
 
   it.each([
     'application/json; charset=utf-8',
@@ -310,8 +314,14 @@ describe('the body by media type (H26 #287)', () => {
     quiet()
     // `formData()` rejects an empty multipart body, so a GET or a DELETE that sends its form Content-Type with no body
     // would fail before any middleware: `{}` is what the JSON path answers for an empty body
-    const empty = defineContract()({ store: endpoint.post('/').body(z.object({})).response(z.unknown(), 201) })
-    class Empty { store(ctx: Ctx<typeof empty.store>) { return { body: ctx.body } } }
+    const empty = defineContract()({
+      store: endpoint.post('/').body(z.object({})).response(z.unknown(), 201),
+      destroy: endpoint.delete('/').body(z.object({})).response(z.unknown()),
+    })
+    class Empty {
+      store(ctx: Ctx<typeof empty.store>) { return { body: ctx.body } }
+      destroy(ctx: Ctx<typeof empty.destroy>) { return { body: ctx.body } }
+    }
     const app = bootApp()
     Route.api(defineApi({ empty: { contract: empty, path: '/empty', scopes: [] } }), (r) => [r.contract(empty, Empty)]).mount(app)
     for (const body of [undefined, '', '  \r\n']) {
@@ -319,6 +329,117 @@ describe('the body by media type (H26 #287)', () => {
       expect(response.status).toBe(201)
       expect(await response.json()).toEqual({ body: {} })
     }
+    // Whitespace split across chunks, urlencoded and multipart alike: no read loop skips it chunk by chunk
+    const whitespace = (chunks: string[]) => new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk))
+        controller.close()
+      },
+    })
+    for (const contentType of ['multipart/form-data; boundary=x', 'application/x-www-form-urlencoded']) {
+      const init: RequestInit & { duplex: 'half' } = {
+        method: 'POST',
+        headers: { 'Content-Type': contentType },
+        body: whitespace(['  ', '\r\n', ' ']),
+        duplex: 'half',
+      }
+      const response = await app.request('/empty', init)
+      expect(response.status).toBe(201)
+      expect(await response.json()).toEqual({ body: {} })
+    }
+    // A GET or a DELETE with a form Content-Type and no body: `request.raw.body` is null, still `{}`
+    for (const contentType of ['multipart/form-data; boundary=x', 'application/x-www-form-urlencoded']) {
+      const response = await app.request('/empty', { method: 'DELETE', headers: { 'Content-Type': contentType } })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ body: {} })
+    }
+  })
+
+  it.each([
+    ['c.req.text()', async (c, next) => { await c.req.text(); await next() }],
+    ['c.req.parseBody()', async (c, next) => { await c.req.parseBody(); await next() }],
+    ["validator('form')", validator('form', (value) => value)],
+  ] as [string, MiddlewareHandler][])('a form body read earlier by %s reaches the handler with 200', async (_reader, reader) => {
+    quiet()
+    const form = new FormData()
+    form.append('name', 'ada')
+    const bodies: RequestInit[] = [
+      { method: 'POST', body: form },
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=ada' },
+    ]
+    for (const init of bodies) {
+      const { app, validated } = serve(reader)
+      const response = await app.request('/users', init)
+      expect(response.status).toBe(201)
+      expect(validated()).toEqual({ name: 'ada' })
+    }
+  })
+
+  it('a client that disconnects mid-body is a 400 with no server-side log, form and JSON alike', async () => {
+    const errors = quiet()
+    // @hono/node-server aborts the request's signal on close, and errors the stream with a plain Error('aborted')
+    const aborted = (contentType: string, firstChunk: string) => {
+      const abort = new AbortController()
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(firstChunk))
+        },
+        pull(controller) {
+          abort.abort()
+          controller.error(new Error('aborted'))
+        },
+      })
+      const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers: { 'Content-Type': contentType }, body, duplex: 'half', signal: abort.signal }
+      return init
+    }
+    const { app } = serve()
+    const form = await app.request('/users', aborted('multipart/form-data; boundary=x', '--x\r\nContent-Disposition: form-data; name="name"\r\n\r\nada'))
+    expect(form.status).toBe(400)
+    expect(await form.json()).toEqual({ message: 'Malformed form data in request body.' })
+    const json = await app.request('/users', aborted('application/json', '{"name":'))
+    expect(json.status).toBe(400)
+    expect(await json.json()).toEqual({ message: 'Malformed JSON in request body.' })
+    expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('a stream error without an aborted signal keeps the generic 500', async () => {
+    const errors = quiet()
+    // Only a client abort is the 400: any other read error is still the server bug it was
+    const { app } = serve()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"name":'))
+      },
+      pull(controller) {
+        controller.error(new Error('socket hang up'))
+      },
+    })
+    const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, duplex: 'half' }
+    const response = await app.request('/users', init)
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ message: 'Server Error' })
+    expect(errors).toHaveBeenCalled()
+  })
+
+  it('a bodyLimit mounted with app.use() before the kernel keeps its 413, form and JSON alike', async () => {
+    quiet()
+    const { app } = mount([bodyLimit({ maxSize: 256 })], [])
+    // No Content-Length: `bodyLimit` reads the stream and errors it with its own `BodyLimitError`, which `readBody`
+    // rethrows for `bodyLimit`'s handler
+    const chunked = (text: string) => new ReadableStream<Uint8Array>({
+      start(controller) {
+        const bytes = new TextEncoder().encode(text)
+        for (let at = 0; at < bytes.length; at += 32) controller.enqueue(bytes.slice(at, at + 32))
+        controller.close()
+      },
+    })
+    const over = (contentType: string, text: string) => {
+      const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers: { 'Content-Type': contentType }, body: chunked(text), duplex: 'half' }
+      return init
+    }
+    const multipart = `--x\r\nContent-Disposition: form-data; name="name"\r\n\r\n${'a'.repeat(512)}\r\n--x--\r\n`
+    expect((await app.request('/users', over('multipart/form-data; boundary=x', multipart))).status).toBe(413)
+    expect((await app.request('/users', over('application/json', JSON.stringify({ name: 'a'.repeat(512) })))).status).toBe(413)
   })
 
   it('a body over bodyLimit answers 413, a streamed multipart one and a streamed JSON one alike', async () => {
