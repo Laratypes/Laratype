@@ -1,5 +1,3 @@
-// Controllers and the 0.5 request classes read their decorator metadata
-import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { apiRoutes, defineApi, defineContract, endpoint } from '@laratype/contract'
