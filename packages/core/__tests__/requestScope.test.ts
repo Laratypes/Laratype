@@ -203,6 +203,25 @@ describe('dispose()', () => {
     expect(calls).toEqual(['both:async', 'uow', 'db'])
   })
 
+  it('disposes a value cached under two keys once, where it was first built', async () => {
+    const calls: string[] = []
+    class Db { [Symbol.dispose]() { calls.push('db') } }
+    class Uow {
+      constructor(readonly db: Db) {}
+      [Symbol.dispose]() { calls.push('uow') }
+    }
+    const DB_ALIAS = token<Db>('db alias')
+    const app = new Container({ deps: depsOf([[Uow, { slots: [() => Db] }]]) })
+      .scoped(Db)
+      .scoped(Uow)
+      .scoped(DB_ALIAS, (c: Container) => c.make(Db))
+    const scope = app.createRequestScope()
+    scope.make(Uow)
+    expect(scope.make(DB_ALIAS)).toBe(scope.make(Db))
+    await scope.dispose()
+    expect(calls).toEqual(['uow', 'db'])
+  })
+
   it('leaves transient, singleton and instance() values alone', async () => {
     const disposed: string[] = []
     const disposable = (name: string) => class { [Symbol.dispose]() { disposed.push(name) } }

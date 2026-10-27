@@ -241,10 +241,12 @@ export class Container {
     if (!this.requestCache) throw new DiError('Only a request scope can be disposed.')
     if (this.disposed) return
     this.disposed = true
-    const values = [...this.requestCache.values()].reverse()
+    // A value cached under two keys (a factory that returns another request-scoped value) is disposed once, at the
+    // place it was first built, so the values built after it from it are still disposed before it
+    const values = [...new Set([...this.requestCache.values()].map(({ value }) => value))].reverse()
     this.requestCache.clear()
     const failures: unknown[] = []
-    for (const { value } of values) {
+    for (const value of values) {
       if (value === null || (typeof value !== 'object' && typeof value !== 'function')) continue
       const target = value as Record<symbol, unknown>
       try {
