@@ -22,13 +22,13 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | planned → #106, #138 |
 | [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | current error handling merged (#267, #272, #275); planned → #108 |
+| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
-| [Resources](#resources) | planned → #123 |
+| [Resources](#resources) | proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
@@ -50,7 +50,7 @@ Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https:
 type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // BaseCtx<E> merged with Requires (params merged one level deep)
 // BaseCtx<E> = { readonly endpoint: E; params: PathParams<path>; query: InferOut<query>; body: InferOut<body> }
 type Result<E extends AnyEndpoint>;        // response schema INPUT (void if none)
-type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }; merged with | ResponseEscape (0.5 response()/JsonResource, until #123)
+type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }; merged with | ResponseEscape (0.5 response()/JsonResource, unchecked; v2 resources, #123, return checked data)
 ```
 
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)):
@@ -59,7 +59,7 @@ Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routi
 type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonly endpoint: E } & Requires;   // H3 adds BaseCtx
 type Result<E extends AnyEndpoint>;   // the response schema INPUT, void without one
 type ControllerOf<C>;                 // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]> | ResponseEscape> }, for a contract or its tree node
-type ResponseEscape;                  // ResponseSupport | JsonResource: 0.5 response() / redirect() and resources, until #123
+type ResponseEscape;                  // ResponseSupport | JsonResource: 0.5 response() / redirect() and 0.5 resources, unchecked (v2 resources return checked data, #123)
 ```
 
 Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property, so a handler reads `ctx.endpoint` and its `Requires`, or types its parameter as that request object. Destructuring `{ params }` from a `Ctx` does not compile yet.
@@ -148,7 +148,7 @@ interface ApiRouteBuilder<A> {
 - **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), `Provided` also holds the 0.5 request object, which the runtime passes, so a handler typed with it passes too, and it has no `params` without bindings: a handler that requires a `params` object (even `{}` or one with optional keys) fails.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
-- **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` (schema typing is H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) also pass, since the runtime takes them as is (`ResponseEscape`).
+- **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
 - **Second parameter:** until H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
 - **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
 - **Also checked at `r.contract()`:**
@@ -438,25 +438,51 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). The current error handling in Invariants is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+
+### Public API
+[`Response.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/http/src/response/Response.ts) · [`isContractError` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/contract/src/errors.ts) · [`isException` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/support/src/exception/Exception.ts)
+
+```ts
+// @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
+class ResponseKernel {
+  resolveException(err: Error | Exception, c: Context): Response | Promise<Response>;
+}
+// @laratype/contract
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;
+// @laratype/support
+export const isException: (value: unknown) => value is Exception;
+```
 
 ### Invariants
-- **Unknown errors** ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
+- **Contract errors:** a thrown `ContractError`, from `defineError` or the `errors` catalog, at any depth, answers its own status with the JSON body `{ code, ...body }`, whatever the route's or controller's status. A declared 5xx keeps its body too: it is the error the contract declares. A body's own top-level `toJSON` is dropped: JSON serialization would call it, and it could leave out the declared `code`. A contract error is an expected answer, so it is not logged.
+- **By brand:** the filter tells a contract error with `isContractError` and an `Exception` with `isException`, by a `Symbol.for` brand, not `instanceof`, so one from another copy of `@laratype/contract` or `@laratype/support` counts. `isContractError` also requires a 400-599 integer `status`, a string `code` and a non-array object `body` without its own `code`: a contract error whose fields were changed after it was created so that they no longer fit the wire format is an unknown error. `isException` also requires the public methods of an `Exception`: `getErrorCode()`, `getHttpCode()`, `canResponsible()` and `toJson()`.
+- **Framework errors:** the catalog's 401, 403, 404, 422 and 429 go out as `{ code, message }` (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`) and `{ code: "VALIDATION_ERROR", message, errors }`. The 0.5 `NotFoundException` and `UnauthorizedException` send the same `{ code, message }` shape.
+- **Unknown errors:** any error that is not a contract error, a responsible `Exception` or an HTTP error answers 500, whatever the route's or controller's status. Every 5xx other than a contract error, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
 - **HTTP errors:** an HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response` whose status is from 400 to 599 too; anything else is an unknown error. Its 4xx or 5xx is decided on the status actually sent, the response's ([#272](https://github.com/Laratypes/Laratype/issues/272), H23).
-- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
-- **Logging:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx; the `Exception` constructor's own log of reportable Exceptions is separate, an open item tracked in [#273](https://github.com/Laratypes/Laratype/issues/273).
-- **Contract errors:** until H5, a thrown `defineError` / catalog error (`ContractError`) is an unknown error too, so it answers 500 instead of its own status.
-- **0.5 request validation** ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation): a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422, listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500.
+- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response, a contract error's included, drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
+- **Non-`Error` throws:** Hono's error handler only sees an `Error`. A `throw "x"`, `throw {}` or a rejection with a non-`Error`, from a controller or any middleware, leaves the app's `fetch`, which `ResponseKernel.boot()` wraps: it answers the generic 500 with `Cache-Control: no-store` and logs the value, on every adapter. That response doesn't carry the headers middleware set.
+- **Unserializable body:** a contract error whose body JSON can't hold (a `BigInt`, a cycle, a getter that throws) answers the generic 500 with `Cache-Control: no-store`, and is logged with the serialization failure.
+- **Logs:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx, contract errors aside. The `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)).
+- **0.5 request classes:** a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422 (`ValidationException`, `{ code: "VALIDATION", message, errors }`), listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500 ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation).
 
-### Design (non-binding)
-- **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).
-- **Framework errors:** 401, 403, 404, 422 and 429 use the built-in catalog.
-- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** an error response's JSON body is the error's body plus its code, flat: `{ code, ...body }`. Domain errors and the framework catalog errors (401, 403, 404, 422, 429) use the same shape with their catalog code, for example `{ code: "VALIDATION_ERROR", message, errors }`. The client narrows by this `code` ([client.md › Result union](./client.md#result-union)).
-- **Removed:** `fail()`, `ErrorReply` and the error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)).
-- **Unknown errors:** a 500 with the body `{ message: "Server Error" }` (`MessageBody`), with no details and no `code`, so the client classifies it as unexpected ([#108](https://github.com/Laratypes/Laratype/issues/108)). A dev-mode detail view is out of scope for M1.
-- **Replaces:** `Response.resolveException`.
-- **Undeclared errors:** checked in dev and test → [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
-- **Done when:** runtime tests for the 404, 403, 422 and 500 bodies.
+- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** the client narrows an error by its `code` ([client.md › Result union](./client.md#result-union)). The unknown-error 500 has no `code`, so the client classifies it as unexpected.
+
+### Diagnostics
+- The unknown-error body, and that of every non-contract 5xx: `{ "message": "Server Error" }`, with `Cache-Control: no-store`.
+- A contract error answers its own status with `{ code, ...body }`; the framework errors are the codes listed in Invariants (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`, `VALIDATION_ERROR`).
+- Logs: one `console.error` per reportable error or 5xx, contract errors aside (Invariants › Logs).
+
+### Example
+Runtime tests in `packages/http/__tests__/response/`: [`exceptionFilter.test.ts`](../../packages/http/__tests__/response/exceptionFilter.test.ts), `unknownError.test.ts`, `errorHeaders.test.ts` and `validationError.test.ts`.
+
+### Non-goals
+- No dev-mode error detail view in M1.
+- No `fail()`, `ErrorReply` or error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)): errors are thrown. None of them exists in package code.
+- The undeclared-error check in dev and test is a separate section: [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#108 Done when](https://github.com/Laratypes/Laratype/issues/108)
@@ -596,12 +622,63 @@ Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/
 ## Resources
 
 ### Status
-planned → [#123](https://github.com/Laratypes/Laratype/issues/123) (H9).
+proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
-### Design (non-binding)
-- **Definition:** `defineResource(Model, fn)` with an inferred output type, plus `.make`, `.collection`, `.paginate` and `when()` (#123).
-- **Contract check:** the output is checked against the contract's response schema. The contract is the source of truth, so a resource must satisfy the contract.
-- **Replaces:** `JsonResource.toJson(): any`.
+### Public API
+[`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
+
+```ts
+function defineResource<M extends abstract new (...args: any) => any, R extends ResourceData>(   // an object, not an array or a promise
+  model: M, fn: (model: InstanceType<M>) => R): Resource<M, ResourceOutput<R>>;
+
+interface Resource<M, Out> {
+  make(model: InstanceType<M>): Out;
+  collection(models: Iterable<InstanceType<M>>): Out[];
+  paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
+}
+
+function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue;   // the value as it is (a function too); KnownValue refuses any and unknown
+type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue; one object per member of a union
+interface MissingValue;   // branded: what when() gives for a false condition
+```
+
+### Invariants
+- **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
+- **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
+- **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required. A union return gives one output object per member; a discriminated union's output narrows per member.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
+- **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
+- **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
+- `make` copies the result's own enumerable keys into a new object, symbol keys included, and a `__proto__` key stays an own key. The resource object is frozen.
+
+### Diagnostics
+- `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
+- `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
+- `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
+- A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
+
+### Example
+Compiled: [`docs/v1/examples/http/proposed/resources.ts`](./examples/http/proposed/resources.ts), with the contract mismatch at `r.contract()`. In the decided style (`params` needs H3 [#106](https://github.com/Laratypes/Laratype/issues/106) and H7 [#118](https://github.com/Laratypes/Laratype/issues/118)):
+```ts
+const UserResource = defineResource(User, (user) => ({
+  id: user.id,
+  name: user.name,
+  email: when(user.isAdmin, user.email),
+  posts: PostResource.collection(user.posts),
+}));
+
+class UserController {
+  async show({ params }: Ctx<typeof users.show, { params: { user: User } }>) { return UserResource.make(params.user); }
+}
+```
+Tests: [`packages/http/__tests__/resource/defineResource.test.ts`](../../packages/http/__tests__/resource/defineResource.test.ts), type tests (the contract mismatches): [`defineResource.test-d.ts`](../../packages/http/__tests__/resource/defineResource.test-d.ts).
+
+### Non-goals
+- No `mergeWhen`, `whenLoaded`, `additional` or `with` (wrapping) helpers.
+- No wire-format typing: the client's `Jsonify` view of the response is H4 [#107](https://github.com/Laratypes/Laratype/issues/107).
+
+### Open questions
+- The paginator shape → [#145](https://github.com/Laratypes/Laratype/issues/145)
 
 ### Acceptance
 [#123 Done when](https://github.com/Laratypes/Laratype/issues/123)
