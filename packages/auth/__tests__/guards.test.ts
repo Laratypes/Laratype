@@ -301,6 +301,23 @@ describe('PassportGuard', () => {
     verifyCallback({}, {}, callback)
     expect(callback).toHaveBeenCalledWith(null, false, { message: 'Strategy not implemented' })
   })
+
+  it('refuses a local strategy without both lookup fields', () => {
+    const local = (options?: Record<string, unknown>) => new PassportGuard('web', {
+      strategy: LocalStrategy as any,
+      strategyName: 'local',
+      provider: User,
+      verification: 'jwt',
+      options,
+    })
+    const use = vi.fn()
+    const message = '[@laratype/auth] Auth guard "web": a local strategy needs options.usernameField and options.passwordField.'
+    expect(() => local().register({ use } as any, undefined)).toThrow(message)
+    expect(() => local({ usernameField: 'email' }).register({ use } as any, undefined)).toThrow(message)
+    expect(use).not.toHaveBeenCalled()
+    local({ usernameField: 'email', passwordField: 'password' }).register({ use } as any, undefined)
+    expect(use).toHaveBeenCalledWith('web', expect.any(LocalStrategy))
+  })
 })
 
 describe('Auth.login', () => {

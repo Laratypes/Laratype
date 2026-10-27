@@ -2,10 +2,10 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import type { Strategy } from 'passport'
 import type { Request } from '@laratype/http'
-import { Container } from '@laratype/core'
+import type { Container } from '@laratype/core'
 import type { LaratypeConfig } from '@laratype/support'
-import { AUTH_CONFIG, AuthManager, PassportGuard, TokenGuard } from '../src'
-import type { GuardConfig } from '../src'
+import { AUTH_CONFIG, AuthManager } from '../src'
+import type { GuardConfig, PassportGuard, TokenGuard } from '../src'
 
 declare class User { id: number }
 declare const strategy: typeof Strategy
