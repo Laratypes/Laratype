@@ -360,15 +360,15 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
 
 /**
  * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
- * validation of its body, query and headers schemas (#106). The one place that decides it: the mount warning and
- * `sauf route:list` both read `RouteEntry.unenforced`.
+ * validation of its headers schema (query and body are validated, #106; `throttle` is enforced by `mount()`, #229).
+ * The one place that decides it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
  */
 const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
-  const { query, body, headers } = route.endpoint.def;
+  const { headers } = route.endpoint.def;
   return Object.freeze([
     ...(route.auth ? (["auth"] as const) : []),
     ...(route.authorize ? (["authorize"] as const) : []),
-    ...(query || body || headers ? (["validation"] as const) : []),
+    ...(headers ? (["validation"] as const) : []),
   ]);
 };
 
@@ -399,7 +399,7 @@ const statusMetadata = (controller: ControllerClass, key: string): number | unde
 const WARNED = Symbol.for("laratype.http.unenforcedWarned");
 const WARNED_MAX = 32;
 
-/** One warning per process and route set: until #105 / #121 / #106 such a route skips those checks. */
+/** One warning per process and route set: until #105 / #121 such a route skips those checks. */
 const warnUnenforced = (routes: readonly RouteEntry[]) => {
   const list = routes.filter((route) => route.unenforced.length).map((route) => `${route.name} (${route.unenforced.join(", ")})`);
   if (list.length === 0) return;
@@ -470,7 +470,6 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     method: route.method,
     path: route.path,
     name: route.name,
-    status: route.endpoint.def.status,
     modelBinding: false,
     endpoint: route.endpoint,
     controller: route.controller as unknown as RouteParams["controller"],

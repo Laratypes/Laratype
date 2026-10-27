@@ -253,7 +253,7 @@ export interface RouteEntry extends ApiRoute {
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
   readonly policy: PolicyClass | undefined;
-  /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), input schema validation (#106). */
+  /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
   readonly domain: string | undefined;
@@ -273,4 +273,4 @@ export interface AdHocRouteEntry {
 export type UnenforcedCap = "auth" | "authorize" | "validation";
 
 /** What `RouteEntry.unenforced` means; printed by the mount warning. */
-export const UNENFORCED_NOTICE = "auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)";
+export const UNENFORCED_NOTICE = "auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)";

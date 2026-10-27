@@ -2,7 +2,7 @@
 import { expectTypeOf } from 'vitest'
 import * as v from 'valibot'
 import * as z from 'zod/v4'
-import { endpoint, validate, validateSync } from '@laratype/contract'
+import { endpoint, issuePath, validate, validateSync } from '@laratype/contract'
 import type { ErrorBag, InferIn, InferOut, StandardIssue, ValidationErrorBody, ValidationResult } from '@laratype/contract'
 
 // --- InferIn / InferOut: zod 4
@@ -54,3 +54,8 @@ expectTypeOf<ErrorBag>().toEqualTypeOf<ValidationErrorBody['errors']>()
 validate({ parse: (x: unknown) => x }, {})
 // @ts-expect-error not a Standard Schema
 validateSync(undefined, {})
+
+// --- issuePath
+expectTypeOf(issuePath({ message: 'x', path: [{ key: 'a' }] })).toEqualTypeOf<PropertyKey[]>()
+// @ts-expect-error takes an issue, not a path
+issuePath(['a'])
