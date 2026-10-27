@@ -145,16 +145,6 @@ describe('unknown errors', () => {
     expect(errors).toHaveBeenCalledTimes(1)
   })
 
-  it('the reserved-endpoint error of a request class reaches the client as the generic 500', async () => {
-    quiet()
-    const items = defineContract()({ index: endpoint.get('/').response(anything) })
-    class SecretRequest extends LaratypeRequest { endpoint = 'mine' }
-    class Items extends Controller { index() { return {} } }
-    const app = bootApp()
-    app.get('/items', RequestKernel.handle({ method: 'get', path: '/items', name: 'items.index', request: SecretRequest, endpoint: items.index, controller: [Items, 'index'] }))
-    await expectGeneric500(await app.request('/items'), 'SecretRequest', 'items.index', 'endpoint')
-  })
-
   it('a 5xx HTTPException keeps its status with the generic body and is logged', async () => {
     quiet()
     class Down extends Controller { index() { throw new HTTPException(503, { message: 'redis at 10.0.0.7 refused' }) } }

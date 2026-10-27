@@ -123,7 +123,7 @@ describe('a resource through Route.api', () => {
   class UserController extends Controller {
     index() { return UserResource.paginate({ data: [new User(1, 'ada'), new User(2, 'bob', true)], total: 2 }) }
     list() { return UserResource.collection([new User(1, 'ada')]) }
-    show(req: { param(key: string): string }) { return UserResource.make(new User(Number(req.param('id')), 'ada')) }
+    show({ params }: { params: { id: string } }) { return UserResource.make(new User(Number(params.id), 'ada')) }
     legacy() { return new JsonResource({ id: 1 }) }
     legacyCollection() { return new ResourceCollection([{ id: 1 }]) }
   }

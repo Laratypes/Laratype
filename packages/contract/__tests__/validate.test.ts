@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as v from 'valibot'
 import * as z from 'zod/v4'
-import { toErrorBag, validate, validateSync } from '@laratype/contract'
+import { z as z3 } from 'zod'
+import { issuePath, toErrorBag, validate, validateSync } from '@laratype/contract'
 import type { StandardSchemaV1 } from '@laratype/contract'
 
 const isFree = async (email: string) => email !== 'taken@example.com'
@@ -86,6 +87,37 @@ describe.each(vendors)('%s', (_, schemas) => {
   it('validateSync() throws on async schemas', () => {
     expect(() => validateSync(schemas.signup, { email: 'new@example.com' })).toThrow(TypeError)
     expect(() => validateSync(schemas.signup, { email: 'new@example.com' })).toThrow(/is async, use validate\(\)/)
+  })
+})
+
+describe('validate() with zod', () => {
+  it.each([['zod 3', z3], ['zod 4', z]] as const)('%s: a throwing refinement runs once, and rejects', async (_, lib) => {
+    let calls = 0
+    const failure = new Error('boom')
+    const schema = (lib.object({ name: lib.string() }) as any).superRefine(() => { calls++; throw failure }) as StandardSchemaV1
+    await expect(validate(schema, { name: 'ada' })).rejects.toBe(failure)
+    expect(calls).toBe(1)
+  })
+
+  it.each([['zod 3', z3], ['zod 4', z]] as const)('%s: issues and output are the ones of ~standard.validate', async (_, lib) => {
+    const schema = lib.object({ name: lib.string(), page: lib.coerce.number() }) as unknown as StandardSchemaV1
+    const invalid = await validate(schema, { page: '2' })
+    expect(invalid.ok).toBe(false)
+    expect(invalid).toEqual({ ok: false, errors: toErrorBag((await schema['~standard'].validate({ page: '2' }) as { issues: [] }).issues), issues: expect.any(Array) })
+    expect(await validate(schema, { name: 'ada', page: '2' })).toEqual({ ok: true, value: { name: 'ada', page: 2 } })
+  })
+
+  it('another vendor with a safeParseAsync method still runs ~standard.validate', async () => {
+    const lookalike = { safeParseAsync: () => { throw new Error('not called') }, '~standard': { version: 1, vendor: 'other', validate: (value: unknown) => ({ value }) } } as const
+    expect(await validate(lookalike, 1)).toEqual({ ok: true, value: 1 })
+  })
+})
+
+describe('issuePath', () => {
+  it('unwraps { key } segments and gives [] without a path', () => {
+    const sym = Symbol('s')
+    expect(issuePath({ message: 'x', path: ['items', 0, { key: 'name' }, sym] })).toEqual(['items', 0, 'name', sym])
+    expect(issuePath({ message: 'x' })).toEqual([])
   })
 })
 
