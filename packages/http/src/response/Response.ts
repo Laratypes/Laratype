@@ -1,9 +1,10 @@
 import type { Context } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
-import { Exception, GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey } from "@laratype/support";
+import { GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey, isException } from "@laratype/support";
+import type { Exception } from "@laratype/support";
 import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
-import { isBodylessStatus } from "@laratype/contract";
+import { isBodylessStatus, isContractError } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 import { BODY_HEADERS } from "./bodyHeaders";
 
@@ -128,12 +129,11 @@ export default class Response extends AppServiceProvider {
 
   }
 
+  /**
+   * The exception filter (docs/v1/http.md › Exceptions). A contract error (`defineError`, the `errors` catalog) and a
+   * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
+   */
   public resolveException(err: Error | Exception, c: Context) {
-    const responsible = err instanceof Exception && err.canResponsible() ? err : undefined;
-    const httpError = responsible ? undefined : asHttpError(err);
-    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
-    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
-
     // On the context, not only on the response built below: Hono merges the context's headers into the error response
     // (#272). The other headers set before the throw (CORS, Vary) stay. A context finalized before the throw holds a
     // response whose body may be read already, and whose headers may be immutable: the error starts from a copy of
@@ -147,6 +147,31 @@ export default class Response extends AppServiceProvider {
       c.res.headers.delete(name);
     }
     scrubErrorHeaders(c.res.headers);
+
+    // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
+    // controller's status. It is expected, so it is not logged (#108)
+    if (isContractError(err)) {
+      try {
+        // A body's own `toJSON` would replace `{ code, ...body }` at serialization, and a declared `code` could go
+        // with it, so the top level drops it. A nested one is the body's own JSON shape and stays. The copy is in
+        // here too: a body getter can throw, and that is an unserializable body like a BigInt or a cycle
+        const json: { code: string; toJSON?: unknown } = { code: err.code, ...err.body };
+        if (typeof json.toJSON === "function") {
+          delete json.toJSON;
+        }
+        return c.json(json, err.status as ContentfulStatusCode);
+      }
+      catch (failure) {
+        // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
+        console.error(err, failure);
+        return c.json({ message: "Server Error" }, 500);
+      }
+    }
+
+    const responsible = isException(err) && err.canResponsible() ? err : undefined;
+    const httpError = responsible ? undefined : asHttpError(err);
+    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
+    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
@@ -181,5 +206,28 @@ export default class Response extends AppServiceProvider {
     });
 
     this.apps.onError(this.resolveException)
+
+    // Hono's onError only sees an `Error`: a `throw "x"` or `throw {}` leaves `fetch`, and each adapter answers it its
+    // own way (Node an empty 500, Bun's dev error page). The app's fetch answers anything that leaves it with the
+    // generic 500 and logs it (#108). Wrapped here, not with a middleware: ResponseKernel boots after the routes, and
+    // the adapters read `fetch` once the app is booted
+    const fetch = this.apps.fetch;
+    const serverError = (err: unknown) => {
+      console.error(err);
+      return new globalThis.Response(JSON.stringify({ message: "Server Error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    };
+    // Not async: a response Hono returns synchronously stays synchronous
+    this.apps.fetch = (...args) => {
+      try {
+        const response = fetch(...args);
+        return typeof (response as Partial<PromiseLike<unknown>>).then === "function" ? Promise.resolve(response).catch(serverError) : response;
+      }
+      catch (err) {
+        return serverError(err);
+      }
+    };
   }
 }
