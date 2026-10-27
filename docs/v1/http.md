@@ -336,7 +336,7 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize and headers schema validation are not enforced yet (planned → #105, #121), so these routes skip those checks: <route name> (auth[, authorize][, validation]), ...`
 
 ### Example
-[`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts), and its `RouteServiceProvider` registers it with `apiRoutes.mount(this.apps)`. With scopes:
+[`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts) and [`app/api/users.ts`](../../examples/basic/app/api/users.ts) (a v1 `UserController` with constructor DI, tested in `examples/basic/__tests__/`), and its `RouteServiceProvider` registers them with `apiRoutes.mount(this.apps)`. With scopes:
 
 ```ts
 import { appApi } from '$api'
