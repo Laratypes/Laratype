@@ -5,7 +5,6 @@ import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
 import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
-import User from "../../src/models/User";
 import LoginRequest from "../../src/http/requests/LoginRequest";
 
 const authRoutes: RouteOptions = {
@@ -61,17 +60,10 @@ const authGuardedRoutes: RouteOptions = {
   ],
   children: [
     {
+      // GET and POST /api/users are served by the v1 contract (app/api/users.ts, mounted in routes/api.ts); this node
+      // keeps the 0.5 routes below it until they are migrated.
       path: "/users",
-      controller: controller(UserController, 'store'),
-      request: CreateUserRequest,
-      method: "post",
       children: [
-        {
-          path: '',
-          method: 'get',
-          can: can("viewAny", User),
-          controller: controller(UserController, 'index'),
-        },
         {
           path: '/:user',
           method: 'get',
