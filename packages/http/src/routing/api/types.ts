@@ -1,5 +1,6 @@
-import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute } from "@laratype/contract";
+import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, PathParams } from "@laratype/contract";
 import type Middleware from "../../middleware/Middleware";
+import type Request from "../../supports/Request";
 import type { EndpointKey, VerifyController } from "./proof";
 
 /**
@@ -69,7 +70,29 @@ export interface MountedScope<D extends string = string> {
   readonly middleware: readonly MiddlewareClass[];
 }
 
-export type ApiRouteItem = MountedContract<object> | MountedScope;
+/** The methods of an ad-hoc route: `r.get()`, `r.post()`, `r.put()`, `r.patch()`, `r.delete()`. */
+export type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
+
+/**
+ * `r.get('/health', () => 'ok')`: a route without a contract (docs/v1/http.md › Ad-hoc routes). Its params come from
+ * the path and `R` from what the handler returns; it has no schema, so it is not in OpenAPI or the generated types.
+ */
+export interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = string, R = unknown> {
+  readonly kind: "route";
+  readonly method: M;
+  readonly path: P;
+  /** Runs as a controller method does: the request, then the raw path params. */
+  handler(req: Request, params: PathParams<P>): R | Promise<R>;
+  readonly middleware: readonly MiddlewareClass[];
+}
+
+export type ApiRouteItem = MountedContract<object> | MountedScope | MountedRoute;
+
+/** `r.get(path, handler)`, and the other methods: the path starts with `/` and is served as written. */
+export type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
+  path: P,
+  handler: (req: Request, params: PathParams<P>) => R | Promise<R>,
+) => MountedRoute<M, P, R>;
 
 export interface ScopeRouteOptions {
   readonly policy: PolicyClass;
@@ -212,6 +235,12 @@ export interface ApiRouteBuilder<A> {
   ): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
   scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D>;
+  /** An ad-hoc route, without a contract: `r.get('/health', () => 'ok')`. */
+  get: AdHocRouteMethod<"get">;
+  post: AdHocRouteMethod<"post">;
+  put: AdHocRouteMethod<"put">;
+  patch: AdHocRouteMethod<"patch">;
+  delete: AdHocRouteMethod<"delete">;
 }
 
 /** One route registry entry: the contract route plus how it is served. Read by `sauf route:list`. */
@@ -227,6 +256,17 @@ export interface RouteEntry extends ApiRoute {
   /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
+  readonly domain: string | undefined;
+}
+
+/** The registry entry of an ad-hoc route. It has no name (`.name()` is H13 #162), contract or controller. */
+export interface AdHocRouteEntry {
+  readonly method: AdHocMethod;
+  readonly path: string;
+  readonly name: undefined;
+  readonly controller: undefined;
+  readonly handler: MountedRoute["handler"];
+  readonly middleware: readonly MiddlewareClass[];
   readonly domain: string | undefined;
 }
 
