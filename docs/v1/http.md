@@ -20,7 +20,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
+| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 018b840; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
@@ -397,18 +397,18 @@ Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../pa
 ## Request pipeline
 
 ### Status
-Parsing, validation and the handler ctx: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
+Parsing, validation and the handler ctx: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 018b840 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H43 [#340](https://github.com/Laratypes/Laratype/issues/340), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
 
 ### Public API
 No new export. The parsing and validation steps run inside `RequestKernel.handle`, and the handler ctx is `Ctx<E>`: the signatures, permalinked at the SHA in Status, are in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422) and [Controller typing](#controller-typing-ctx-and-controllerof).
 
 ### Invariants
-- **Parsing and validation (H3):** the body by media type, the query and params, the order (after middleware and policies, before the handler), the 400 and 422 bodies, an empty body as `{}` on every method, and the typed ctx are specified once, in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422).
-- **Only a parse failure is a 400.** The pipeline rethrows what is not a malformed body, so a route's `bodyLimit` keeps its own 413 and a body an earlier middleware read already ends as the generic 500 ([validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1)).
+- **Parsing and validation (H3):** the body by media type, the query and params, the order (the body is read at the start of `RequestKernel.handle`, before the route middleware; validation runs after middleware and policies, before the handler), the 400 and 422 bodies, an empty body as `{}` on every method, and the typed ctx are specified once, in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422).
+- **Only a parse failure or a client abort is a 400.** The pipeline rethrows what is neither, so a `bodyLimit` mounted with `app.use()` before the routes keeps its own 413 (a route's `bodyLimit` runs too late: the body is read first), and a body an earlier middleware read through Hono's readers is served from its cache, a 200; only a body read off `c.req.raw` directly ends as the generic 500 ([validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1)).
 - **Still the 0.5 kernel:** the steps run inside `RequestKernel.handle`; 0.5 routes keep `processValidation`.
 
 ### Diagnostics
-The 400 and 422 bodies, an empty body as `{}`, the **413** a `bodyLimit` route keeps (the pipeline rethrows its `BodyLimitError`) and the **500** of a body an earlier middleware read already, and the `TypeError` for a contract route with a request class: [validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1).
+The 400 and 422 bodies, an empty body as `{}`, the **413** of a `bodyLimit` mounted with `app.use()` before the kernel (the pipeline rethrows its `BodyLimitError`), the **400** of a client abort mid-body, the **500** of a body an earlier middleware read off `c.req.raw` directly, and the `TypeError` for a contract route with a request class: [validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1).
 
 ### Design (non-binding)
 Fixed order, combining Nest and Laravel:
