@@ -1,4 +1,4 @@
-// The 0.5 response kernel reads controller metadata until H4 #107
+// Controllers and the 0.5 request classes read their decorator metadata
 import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
@@ -12,7 +12,8 @@ const users = defineContract()({ show: endpoint.get('/:id').response(anything) }
 const appApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
 class UserController extends Controller {
-  show(req: { param(key: string): string }) { return { id: req.param('id') } }
+  // A contract route's handler gets the ctx (H3 #106), not the 0.5 request
+  show(ctx: { params: { id: string } }) { return { id: ctx.params.id } }
 }
 
 const calls: string[] = []
