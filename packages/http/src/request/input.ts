@@ -23,70 +23,88 @@ export const isJsonMediaType = (contentType: string | undefined): boolean =>
 /** A bad request as Hono's `validator()` answers it, with a JSON body like the other error responses. */
 const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ message }, { status: 400 }) });
 
-/** A blank byte of a form body: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
+const MALFORMED_FORM = "Malformed form data in request body.";
+const MALFORMED_JSON = "Malformed JSON in request body.";
+
+/** A form body of whitespace only: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
  * tells Unicode whitespace from data, so only these count. */
-const isBlankByte = (byte: number): boolean => byte === 0x20 || (byte >= 0x09 && byte <= 0x0d);
-
-/**
- * The body of a form request: `first`, the chunk a peek read, then `rest`. A form body may be an upload, so the peek
- * keeps no more than that one chunk in memory (Hono's `bodyLimit` hands its request a stream the same way).
- */
-const bodyWithFirstChunk = (first: Uint8Array, rest: ReadableStreamDefaultReader<Uint8Array>): ReadableStream<Uint8Array> =>
-  new ReadableStream({
-    start(controller) {
-      controller.enqueue(first);
-    },
-    async pull(controller) {
-      const { done, value } = await rest.read();
-      if (done) controller.close();
-      else controller.enqueue(value);
-    },
-    cancel(reason) {
-      return rest.cancel(reason);
-    },
-  });
-
-/**
- * The request to read the form body from, or `undefined` when the body is empty or whitespace only, the form types'
- * answer to the JSON path's: `formData()` rejects an empty `multipart/form-data` body, yet a client may send its form
- * Content-Type on a GET or a DELETE with no body. Reads only the leading blank bytes, then gives `request.raw` the
- * whole body back as a stream, for `parseBody()` after it.
- */
-const formBodyRequest = async (request: HonoRequest): Promise<HonoRequest | undefined> => {
-  if (request.raw.body === null) return undefined;
-  const reader = request.raw.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return undefined;
-    if (value.every(isBlankByte)) continue;
-    const init: RequestInit & { duplex: "half" } = { body: bodyWithFirstChunk(value, reader), duplex: "half" };
-    request.raw = new Request(request.raw, init);
-    return request;
+const isBlankBody = (bytes: Uint8Array): boolean => {
+  for (const byte of bytes) {
+    if (byte !== 0x20 && (byte < 0x09 || byte > 0x0d)) return false;
   }
+  return true;
 };
 
 /** The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. */
 const isFormMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && (contentType.startsWith("multipart/form-data") || contentType.startsWith("application/x-www-form-urlencoded"));
 
+/** Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. */
+const isBodyLimitError = (error: unknown): boolean => error instanceof Error && error.name === "BodyLimitError";
+
+/** A client that went away mid-body: `@hono/node-server` aborts the request's signal when the connection closes. */
+const isClientAbort = (request: HonoRequest): boolean => request.raw.signal.aborted;
+
 /**
- * The form body, as `parseBody()` reads it. Only a body `formData()` rejects is the client's fault, the 400: a missing
- * or bad multipart boundary, a truncated part. Everything else is rethrown: Hono's `bodyLimit` (4.9.6) errors the
- * stream with its own `BodyLimitError`, which has to reach the middleware's handler for the 413, and a body the server
- * already read or is reading another way is a server bug, the generic 500 (`bodyUsed`, a stream still locked, or an
- * error that is no `TypeError`).
+ * The body is gone when a reader took it off `c.req.raw` itself: Hono's cache holds nothing, so neither reader can serve
+ * it. That is a server bug, the generic 500 (docs/v1/validation.md › Pipeline validation and 422 › Diagnostics).
+ */
+const assertBodyReadable = (request: HonoRequest): void => {
+  if (request.raw.bodyUsed && Object.keys(request.bodyCache).length === 0) {
+    throw new TypeError("the request body was already read, so the pipeline cannot parse it");
+  }
+};
+
+/**
+ * The form body, as `parseBody()` reads it. `arrayBuffer()` reads it through Hono's cache, so a body an earlier
+ * middleware read with `c.req.text()`, `c.req.parseBody()` or `validator('form')` is served from that cache; blank
+ * bytes are no body, `{}`, because `formData()` rejects an empty `multipart/form-data` body, yet a client may send its
+ * form Content-Type on a GET or a DELETE with no body. A body `formData()` rejects is the client's 400; Hono's
+ * `bodyLimit` error is rethrown for its 413; a client abort is that 400 too; anything else is a server bug, the 500.
  */
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
-  if (!isFormMediaType(request.header("Content-Type"))) return {};
-  // Tested before the parse: `parseBody()` marks the body used too, and a body it read as a malformed one is still a 400
-  if (request.raw.bodyUsed) throw new TypeError("the request body was already read, so the pipeline cannot parse it");
-  const bodyLocked = request.raw.body?.locked ?? false;
+  const contentType = request.header("Content-Type");
+  if (contentType === undefined || !isFormMediaType(contentType)) return {};
+  assertBodyReadable(request);
+  let bytes: ArrayBuffer;
   try {
-    const readable = await formBodyRequest(request);
-    return readable ? await readable.parseBody({ dot: true }) : {};
+    bytes = await request.arrayBuffer();
   } catch (error) {
-    if (bodyLocked || !(error instanceof TypeError)) throw error;
-    throw badRequest("Malformed form data in request body.");
+    if (isBodyLimitError(error)) throw error;
+    if (isClientAbort(request)) throw badRequest(MALFORMED_FORM);
+    throw error;
+  }
+  if (isBlankBody(new Uint8Array(bytes))) return {};
+  try {
+    // Hono rebuilds a cached body's FormData without the request's Content-Type, which a multipart boundary needs:
+    // seed the cache as `validator('form')` does, so `parseBody()` only converts the fields (dot: true)
+    if (request.bodyCache.parsedBody === undefined && request.bodyCache.formData === undefined) {
+      request.bodyCache.formData = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData();
+    }
+    return await request.parseBody({ dot: true });
+  } catch (error) {
+    if (isBodyLimitError(error)) throw error;
+    if (error instanceof TypeError || isClientAbort(request)) throw badRequest(MALFORMED_FORM);
+    throw error;
+  }
+};
+
+/** The JSON body. Hono's cache serves a body an earlier middleware read, as for forms; a client abort is the 400. */
+const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
+  assertBodyReadable(request);
+  let text: string;
+  try {
+    text = await request.text();
+  } catch (error) {
+    if (isBodyLimitError(error)) throw error;
+    if (isClientAbort(request)) throw badRequest(MALFORMED_JSON);
+    throw error;
+  }
+  if (text.trim() === "") return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw badRequest(MALFORMED_JSON);
   }
 };
 
@@ -96,18 +114,8 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
  * and the form types alike (a client may send its Content-Type on a GET); a malformed one is a 400, and so is a form
  * body `parseBody()` rejects (a missing or bad multipart boundary).
  */
-export const readBody = async (request: HonoRequest): Promise<unknown> => {
-  if (!isJsonMediaType(request.header("Content-Type"))) {
-    return readFormBody(request);
-  }
-  const text = await request.text();
-  if (text.trim() === "") return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw badRequest("Malformed JSON in request body.");
-  }
-};
+export const readBody = async (request: HonoRequest): Promise<unknown> =>
+  isJsonMediaType(request.header("Content-Type")) ? readJsonBody(request) : readFormBody(request);
 
 /**
  * The query string as the client's `buildUrl` sends it: a key once is a string, a repeated key an array. Converting
