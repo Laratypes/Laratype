@@ -318,6 +318,20 @@ describe('PassportGuard', () => {
     local({ usernameField: 'email', passwordField: 'password' }).register({ use } as any, undefined)
     expect(use).toHaveBeenCalledWith('web', expect.any(LocalStrategy))
   })
+
+  it('refuses passReqToCallback on a local strategy', () => {
+    const guard = new PassportGuard('web', {
+      strategy: LocalStrategy as any,
+      strategyName: 'local',
+      provider: User,
+      verification: 'jwt',
+      options: { usernameField: 'email', passwordField: 'password', passReqToCallback: true },
+    })
+    const use = vi.fn()
+    expect(() => guard.register({ use } as any, undefined))
+      .toThrow('[@laratype/auth] Auth guard "web": a local strategy does not support options.passReqToCallback.')
+    expect(use).not.toHaveBeenCalled()
+  })
 })
 
 describe('Auth.login', () => {

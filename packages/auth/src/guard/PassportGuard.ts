@@ -17,6 +17,10 @@ export default class PassportGuard<User = any> extends TokenGuard<User> {
     if (this.config.strategyName === 'local' && (typeof usernameField !== 'string' || typeof passwordField !== 'string')) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy needs options.usernameField and options.passwordField.`);
     }
+    // With it passport-local calls verify(req, username, password, done), and the callback below takes three arguments
+    if (this.config.strategyName === 'local' && this.config.options?.passReqToCallback) {
+      throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy does not support options.passReqToCallback.`);
+    }
     const Strategy = this.config.strategy as any;
     passport.use(this.name, new Strategy({
       ...this.config.options,
