@@ -62,7 +62,7 @@ describe('LaratypeConfig.Auth guards', () => {
     expectTypeOf({
       default: { guard: 'web' },
       guards: {
-        web: { strategyName: 'local', strategy, options: { usernameField: 'email' }, provider: User, verification: 'jwt' },
+        web: { strategyName: 'local', strategy, options: { usernameField: 'email', passwordField: 'password' }, provider: User, verification: 'jwt' },
         api: { provider: User, verification: 'jwt' },
       },
     } as const).toExtend<LaratypeConfig.Auth>()
