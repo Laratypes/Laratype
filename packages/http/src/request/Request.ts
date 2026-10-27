@@ -211,7 +211,7 @@ export default class Request extends AppServiceProvider {
                 return await this.controllerKernel(routeOption.controller)(handlerArg)
               }
               // An ad-hoc route (`r.get('/health', () => 'ok')`, H12 #139) has no contract: its handler gets the 0.5
-              // request and the raw path params, like a 0.5 controller method, not the ctx of a contract handler
+              // request and the raw path params (no model binding), not the ctx of a contract handler
               if('handler' in routeOption) {
                 const { handler } = routeOption;
                 return await handler(requestInstance, ContextApi.getModelBindings())
