@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
 import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
+import { resolveContractResponse } from "../response/contractResponse";
 import type { PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
@@ -323,7 +324,9 @@ export default class Request extends AppServiceProvider {
         if(pipelineResult instanceof Error) {
           throw pipelineResult;
         }
-        return ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
+        return routeOption.endpoint
+          ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+          : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
       });
     }
   }

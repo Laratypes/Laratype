@@ -506,7 +506,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 ## API type projection
 
 ### Status
-merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify` proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 
 ### Public API
 [`packages/contract/src/api-types.ts`](../../packages/contract/src/api-types.ts)
@@ -531,12 +531,57 @@ export interface EndpointShape { method: string; path: string; params: object; q
 export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? EndpointShape : ApiShape<A[K]> };
 ```
 
+[`json.ts` @ 74c8922](https://github.com/Laratypes/Laratype/blob/74c8922b63486edad9017b99a5591278b01b8427/packages/contract/src/json.ts#L1-L39) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107))
+
+```ts
+import type { Prettify } from "./path";
+
+type NotJson = undefined | symbol | ((...args: any[]) => unknown);
+
+/** An array item that JSON cannot hold becomes `null`, as `JSON.stringify` does. */
+type JsonItem<T> = T extends NotJson ? null : Jsonify<T>;
+
+/** A property JSON keeps: a string key whose value is not only `undefined`, functions or symbols. */
+type JsonKey<T, K extends keyof T> = K extends symbol ? never : [Exclude<T[K], undefined>] extends [NotJson] ? never : K;
+
+/**
+ * An object's wire type. `JSON.stringify` drops a property whose value is `undefined`, so a property that may be
+ * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire.
+ */
+type JsonObject<T> = Prettify<
+  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: Jsonify<T[K]> } & {
+    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: Jsonify<T[K]>;
+  }
+>;
+
+/**
+ * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
+ * `undefined` / functions / symbols are removed from unions and their properties dropped, a property that may be
+ * `undefined` is optional, `bigint` → `never`, `Map` / `Set` → `{}`. The server serializes a response schema's output
+ * with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ */
+export type Jsonify<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : T extends string | number | boolean | null
+      ? T
+      : T extends NotJson | bigint
+        ? never
+        : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+          ? {}
+          : T extends readonly unknown[]
+            ? { -readonly [K in keyof T]: JsonItem<T[K]> }
+            : JsonObject<T>;
+```
+
 ### Invariants
 - The projection contains plain types only, with no schema types. It is what `@laratype/client` consumes and what `sauf types:generate` prints for separate-repo FEs (S2 option c, G1 [#133](https://github.com/Laratypes/Laratype/issues/133)).
 - It follows the API tree: `ApiTypes<AppApi>['users']['posts']['update']`. `path` is the full path and `params` include the `[x]` folder params.
 - `errors` is the [derived error union](#capabilities-and-derived-errors). Two errors can share a status, so clients narrow by `code`.
 - `ApiShape<A>` is used as a **self-constraint** (`<A extends ApiShape<A>>`). It accepts both `ApiTypes<typeof appApi>` and a generated `interface`. A member with a `method` is an endpoint; any other member is a nested group. An index-signature constraint would reject interfaces; there is a type test showing this.
 - `EndpointTypes<E>` without a context is the endpoint on its own: its relative path and only its own capabilities.
+- `Jsonify<T>` is the wire type of `T` after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
 
 ### Diagnostics
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.

@@ -6,6 +6,7 @@ import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { RouteParams } from "../contracts";
 import { isBodylessStatus, isContractError } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
+import { BODY_HEADERS } from "./bodyHeaders";
 
 const isErrorStatus = (status: unknown): status is number => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
 
@@ -48,16 +49,6 @@ const scrubErrorHeaders = (headers: Headers) => {
   headers.set("Cache-Control", "no-store");
 };
 
-/**
- * Headers set before the throw, or on a response finalized before it, that describe that body or redirect, not the
- * error's: Hono merges them into the error response, where a stale Content-Length or Content-Encoding breaks the body
- * (#272). An HTTP error's own response keeps them: they describe its own body
- */
-const BODY_HEADERS = [
-  "Content-Type", "Content-Length", "Content-Encoding", "Content-Range", "Content-Disposition", "Content-Location",
-  "Content-Digest", "Repr-Digest", "Digest", "Content-MD5", "Location", "Refresh", "Transfer-Encoding", "Trailer",
-];
-
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
 
@@ -75,11 +66,6 @@ export default class Response extends AppServiceProvider {
   protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: RouteParams): ContentfulStatusCode & 204 {
     let contentFullStatusCode = response.getHttpStatus();
 
-    // A contract route's status comes from its endpoint (`.response(schema, status)`), never from the method name
-    if(!contentFullStatusCode && routeOption?.status) {
-      contentFullStatusCode = routeOption.status as ContentfulStatusCode;
-    }
-
     if(!contentFullStatusCode && routeOption?.controller) {
       const [controllerClass, controllerMethodName] = routeOption.controller;
       
@@ -89,7 +75,7 @@ export default class Response extends AppServiceProvider {
         contentFullStatusCode = statusCodeFromMetadata;
       }
       else {
-        // Guess status code from controller method
+        // 0.5 routes only: a Route.api route's status is its endpoint's (contractResponse.ts, H4 #107)
         contentFullStatusCode = ControllerMethodHttpStatusCode[controllerMethodName as keyof typeof ControllerMethodHttpStatusCode];
       }
     }
@@ -130,8 +116,8 @@ export default class Response extends AppServiceProvider {
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
 
-    // 204 and 205 never carry a body (a contract endpoint may declare either with .status(n))
-    if(isBodylessStatus(contentFullStatusCode)) {
+    // 204, 205 and 304 never carry a body
+    if(isBodylessStatus(contentFullStatusCode) || contentFullStatusCode === 304) {
       return ctx.body(null, contentFullStatusCode as 204);
     }
 
