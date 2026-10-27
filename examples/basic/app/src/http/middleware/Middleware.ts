@@ -28,7 +28,8 @@ export class Web extends Middleware {
 
 export class GoogleAuthentication extends Middleware {
   handle: MiddlewareHandler = async (request, res, next) => {
-    return (await Passport.authenticate('google', () => {
+    // The api guard in app/config/auth.ts carries the google strategy; strategies register under the guard's name
+    return (await Passport.authenticate('api', () => {
       return;
     }))(res, next);
   }

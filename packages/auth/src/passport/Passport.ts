@@ -1,6 +1,6 @@
 import type { NextHandler, Request, Response } from "@laratype/http";
 import passport from "passport";
-import { importModule } from "@laratype/support";
+import { ContextApi } from "@laratype/support";
 
 export default class Passport {
   static passport: passport.PassportStatic = passport;
@@ -26,9 +26,6 @@ export default class Passport {
   }
 
   static authenticate: passport.Authenticator['authorize'] = async (strategy, options, callback?) => {
-    const { ContextApi } = await importModule("@laratype/support", {
-      internal: true
-    }) as typeof import("@laratype/support");
     const currentRequest = ContextApi.getRequest();
     const expressRequest = this.getHttpRequest(currentRequest);
     return (res: Response, next: NextHandler) => {
