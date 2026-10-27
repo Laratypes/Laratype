@@ -706,7 +706,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Design (non-binding)
 - **Optional:** NestJS-style modules for large apps split by domain. An app made of plain providers keeps working.
-- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes keep `Route.prefix(...)` and `group(...)`; `imports` lists other modules.
+- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes take their path as written ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)); `imports` lists other modules.
 - **Layout:** modules sit in the optional `app/modules/` ([overview.md › Project structure](./overview.md#project-structure)).
 
 ### Open questions
