@@ -87,15 +87,14 @@ describe('request scope', () => {
     expect(disposed).toBe(2)
   })
 
-  it('a nested request scope keeps resolving after the outer one is disposed, unlike a plain child', async () => {
+  it('a nested request scope keeps resolving after the outer one is disposed', async () => {
     class Db {}
     const outer = new Container().scoped(Db).createRequestScope()
     const nested = outer.createRequestScope()
-    const plainChild = outer.createChild()
     await outer.dispose()
-    // The nested scope owns its cache, so the outer disposal doesn't spend it (di.md › dispose())
+    // The nested scope owns its cache, so the outer disposal doesn't spend it (di.md › dispose(); a plain
+    // createChild() does throw, covered by the disposed-scope test)
     expect(nested.make(Db)).toBe(nested.make(Db))
-    expect(() => plainChild.make(Db)).toThrow(new DiError('Request scope already disposed.'))
     await nested.dispose()
   })
 

@@ -40,6 +40,18 @@ __laratype_deps(Repo, [() => RequestId], { params: ['requestId'] })
 __laratype_deps(Service, [() => Repo, () => RequestId], { params: ['repo', 'requestId'] })
 __laratype_deps(ScopeController, [() => Service, () => RequestId], { params: ['service', 'requestId'] })
 
+/** A request-scoped value whose disposer rejects, for the disposal-failure tests. */
+class Leaky {
+  async [Symbol.asyncDispose]() {
+    throw new Error('close failed')
+  }
+}
+class LeakyController extends Controller {
+  constructor(readonly leaky: Leaky) { super() }
+  index() { return { ok: true } }
+}
+__laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
+
 /** A Hono app booted like `sauf dev` does: the container holds it, and RequestKernel registers its middleware. */
 const bootApp = (bind: (container: Container) => void) => {
   const container = new Container({ deps: depsRegistry })
@@ -167,14 +179,6 @@ describe('request scope under RequestKernel', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const unhandled = vi.fn()
     process.on('unhandledRejection', unhandled)
-    class Leaky {
-      async [Symbol.asyncDispose]() { throw new Error('close failed') }
-    }
-    class LeakyController extends Controller {
-      constructor(readonly leaky: Leaky) { super() }
-      index() { return { ok: true } }
-    }
-    __laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
     const { app, kernel } = bootApp((container) => container.scoped(Leaky))
     app.get('/leaky', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
     try {
@@ -196,14 +200,6 @@ describe('request scope under RequestKernel', () => {
   it('escapes control characters in the logged path', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    class Leaky {
-      async [Symbol.asyncDispose]() { throw new Error('close failed') }
-    }
-    class LeakyController extends Controller {
-      constructor(readonly leaky: Leaky) { super() }
-      index() { return { ok: true } }
-    }
-    __laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
     const { app, kernel } = bootApp((container) => container.scoped(Leaky))
     // One segment, so `:rest` matches the decoded path: Hono's `*` middleware skips a `%0A` path on its own
     app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
