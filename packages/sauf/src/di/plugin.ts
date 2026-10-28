@@ -3,6 +3,7 @@
  * import `virtual:laratype/di` to `@laratype/core`.
  */
 import type { Plugin } from 'vite';
+import { isTransformable, normalize } from './files';
 import { DI_VIRTUAL_ID, transformDi, type DiTransformOptions } from './transform';
 
 export const DI_PLUGIN_NAME = 'laratype:di';
@@ -10,10 +11,6 @@ export const DI_PLUGIN_NAME = 'laratype:di';
 export const DI_RUNTIME_ID = '@laratype/core';
 
 const queryRE = /[?#].*$/;
-const tsRE = /\.(c|m)?tsx?$/;
-const dtsRE = /\.d\.(c|m)?ts$/;
-
-const normalize = (path: string) => path.replace(/\\/g, '/');
 
 export function laratypeDi(options: DiTransformOptions = {}): Plugin {
   let root = normalize(process.cwd());
@@ -25,10 +22,7 @@ export function laratypeDi(options: DiTransformOptions = {}): Plugin {
   const isAppFile = (id: string) => {
     if (id.startsWith('\0') || id.startsWith('virtual:')) return false;
     const file = normalize(id.replace(queryRE, ''));
-    return tsRE.test(file)
-      && !dtsRE.test(file)
-      && !file.includes('/node_modules/')
-      && file.startsWith(`${root}/`);
+    return isTransformable(file) && file.startsWith(`${root}/`);
   };
 
   return {

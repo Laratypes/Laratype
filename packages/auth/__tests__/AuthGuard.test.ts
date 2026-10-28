@@ -6,7 +6,8 @@ import { Container, depsRegistry } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
 import { Controller, RequestKernel, ResponseKernel } from '@laratype/http'
 import AuthGuard from '../src/guard/Auth'
-import { AuthVerification } from '../src/verifications'
+import AuthManager from '../src/guard/AuthManager'
+import TokenGuard from '../src/guard/TokenGuard'
 
 const USER = { id: 1, name: 'Ada' }
 
@@ -21,6 +22,7 @@ const bootApp = () => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   container.instance(HTTP_APP, app)
+  container.instance(AuthManager, new AuthManager({ default: { guard: 'api' }, guards: { api: { provider: Object, verification: 'jwt' } } }))
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
   app.get('/me', RequestKernel.handle({ method: 'get', path: '/me', controller: [Me, 'index'], middleware: [AuthGuard] }))
@@ -39,7 +41,7 @@ afterEach(() => {
 
 const request = (authorization?: string) => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
-  verify = vi.spyOn(AuthVerification, 'verify').mockImplementation(async (token: string) => (token === 'valid.token' ? USER : false))
+  verify = vi.spyOn(TokenGuard.prototype, 'verify').mockImplementation(async (token: string) => (token === 'valid.token' ? USER : false))
   return bootApp().request('/me', { headers: authorization === undefined ? {} : { Authorization: authorization } })
 }
 

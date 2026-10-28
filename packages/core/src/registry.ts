@@ -55,17 +55,26 @@ const paramTypesEntry = (cls: Function): DepsEntry | undefined => {
   }
 }
 
+/** `entry` when it was declared on `cls` itself or still describes its implicit constructor; otherwise none. */
+const applicableDeps = (cls: Function, owner: Function, entry: DepsEntry): { owner: Function, entry: DepsEntry } | undefined =>
+  owner === cls || cls.length <= entry.slots.length ? { owner, entry } : undefined
+
 /**
  * Deps that apply to `cls`, and the class they were declared on.
  * Per class, starting at `cls`: its own registered entry, else its own `design:paramtypes`
  * (third-party decorated classes), else move to the parent. So a class with its own constructor
  * only ever uses its own params, and a class without one inherits the nearest ancestor's.
+ *
+ * An inherited entry only stands for `cls` when `cls` declares no more constructor params than the
+ * entry has slots. A class with its own, untransformed constructor (`sauf build` runs no transform
+ * yet) resolves to no entry, so the container fails closed with `Cannot autowire` instead of
+ * building the subclass with the ancestor's arguments.
  */
 export function getDeps(cls: Function): { owner: Function, entry: DepsEntry } | undefined {
   for (let c: unknown = cls; typeof c === 'function' && c !== Function.prototype; c = Object.getPrototypeOf(c)) {
-    if (hasOwnDeps(c)) return { owner: c, entry: (c as unknown as Record<symbol, DepsEntry>)[DEPS] }
+    if (hasOwnDeps(c)) return applicableDeps(cls, c, (c as unknown as Record<symbol, DepsEntry>)[DEPS])
     const fallback = paramTypesEntry(c)
-    if (fallback) return { owner: c, entry: fallback }
+    if (fallback) return applicableDeps(cls, c, fallback)
   }
   return undefined
 }

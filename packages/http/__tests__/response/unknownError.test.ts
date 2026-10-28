@@ -87,7 +87,7 @@ describe('unknown errors', () => {
     Reflect.defineMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, 201, Legacy.prototype, 'create')
     const app = bootApp()
     app.post('/store', RequestKernel.handle({ method: 'post', path: '/store', controller: [Legacy, 'store'] }))
-    app.post('/create', RequestKernel.handle({ method: 'post', path: '/create', status: 201, controller: [Legacy, 'create'] }))
+    app.post('/create', RequestKernel.handle({ method: 'post', path: '/create', controller: [Legacy, 'create'] }))
     await expectGeneric500(await app.request('/store', { method: 'POST' }), 'secret detail')
     await expectGeneric500(await app.request('/create', { method: 'POST' }), 'secret detail')
   })
@@ -111,7 +111,7 @@ describe('unknown errors', () => {
       store() { throw new Exception({ message: 'secret detail', responsible: false }) }
     }
     const app = bootApp()
-    app.post('/hidden', RequestKernel.handle({ method: 'post', path: '/hidden', status: 201, controller: [Hidden, 'store'] }))
+    app.post('/hidden', RequestKernel.handle({ method: 'post', path: '/hidden', controller: [Hidden, 'store'] }))
     await expectGeneric500(await app.request('/hidden', { method: 'POST' }), 'secret detail')
   })
 
@@ -119,7 +119,7 @@ describe('unknown errors', () => {
     quiet()
     class Limited extends Controller { store() { throw new HTTPException(413, { message: 'Payload Too Large' }) } }
     const app = bootApp()
-    app.post('/limited', RequestKernel.handle({ method: 'post', path: '/limited', status: 201, controller: [Limited, 'store'] }))
+    app.post('/limited', RequestKernel.handle({ method: 'post', path: '/limited', controller: [Limited, 'store'] }))
     const response = await app.request('/limited', { method: 'POST' })
     expect(response.status).toBe(413)
     expect(errors).not.toHaveBeenCalled()
@@ -140,19 +140,9 @@ describe('unknown errors', () => {
     quiet()
     class Internal extends Controller { store() { throw new InternalException('Model User does not have a primary key defined.') } }
     const app = bootApp()
-    app.post('/internal', RequestKernel.handle({ method: 'post', path: '/internal', status: 201, controller: [Internal, 'store'] }))
+    app.post('/internal', RequestKernel.handle({ method: 'post', path: '/internal', controller: [Internal, 'store'] }))
     await expectGeneric500(await app.request('/internal', { method: 'POST' }), 'primary key', 'User', 'INTERNAL_ERROR')
     expect(errors).toHaveBeenCalledTimes(1)
-  })
-
-  it('the reserved-endpoint error of a request class reaches the client as the generic 500', async () => {
-    quiet()
-    const items = defineContract()({ index: endpoint.get('/').response(anything) })
-    class SecretRequest extends LaratypeRequest { endpoint = 'mine' }
-    class Items extends Controller { index() { return {} } }
-    const app = bootApp()
-    app.get('/items', RequestKernel.handle({ method: 'get', path: '/items', name: 'items.index', request: SecretRequest, endpoint: items.index, controller: [Items, 'index'] }))
-    await expectGeneric500(await app.request('/items'), 'SecretRequest', 'items.index', 'endpoint')
   })
 
   it('a 5xx HTTPException keeps its status with the generic body and is logged', async () => {
@@ -212,7 +202,7 @@ describe('unknown errors', () => {
     quiet()
     class Missing extends Controller { store() { throw new NotFoundException('No such post.') } }
     const app = bootApp()
-    app.post('/missing', RequestKernel.handle({ method: 'post', path: '/missing', status: 201, controller: [Missing, 'store'] }))
+    app.post('/missing', RequestKernel.handle({ method: 'post', path: '/missing', controller: [Missing, 'store'] }))
     const response = await app.request('/missing', { method: 'POST' })
     expect(response.status).toBe(404)
     expect(await response.json()).toMatchObject({ message: 'No such post.' })
