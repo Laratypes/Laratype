@@ -401,7 +401,7 @@ describe("a cached body on a contract route (H43 #340)", () => {
 });
 
 // Round 3 of #345: a later read has to find a cache Hono can serve, and a failed read has to stay a 400 or a 500 with
-// its documented meaning. One test per regression, each read off Hono 4.9.6's `#cachedBody` (see honoBodyCache.test.ts).
+// its documented meaning. One test per regression, each read off Hono 4.9.6's `#cachedBody` (honoBodyCache.test.ts).
 describe("a body the pipeline read, then read again (H43 #345)", () => {
   const formBodies: [string, () => RequestInit, MiddlewareHandler[]?][] = [
     [
@@ -414,6 +414,23 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
       },
     ],
     ["urlencoded body", () => urlencoded("name=ada&user.age=36")],
+    // A form parse the app-level middleware did first: the pipeline has to keep a promise-first cache when it takes the
+    // FormData over, or every later reader would chain `.then` on a plain value (Hono 4.9.6)
+    [
+      "multipart body read earlier by c.req.parseBody()",
+      () => {
+        const form = new FormData();
+        form.append("name", "ada");
+        form.append("user.age", "36");
+        return formInit(form);
+      },
+      [
+        async (c, next) => {
+          await c.req.parseBody();
+          await next();
+        },
+      ],
+    ],
     // The other two ways a form's body reaches the pipeline, as text and as a blob: the text read used to leave only
     // text in the cache, so a later `parseBody()` rebuilt the FormData without the request's Content-Type
     [
@@ -446,14 +463,17 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
       // cached-bytes fallback rebuilds the FormData without the request's Content-Type, so `parseBody()` would reject
       let parsed: unknown;
       let data: FormData | undefined;
+      let text: string | undefined;
       const { app, validated } = mount(
         [],
         before,
         [
           async (c, next) => {
             await next();
+            // Every reader goes through the same cache: none of them may find a plain value first and throw
             parsed = await c.req.parseBody();
             data = await c.req.formData();
+            text = await c.req.text();
           },
         ],
       );
@@ -462,6 +482,7 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
       expect(parsed).toEqual({ name: "ada", "user.age": "36" });
       expect(data?.get("name")).toBe("ada");
       expect(data?.get("user.age")).toBe("36");
+      expect(text?.length).toBeGreaterThan(0);
       expect(validated()).toEqual({ name: "ada", user: { age: "36" } });
     },
   );
@@ -502,12 +523,12 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
     expect(data?.get("avatar")).toBeInstanceOf(File);
   });
 
-  const laterJsonReaders: [string, (c: Context) => Promise<unknown>][] = [
+  const jsonReaders: [string, (c: Context) => Promise<unknown>][] = [
     ["c.req.json()", async (c) => c.req.json()],
     ["c.req.text()", async (c) => JSON.parse(await c.req.text())],
   ];
 
-  it.each(laterJsonReaders)("a JSON body is still readable with %s after a middleware parseBody()", async (_reader, read) => {
+  it.each(jsonReaders)("a JSON body still reads with %s after a middleware parseBody()", async (_reader, read) => {
     quiet();
     // `parseBody()` on a JSON request caches a plain `{}` as the cache's first entry, and Hono chains every other
     // reader from that first entry: without replacing it, the later read throws synchronously
@@ -566,10 +587,18 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
         await next();
       },
     ]);
+    // The pipeline answered {} without fields, so its cache has to serve that to a later reader too, not the rejected
+    // parse the middleware left
+    let later: unknown;
+    app.use("/empty", async (c, next) => {
+      await next();
+      later = await c.req.parseBody();
+    });
     const route = { method: "post", path: "/empty", request: EmptyRequest, controller: [Empty, "store"] as const };
     app.post("/empty", RequestKernel.handle(route));
     const response = await app.request("/empty", { method: "POST", headers: multipartHeaders });
     expect(response.status).toBe(201);
     expect(validated).toEqual({});
+    expect(later).toEqual({});
   });
 });

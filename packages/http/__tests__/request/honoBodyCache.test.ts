@@ -10,7 +10,7 @@ import { bufferToFormData } from "hono/utils/buffer";
 const require = createRequire(import.meta.url);
 
 /** The installed Hono's package.json: `require.resolve` lands in `dist`, whose own package.json has no name. */
-const honoPackageJson = (): string => {
+const honoPackageJsonPath = (): string => {
   let dir = dirname(require.resolve("hono"));
   for (;;) {
     const candidate = join(dir, "package.json");
@@ -23,7 +23,7 @@ const honoPackageJson = (): string => {
   }
 };
 
-const { version } = JSON.parse(readFileSync(honoPackageJson(), "utf8")) as { version: string };
+const { version } = JSON.parse(readFileSync(honoPackageJsonPath(), "utf8")) as { version: string };
 
 const asJson = (body: unknown): RequestInit => ({
   method: "POST",
@@ -116,7 +116,8 @@ describe("Hono body cache (H43 #345)", () => {
     // missing boundary. `bufferToFormData` is the exported parse that keeps the Content-Type, which the pipeline uses.
     const body = '--x\r\nContent-Disposition: form-data; name="name"\r\n\r\nada\r\n--x--\r\n';
     const bytes = new TextEncoder().encode(body);
-    await expect(bufferToFormData(bytes.buffer as ArrayBuffer, "multipart/form-data; boundary=x")).resolves.toBeInstanceOf(FormData);
+    const expected = "multipart/form-data; boundary=x";
+    await expect(bufferToFormData(bytes.buffer as ArrayBuffer, expected)).resolves.toBeInstanceOf(FormData);
     await expect(new Response(bytes).formData()).rejects.toThrow(TypeError);
   });
 });
