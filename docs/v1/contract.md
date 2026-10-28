@@ -18,14 +18,14 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Path params](#path-params) | merged @ d70daa7 |
 | [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Validation adapter](#validation-adapter) | merged @ 883a8e2 |
+| [Validation adapter](#validation-adapter) | merged @ 883a8e2; `issuePath` and the zod run-once proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; root brand, `isApiRoot`/`isApiNode` and entry `scopes: [{ scope, dir }]` proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); throwing and mapping planned → #108 |
+| [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
 | [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
@@ -280,10 +280,10 @@ Type-only (`types/errors.types.ts`): an unknown built-in (`errors.conflict`), wr
 ## Validation adapter
 
 ### Status
-merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 
 ### Public API
-[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50)
+[`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ 4ea9155](https://github.com/Laratypes/Laratype/blob/4ea91557e6d6229c23e8d10a1ae704f70dc297b7/packages/contract/src/validate.ts)
 
 ```ts
 export type ErrorBag = Record<string, string[]>;   // dot path -> messages; "" for issues without a path
@@ -291,16 +291,18 @@ export type ValidationResult<O> =
   | { readonly ok: true; readonly value: O }
   | { readonly ok: false; readonly errors: ErrorBag; readonly issues: ReadonlyArray<StandardIssue> };
 export const toErrorBag: (issues: ReadonlyArray<StandardIssue>) => ErrorBag;
+export const issuePath: (issue: StandardIssue) => PropertyKey[];   // { key } segments unwrapped, [] without a path (H3 #106)
 export const validate: <S extends StandardSchemaV1>(schema: S, value: unknown) => Promise<ValidationResult<InferOut<S>>>;
 export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknown) => ValidationResult<InferOut<S>>;
 ```
 
 ### Invariants
 - Invalid input **resolves** to `{ ok: false }`. `validate()` never rejects because of invalid input.
-- Paths: `["items", 0, "name"]` becomes `"items.0.name"`. `{ key }` segments are unwrapped. A missing or empty path becomes `""`. Every message for the same path is kept, in order.
+- Paths: `["items", 0, "name"]` becomes `"items.0.name"`. `{ key }` segments are unwrapped (`issuePath`, shared with the 0.5 422 of `@laratype/http`). A missing or empty path becomes `""`. Every message for the same path is kept, in order.
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
+- A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives. `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 - **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date()` (zod 3) or `z.coerce.date<Date>()` (zod 4). A handler that wants the ISO string itself uses `z.string().datetime()` (zod 3) or `z.iso.datetime()` (zod 4). A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
@@ -312,13 +314,13 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 
 ### Non-goals
 - No FormRequest, messages or async DB rules here. That is H10 [#137](https://github.com/Laratypes/Laratype/issues/137) in `@laratype/validation`.
-- No pipeline wiring. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) calls `validate()` on query, body and headers.
+- No pipeline wiring here. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) calls `validate()` on the query and the body ([validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)).
 
 ### Open questions
 - Zod 4: `z.coerce.number()` has input type `unknown`. Contracts and docs use `z.coerce.number<number>()` (S2 finding, [#85](https://github.com/Laratypes/Laratype/issues/85)).
 
 ### Acceptance
-[#91 Done when](https://github.com/Laratypes/Laratype/issues/91)
+[#91 Done when](https://github.com/Laratypes/Laratype/issues/91) · [#106 Done when](https://github.com/Laratypes/Laratype/issues/106)
 
 ---
 
@@ -504,7 +506,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 ## API type projection
 
 ### Status
-merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify` proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 
 ### Public API
 [`packages/contract/src/api-types.ts`](../../packages/contract/src/api-types.ts)
@@ -529,12 +531,57 @@ export interface EndpointShape { method: string; path: string; params: object; q
 export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? EndpointShape : ApiShape<A[K]> };
 ```
 
+[`json.ts` @ 74c8922](https://github.com/Laratypes/Laratype/blob/74c8922b63486edad9017b99a5591278b01b8427/packages/contract/src/json.ts#L1-L39) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107))
+
+```ts
+import type { Prettify } from "./path";
+
+type NotJson = undefined | symbol | ((...args: any[]) => unknown);
+
+/** An array item that JSON cannot hold becomes `null`, as `JSON.stringify` does. */
+type JsonItem<T> = T extends NotJson ? null : Jsonify<T>;
+
+/** A property JSON keeps: a string key whose value is not only `undefined`, functions or symbols. */
+type JsonKey<T, K extends keyof T> = K extends symbol ? never : [Exclude<T[K], undefined>] extends [NotJson] ? never : K;
+
+/**
+ * An object's wire type. `JSON.stringify` drops a property whose value is `undefined`, so a property that may be
+ * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire.
+ */
+type JsonObject<T> = Prettify<
+  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: Jsonify<T[K]> } & {
+    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: Jsonify<T[K]>;
+  }
+>;
+
+/**
+ * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
+ * `undefined` / functions / symbols are removed from unions and their properties dropped, a property that may be
+ * `undefined` is optional, `bigint` → `never`, `Map` / `Set` → `{}`. The server serializes a response schema's output
+ * with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ */
+export type Jsonify<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : T extends string | number | boolean | null
+      ? T
+      : T extends NotJson | bigint
+        ? never
+        : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+          ? {}
+          : T extends readonly unknown[]
+            ? { -readonly [K in keyof T]: JsonItem<T[K]> }
+            : JsonObject<T>;
+```
+
 ### Invariants
 - The projection contains plain types only, with no schema types. It is what `@laratype/client` consumes and what `sauf types:generate` prints for separate-repo FEs (S2 option c, G1 [#133](https://github.com/Laratypes/Laratype/issues/133)).
 - It follows the API tree: `ApiTypes<AppApi>['users']['posts']['update']`. `path` is the full path and `params` include the `[x]` folder params.
 - `errors` is the [derived error union](#capabilities-and-derived-errors). Two errors can share a status, so clients narrow by `code`.
 - `ApiShape<A>` is used as a **self-constraint** (`<A extends ApiShape<A>>`). It accepts both `ApiTypes<typeof appApi>` and a generated `interface`. A member with a `method` is an endpoint; any other member is a nested group. An index-signature constraint would reject interfaces; there is a type test showing this.
 - `EndpointTypes<E>` without a context is the endpoint on its own: its relative path and only its own capabilities.
+- `Jsonify<T>` is the wire type of `T` after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
 
 ### Diagnostics
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.
@@ -771,10 +818,10 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 ## Domain errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. Throwing and mapping to responses is planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)).
 
 ### Public API
-[`packages/contract/src/errors.ts`](../../packages/contract/src/errors.ts)
+[`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
 
 ```ts
 export class ContractError<St extends number = number, Code extends string = string, Body = unknown> extends Error {
@@ -789,6 +836,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   readonly code: Code;
   is(error: unknown): error is ContractError<St, Code, Body>;   // a ContractError (brand) with this code and status
 }
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and an object body without its own code (#108)
 export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
 export type ErrorCode<E>;

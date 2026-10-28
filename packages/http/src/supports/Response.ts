@@ -98,12 +98,13 @@ export default class Response implements ResponseInterface {
   }
 
   isModel() {
-    return this.content.constructor && this.content.constructor.dataSource;
+    // No content (a middleware's `new Response(null, 401)`) is not a model
+    return this.content?.constructor?.dataSource;
   }
 
   public shouldBeJson() {
     
-    return this.isModel() || this.content instanceof JsonResource || this.content.constructor === Array || this.content.constructor === Object;
+    return this.isModel() || this.content instanceof JsonResource || this.content?.constructor === Array || this.content?.constructor === Object;
   }
   
 }

@@ -1,14 +1,16 @@
-// D8 #115: Auth is a facade over the container binding of AuthManager
+// D8 #115: Auth is a facade over the container binding of AuthService, which reads the guards (A4 #151)
 import 'reflect-metadata'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Container, Facade } from '@laratype/core'
 import { ContextApi } from '@laratype/support'
-import { Auth, AuthManager } from '../src'
+import type { Model } from '@laratype/database'
+import { Auth, AuthService } from '../src'
+import type { Authenticated } from '../src/verifications/AuthVerification'
 
 /** Answers every call with a marker instead of reading the guards. */
-class FakeAuth extends AuthManager {
-  override user<T>() {
-    return 'fake user' as T
+class FakeAuth extends AuthService {
+  override user<T extends Model>() {
+    return 'fake user' as unknown as Authenticated<T>
   }
   override check() {
     return true
@@ -18,7 +20,7 @@ class FakeAuth extends AuthManager {
 describe('Auth facade', () => {
   afterEach(() => Facade.setFacadeApplication(undefined))
 
-  it('forwards to AuthManager by default, as in 0.5', () => {
+  it('forwards to AuthService by default, as in 0.5', () => {
     expect(Auth.user()).toBeNull()
     expect(() => Auth.check()).toThrow('Method not implemented.')
     ContextApi.run({ user: undefined } as any, () => {
@@ -29,7 +31,7 @@ describe('Auth facade', () => {
   it('app.swap() replaces the implementation', () => {
     const app = new Container()
     Facade.setFacadeApplication(app)
-    const restore = app.swap(AuthManager, new FakeAuth())
+    const restore = app.swap(AuthService, new FakeAuth())
     expect(Auth.user()).toBe('fake user')
     expect(Auth.check()).toBe(true)
     restore()
