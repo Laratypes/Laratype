@@ -90,6 +90,16 @@ After the parent PR merges:
 
 ## Security
 
-- **Review `.github/` and agent-instruction changes.** Before you base work on someone else's branch, or review a PR, read every change to `.github/`, `.claude/**`, `**/AGENTS.md`, `**/CLAUDE.md`, `.mcp.json`, `opencode.json` and `.opencode/**` in its diff. These files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10.
+- **Review agent-instruction and tooling changes before anything runs in their checkout.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout, before you base work on the branch and before any agent session or `bun install` starts there:
+
+  `git diff origin/master...origin/<branch> -- <paths>`
+
+  The paths:
+  - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
+  - `**/.claude/**`, `**/.opencode/**`, `**/opencode.json`, `**/.mcp.json`
+  - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.vscode/**`
+  - the `preinstall`, `install`, `postinstall` and `prepare` scripts of any `package.json`
+
+  These files run with secrets or steer what agents do: CodeRabbit's config steers the review that gates merges, and a malicious workflow was pushed to this repo in 2026-10.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.
 - Don't add workflows that use secrets, or trigger `workflow_dispatch` runs, without the maintainer's approval.
