@@ -235,7 +235,8 @@ export class Container {
 
   /**
    * End a request scope: drop its request-scoped values and call their `Symbol.asyncDispose` or
-   * `Symbol.dispose`, newest first. Failures are rethrown together as an `AggregateError` once all ran.
+   * `Symbol.dispose`, one at a time, newest first. A failing disposer doesn't stop the next one, and the failures
+   * are rethrown together as an `AggregateError`; a disposer that never settles leaves the older values undisposed.
    */
   async dispose(): Promise<void> {
     if (!this.requestCache) throw new DiError('Only a request scope can be disposed.')
