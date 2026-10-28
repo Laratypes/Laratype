@@ -215,11 +215,10 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    */
   credentials?: RequestCredentials;
   /**
-   * The `redirect` mode of every call. Default `"manual"`: the client never follows a redirect. On Node and Bun the call
-   * gets the real 3xx with `response` set; in a browser it gets an `opaqueredirect` response (status 0, `response` set).
-   * `"follow"` and `"error"` are opt-ins: `"follow"` follows redirects, and `"error"` makes `fetch` reject (the status-0
-   * unexpected result without `response`), which Cloudflare Workers (`workerd`) doesn't support. A per-call
-   * `init.redirect` set by `onRequest` wins.
+   * The `redirect` mode of every call. Default `"manual"`: the client doesn't follow a redirect, and the call resolves
+   * with the real 3xx on Node and Bun, or a browser's `opaqueredirect` (status 0), both with `response` set; the
+   * `"follow"` and `"error"` opt-ins follow redirects or make `fetch` reject without a `response` (workerd rejects
+   * `"error"`), and a per-call `init.redirect` set by `onRequest` wins.
    */
   redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
