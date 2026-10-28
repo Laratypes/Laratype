@@ -32,12 +32,12 @@ planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3). 
 From #145: an Eloquent-like Model on the chosen ORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata.
 
 ### Invariants
-The 0.5 `Model` that PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9 changes:
+The 0.5 `Model` that PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e changes:
 - The credential column comes from `static passwordField` (`password` by default): `save()`, `update()` and `updateFor()` hash a plain value in it unless `Hash.isHashed()` accepts it, and `findOneBy()` refuses a where object that carries it.
 - Request input must be validated as a plain password before it reaches the model. `cast()` stores a value that `Hash.isHashed()` accepts as it is, so a client that submits a well-formed scrypt string as its password has it stored as the credential, the same bypass as Laravel's hashed cast.
 
 ### Diagnostics
-The 0.5 `Model` that PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9 changes (`packages/database/src/eloquent/Model.ts`) throws, instead of matching a password in the query:
+The 0.5 `Model` that PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e changes (`packages/database/src/eloquent/Model.ts`) throws, instead of matching a password in the query:
 - `[@laratype/database] findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()`
 
 ### Acceptance

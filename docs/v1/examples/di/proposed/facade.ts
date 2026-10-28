@@ -21,7 +21,6 @@ expectTypeOf(Hash.make('secret')).toEqualTypeOf<string>()
 
 // A provider can bind another implementation. A custom format overrides all four methods together:
 // check(), needsRehash() and isHashed() only understand the scrypt format make() writes.
-// makeAsync() and checkAsync() default to make() and check(), so the format works as it is.
 class Bcrypt extends Hasher {
   override make(value: string) { return `bcrypt:${value}` }
   override check(value: string, hashed: string) { return hashed === this.make(value) }
