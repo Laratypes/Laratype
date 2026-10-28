@@ -54,7 +54,8 @@ export const routeRow = (route: Record<string, any>) => ({
   Name: route.name ?? '-',
   // An ad-hoc Route.api route (`r.get('/health', () => 'ok')`) has a handler, not a controller
   Controller: route.controller ? `${route.controller[0].name}::${route.controller[1]}` : 'Closure',
-  Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
+  // A 0.5 middleware class has a name; a `defineMiddleware()` value names its handle (H6 #117)
+  Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name || mw.handle?.name || 'middleware').join(', ') : '-',
   Policies: Array.isArray(route.policies)
     ? [
       ...route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`),

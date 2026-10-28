@@ -3,6 +3,7 @@ import type { AnyEndpoint } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
 import Middleware from "../middleware/Middleware"
+import type { MiddlewareItem } from "../middleware/defineMiddleware"
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
 
@@ -46,7 +47,8 @@ export type RouteParams = {
   can?: PolicyFactory[],
   /** Any class the container can construct: `app.make()` injects its constructor params (H2 #105). */
   controller: [Newable<object>, string]
-  middleware?: Array<typeof Middleware>,
+  /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
+  middleware?: Array<MiddlewareItem>,
   withoutMiddleware?: Array<typeof Middleware>,
   name?: string,
   meta?: any,
