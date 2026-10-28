@@ -48,17 +48,21 @@ describe("GET /api/users", () => {
     expect(paths("PATCH")).not.toContain("/api/users/:activeUser");
     expect(paths("DELETE")).not.toContain("/api/users/:id");
 
-    // Without a route, the removed PATCH and DELETE answer 404 instead of reaching the 0.5 controller
-    for (const method of ["PATCH", "DELETE"]) {
-      expect((await example.app.request("/api/users/1", { method })).status, method).toBe(404);
-    }
-
     // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
     // registered after this v1 route, so Hono matched the v1 one first.
     const created = (await store({ name: "Ada Byron", email: "ada.byron@example.com" })).body;
     const { response, body } = await json(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
+  });
+});
+
+describe("PATCH and DELETE /api/users/:id", () => {
+  it("answer 404: the 0.5 children are gone and the v1 slice has no update or delete yet", async () => {
+    // A re-added 0.5 child would reach AuthGuard (401) or its controller, not a route-less 404
+    for (const method of ["PATCH", "DELETE"]) {
+      expect((await example.app.request("/api/users/1", { method })).status, method).toBe(404);
+    }
   });
 });
 
