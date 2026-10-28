@@ -143,6 +143,23 @@ describe('a body read earlier by middleware (H43 #340)', () => {
     expect(validated).toEqual({})
   })
 
+  it('a urlencoded body read by c.req.text() reaches the handler', async () => {
+    quiet()
+    // A urlencoded body is text by definition: its text is its body, dot keys included
+    const { app, validated } = mount([async (c, next) => { await c.req.text(); await next() }])
+    const response = await app.request('/users', urlencoded('name=ada&user.age=36'))
+    expect(response.status).toBe(201)
+    expect(validated()).toEqual({ name: 'ada', user: { age: '36' } })
+  })
+
+  it('a form body read earlier by c.req.blob() reaches the handler', async () => {
+    quiet()
+    const { app, validated } = mount([async (c, next) => { await c.req.blob(); await next() }])
+    const response = await app.request('/users', urlencoded('name=ada'))
+    expect(response.status).toBe(201)
+    expect(validated()).toEqual({ name: 'ada' })
+  })
+
   it('a form body read by c.req.text() is refused with a clear 500, not a corrupted 200', async () => {
     const errors = quiet()
     // The bytes are gone: a UTF-8 round trip would hand the handler a damaged file part, so this is the documented
