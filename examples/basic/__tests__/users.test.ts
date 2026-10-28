@@ -94,13 +94,16 @@ describe("GET /api/users/:id", () => {
     expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
   });
 
-  it("answers 404 for an id Number() reads as 1: 0x1, 1e0 and 01 are not ids the service creates", async () => {
-    // 0x1, 1e0 and 01 are all 1 for Number(). User 1 is the one the routing test above stores, so a loose parse would
-    // answer 200: fail here first when that fixture is missing.
-    expect((await json("/api/users/1")).response.status).toBe(200);
-    for (const id of ["0x1", "1e0", "01"]) {
-      const { response, body } = await json(`/api/users/${id}`);
-      expect(response.status, id).toBe(404);
+  it("answers 404 for ids Number() reads as the stored one: 0x<hex>, <id>e0 and 0<id>", async () => {
+    // `0x<hex>`, `<id>e0` and `0<id>` all read back as the same number under Number(), so a loose parse would answer
+    // 200. The stored user is this test's own: another test's fixture is skipped when `vitest -t` runs this one alone.
+    const created = (await store({ name: "Malformed Id", email: "malformed.id@example.com" })).body;
+    const { response } = await json(`/api/users/${created.id}`);
+    expect(response.status).toBe(200);
+
+    for (const malformed of [`0x${created.id.toString(16)}`, `${created.id}e0`, `0${created.id}`]) {
+      const { response, body } = await json(`/api/users/${malformed}`);
+      expect(response.status, malformed).toBe(404);
       expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
     }
   });
