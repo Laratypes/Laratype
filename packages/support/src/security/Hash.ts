@@ -25,31 +25,70 @@ const parse = (hashed: string) => {
   return { N, r, p, salt, key };
 };
 
+/** scrypt on the libuv thread pool, so a login does not block the event loop. */
+const derive = (value: string, salt: Buffer, keyLength: number, options: crypto.ScryptOptions) =>
+  new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(value, salt, keyLength, options, (error, key) => (error ? reject(error) : resolve(key)));
+  });
+
+const encode = (salt: Buffer, key: Buffer) => `${PREFIX}${salt.toString('base64')}$${key.toString('base64')}`;
+
+/** A 0.5 sha256 hash, compared as `check()` does synchronously: computing it is cheap. */
+const checkLegacy = (value: string, hashed: string) =>
+  crypto.timingSafeEqual(crypto.createHash('sha256').update(value).digest(), Buffer.from(hashed, 'hex'));
+
+/** The format `check()` can verify against: the scrypt parameters, the 0.5 sha256 marker, or undefined. */
+const stored = (hashed: string) => parse(hashed) ?? (LEGACY_HASH.test(hashed) ? 'legacy' : undefined);
+
 /** The implementation behind the `Hash` facade: salted scrypt, stored as `$scrypt$N=<n>,r=<r>,p=<p>$<salt>$<key>` (base64). */
 export class Hasher {
   /** A new salted hash of `value`: two calls give two different strings. */
   public make(value: string): string {
     const salt = crypto.randomBytes(SALT_BYTES);
     const key = crypto.scryptSync(value, salt, KEY_BYTES, { ...COST, maxmem: MAX_MEMORY });
-    return `${PREFIX}${salt.toString('base64')}$${key.toString('base64')}`;
+    return encode(salt, key);
+  }
+
+  /**
+   * `make()` off the event loop. A custom Hasher that overrides `make()` keeps its own format: this resolves with
+   * that method's result instead of running scrypt.
+   */
+  public async makeAsync(value: string): Promise<string> {
+    if (this.make !== Hasher.prototype.make) return this.make(value);
+    const salt = crypto.randomBytes(SALT_BYTES);
+    return encode(salt, await derive(value, salt, KEY_BYTES, { ...COST, maxmem: MAX_MEMORY }));
   }
 
   /** Whether `value` matches `hashed`: a hash `make()` wrote, or a 0.5 sha256 hash, so stored passwords keep working. */
   public check(value: string, hashed: string): boolean {
     if (typeof value !== 'string' || typeof hashed !== 'string') return false;
-    const scrypt = parse(hashed);
-    if (scrypt) {
-      const { N, r, p, salt, key } = scrypt;
-      try {
-        return crypto.timingSafeEqual(crypto.scryptSync(value, salt, key.length, { N, r, p, maxmem: MAX_MEMORY }), key);
-      } catch {
-        return false;
-      }
+    const format = stored(hashed);
+    if (format === 'legacy') return checkLegacy(value, hashed);
+    if (!format) return false;
+    const { N, r, p, salt, key } = format;
+    try {
+      return crypto.timingSafeEqual(crypto.scryptSync(value, salt, key.length, { N, r, p, maxmem: MAX_MEMORY }), key);
+    } catch {
+      return false;
     }
-    if (LEGACY_HASH.test(hashed)) {
-      return crypto.timingSafeEqual(crypto.createHash('sha256').update(value).digest(), Buffer.from(hashed, 'hex'));
+  }
+
+  /**
+   * `check()` off the event loop: the login path awaits this one, so a request does not run scrypt itself. A custom
+   * Hasher that overrides `check()` keeps its own format: this resolves with that method's result instead.
+   */
+  public async checkAsync(value: string, hashed: string): Promise<boolean> {
+    if (this.check !== Hasher.prototype.check) return this.check(value, hashed);
+    if (typeof value !== 'string' || typeof hashed !== 'string') return false;
+    const format = stored(hashed);
+    if (format === 'legacy') return checkLegacy(value, hashed);
+    if (!format) return false;
+    const { N, r, p, salt, key } = format;
+    try {
+      return crypto.timingSafeEqual(await derive(value, salt, key.length, { N, r, p, maxmem: MAX_MEMORY }), key);
+    } catch {
+      return false;
     }
-    return false;
   }
 
   /** Whether `hashed` is not what `make()` gives today (a 0.5 sha256 hash, or a hash at another cost), so it should be replaced. */
@@ -70,8 +109,16 @@ export default class Hash extends Facade {
     return Hash.root().make(value);
   }
 
+  public static makeAsync(value: string): Promise<string> {
+    return Hash.root().makeAsync(value);
+  }
+
   public static check(value: string, hashed: string): boolean {
     return Hash.root().check(value, hashed);
+  }
+
+  public static checkAsync(value: string, hashed: string): Promise<boolean> {
+    return Hash.root().checkAsync(value, hashed);
   }
 
   public static needsRehash(hashed: string): boolean {
