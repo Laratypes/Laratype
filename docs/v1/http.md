@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229]
+issues: [84, 104, 105, 106, 107, 108, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 342]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -22,6 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 018b840; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
+| [The 0.5 response](#the-05-response) | proposed: branch `fix/h45-response-json-detection` ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
@@ -444,7 +445,7 @@ No new API: a `Route.api` route answers through `resolveContractResponse` ([`pac
 - **`Location`:** a `201 Created` keeps the handler's `Location` (the created resource's URL, RFC 9110 §15.3.2), the one `BODY_HEADERS` exception; every other status drops it, and so does an error response. An endpoint cannot declare a 3xx: a redirect is a 0.5 `Response` (below), which keeps its `Location`.
 - **0.5 `Response`:** a handler may return it for its headers and content. A 2xx status set on it must be the endpoint's, else the request ends in a 500. Its body headers (`Content-Type`, `Content-Length`, ...) are dropped: the body is JSON or nothing. A redirect, or a non-2xx status (a middleware answering 401 or 429 without calling `next`), is not the endpoint's success and is sent by the 0.5 response kernel as before, which sends no body for a 304 and accepts a `Response` with no content.
 - **Dev-mode output validation:** unless `__PROD__` is true (or, without it, `NODE_ENV` is `production`), the handler's value is validated with the response schema before any header is set. The handler's value is sent, never the parsed one, in dev and in production alike, so the check also fails when the schema's output differs from the value as JSON (key order aside): a transform, or a key the schema strips (an entity's `passwordHash`), would put on the wire what `Jsonify<output>` doesn't say. A failure is the server's bug, so it answers the generic 500 of [Exceptions](#exceptions), with none of the handler's headers, and logs the reason, never a 422. Production skips the check and sends the handler's value as it is.
-- **0.5 routes** (`Route.group`) keep their 0.5 response: an explicit `Response` status, then the status decorator, then the method-name guess (`ControllerMethodHttpStatusCode`), then 200.
+- **0.5 routes** (`Route.group`) keep their 0.5 response: an explicit `Response` status, then the status decorator, then the method-name guess (`ControllerMethodHttpStatusCode`), then 200. Its body is the [The 0.5 response](#the-05-response).
 
 ### Diagnostics
 - `[@laratype/http] <route>: the handler answered status <n>, but the endpoint declares <status>: declare it on the endpoint (.response(schema, <n>) or .status(<n>))` (logged, 500)
@@ -462,6 +463,48 @@ Tests: [`packages/http/__tests__/response/contractResponse.test.ts`](../../packa
 
 ### Acceptance
 [#107 Done when](https://github.com/Laratypes/Laratype/issues/107)
+
+---
+
+## The 0.5 response
+
+### Status
+proposed: branch `fix/h45-response-json-detection` ([#342](https://github.com/Laratypes/Laratype/issues/342), H45). String returns are [#336](https://github.com/Laratypes/Laratype/issues/336), the paginate page meta [#339](https://github.com/Laratypes/Laratype/issues/339).
+
+### Public API
+No new API: a 0.5 route and an [ad-hoc route](#ad-hoc-routes) answer through `ResponseKernel.resolveResponse` ([`packages/http/src/response/Response.ts`](../../packages/http/src/response/Response.ts)), whose body comes from [`ResponseSupport.shouldBeJson()`](../../packages/http/src/supports/Response.ts) and `ResponseSerialization`.
+
+### Invariants
+- **JSON detection:** `shouldBeJson()` reads the value's shape, never its `constructor` property: a model (a `dataSource` on the value's class, read from the prototype chain), a `JsonResource`, an array (a subclass included), or an object whose prototype is `Object.prototype` or `null` (the groups `parseBody({ dot: true })` builds from dot keys, and a test's `Object.create(null)`) — and, since a string is the HTML body, any other non-string value too (next bullet).
+- **Content type:** a string is the HTML body, and how a string return is sent is [#336](https://github.com/Laratypes/Laratype/issues/336); no content (`null`, `undefined`) is an empty HTML body. Every other value is JSON, sent as `application/json` whichever prototype it has (a `Date`, a class instance): `JSON.stringify` output is never labelled `text/html`.
+- **`nosniff`:** every JSON answer `resolveResponse` sends carries `X-Content-Type-Options: nosniff`, the error responses it sends included (a responsible `Exception`'s `toJson()`, the 5xx `{ message: "Server Error" }`). An answer built elsewhere does not: a contract error's `c.json` in `resolveException`, and the generic 500 of a non-`Error` throw ([Exceptions](#exceptions) › Non-`Error` throws), built by `ResponseKernel.boot()`'s `fetch` wrapper.
+- **Status:** the 0.5 one, as for the [Response from the contract](#response-from-the-contract) › 0.5 routes: an explicit `Response` status, then the status decorator, then the method-name guess (`ControllerMethodHttpStatusCode`), then 200. A 204, 205 or 304 carries no body, and no `nosniff`.
+- **Headers:** the headers of a `Response` the handler returns are set, its `Content-Type` included, but the body sent is the one above: a JSON body is labelled `application/json` and a string body `text/html`, whatever `Content-Type` the `Response` carried.
+
+### Diagnostics
+No new runtime or TypeScript error.
+
+### Example
+```ts
+Route.api(appApi, (r) => [
+  r.contract(health, HealthController),
+  // POST /profile with the urlencoded body `profile.name=a`: the group `parseBody()` built is sent as JSON
+  r.post('/profile', (req) => req.input('profile')),
+])
+```
+
+Tests: [`packages/http/__tests__/response/jsonDetection.test.ts`](../../packages/http/__tests__/response/jsonDetection.test.ts) (a plain object, an array, an `Array` subclass, `parseBody()`'s null-prototype objects, an own `constructor` key, a value of another prototype, a model, a `JsonResource`, `nosniff`, and the urlencoded body group of an ad-hoc route).
+
+### Non-goals
+- A string return (`<b>hi</b>`): [#336](https://github.com/Laratypes/Laratype/issues/336) decides it.
+- The paginate page meta: [#339](https://github.com/Laratypes/Laratype/issues/339).
+- A contract route: [Response from the contract](#response-from-the-contract) already sends `application/json`.
+
+### Open questions
+- None recorded.
+
+### Acceptance
+[#342 Done when](https://github.com/Laratypes/Laratype/issues/342)
 
 ---
 
@@ -490,7 +533,7 @@ export const isException: (value: unknown) => value is Exception;
 - **Framework errors:** the catalog's 401, 403, 404, 422 and 429 go out as `{ code, message }` (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`) and `{ code: "VALIDATION_ERROR", message, errors }`. The 0.5 `NotFoundException` and `UnauthorizedException` send the same `{ code, message }` shape.
 - **Unknown errors:** any error that is not a contract error, a responsible `Exception` or an HTTP error answers 500, whatever the route's or controller's status. Every 5xx other than a contract error, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
 - **HTTP errors:** an HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response` whose status is from 400 to 599 too; anything else is an unknown error. Its 4xx or 5xx is decided on the status actually sent, the response's ([#272](https://github.com/Laratypes/Laratype/issues/272), H23).
-- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response, a contract error's included, drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
+- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response, a contract error's included, drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it. A JSON answer that goes through the 0.5 response path carries `X-Content-Type-Options: nosniff` ([The 0.5 response](#the-05-response)).
 - **Non-`Error` throws:** Hono's error handler only sees an `Error`. A `throw "x"`, `throw {}` or a rejection with a non-`Error`, from a controller or any middleware, leaves the app's `fetch`, which `ResponseKernel.boot()` wraps: it answers the generic 500 with `Cache-Control: no-store` and logs the value, on every adapter. That response doesn't carry the headers middleware set.
 - **Unserializable body:** a contract error whose body JSON can't hold (a `BigInt`, a cycle, a getter that throws) answers the generic 500 with `Cache-Control: no-store`, and is logged with the serialization failure.
 - **Logs:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx, contract errors aside. The `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)).
@@ -769,7 +812,7 @@ interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the reg
 - **Path as written.** The path starts with `/` (a type error and a runtime error otherwise) and is served as written, in Hono's route syntax: it takes no folder or prefix.
 - **One route per method and path.** Hono answers with the first of two routes with the same method and path, so an ad-hoc route that repeats a contract route or another ad-hoc route of the group is a runtime error in `Route.api`. Param names don't count (`/items/:item` repeats `/items/:id`), a last optional param counts as both its routes (`/items/:id?` repeats `/items` and `/items/:id`), and a param pattern or a trailing slash makes another route. Routes of other groups are not checked (as for the registration order).
 - **Inferred types.** `params` comes from the path (`'/hello/:name'` gives `{ name: string }`, `:id?` an optional key, `:id{[0-9]+}` the key `id`), and `R` from what the handler returns (an async handler's `Promise<R>` gives `R`). `R` types nothing at runtime: the response is not validated.
-- **The 0.5 request and response.** `RequestKernel.handle` parses the body as for a contract route (a malformed JSON or form body is the 400 of [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)), then runs the route middleware, then the handler with the 0.5 request and the raw path params (no model binding, no contract validation, no ctx). Its result goes through the 0.5 response path, not [Response from the contract](#response-from-the-contract): a string as HTML and a plain object, an array, a model or a `JsonResource` as JSON, as for a 0.5 controller method. The status is 200 unless it returns a `Response` (`@laratype/http`) with its own status: there is no controller method, so no status decorator or method-name guess (`store` → 201) applies.
+- **The 0.5 request and response.** `RequestKernel.handle` parses the body as for a contract route (a malformed JSON or form body is the 400 of [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)), then runs the route middleware, then the handler with the 0.5 request and the raw path params (no model binding, no contract validation, no ctx). Its result goes through the 0.5 response path, not [Response from the contract](#response-from-the-contract): a string as HTML, no content as an empty body, and every other value as `application/json` with `nosniff`, as for a 0.5 controller method ([The 0.5 response](#the-05-response)). The status is 200 unless it returns a `Response` (`@laratype/http`) with its own status: there is no controller method, so no status decorator or method-name guess (`store` → 201) applies.
 - **Not a contract route.** An ad-hoc route has no contract, endpoint, schema, capabilities, policies or name. It is in `ApiRoutes.adHoc`, never in `ApiRoutes.routes` or `apiRoutes(appApi)`, so it is **excluded from OpenAPI and from the generated types** ([typegen.md](./typegen.md)), and never in the not-enforced warning.
 - **Registration order.** `mount()` sorts the ad-hoc and the contract routes of a group together, by specificity ([Router v2](#router-v2)): `r.get('/api/users/me', ...)` is reached before a contract's `/api/users/:id`. A more specific ad-hoc route takes those requests from a contract route: `r.get('/api/users/:id{[0-9]+}', ...)` answers `GET /api/users/7` instead of `users.show`.
 - **No scope.** An ad-hoc route is outside the contract tree, so it gets no scope middleware or policy, even when its URL is under a scope folder's path (`/api/users/:user/export`): only the middleware of its own builder (`r.middleware(Auth).get(...)`).
