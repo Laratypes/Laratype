@@ -1,5 +1,5 @@
 import { controller, type RouteOptions } from "@laratype/http";
-import { AuthGuard, can } from "@laratype/auth";
+import { AuthGuard } from "@laratype/auth";
 import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/middleware/Middleware";
 import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
@@ -60,16 +60,10 @@ const authGuardedRoutes: RouteOptions = {
   ],
   children: [
     {
-      // GET and POST /api/users are served by the v1 contract (app/api/users.ts, mounted in routes/api.ts); this node
-      // keeps the 0.5 routes below it until they are migrated.
+      // GET /api/users, POST /api/users and GET /api/users/:id are served by the v1 contract (app/api/users.ts, mounted
+      // in routes/api.ts); this node keeps the 0.5 PATCH and DELETE routes below it until they are migrated.
       path: "/users",
       children: [
-        {
-          path: '/:user',
-          method: 'get',
-          can: can("view", "user"),
-          controller: controller(UserController, 'view'),
-        },
         {
           path: '/:activeUser',
           method: 'patch',

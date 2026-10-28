@@ -20,8 +20,8 @@ const projectDir = fileURLToPath(new URL("../..", import.meta.url));
 
 // What examples/basic/README.md asks a developer to set: the Google guard of app/config/auth.ts builds its passport
 // strategy at boot, and passport-google-oidc refuses an empty clientID. Dummy values: no test signs in with Google.
-process.env.AUTH_GOOGLE_CLIENT_ID ??= "test-client-id";
-process.env.AUTH_GOOGLE_CLIENT_SECRET ??= "test-client-secret";
+process.env.AUTH_GOOGLE_CLIENT_ID ||= "test-client-id";
+process.env.AUTH_GOOGLE_CLIENT_SECRET ||= "test-client-secret";
 
 /** Every app module the manifest can name, loaded lazily on first use, as `virtual:laratype/app` does. */
 const modules = import.meta.glob([
