@@ -33,14 +33,27 @@ describe("GET /api/users", () => {
     expect(body).toEqual({ data: expect.any(Array) });
   });
 
-  it("is served by the contract only: no 0.5 route registers GET or POST /api/users", () => {
+  it("is served by the contract: no 0.5 route registers GET or POST /api/users", async () => {
     const registered = example.app.routes.filter(
       (route) => route.path === "/api/users" && (route.method === "GET" || route.method === "POST"),
     );
     // The v1 contract's index (GET) and store (POST). A leftover 0.5 GET/POST would add one more of each.
     expect(registered.map((route) => route.method).sort()).toEqual(["GET", "POST"]);
-    // The 0.5 routes of the same 0.5 folder stay mounted
-    expect(example.app.routes.some((route) => route.path === "/api/users/:user" && route.method === "GET")).toBe(true);
+
+    // GET /api/users/:id is the v1 show route (its param is `id`): the 0.5 GET /api/users/:user it shadowed is gone,
+    // while the 0.5 PATCH and DELETE children of the same node stay mounted.
+    const paths = (method: string) =>
+      new Set(example.app.routes.filter((route) => route.method === method).map((route) => route.path));
+    expect(paths("GET")).not.toContain("/api/users/:user");
+    expect(paths("PATCH")).toContain("/api/users/:activeUser");
+    expect(paths("DELETE")).toContain("/api/users/:id");
+
+    // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
+    // registered after this v1 route, so Hono matched the v1 one first.
+    const created = (await store({ name: "Ada Byron", email: "ada.byron@example.com" })).body;
+    const { response, body } = await json(`/api/users/${created.id}`);
+    expect(response.status).toBe(200);
+    expect(body).toEqual(created);
   });
 });
 
@@ -79,5 +92,16 @@ describe("GET /api/users/:id", () => {
     const { response, body } = await json("/api/users/999999");
     expect(response.status).toBe(404);
     expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
+  });
+
+  it("answers 404 for an id Number() reads as 1: 0x1, 1e0 and 01 are not ids the service creates", async () => {
+    // 0x1, 1e0 and 01 are all 1 for Number(). User 1 is the one the routing test above stores, so a loose parse would
+    // answer 200: fail here first when that fixture is missing.
+    expect((await json("/api/users/1")).response.status).toBe(200);
+    for (const id of ["0x1", "1e0", "01"]) {
+      const { response, body } = await json(`/api/users/${id}`);
+      expect(response.status, id).toBe(404);
+      expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
+    }
   });
 });
