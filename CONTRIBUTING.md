@@ -99,7 +99,9 @@ After the parent PR merges:
   - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
   - `**/.claude/**`, `**/.opencode/**`, `**/opencode.json`, `**/.mcp.json`
   - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.vscode/**`
-  - the `preinstall`, `install`, `postinstall` and `prepare` scripts of any `package.json`
+  - the `preinstall`, `install`, `postinstall` and `prepare` scripts of any `package.json`, and every file those scripts run
+
+  Read the lifecycle entries in the diff, then diff every file they call with the same command: a branch can set `"postinstall": "bun scripts/setup.ts"` and add `scripts/setup.ts`, which no other path above matches.
 
   These files run with secrets or steer what agents do: CodeRabbit's config steers the review that gates merges, and a malicious workflow was pushed to this repo in 2026-10.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.

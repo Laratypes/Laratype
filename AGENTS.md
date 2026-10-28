@@ -6,7 +6,7 @@ Guide for AI coding agents (Claude Code, Codex, Orca workers) working in this re
 
 - Agents never merge PRs, never push to `master`, and never force-push without the user's explicit approval for that branch. When it is approved, use `git push --force-with-lease=<branch>:<expected-old-sha>`.
 - Pushing a branch, opening a PR and posting on GitHub (comments, issue edits) need approval from the user, or from the coordinator session that relays it. Until then, commit locally. A worker started by a coordinator reports through the channel its task names and leaves pushing to the coordinator.
-- Read every change to agent-instruction and tooling files in a branch's diff before any agent session or `bun install` runs in a checkout of that branch, and do it from a session outside the checkout: these files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10. [CONTRIBUTING.md › Security](CONTRIBUTING.md#security) lists the paths.
+- Read every change to agent-instruction and tooling files in a branch's diff before you base work on the branch or review its PR, and before any agent session or `bun install` runs in a checkout of it, from a session outside the checkout: these files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10. [CONTRIBUTING.md › Security](CONTRIBUTING.md#security) has the full rule, the paths and the `git diff` command.
 - Never run `git stash pop`, `git stash drop` or `git stash clear`. Worktrees share the stash, and it holds the user's WIP.
 - Never print, commit or send secrets (tokens, `.env` values). Do not add workflows that use secrets, or trigger `workflow_dispatch` runs, without the user.
 
