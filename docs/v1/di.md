@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d; `Hasher.check()` / `needsRehash()` / `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410 |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410 |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -548,7 +548,8 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
-- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)); the `Hasher` behind `Hash` gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410. A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
+- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
+- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410.
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
