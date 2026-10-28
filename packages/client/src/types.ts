@@ -215,10 +215,11 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    */
   credentials?: RequestCredentials;
   /**
-   * The `redirect` mode of every call. Default `"manual"`: the client doesn't follow a redirect, and the call resolves
-   * with the real 3xx on Node and Bun, or a browser's `opaqueredirect` (status 0), both with `response` set; the
-   * `"follow"` and `"error"` opt-ins follow redirects or make `fetch` reject without a `response` (workerd rejects
-   * `"error"`), and a per-call `init.redirect` set by `onRequest` wins.
+   * The `redirect` mode of every call, default `"manual"`: the client doesn't follow a redirect, and the call resolves
+   * with the real 3xx on Node, Bun, Deno and workerd, or a browser's `opaqueredirect` (status 0), both with `response`
+   * set; a per-call `init.redirect` set by `onRequest` wins. `"follow"` and `"error"` opt in, and workerd refuses
+   * `"error"` for every call, a plain 200 included (the status-0 result, or a rejection under
+   * `do_not_capture_async_api_throws`).
    */
   redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */

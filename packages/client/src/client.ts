@@ -39,7 +39,7 @@ const resolvesInPage = (url: string): boolean => {
  */
 type Declared = ReadonlyMap<string, ReadonlySet<number> | undefined>;
 
-/** Computes a value on first use and keeps it: a route's declared errors are built on its first non-2xx answer. */
+/** Computes a value on first use and keeps it: a route's declared errors are built on its first 4xx or 5xx answer. */
 const once = <T>(make: () => T): (() => T) => {
   let made = false;
   let value: T;
@@ -70,7 +70,7 @@ interface Success {
 
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
- * the 2xx it expects and its declared errors (computed on the first non-2xx answer).
+ * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer).
  */
 interface RouteSpec {
   readonly name: string;
@@ -295,8 +295,10 @@ const cancelBody = (response: Response): void => {
  * any other body-less success has its body cancelled, so it doesn't hold a connection open.
  * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a body-less
  *   status; with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
- * - Otherwise the wire format is `{ code, ...body }`: a declared code (with its status, when known) is a declared
- *   error whose `error` is the body without `code`; anything else is unexpected.
+ * - Otherwise the wire format is `{ code, ...body }`: on a 4xx or 5xx, a declared code (with its status, when known)
+ *   is a declared error whose `error` is the body without `code`; anything else is unexpected. A 3xx is always
+ *   unexpected, whatever code its body carries: a contract can't declare one, and the manifest knows codes only, so
+ *   its body would match any status.
  * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
  *   `unexpected` with the HTTP status, the `response` and that error.
  */
@@ -327,7 +329,8 @@ async function toResult(response: Response, success: Success, declared: () => De
     }
     return { ok: true, status, data: body, response };
   }
-  if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+  // a 3xx is never a declared error (see the doc above): only 4xx and 5xx body codes are matched
+  if (status >= 400 && status < 600 && typeof body === "object" && body !== null && !Array.isArray(body)) {
     const { code, ...error } = body as Record<string, unknown>;
     const errors = declared();
     if (typeof code === "string" && errors.has(code)) {
@@ -341,7 +344,7 @@ async function toResult(response: Response, success: Success, declared: () => De
 /**
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
  * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
- * The declared errors are computed on the first non-2xx answer, then kept.
+ * The declared errors are computed on the first 4xx or 5xx answer, then kept.
  */
 const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
   return async (input) => {
