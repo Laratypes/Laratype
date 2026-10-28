@@ -61,7 +61,8 @@ const orMalformed = async <T>(read: Promise<T> | T, message: string): Promise<T>
 /**
  * The body stream, read once. Hono's cache only serves a `text()`, `arrayBuffer()` or `formData()` it already holds: a
  * `c.req.parseBody()` on a JSON request caches its `{}` without reading the stream, so the bytes are still on
- * `c.req.raw`. They are read there and kept in the cache, so a later `c.req.text()` on the same request has them too.
+ * `c.req.raw`. They are read there and kept in the cache, so a later `c.req.arrayBuffer()` on the same request has them
+ * too.
  */
 const readRawBody = async (request: HonoRequest, message: string): Promise<ArrayBuffer> => {
   const bytes = await orMalformed(request.raw.arrayBuffer(), message);
