@@ -195,7 +195,15 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const { baseUrl, fetch: injected, headers: defaults, credentials, redirect = "manual", onRequest, onResponse } = options;
+  const {
+    baseUrl,
+    fetch: injected,
+    headers: defaults,
+    credentials,
+    redirect = "manual",
+    onRequest,
+    onResponse,
+  } = options;
   const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");

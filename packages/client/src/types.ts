@@ -210,8 +210,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
-   * The client doesn't follow redirects by default (`redirect` is `"manual"`). Under `"follow"`, an `onRequest` override
-   * or a fetch that ignores the mode, a cross-origin redirect can carry custom headers and cookies.
+   * The client doesn't follow redirects by default (`redirect` is `"manual"`). A cross-origin redirect can carry custom
+   * headers and cookies only under `"follow"`, when `onRequest` overrides the mode, or with a fetch that ignores it.
    */
   credentials?: RequestCredentials;
   /**
