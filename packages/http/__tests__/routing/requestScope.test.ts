@@ -170,6 +170,8 @@ describe('request scope under RequestKernel', () => {
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true })
       await kernel.settled()
+      // `unhandledRejection` is emitted a turn later, after the microtasks that settled the disposal
+      await tick()
       expect(error).toHaveBeenCalledTimes(1)
       expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky: disposing the request scope failed')
       expect(error.mock.calls[0]![1]).toBeInstanceOf(AggregateError)

@@ -270,13 +270,19 @@ describe('dispose()', () => {
   it('a disposed scope refuses make(), a second dispose() does nothing, and the next request starts fresh', async () => {
     let disposed = 0
     class Db { [Symbol.dispose]() { disposed++ } }
-    const app = new Container().scoped(Db)
+    class Service {}
+    class Job {}
+    const app = new Container().scoped(Db).singleton(Service).transient(Job)
     const scope = app.createRequestScope()
     const db = scope.make(Db)
     await scope.dispose()
     await scope.dispose()
     expect(disposed).toBe(1)
     expect(() => scope.make(Db)).toThrow(new DiError('Request scope already disposed.'))
+    // Every key throws, not just the request-scoped ones: a singleton, a transient and an autowired class too (#337)
+    expect(() => scope.make(Service)).toThrow(new DiError('Request scope already disposed.'))
+    expect(() => scope.make(Job)).toThrow(new DiError('Request scope already disposed.'))
+    expect(() => scope.make(class Autowired {})).toThrow(new DiError('Request scope already disposed.'))
     expect(() => scope.createChild().make(Db)).toThrow(new DiError('Request scope already disposed.'))
     expect(() => scope.createRequestScope()).toThrow(new DiError('Request scope already disposed.'))
     expect(() => scope.createChild().createRequestScope()).toThrow(new DiError('Request scope already disposed.'))

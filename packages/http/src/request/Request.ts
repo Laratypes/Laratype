@@ -362,7 +362,9 @@ export default class Request extends AppServiceProvider {
 
   /**
    * @internal For tests only: resolves once every disposal this kernel started so far has settled, so a dispose test
-   * doesn't depend on timing. A disposer that never settles keeps it pending, like the request's own work.
+   * doesn't depend on timing. Call it once the response has resolved: the middleware starts the disposal before it
+   * returns, so a call earlier sees no disposal to wait for. A disposer that never settles keeps it pending, like the
+   * request's own work.
    */
   public async settled(): Promise<void> {
     while (this.disposals.size) await Promise.all(this.disposals);
