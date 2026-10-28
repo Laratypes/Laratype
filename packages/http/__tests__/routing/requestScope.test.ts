@@ -109,10 +109,14 @@ describe('request scope under RequestKernel', () => {
 
   it('a slow disposer does not delay the response', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let started = false
     let disposed = false
     class Slow {
       async [Symbol.asyncDispose]() {
-        await tick()
+        started = true
+        await gate
         disposed = true
       }
     }
@@ -126,17 +130,23 @@ describe('request scope under RequestKernel', () => {
     const response = await app.request('/slow')
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
-    // The response resolved while the disposer was still running
+    // The disposal started, and the response resolved without waiting for it
+    expect(started).toBe(true)
     expect(disposed).toBe(false)
+    release()
     await kernel.settled()
     expect(disposed).toBe(true)
   })
 
   it('a disposer that never settles does not hang the request', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
+    let started = 0
     const never = new Promise<void>(() => {})
     class Stuck {
-      [Symbol.asyncDispose]() { return never }
+      [Symbol.asyncDispose]() {
+        started++
+        return never
+      }
     }
     class StuckController extends Controller {
       constructor(readonly stuck: Stuck) { super() }
@@ -148,6 +158,8 @@ describe('request scope under RequestKernel', () => {
     const response = await app.request('/stuck')
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
+    // The disposal ran and stayed pending: the request did not wait for it
+    expect(started).toBe(1)
   })
 
   it('a failed disposal is logged once and never changes the response', async () => {

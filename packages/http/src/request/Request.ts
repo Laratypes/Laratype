@@ -379,7 +379,7 @@ export default class Request extends AppServiceProvider {
       console.error(`[@laratype/http] ${ctx.req.method} ${ctx.req.path}: disposing the request scope failed`, error);
     });
     this.disposals.add(disposal);
-    // Dropped once settled, so `settled()` waits on the right ones and a long-lived kernel's set doesn't grow
+    // Dropped once settled, so `settled()` waits on the right ones and only running disposals stay in the set
     void disposal.then(() => this.disposals.delete(disposal));
   }
 }
