@@ -1,5 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import type { HonoRequest } from "hono/request";
+import { parseBody } from "hono/utils/body";
 import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 
@@ -42,69 +43,120 @@ const isFormMediaType = (contentType: string | undefined): boolean =>
 /** Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. */
 const isBodyLimitError = (error: unknown): boolean => error instanceof Error && error.name === "BodyLimitError";
 
-/** A client that went away mid-body: `@hono/node-server` aborts the request's signal when the connection closes. */
-const isClientAbort = (request: HonoRequest): boolean => request.raw.signal.aborted;
+/** Hono's cache holds the promises its readers answer, though its types say the values (4.9.6). */
+type BodyCache = HonoRequest["bodyCache"];
 
 /**
- * The body is gone when a reader took it off `c.req.raw` itself: Hono's cache holds nothing, so neither reader can serve
- * it. That is a server bug, the generic 500 (docs/v1/validation.md › Pipeline validation and 422 › Diagnostics).
+ * The body stream, read once. A read that fails means the body is truncated, the connection went away, or an adapter
+ * errored the stream: the client sent that body, so it is the malformed-body 400 whatever the request's signal says
+ * (H43 #340: it aborted in `@hono/node-server`, but a truncated body can arrive without one). Hono's `bodyLimit` error
+ * is the only one that is not that 400: it is rethrown for its handler.
+ *
+ * Hono's cache only serves a `text()`, `arrayBuffer()` or `formData()` it already holds: a `c.req.parseBody()` on a
+ * JSON request caches its `{}` without reading the stream, so the bytes are still on `c.req.raw`. They are read there
+ * and put in the cache, for the pipeline's second read of the same request (`Request.input()` then the kernel's).
  */
-const assertBodyReadable = (request: HonoRequest): void => {
-  if (request.raw.bodyUsed && Object.keys(request.bodyCache).length === 0) {
-    throw new TypeError("the request body was already read, so the pipeline cannot parse it");
+const readRawBody = async (request: HonoRequest, malformed: () => HTTPException): Promise<ArrayBuffer> => {
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await request.raw.arrayBuffer();
+  } catch (error) {
+    if (isBodyLimitError(error)) throw error;
+    throw malformed();
+  }
+  (request.bodyCache as BodyCache).arrayBuffer = Promise.resolve(bytes) as unknown as ArrayBuffer;
+  return bytes;
+};
+
+/**
+ * The body is gone when a reader took it off `c.req.raw` itself: Hono's cache holds nothing, and `raw.bodyUsed` says
+ * so. That is a server bug, the generic 500 (docs/v1/validation.md › Pipeline validation and 422 › Diagnostics).
+ */
+const unreadableBody = (): TypeError => new TypeError("the request body was already read, so the pipeline cannot parse it");
+
+/** The body as a middleware's `c.req.text()` left it: its bytes are gone, and only text survived. */
+const textReadBody = (): TypeError =>
+  new TypeError("a middleware read the form body with c.req.text(), so the pipeline cannot rebuild its bytes");
+
+/**
+ * The form fields, with this pipeline's options. Hono caches `parseBody()`'s result, and ignores the options of a later
+ * call (4.9.6), so a flat `c.req.parseBody()` from a middleware would hide the dot keys of `parseBody({ dot: true })`
+ * from a nested schema. Rebuild the fields from the FormData instead, with Hono's own conversion: a stand-in request
+ * whose `formData()` answers it. Hono does not export that conversion (4.9.6), it exports `parseBody()`.
+ */
+const parseFormFields = (request: HonoRequest, formData: FormData): Promise<unknown> =>
+  parseBody({ headers: request.raw.headers, formData: async () => formData } as unknown as HonoRequest, { dot: true });
+
+/**
+ * The form fields of the raw bytes: Hono rebuilds a cached body's FormData without the request's Content-Type, which a
+ * multipart boundary needs, so the bytes are parsed with it. A rejection is the client's malformed body, the 400.
+ */
+const readFormFields = async (request: HonoRequest, bytes: ArrayBuffer, contentType: string, malformed: () => HTTPException): Promise<unknown> => {
+  try {
+    return parseFormFields(request, await new Response(bytes, { headers: { "Content-Type": contentType } }).formData());
+  } catch (error) {
+    if (isBodyLimitError(error)) throw error;
+    throw error instanceof TypeError ? malformed() : error;
   }
 };
 
 /**
- * The form body, as `parseBody()` reads it. `arrayBuffer()` reads it through Hono's cache, so a body an earlier
- * middleware read with `c.req.text()`, `c.req.parseBody()` or `validator('form')` is served from that cache; blank
- * bytes are no body, `{}`, because `formData()` rejects an empty `multipart/form-data` body, yet a client may send its
- * form Content-Type on a GET or a DELETE with no body. A body `formData()` rejects is the client's 400; Hono's
- * `bodyLimit` error is rethrown for its 413; a client abort is that 400 too; anything else is a server bug, the 500.
+ * The form body. A body an earlier middleware read is served from Hono's cache: `arrayBuffer()`'s bytes, or the FormData
+ * `c.req.parseBody()` / `validator('form')` cached. Blank bytes are no body, `{}`, because `formData()` rejects an empty
+ * `multipart/form-data` body, yet a client may send its form Content-Type on a GET or a DELETE with no body. A body
+ * `formData()` rejects is the client's 400; so is a truncated one; Hono's `bodyLimit` error is rethrown for its 413.
+ * A `formData` promise in the cache that rejected is that 400 too: an earlier middleware saw the malformed body. The
+ * exception is a form body an earlier middleware read as text (`c.req.text()`): its bytes are gone, and a UTF-8 round
+ * trip would hand the handler a damaged file part, so that is the 500, with a message that says why.
  */
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
   if (contentType === undefined || !isFormMediaType(contentType)) return {};
-  assertBodyReadable(request);
-  let bytes: ArrayBuffer;
-  try {
-    bytes = await request.arrayBuffer();
-  } catch (error) {
-    if (isBodyLimitError(error)) throw error;
-    if (isClientAbort(request)) throw badRequest(MALFORMED_FORM);
-    throw error;
-  }
-  if (isBlankBody(new Uint8Array(bytes))) return {};
-  try {
-    // Hono rebuilds a cached body's FormData without the request's Content-Type, which a multipart boundary needs:
-    // seed the cache as `validator('form')` does, so `parseBody()` only converts the fields (dot: true)
-    if (request.bodyCache.parsedBody === undefined && request.bodyCache.formData === undefined) {
-      request.bodyCache.formData = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData();
+  const malformed = () => badRequest(MALFORMED_FORM);
+  const cache = request.bodyCache;
+  if (cache.text !== undefined) throw textReadBody();
+  // A FormData the cache holds is authoritative: it keeps a file part's bytes as they arrived
+  if (cache.formData !== undefined) {
+    // A form parse read the stream once: its outcome is all that is left, and a rejection is the client's malformed body
+    let formData: FormData;
+    try {
+      formData = await cache.formData;
+    } catch {
+      throw malformed();
     }
-    return await request.parseBody({ dot: true });
-  } catch (error) {
-    if (isBodyLimitError(error)) throw error;
-    if (error instanceof TypeError || isClientAbort(request)) throw badRequest(MALFORMED_FORM);
-    throw error;
+    return formData.entries().next().done === true ? {} : parseFormFields(request, formData);
   }
+  // This pipeline's own cached read, or a `c.req.arrayBuffer()`: bytes already, blank ones are no body
+  if (cache.arrayBuffer !== undefined) {
+    const bytes = await cache.arrayBuffer;
+    return isBlankBody(new Uint8Array(bytes)) ? {} : readFormFields(request, bytes, contentType, malformed);
+  }
+  // `c.req.parseBody()` cached `{}` for a body it did not read: the stream is still on `c.req.raw`
+  if (request.raw.bodyUsed) throw unreadableBody();
+  const bytes = await readRawBody(request, malformed);
+  return isBlankBody(new Uint8Array(bytes)) ? {} : readFormFields(request, bytes, contentType, malformed);
 };
 
-/** The JSON body. Hono's cache serves a body an earlier middleware read, as for forms; a client abort is the 400. */
+/**
+ * The JSON body. Hono's cache serves a body an earlier middleware read: its `text()`, or the `arrayBuffer()` this
+ * pipeline caches. A `c.req.parseBody()` from a middleware on a JSON request caches `{}` without reading the stream, so
+ * the raw body is still there: read it, or a valid JSON request would answer 500 on the plain cached object (its
+ * `text()` fails on a cache of plain objects). A stream a form parse already consumed leaves nothing to read, and the
+ * cached form object is no JSON body either: that is the 400.
+ */
 const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
-  assertBodyReadable(request);
+  const malformed = () => badRequest(MALFORMED_JSON);
+  const cache = request.bodyCache;
   let text: string;
-  try {
-    text = await request.text();
-  } catch (error) {
-    if (isBodyLimitError(error)) throw error;
-    if (isClientAbort(request)) throw badRequest(MALFORMED_JSON);
-    throw error;
-  }
+  if (cache.text !== undefined) text = cache.text;
+  else if (cache.arrayBuffer !== undefined) text = new TextDecoder().decode(await cache.arrayBuffer);
+  else if (cache.formData !== undefined || request.raw.bodyUsed) throw unreadableBody();
+  else text = new TextDecoder().decode(await readRawBody(request, malformed));
   if (text.trim() === "") return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw badRequest(MALFORMED_JSON);
+    throw malformed();
   }
 };
 
