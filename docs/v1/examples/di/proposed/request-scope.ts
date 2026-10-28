@@ -27,7 +27,8 @@ export const app = new Container({ deps: depsRegistry })
 app.scoped(UnitOfWork) // same as app.bind(UnitOfWork, undefined, { scope: 'request' })
 app.singleton(OrderService)
 
-// What RequestKernel does for each request: a request scope with its per-request values, disposed at the end.
+// What RequestKernel does for each request: a request scope with its per-request values. `dispose()` is started once
+// the handler settles and is never awaited, so a slow or hung disposer cannot delay or hang the response.
 export async function handle(requestId: string) {
   const scope = app.createRequestScope().instance(REQUEST_ID, requestId)
   try {
@@ -35,6 +36,8 @@ export async function handle(requestId: string) {
     expectTypeOf(orders).toEqualTypeOf<OrderService>()
     return orders.uow === scope.make(UnitOfWork) // true: one UnitOfWork per request
   } finally {
-    await scope.dispose() // calls UnitOfWork[Symbol.asyncDispose]()
+    // Started, never awaited, and its rejection is handled on the promise: a slow or hung disposer cannot delay the
+    // response, and a failing one is logged instead of becoming an unhandled rejection
+    void scope.dispose().catch((error: unknown) => console.error('disposing the request scope failed', error))
   }
 }
