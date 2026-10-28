@@ -63,6 +63,20 @@ const bootApp = (bind: (container: Container) => void) => {
   return { app, container, kernel }
 }
 
+/**
+ * The disposal log line each request path produces, in order, once its disposal has settled: one segment, so `:rest`
+ * matches the decoded path (Hono's `*` middleware skips a `%0A` path on its own).
+ */
+const disposalLogs = async (error: ReturnType<typeof vi.spyOn>, paths: string[]) => {
+  const { app, kernel } = bootApp((container) => container.scoped(Leaky))
+  app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
+  for (const path of paths) {
+    expect((await app.request(path)).status).toBe(200)
+    await kernel.settled()
+  }
+  return error.mock.calls.map(([message]) => message)
+}
+
 beforeAll(() => {
   globalThis.__laratype_route_model_bindings = {}
 })
@@ -200,50 +214,30 @@ describe('request scope under RequestKernel', () => {
   it('escapes control characters in the logged path', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
-    // One segment, so `:rest` matches the decoded path: Hono's `*` middleware skips a `%0A` path on its own
-    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
-    const response = await app.request('/leaky%0Aforged%20line')
-    expect(response.status).toBe(200)
-    await kernel.settled()
     // Hono decodes the path (`%0A` is a newline), so the log line escapes it instead of starting a forged line (CWE-117)
-    expect(error).toHaveBeenCalledTimes(1)
-    expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky\\u000aforged line: disposing the request scope failed')
+    expect(await disposalLogs(error, ['/leaky%0Aforged%20line'])).toEqual([
+      '[@laratype/http] GET /leaky\\u000aforged line: disposing the request scope failed',
+    ])
   })
 
   it('logs a literal backslash-u000a path differently from a decoded newline', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
-    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
-    const logs: string[] = []
-    for (const path of ['/a%5Cu000a', '/a%0A']) {
-      expect((await app.request(path)).status).toBe(200)
-      await kernel.settled()
-      logs.push(error.mock.calls.at(-1)![0] as string)
-    }
     // The backslash is escaped too: the literal `\u000a` a client sent can't read as the real newline's escape
-    expect(logs).toEqual([
+    expect(await disposalLogs(error, ['/a%5Cu000a', '/a%0A'])).toEqual([
       '[@laratype/http] GET /a\\\\u000a: disposing the request scope failed',
       '[@laratype/http] GET /a\\u000a: disposing the request scope failed',
     ])
   })
 
-  it('escapes a C1 control and the line separator in the logged path', async () => {
+  it('escapes a C1 control, the line separator and a bidi control in the logged path', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
-    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
-    const logs: string[] = []
-    // U+0085 (NEL, a C1 control) and U+2028 (LINE SEPARATOR)
-    for (const path of ['/a%C2%85b', '/a%E2%80%A8b']) {
-      expect((await app.request(path)).status).toBe(200)
-      await kernel.settled()
-      logs.push(error.mock.calls.at(-1)![0] as string)
-    }
-    expect(logs).toEqual([
+    // U+0085 (NEL, a C1 control), U+2028 (LINE SEPARATOR) and U+202A (LEFT-TO-RIGHT EMBEDDING)
+    expect(await disposalLogs(error, ['/a%C2%85b', '/a%E2%80%A8b', '/a%E2%80%AAb'])).toEqual([
       '[@laratype/http] GET /a\\u0085b: disposing the request scope failed',
       '[@laratype/http] GET /a\\u2028b: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u202ab: disposing the request scope failed',
     ])
   })
 })

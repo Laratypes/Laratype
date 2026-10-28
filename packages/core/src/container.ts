@@ -94,6 +94,7 @@ const errors = {
     `Cannot resolve ${keyName(key)}: it is request-scoped but no request scope is active.`
     + (requiredBy ? ` Required by ${requiredBy}.` : '')
     + ' Fix: resolve it inside a request (from the container of `createRequestScope()`), or make it transient.',
+  requestScopeDisposed: 'Request scope already disposed.',
 }
 
 /** Dev warning, once per key per process: a singleton found to depend on a request-scoped key. */
@@ -207,7 +208,7 @@ export class Container {
   make<T>(token: Token<T>): T {
     const scope = this.requestScope()
     if (!scope) return this.resolve(token) as T
-    if (scope.disposed) throw new DiError('Request scope already disposed.')
+    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
     // Resolution is synchronous, so concurrent requests never interleave on this stack.
     this.tree.scopeStack.push(scope)
     try {
@@ -225,11 +226,11 @@ export class Container {
   /**
    * A child container for one request: request-scoped values are built once in it, until `dispose()`. It throws under a
    * disposed request scope, or under a plain child of one. A nested request scope made before the disposal is not
-   * disposed with it, so it keeps resolving its own request-scoped keys; a key whose resolution reads or writes the
-   * disposed scope's cache instead (a singleton the outer scope builds, that needs such a key) throws too.
+   * disposed with it, so it still resolves the keys whose resolution doesn't reach the disposed scope's cache; one that
+   * does (a singleton the outer scope builds, that needs a request-scoped key) throws too.
    */
   createRequestScope(options: ContainerOptions = {}): Container {
-    if (this.requestScope()?.disposed) throw new DiError('Request scope already disposed.')
+    if (this.requestScope()?.disposed) throw new DiError(errors.requestScopeDisposed)
     const scope = new Container(options, this)
     scope.requestCache = new Map()
     return scope
@@ -340,14 +341,18 @@ export class Container {
   }
 
   /**
-   * The request scope a request-scoped `key` resolves in. A disposed scope is spent: reading or writing its cache
-   * would lose the value (nothing disposes what lands after `dispose()`), so it throws like `make()` does.
+   * The request scope a request-scoped `key` resolves in, with its cache. A disposed scope is spent: reading or
+   * writing its cache would lose the value (nothing disposes what lands after `dispose()`), so it throws like
+   * `make()` does. `currentRequestScope()` only returns request scopes, and every one of those holds a cache.
    */
-  protected resolutionScope(key: unknown, requiredBy: string | undefined): Container {
+  protected resolutionScope(
+    key: unknown,
+    requiredBy: string | undefined,
+  ): { scope: Container, cache: Map<unknown, { value: unknown }> } {
     const scope = this.currentRequestScope()
     if (!scope) throw new DiError(errors.noRequestScope(key, requiredBy))
-    if (scope.disposed) throw new DiError('Request scope already disposed.')
-    return scope
+    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
+    return { scope, cache: scope.requestCache! }
   }
 
   /** The value of a request-scoped `key`, built once per request scope and cached there under `cacheKey`. */
@@ -357,13 +362,14 @@ export class Container {
     requiredBy: string | undefined,
     create: (scope: Container) => unknown,
   ): unknown {
-    const scope = this.resolutionScope(key, requiredBy)
+    const { scope, cache } = this.resolutionScope(key, requiredBy)
     // Every singleton being built depends on this key, directly or not, so it bubbles.
     for (const frame of this.tree.singletons) frame.requestDep ??= key
-    const cache = scope.requestCache!
     const cached = cache.get(cacheKey)
     if (cached) return cached.value
     const value = create(scope)
+    // A factory that starts the disposal while it builds: the cache was cleared, so the value must not land in it
+    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
     cache.set(cacheKey, { value })
     return value
   }
@@ -382,7 +388,7 @@ export class Container {
   /** Cache the first value of a bubbled singleton in the current request scope, and warn once in dev. */
   protected bubble(key: unknown, cacheKey: unknown, value: unknown, requestDep: unknown): unknown {
     warnBubbled(key, requestDep)
-    this.resolutionScope(key, undefined).requestCache!.set(cacheKey, { value })
+    this.resolutionScope(key, undefined).cache.set(cacheKey, { value })
     return value
   }
 

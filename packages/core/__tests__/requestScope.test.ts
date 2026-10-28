@@ -87,7 +87,7 @@ describe('request scope', () => {
     expect(disposed).toBe(2)
   })
 
-  it('a nested request scope keeps resolving its own keys after the outer one is disposed', async () => {
+  it('a nested request scope keeps resolving keys that bypass the outer cache after its disposal', async () => {
     class Db {}
     const outer = new Container().scoped(Db).createRequestScope()
     const nested = outer.createRequestScope()
@@ -111,6 +111,18 @@ describe('request scope', () => {
     // where the disposal has already run: it fails like make() on the scope instead of caching a value nothing disposes
     expect(() => nested.make(Service)).toThrow(new DiError('Request scope already disposed.'))
     await nested.dispose()
+  })
+
+  it('a factory that starts the disposal while it builds throws instead of caching in the spent scope', async () => {
+    const DB = token<object>('db')
+    const root = new Container().scoped(DB, (container) => {
+      void container.dispose()
+      return {}
+    })
+    const scope = root.createRequestScope()
+    // dispose() marks the scope spent before its first await, so the value built after it must not land in the cache
+    expect(() => scope.make(DB)).toThrow(new DiError('Request scope already disposed.'))
+    await scope.dispose()
   })
 
   it('transient and singleton bindings keep their lifetime inside a request scope', () => {
