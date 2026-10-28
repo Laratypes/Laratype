@@ -248,7 +248,7 @@ Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr
 ### Design (non-binding)
 - **B14:** one CI. Since H16 ([#184](https://github.com/Laratypes/Laratype/issues/184)), `ci.yml` runs the full test suite after the build, `check:dist` and `check:pkg`, including `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`. What is left of B14 is workflow hardening and removing `github_actions_security.yml` from the branches that inherited it. The stacked-PR retarget note is in [AGENTS.md › Stacked PRs](../../AGENTS.md#stacked-prs).
 - **B15:** npm releases with Trusted Publishing (OIDC), provenance and changesets.
-- Agent-instruction, `.github/` and tooling changes need user review from a session outside their checkout, before you base work on the branch or review its PR and before any agent session or `bun install` runs in that checkout: see [CONTRIBUTING.md › Security](../../CONTRIBUTING.md#security).
+- Review agent-instruction, `.github/` and tooling changes in a branch's diff from a session outside its checkout, before you base work on the branch or review its PR and before any agent session or `bun install` runs there: see [CONTRIBUTING.md › Security](../../CONTRIBUTING.md#security).
 
 ### Acceptance
 [#189 Done when](https://github.com/Laratypes/Laratype/issues/189) · [#190 Done when](https://github.com/Laratypes/Laratype/issues/190)

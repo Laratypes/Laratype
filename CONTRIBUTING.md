@@ -91,15 +91,15 @@ After the parent PR merges:
 
 ## Security
 
-- **Review agent-instruction and tooling changes before anything runs in their checkout.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout, before you base work on the branch or review its PR, and before any agent session or `bun install` starts there:
+- **Review agent-instruction and tooling changes before you base work on a branch or review its PR, and before any agent session or `bun install` runs in a checkout of it.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout:
 
-  `git diff origin/master...origin/<branch> -- <paths>`, with `:(glob)` in front of each path so a leading `**/` also matches the repo root.
+  Review the exact head SHA, not a branch that can move: `git fetch origin <branch>`, or `git fetch origin refs/pull/<N>/head` for a fork, then `git diff origin/master...<sha> -- <paths>`, with `:(glob)` in front of each path so a leading `**/` also matches the repo root. Check out or start agents only at that reviewed SHA; a new push needs a review of the delta.
 
   The paths:
   - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
   - `**/.claude/**`, `**/.opencode/**`, `**/opencode.json`, `**/.mcp.json`
   - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.vscode/**`
-  - the `preinstall`, `install`, `postinstall` and `prepare` scripts of any `package.json`, and every file those scripts run
+  - `**/package.json`, for the `preinstall`, `install`, `postinstall` and `prepare` scripts and every file those scripts run
 
   Read the lifecycle entries in the diff, then diff every file they call with the same command, with the file in place of `<paths>`: a branch can set `"postinstall": "bun scripts/setup.ts"` and add `scripts/setup.ts`, which no path pattern above matches.
 
