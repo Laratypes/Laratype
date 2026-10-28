@@ -1,4 +1,5 @@
 import { type ExcludeFirstParameter, MetaDataKey } from "@laratype/support";
+import type { Newable } from "@laratype/core";
 import { Policy } from "../policies";
 import type { Ability } from "../policies/Policy";
 import PolicyHandler from "../policies/PolicyHandler";
@@ -8,7 +9,8 @@ export interface UsePolicy<T extends Policy> {
   cannot<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
 }
 
-export function UsePolicy(P: new () => Policy) {
+/** `P` may take constructor dependencies: the request pipeline resolves it from the container (H21 #269). */
+export function UsePolicy(P: Newable<Policy>) {
   return function <T extends { new(...args: any[]): {} }>(target: T) {
     Reflect.defineMetadata(MetaDataKey.POLICY, P, target);
 

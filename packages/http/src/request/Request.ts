@@ -66,8 +66,8 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers are resolved from: the app container `boot()` puts on each request, else one
-   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   * The container controllers, middleware and policies are resolved from: the app container `boot()` puts on each
+   * request, else one autowire-only container (outside `RequestKernel`, they are autowired without app bindings).
    */
   public static container(): Container {
     return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
@@ -242,11 +242,13 @@ export default class Request extends AppServiceProvider {
               if(!policy) {
                 throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
               }
-              await policyHandler.handle(policyHandler.ability, policy, ...modelArgs);
+              // Constructor DI (H21 #269): the policy comes from the request's container, as the controller does
+              await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
               return await next(arg);
             }
             else {
-              const middleware = await new currentPipeline.handler();
+              // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
+              const middleware = Request.container().make(currentPipeline.handler);
               middleware.setPreviousResult(arg);
               return await middleware.handle(requestInstance, res, next);
             }

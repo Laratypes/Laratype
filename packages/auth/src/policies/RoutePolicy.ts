@@ -16,14 +16,13 @@ export default class RoutePolicy {
     };
   }
 
-  static async handle<T extends Ability>(ability: T, Po: new () => Policy, ...models: any) {
+  /** `policy` is the instance the request pipeline resolved from its container (H21 #269), not the class. */
+  static async handle<T extends Ability>(ability: T, policy: Policy, ...models: any) {
     const actor = Auth.user();
     if(!actor) {
       return false;
     }
-    
-    const policy = new Po();
-    
+
     const result = await PolicyHandler.can(actor, policy, ability, ...models);
     if(!result) {
       throw new UnauthorizedException({
