@@ -47,8 +47,9 @@ describe("users.store", () => {
   it("resolves the 422 error branch with the catalog VALIDATION_ERROR body", async () => {
     const result = await api.users.store({ body: { name: "", email: "not-an-email" } });
     expect(result.ok).toBe(false);
-    // A 500 or an undeclared status resolves as the unexpected variant, not as this endpoint's 422: assert it is absent,
-    // so a server that stopped answering 422 fails here instead of skipping the checks below (client.md › Result union).
+    // A 500 or an undeclared status resolves as the unexpected variant, not as this endpoint's 422: assert it is
+    // absent, so a server that stopped answering 422 fails here instead of skipping the checks below
+    // (client.md › Result union).
     expect(result.unexpected).toBeUndefined();
     if (result.ok || result.unexpected) return;
     expect(result.status).toBe(422);
