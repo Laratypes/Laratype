@@ -15,7 +15,7 @@ last-verified: 2026-10-09
 | [Typed Register](#typed-register) | planned → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
-| [Guards in the container](#guards-in-the-container) | proposed: PR #330 @ 699f1f8 |
+| [Guards in the container](#guards-in-the-container) | proposed: PR #346 @ a78e410 |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
 ---
@@ -79,10 +79,10 @@ A scope policy can define `before(user, params)` for the check shared by every e
 ## Guards in the container
 
 ### Status
-proposed: PR #330 @ 699f1f8 ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3). The auth config is bound in `register()` from the app manifest, not through `config('auth')`, because K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the config store after every `register()` (see [Invariants](#invariants)). The shared driver `Manager` stays F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard needs a session package; see the [Open questions](#open-questions).
+proposed: PR #346 @ a78e410 ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3), on top of #330's guards. The auth config is bound in `register()` from the app manifest, not through `config('auth')`, because K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the config store after every `register()` (see [Invariants](#invariants)). The shared driver `Manager` stays F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard needs a session package; see the [Open questions](#open-questions).
 
 ### Public API
-[`packages/auth/src/guard/` @ 699f1f8](https://github.com/Laratypes/Laratype/tree/699f1f8f7f91915797880f1ee6f58ccddd3536a1/packages/auth/src/guard) (`AuthManager.ts`, `TokenGuard.ts`, `PassportGuard.ts`, `tokens.ts`), exported from `@laratype/auth`; the D8 facade `Auth` and its `AuthService` come from [`packages/auth/src/support/Auth.ts` @ 699f1f8](https://github.com/Laratypes/Laratype/blob/699f1f8f7f91915797880f1ee6f58ccddd3536a1/packages/auth/src/support/Auth.ts).
+[`packages/auth/src/guard/` @ a78e410](https://github.com/Laratypes/Laratype/tree/a78e410f99067248975d5f9f7c8e05ad6173a2a3/packages/auth/src/guard) (`AuthManager.ts`, `TokenGuard.ts`, `PassportGuard.ts`, `tokens.ts`), exported from `@laratype/auth`; the D8 facade `Auth` and its `AuthService` come from [`packages/auth/src/support/Auth.ts` @ a78e410](https://github.com/Laratypes/Laratype/blob/a78e410f99067248975d5f9f7c8e05ad6173a2a3/packages/auth/src/support/Auth.ts).
 
 ```ts
 // @laratype/auth
