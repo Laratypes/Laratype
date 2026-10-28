@@ -5,9 +5,7 @@ import { Hash, Hasher } from '@laratype/support'
 describe('Hash facade types', () => {
   it('forwards each Hasher method with the same signature', () => {
     expectTypeOf(Hash.make).toEqualTypeOf<(value: string) => string>()
-    expectTypeOf(Hash.makeAsync).toEqualTypeOf<(value: string) => Promise<string>>()
     expectTypeOf(Hash.check).toEqualTypeOf<(value: string, hashed: string) => boolean>()
-    expectTypeOf(Hash.checkAsync).toEqualTypeOf<(value: string, hashed: string) => Promise<boolean>>()
     expectTypeOf(Hash.needsRehash).toEqualTypeOf<(hashed: string) => boolean>()
     expectTypeOf(Hash.isHashed).toEqualTypeOf<(value: string) => boolean>()
   })

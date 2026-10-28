@@ -1,4 +1,4 @@
-// The password is checked with Hash.checkAsync() after the lookup, never matched in the query
+// The password is checked with Hash.check() after the lookup, never matched in the query
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
 import { Container, depsRegistry } from '@laratype/core'
@@ -105,13 +105,10 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
   })
 
 describe('TokenGuard.attempt()', () => {
-  it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
+  it('finds the user by the other fields and checks the password with Hash.check()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const checkAsync = vi.spyOn(Hash, 'checkAsync')
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
-    expect(checkAsync).toHaveBeenCalledWith('secret', expect.any(String))
-    checkAsync.mockRestore()
     // { select: false }: the password is not a key at all, not a key set to undefined
     expect(Object.hasOwn(user as object, 'password')).toBe(false)
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
@@ -135,7 +132,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('runs one check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'checkAsync')
+    const check = vi.spyOn(Hash, 'check')
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
     expect(check).toHaveBeenCalledTimes(1)
     expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)

@@ -98,8 +98,8 @@ export default class TokenGuard<User = any> {
   /**
    * The user of the guard's provider model matching `fields`, or `null`. `fields` carries the guard's
    * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
-   * only, and the password is then checked with `Hash.checkAsync()`, since a salted hash can't be matched in the
-   * query. A hash from an older format (0.5's sha256) is replaced on a successful login.
+   * only, and the password is then checked with `Hash.check()`, since a salted hash can't be matched in the query.
+   * A hash from an older format (0.5's sha256) is replaced on a successful login.
    */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
@@ -123,20 +123,18 @@ export default class TokenGuard<User = any> {
     // addSelect: the password column is usually { select: false }
     const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
     if (!user) {
-      // One dummy hash per process: an unknown user must take as long as a wrong password, without blocking the loop
-      if (!unknownUserHash) unknownUserHash = await Hash.makeAsync("");
-      await Hash.checkAsync(password, unknownUserHash);
+      Hash.check(password, unknownUserHash ??= Hash.make(""));
       return null;
     }
 
     const hashed = user[passwordField];
     // The returned user has the shape a plain lookup gives: no hidden password column
     if (!column.isSelect) delete user[passwordField];
-    if (!(await Hash.checkAsync(password, hashed))) return null;
+    if (!Hash.check(password, hashed)) return null;
     if (Hash.needsRehash(hashed)) {
       // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
       try {
-        const rehashed = await Hash.makeAsync(password);
+        const rehashed = Hash.make(password);
         await model.getRepository().update(model.getId(user), { [passwordField]: rehashed });
         if (column.isSelect) user[passwordField] = rehashed;
       } catch {

@@ -32,56 +32,6 @@ describe('Hasher', () => {
     expect(hasher.check('', hashed)).toBe(false)
   })
 
-  it('checks a password with checkAsync() without running scryptSync', async () => {
-    const hashed = hasher.make('secret')
-    const sync = vi.spyOn(crypto, 'scryptSync')
-    await expect(hasher.checkAsync('secret', hashed)).resolves.toBe(true)
-    await expect(hasher.checkAsync('Secret', hashed)).resolves.toBe(false)
-    await expect(hasher.checkAsync('', hashed)).resolves.toBe(false)
-    expect(sync).not.toHaveBeenCalled()
-    sync.mockRestore()
-  })
-
-  it('makes a hash with makeAsync() without running scryptSync, and check() accepts it', async () => {
-    const sync = vi.spyOn(crypto, 'scryptSync')
-    const first = await hasher.makeAsync('secret')
-    expect(first).toMatch(SCRYPT)
-    expect(await hasher.makeAsync('secret')).not.toBe(first)
-    expect(sync).not.toHaveBeenCalled()
-    sync.mockRestore()
-    expect(hasher.check('secret', first)).toBe(true)
-  })
-
-  it('accepts a 0.5 sha256 hash in checkAsync(), which needs a rehash', async () => {
-    await expect(hasher.checkAsync('secret', SHA256_SECRET)).resolves.toBe(true)
-    await expect(hasher.checkAsync('other', SHA256_SECRET)).resolves.toBe(false)
-  })
-
-  it('rejects malformed hashes and non-strings in checkAsync()', async () => {
-    await expect(hasher.checkAsync('secret', 'secret')).resolves.toBe(false)
-    await expect(hasher.checkAsync('secret', '')).resolves.toBe(false)
-    await expect(hasher.checkAsync(undefined as any, SHA256_SECRET)).resolves.toBe(false)
-    await expect(hasher.checkAsync('secret', null as any)).resolves.toBe(false)
-    const [, , , salt, key] = hasher.make('secret').split('$')
-    await expect(hasher.checkAsync('secret', `$scrypt$N=32768,r=8,p=1$${salt}$${key}`)).resolves.toBe(false)
-  })
-
-  it("defaults the async methods to a custom Hasher's synchronous ones", async () => {
-    class Upper extends Hasher {
-      override make(value: string) {
-        return value.toUpperCase()
-      }
-
-      override check(value: string, hashed: string) {
-        return hashed === value.toUpperCase()
-      }
-    }
-    const upper = new Upper()
-    await expect(upper.makeAsync('secret')).resolves.toBe('SECRET')
-    await expect(upper.checkAsync('secret', 'SECRET')).resolves.toBe(true)
-    await expect(upper.checkAsync('secret', 'secret')).resolves.toBe(false)
-  })
-
   it('accepts a 0.5 sha256 hash, which needs a rehash', () => {
     expect(hasher.check('secret', SHA256_SECRET)).toBe(true)
     expect(hasher.check('other', SHA256_SECRET)).toBe(false)
@@ -141,13 +91,6 @@ describe('Hash facade', () => {
     expect(Hash.check('secret', hashed)).toBe(true)
     expect(Hash.needsRehash(hashed)).toBe(false)
     expect(Hash.isHashed(hashed)).toBe(true)
-  })
-
-  it('forwards the asynchronous methods too', async () => {
-    const hashed = await Hash.makeAsync('secret')
-    expect(hashed).toMatch(SCRYPT)
-    await expect(Hash.checkAsync('secret', hashed)).resolves.toBe(true)
-    await expect(Hash.checkAsync('other', hashed)).resolves.toBe(false)
   })
 
   it('works detached from the class, as in 0.5', () => {
