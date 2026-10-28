@@ -540,10 +540,11 @@ planned → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6).
 ## Model binding
 
 ### Status
-planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both wait for the ORM decision, S5 [#88](https://github.com/Laratypes/Laratype/issues/88) (`BindableModel`).
+planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both depend on the `BindableModel` interface ([database.md › BindableModel](./database.md#bindablemodel)), which S5 [#88](https://github.com/Laratypes/Laratype/issues/88) settled in step 1, not on the ORM ADR (step 2, still pending).
 
 ### Design (non-binding)
 - **Explicit binding (H7):** `.bind({ user: User })`, with keys restricted to path params, or a custom resolver `.bind({ user: (v) => ... })`.
+  - A bound class satisfies `BindableModel` ([database.md › BindableModel](./database.md#bindablemodel)); a resolver gets the raw string.
   - A miss is a 404.
   - The binding contributes `{ params: { user: User } }` to the provided context.
   - Replaces `Route.model` / `Route.bind` and `explicitModelBinding`.
@@ -552,7 +553,7 @@ planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explic
 - **Implicit binding (H14):**
   - Path params that match a key in `Register['models']` bind automatically. The manifest generates that map, keyed by the camelCase model name.
   - An explicit `.bind()` takes precedence, and `.withoutImplicitBinding()` opts out.
-  - `static routeKeyName` sets the lookup column (the default is the primary key).
+  - `static routeKeyName` sets the lookup property (the default is the primary key, [BindableModel](./database.md#bindablemodel)).
   - `.scopeBindings()` handles nested params.
   - Implicit binding and `.scopeBindings()` use the same folder params as `.bind()`.
   - Removes `globalThis.__laratype_param_model_map`.
