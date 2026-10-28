@@ -32,10 +32,8 @@ planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3). 
 From #145: an Eloquent-like Model on the chosen ORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata.
 
 ### Diagnostics
-On the 0.5 `Model` still on `master` (`packages/database/src/eloquent/Model.ts`, whose password hashing moves to salted scrypt in PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410), `findOneBy()` throws instead of matching a password in the query:
+The 0.5 `Model` that PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ a78e410 changes (`packages/database/src/eloquent/Model.ts`) throws, instead of matching a password in the query:
 - `[@laratype/database] findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()`
-
-A salted hash can never match a `where` value: look the user up without the password, then check it with `Hash.check()` ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)).
 
 ### Acceptance
 [#145 Done when](https://github.com/Laratypes/Laratype/issues/145)
