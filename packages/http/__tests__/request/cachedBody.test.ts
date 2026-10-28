@@ -4,14 +4,16 @@ import "reflect-metadata";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { HonoRequest } from "hono/request";
 import { validator } from "hono/validator";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { Container, depsRegistry } from "@laratype/core";
 import { HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, endpoint } from "@laratype/contract";
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from "../../src/index";
 import type { Ctx } from "../../src/index";
+import { readBody } from "../../src/request/input";
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. */
 const bootApp = (middleware: MiddlewareHandler[] = []) => {
@@ -41,7 +43,7 @@ const quiet = () => {
 const rules = () => z.object({ name: z.string(), user: z.object({ age: z.string() }).optional() });
 
 /** A 0.5 route whose request class validates `{ name, user? }`: what reaches the controller and `validated()`. */
-const mount = (middleware: MiddlewareHandler[]) => {
+const mount = (middleware: MiddlewareHandler[], before: MiddlewareHandler[] = [], after: MiddlewareHandler[] = []) => {
   let validated: unknown;
   class NameRequest extends LaratypeRequest {
     rules() {
@@ -54,9 +56,11 @@ const mount = (middleware: MiddlewareHandler[]) => {
       return { ok: true };
     }
   }
-  const app = bootApp();
+  const app = bootApp(before);
   const controller = [Users, "store"] as const;
   const route = { method: "post", path: "/users", request: NameRequest, controller } as const;
+  // `after` runs once the kernel has read and parsed the body: the place a later reader sees that cache
+  if (after.length > 0) app.use("/users", ...after);
   app.post("/users", ...middleware, RequestKernel.handle(route));
   return { app, validated: () => validated };
 };
@@ -393,5 +397,179 @@ describe("a cached body on a contract route (H43 #340)", () => {
       user: { age: "36" },
       avatar: { name: "a.png", size: 4, type: "image/png" },
     });
+  });
+});
+
+// Round 3 of #345: a later read has to find a cache Hono can serve, and a failed read has to stay a 400 or a 500 with
+// its documented meaning. One test per regression, each read off Hono 4.9.6's `#cachedBody` (see honoBodyCache.test.ts).
+describe("a body the pipeline read, then read again (H43 #345)", () => {
+  const formBodies: [string, () => RequestInit, MiddlewareHandler[]?][] = [
+    [
+      "multipart body",
+      () => {
+        const form = new FormData();
+        form.append("name", "ada");
+        form.append("user.age", "36");
+        return formInit(form);
+      },
+    ],
+    ["urlencoded body", () => urlencoded("name=ada&user.age=36")],
+    // The other two ways a form's body reaches the pipeline, as text and as a blob: the text read used to leave only
+    // text in the cache, so a later `parseBody()` rebuilt the FormData without the request's Content-Type
+    [
+      "urlencoded body read earlier by c.req.text()",
+      () => urlencoded("name=ada&user.age=36"),
+      [
+        async (c, next) => {
+          await c.req.text();
+          await next();
+        },
+      ],
+    ],
+    [
+      "urlencoded body read earlier by c.req.blob()",
+      () => urlencoded("name=ada&user.age=36"),
+      [
+        async (c, next) => {
+          await c.req.blob();
+          await next();
+        },
+      ],
+    ],
+  ];
+
+  it.each(formBodies)(
+    "%s, read by the pipeline, still reaches a route middleware's c.req.parseBody() and formData()",
+    async (_label, init, before = []) => {
+      quiet();
+      // The pipeline read the form before the route middleware runs: Hono's cache holds bytes or text, and Hono's
+      // cached-bytes fallback rebuilds the FormData without the request's Content-Type, so `parseBody()` would reject
+      let parsed: unknown;
+      let data: FormData | undefined;
+      const { app, validated } = mount(
+        [],
+        before,
+        [
+          async (c, next) => {
+            await next();
+            parsed = await c.req.parseBody();
+            data = await c.req.formData();
+          },
+        ],
+      );
+      const response = await app.request("/users", init());
+      expect(response.status).toBe(201);
+      expect(parsed).toEqual({ name: "ada", "user.age": "36" });
+      expect(data?.get("name")).toBe("ada");
+      expect(data?.get("user.age")).toBe("36");
+      expect(validated()).toEqual({ name: "ada", user: { age: "36" } });
+    },
+  );
+
+  it("a 0.5 controller's request.parseBody() and formData() still read the body the pipeline parsed", async () => {
+    quiet();
+    // Same cache, read through a 0.5 request class after `RequestKernel.handle` parsed the body: the file part has to
+    // keep its bytes, which only the cached FormData itself does
+    let parsed: unknown;
+    let data: FormData | undefined;
+    class FormRequest extends LaratypeRequest {
+      rules() {
+        return z.object({ name: z.string(), avatar: z.instanceof(File) });
+      }
+      parseBody() {
+        return this.requestCtx.parseBody();
+      }
+      formData() {
+        return this.requestCtx.formData();
+      }
+    }
+    class Users extends Controller {
+      async store(req: FormRequest) {
+        parsed = await req.parseBody();
+        data = await req.formData();
+        return { ok: true };
+      }
+    }
+    const app = bootApp();
+    const route = { method: "post", path: "/users", request: FormRequest, controller: [Users, "store"] as const };
+    app.post("/users", RequestKernel.handle(route));
+    const form = new FormData();
+    form.append("name", "ada");
+    form.append("avatar", new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "a.png", { type: "image/png" }));
+    const response = await app.request("/users", formInit(form));
+    expect(response.status).toBe(201);
+    expect(parsed).toMatchObject({ name: "ada", avatar: expect.any(File) });
+    expect(data?.get("avatar")).toBeInstanceOf(File);
+  });
+
+  const laterJsonReaders: [string, (c: Context) => Promise<unknown>][] = [
+    ["c.req.json()", async (c) => c.req.json()],
+    ["c.req.text()", async (c) => JSON.parse(await c.req.text())],
+  ];
+
+  it.each(laterJsonReaders)("a JSON body is still readable with %s after a middleware parseBody()", async (_reader, read) => {
+    quiet();
+    // `parseBody()` on a JSON request caches a plain `{}` as the cache's first entry, and Hono chains every other
+    // reader from that first entry: without replacing it, the later read throws synchronously
+    let readBack: unknown;
+    const { app, validated } = mount(
+      [],
+      [
+        async (c, next) => {
+          await c.req.parseBody();
+          await next();
+        },
+      ],
+      [
+        async (c, next) => {
+          await next();
+          readBack = await read(c);
+        },
+      ],
+    );
+    const response = await app.request("/users", asJson({ name: "ada" }));
+    expect(response.status).toBe(201);
+    expect(readBack).toEqual({ name: "ada" });
+    expect(validated()).toEqual({ name: "ada" });
+  });
+
+  it("a body cache whose first entry is a plain value is a 400, not a raw TypeError 500", async () => {
+    // The first entry is the plain `{}` a middleware's `parseBody()` cached, and a reader's promise follows it: Hono's
+    // `#cachedBody` calls `.then` on the plain value synchronously, before `orMalformed` can map the failed read
+    const request = new HonoRequest(new Request("http://localhost/users", asJson({ name: "ada" })));
+    await request.parseBody();
+    (request.bodyCache as { arrayBuffer?: Promise<ArrayBuffer> }).arrayBuffer = request.raw.arrayBuffer();
+    await expect(readBody(request)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an empty multipart body behind a swallowed parseBody() is still no body", async () => {
+    quiet();
+    // `formData()` rejects an empty multipart body and the middleware's catch swallows it, leaving its rejected promise
+    // in the cache. The body itself is still unread (a request with no body), so the blank check has to come first
+    let validated: unknown;
+    class EmptyRequest extends LaratypeRequest {
+      rules() {
+        return z.object({});
+      }
+    }
+    class Empty extends Controller {
+      store(req: EmptyRequest) {
+        validated = req.validated();
+        return { ok: true };
+      }
+    }
+    const app = bootApp([
+      async (c, next) => {
+        try {
+          await c.req.parseBody();
+        } catch {}
+        await next();
+      },
+    ]);
+    const route = { method: "post", path: "/empty", request: EmptyRequest, controller: [Empty, "store"] as const };
+    app.post("/empty", RequestKernel.handle(route));
+    const response = await app.request("/empty", { method: "POST", headers: multipartHeaders });
+    expect(response.status).toBe(201);
+    expect(validated).toEqual({});
   });
 });

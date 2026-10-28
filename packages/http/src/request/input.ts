@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 import type { HonoRequest } from "hono/request";
 import { parseBody } from "hono/utils/body";
+import { bufferToFormData } from "hono/utils/buffer";
 import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 
@@ -44,14 +45,30 @@ const isFormMediaType = (contentType: string | undefined): boolean =>
 const isBodyLimitError = (error: unknown): boolean => error instanceof Error && error.name === "BodyLimitError";
 
 /**
- * A body read a reader already started, or cached. A failure means the body is truncated, the connection went away, or
- * an adapter errored the stream: the client sent that body, so it is the malformed-body 400 whatever the request's
- * signal says (H43 #340: it aborted in `@hono/node-server`, but a truncated body can arrive without one). Hono's
- * `bodyLimit` error is the only one that is not that 400: it is rethrown for its handler.
+ * Hono's request body cache at runtime (Hono 4.9.6): its types say the plain value, but `text()`, `arrayBuffer()` and
+ * `blob()` cache the promise the raw request answered, while `parseBody()` and `validator('form')` cache plain values.
+ * This is the only place the pipeline reads those internals.
  */
-const orMalformed = async <T>(read: Promise<T> | T, message: string): Promise<T> => {
+type BodyCache = {
+  text?: Promise<string>;
+  arrayBuffer?: Promise<ArrayBuffer>;
+  blob?: Promise<Blob>;
+  formData?: Promise<FormData> | FormData;
+  parsedBody?: unknown;
+};
+
+const bodyCacheOf = (request: HonoRequest): BodyCache => request.bodyCache as unknown as BodyCache;
+
+/**
+ * A body read that fails: a rejected promise, or a reader that throws before it returns one (Hono's cache chains a
+ * reader from its first entry, so a plain value there throws synchronously). A failure means the body is truncated, the
+ * connection went away, or an adapter errored the stream: the client sent that body, so it is the malformed-body 400
+ * whatever the request's signal says (H43 #340: it aborted in `@hono/node-server`, but a truncated body can arrive
+ * without one). Hono's `bodyLimit` error is the only one that is not that 400: it is rethrown for its handler.
+ */
+const orMalformed = async <T>(read: () => Promise<T> | T, message: string): Promise<T> => {
   try {
-    return await read;
+    return await read();
   } catch (error) {
     if (isBodyLimitError(error)) throw error;
     throw badRequest(message);
@@ -61,13 +78,14 @@ const orMalformed = async <T>(read: Promise<T> | T, message: string): Promise<T>
 /**
  * The body stream, read once. Hono's cache only serves a `text()`, `arrayBuffer()` or `formData()` it already holds: a
  * `c.req.parseBody()` on a JSON request caches its `{}` without reading the stream, so the bytes are still on
- * `c.req.raw`. They are read there and kept in the cache, so a later `c.req.arrayBuffer()` on the same request has them
- * too.
+ * `c.req.raw`. They are read there and kept in the cache, so a later `c.req.text()`/`json()` has them too; the plain
+ * `{}` is cleared, since Hono chains a later reader from the cache's first entry and cannot chain from it (4.9.6).
  */
 const readRawBody = async (request: HonoRequest, message: string): Promise<ArrayBuffer> => {
-  const bytes = await orMalformed(request.raw.arrayBuffer(), message);
-  // Hono's types say the value, but its cache holds the promise each reader answers (4.9.6)
-  (request.bodyCache as { arrayBuffer?: Promise<ArrayBuffer> }).arrayBuffer = Promise.resolve(bytes);
+  const cache = bodyCacheOf(request);
+  const bytes = await orMalformed(() => request.raw.arrayBuffer(), message);
+  delete cache.parsedBody;
+  cache.arrayBuffer = Promise.resolve(bytes);
   return bytes;
 };
 
@@ -95,20 +113,78 @@ const parseFormFields = (request: HonoRequest, formData: FormData): Promise<unkn
   parseBody({ headers: request.raw.headers, formData: async () => formData } as unknown as HonoRequest, { dot: true });
 
 /**
- * The form fields of the raw bytes: Hono rebuilds a cached body's FormData without the request's Content-Type, which a
- * multipart boundary needs, so the bytes are parsed with it. A rejection is the client's malformed body, the 400.
+ * Hono's own bytes-to-FormData parse (4.9.6). A cached body Hono rebuilds has no Content-Type, which a multipart
+ * boundary needs, so the bytes are parsed with the request's. Its type asks for an `ArrayBuffer`, and the `Response` it
+ * builds takes the view as it is, so the bytes are handed over without a copy.
  */
-const readFormFields = async (
-  request: HonoRequest,
-  bytes: ArrayBuffer,
-  contentType: string,
-  message: string,
-): Promise<unknown> => {
+const formDataFromBytes = (bytes: Uint8Array, contentType: string): Promise<FormData> =>
+  bufferToFormData(bytes as unknown as ArrayBuffer, contentType);
+
+/**
+ * The form fields of the raw bytes. A rejected parse is the client's malformed body, the 400. The FormData goes back
+ * into Hono's cache, and the earlier `parseBody()`'s plain fields are cleared: this pipeline's options are the ones the
+ * handler gets, and a later `c.req.formData()`/`parseBody()` has to find a cache Hono can serve (4.9.6).
+ */
+const readFormFields = async (request: HonoRequest, bytes: Uint8Array, contentType: string): Promise<unknown> => {
+  const cache = bodyCacheOf(request);
   try {
-    return parseFormFields(request, await new Response(bytes, { headers: { "Content-Type": contentType } }).formData());
+    const formData = await formDataFromBytes(bytes, contentType);
+    cache.formData = formData;
+    delete cache.parsedBody;
+    // `return await`: the conversion's rejection is the malformed body too
+    return await parseFormFields(request, formData);
+  } catch (error) {
+    throw error instanceof TypeError ? badRequest(MALFORMED_FORM) : error;
+  }
+};
+
+/** The bytes a byte reader left in Hono's cache, or the unread ones on `raw`; `undefined` is a blank body, no body. */
+const readFormBytes = async (request: HonoRequest): Promise<Uint8Array | undefined> => {
+  const cache = bodyCacheOf(request);
+  let bytes: ArrayBuffer;
+  if (cache.arrayBuffer !== undefined || cache.blob !== undefined) {
+    // Hono's reader serves the cached bytes, or rebuilds them from the cached blob
+    bytes = await orMalformed(() => request.arrayBuffer(), MALFORMED_FORM);
+  } else if (request.raw.bodyUsed) {
+    throw unreadableBodyError();
+  } else {
+    bytes = await readRawBody(request, MALFORMED_FORM);
+  }
+  const formBytes = new Uint8Array(bytes);
+  return isBlankBody(formBytes) ? undefined : formBytes;
+};
+
+/**
+ * The bytes still readable after a form parse failed: the byte reader the cache kept, or `raw` when nothing consumed
+ * it. `undefined` when the body is gone: its reader failed for good, and the 400 below says so.
+ */
+const remainingBytes = async (request: HonoRequest): Promise<Uint8Array | undefined> => {
+  const cache = bodyCacheOf(request);
+  try {
+    if (cache.arrayBuffer !== undefined || cache.blob !== undefined) return new Uint8Array(await request.arrayBuffer());
+    if (!request.raw.bodyUsed) return new Uint8Array(await request.raw.arrayBuffer());
+  } catch {
+    // A byte reader that fails too leaves nothing to tell a blank body from a malformed one
+  }
+  return undefined;
+};
+
+/**
+ * The FormData Hono's cache holds: `c.req.parseBody()` or `validator('form')` put it there. A rejection is the client's
+ * malformed body, the 400 — unless the body is blank: `formData()` rejects an empty multipart body, and a client may
+ * send its form Content-Type with no body, which is no body, `{}`. Hono's `bodyLimit` error is rethrown for its 413.
+ */
+const readCachedFormData = async (
+  request: HonoRequest,
+  cached: Promise<FormData> | FormData,
+): Promise<FormData | undefined> => {
+  try {
+    return await cached;
   } catch (error) {
     if (isBodyLimitError(error)) throw error;
-    throw error instanceof TypeError ? badRequest(message) : error;
+    const bytes = await remainingBytes(request);
+    if (bytes !== undefined && isBlankBody(bytes)) return undefined;
+    throw badRequest(MALFORMED_FORM);
   }
 };
 
@@ -116,37 +192,35 @@ const readFormFields = async (
  * The form body. A body an earlier middleware read is served from Hono's cache: `arrayBuffer()`'s bytes, or the
  * FormData `c.req.parseBody()` / `validator('form')` cached. Blank bytes are no body, `{}`, because `formData()`
  * rejects an empty `multipart/form-data` body, yet a client may send its form Content-Type on a GET or a DELETE with no
- * body. A body `formData()` rejects is the client's 400; so is a truncated one; Hono's `bodyLimit` error is rethrown
- * for its 413. A `formData` promise in the cache that rejected is that 400 too: an earlier middleware saw the
- * malformed body. The exception is a multipart body an earlier middleware read as text (`c.req.text()`): its bytes are
- * gone, and a UTF-8 round trip would hand the handler a damaged file part, so that is the 500, with a message that says
- * why. A urlencoded body is text by definition, so its text is its body.
+ * body. A body `formData()` rejects is the client's 400, unless it is blank the same way; so is a truncated one; Hono's
+ * `bodyLimit` error is rethrown for its 413. A `formData` promise in the cache that rejected is that 400 too: an
+ * earlier middleware saw the malformed body. The exception is a multipart body an earlier middleware read as text
+ * (`c.req.text()`): its bytes are gone, and a UTF-8 round trip would hand the handler a damaged file part, so that is
+ * the 500, with a message that says why. A urlencoded body is text by definition, so its text is its body.
  */
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
   if (contentType === undefined || !isFormMediaType(contentType)) return {};
-  const message = MALFORMED_FORM;
-  const cache = request.bodyCache;
+  const cache = bodyCacheOf(request);
   if (cache.text !== undefined) {
     // A text read keeps no bytes. A blank body loses nothing: it is no body, `{}`. So does a urlencoded body, which is
     // text; a multipart one may hold a file part's bytes, and those cannot be rebuilt from text
-    const bytes = new TextEncoder().encode(await orMalformed(cache.text, message));
+    const bytes = new TextEncoder().encode(await orMalformed(() => request.text(), MALFORMED_FORM));
     if (isBlankBody(bytes)) return {};
     if (contentType.startsWith("multipart/form-data")) throw textReadBodyError();
-    return readFormFields(request, bytes.buffer as ArrayBuffer, contentType, message);
+    return readFormFields(request, bytes, contentType);
   }
   // A FormData the cache holds is authoritative: it keeps a file part's bytes as they arrived
   if (cache.formData !== undefined) {
-    const formData = await orMalformed(cache.formData, message);
+    const formData = await readCachedFormData(request, cache.formData);
+    if (formData === undefined) return {};
+    cache.formData = formData;
+    delete cache.parsedBody;
     return hasFields(formData) ? parseFormFields(request, formData) : {};
   }
   // Bytes already (this pipeline's own read, `c.req.arrayBuffer()`, or a `c.req.blob()`), else the stream left on `raw`
-  let bytes: ArrayBuffer;
-  if (cache.arrayBuffer !== undefined) bytes = await orMalformed(cache.arrayBuffer, message);
-  else if (cache.blob !== undefined) bytes = await orMalformed(request.arrayBuffer(), message);
-  else if (request.raw.bodyUsed) throw unreadableBodyError();
-  else bytes = await readRawBody(request, message);
-  return isBlankBody(new Uint8Array(bytes)) ? {} : readFormFields(request, bytes, contentType, message);
+  const bytes = await readFormBytes(request);
+  return bytes === undefined ? {} : readFormFields(request, bytes, contentType);
 };
 
 /**
@@ -157,23 +231,22 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
  * 400.
  */
 const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
-  const message = MALFORMED_JSON;
-  const cache = request.bodyCache;
+  const cache = bodyCacheOf(request);
   const keys = Object.keys(cache);
   let text: string;
   if (keys.length === 0 || (keys.length === 1 && keys[0] === "parsedBody")) {
     // Nothing a reader cached, or only the parse of a JSON media type, which never read the stream
     if (request.raw.bodyUsed) throw unreadableBodyError();
-    text = new TextDecoder().decode(await readRawBody(request, message));
+    text = new TextDecoder().decode(await readRawBody(request, MALFORMED_JSON));
   } else {
     // A reader's cache: its text, bytes, blob or parsed JSON, or a form parse's FormData
-    text = await orMalformed(request.text(), message);
+    text = await orMalformed(() => request.text(), MALFORMED_JSON);
   }
   if (text.trim() === "") return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw badRequest(message);
+    throw badRequest(MALFORMED_JSON);
   }
 };
 
