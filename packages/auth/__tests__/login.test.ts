@@ -16,6 +16,7 @@ const fakeModel = (rows: Row[], { column = 'password', select = false, failUpdat
   const builders = vi.fn()
   const findOneBy = vi.fn(async () => null)
   class User {
+    static findOneBy = findOneBy
     static getRepository() {
       return {
         metadata: {
