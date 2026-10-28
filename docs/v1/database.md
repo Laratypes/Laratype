@@ -27,7 +27,7 @@ last-verified: 2026-10-10
 ## BindableModel
 
 ### Status
-planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14). The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM), so these signatures are the agreed contract, not placeholders. The code that implements them lands with H7, and H14 binds models through the same interface; the ORM ADR is step 2 and still pending.
+planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14). The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM), so these signatures are the agreed contract, not placeholders. The code that implements them lands with H7. H14 binds models through the same interface but still waits for the ORM ADR (step 2, still pending), as the [S5 decision](./overview.md#decision-log) records.
 
 ### Design (agreed in S5 #88 step 1)
 Type-only, exported by `@laratype/database`. It describes the **static side** of a model class, because `.bind({ user: User })` passes the class.

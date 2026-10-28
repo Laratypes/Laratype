@@ -540,7 +540,7 @@ planned → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6).
 ## Model binding
 
 ### Status
-planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both depend on the `BindableModel` interface ([database.md › BindableModel](./database.md#bindablemodel)), which S5 [#88](https://github.com/Laratypes/Laratype/issues/88) settled in step 1, not on the ORM ADR (step 2, still pending).
+planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both bind through the `BindableModel` interface ([database.md › BindableModel](./database.md#bindablemodel)), which S5 [#88](https://github.com/Laratypes/Laratype/issues/88) settled in step 1. H7 depends only on that interface; H14 still waits for the ORM ADR (step 2, still pending), as the [S5 decision](./overview.md#decision-log) records.
 
 ### Design (non-binding)
 - **Explicit binding (H7):** `.bind({ user: User })`, with keys restricted to path params, or a custom resolver `.bind({ user: (v) => ... })`.
