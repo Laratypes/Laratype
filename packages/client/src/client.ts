@@ -182,7 +182,7 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
  * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given, and
- * `init.redirect` is set on every call, from `options.redirect`, default `"error"`; `onRequest` can still override it.
+ * `init.redirect` is set on every call, from `options.redirect`, default `"manual"`; `onRequest` can still override it.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
  * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
  * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`
@@ -195,7 +195,7 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const { baseUrl, fetch: injected, headers: defaults, credentials, redirect, onRequest, onResponse } = options;
+  const { baseUrl, fetch: injected, headers: defaults, credentials, redirect = "manual", onRequest, onResponse } = options;
   const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
@@ -232,7 +232,7 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   for (const [key, value] of Object.entries(input.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);
   }
-  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers, redirect: redirect ?? "error" };
+  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers, redirect };
   if (credentials !== undefined) init.credentials = credentials;
   if (body !== undefined) {
     init.body = body;

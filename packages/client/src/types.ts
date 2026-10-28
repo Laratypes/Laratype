@@ -210,15 +210,16 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
-   * Redirects are not followed by default (`redirect` is `"error"`), so a redirect rejects the call rather than carrying the
-   * credentials elsewhere.
+   * The client doesn't follow redirects by default (`redirect` is `"manual"`). Under `"follow"`, an `onRequest` override
+   * or a fetch that ignores the mode, a cross-origin redirect can carry custom headers and cookies.
    */
   credentials?: RequestCredentials;
   /**
-   * The `redirect` mode of every call. Default `"error"`: a redirect makes `fetch` reject, and the call resolves as the
-   * status-0 unexpected result. `"follow"` restores fetch's own default; `"manual"` gives a browser's opaque status-0 result
-   * with `response` set, while Node's `fetch` (Undici) returns the 3xx response itself. A per-call `init.redirect` set by
-   * `onRequest` wins.
+   * The `redirect` mode of every call. Default `"manual"`: the client never follows a redirect. On Node and Bun the call
+   * gets the real 3xx with `response` set; in a browser it gets an `opaqueredirect` response (status 0, `response` set).
+   * `"follow"` and `"error"` are opt-ins: `"follow"` follows redirects, and `"error"` makes `fetch` reject (the status-0
+   * unexpected result without `response`), which Cloudflare Workers (`workerd`) doesn't support. A per-call
+   * `init.redirect` set by `onRequest` wins.
    */
   redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
