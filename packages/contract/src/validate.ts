@@ -10,13 +10,16 @@ export type ValidationResult<O> =
   | { readonly ok: true; readonly value: O }
   | { readonly ok: false; readonly errors: ErrorBag; readonly issues: ReadonlyArray<StandardIssue> };
 
-const dotPath = (path: StandardIssue["path"]): string =>
-  (path ?? []).map((segment) => String(typeof segment === "object" ? segment.key : segment)).join(".");
+/** An issue's path as keys: `{ key }` segments unwrapped, `[]` without a path. `toErrorBag` joins it with dots. */
+export const issuePath = (issue: StandardIssue): PropertyKey[] =>
+  (issue.path ?? []).map((segment) => (typeof segment === "object" ? segment.key : segment));
+
+const dotPath = (issue: StandardIssue): string => issuePath(issue).map(String).join(".");
 
 export const toErrorBag = (issues: ReadonlyArray<StandardIssue>): ErrorBag => {
   // null prototype: keys come from user input, so "__proto__" must stay a plain key
   const bag: ErrorBag = Object.create(null);
-  for (const issue of issues) (bag[dotPath(issue.path)] ??= []).push(issue.message);
+  for (const issue of issues) (bag[dotPath(issue)] ??= []).push(issue.message);
   return bag;
 };
 
@@ -37,7 +40,24 @@ const toResult = <O>(result: StandardResult<unknown>): ValidationResult<O> =>
  * const result = await validate(Query, { page: "2" }); // result.ok ? result.value.page : result.errors.page
  */
 export const validate = async <S extends StandardSchemaV1>(schema: S, value: unknown): Promise<ValidationResult<InferOut<S>>> =>
-  toResult(await schema["~standard"].validate(value));
+  toResult(isZod(schema) ? await zodResult(schema, value) : await schema["~standard"].validate(value));
+
+/** zod 3.25+ and 4, told by their Standard Schema vendor, not by duck-typing a method name. */
+type Zod = StandardSchemaV1 & {
+  safeParseAsync(value: unknown): Promise<{ success: true; data: unknown } | { success: false; error: { issues: StandardIssue[] } }>;
+};
+
+const isZod = (schema: StandardSchemaV1): schema is Zod =>
+  schema["~standard"].vendor === "zod" && typeof (schema as Partial<Zod>).safeParseAsync === "function";
+
+/**
+ * zod's `~standard.validate` runs the schema sync, then again async when a refinement or a transform is async or
+ * throws, so its side effects would run twice. `safeParseAsync` runs it once; its issues are the ones `validate` gives.
+ */
+const zodResult = async (schema: Zod, value: unknown): Promise<StandardResult<unknown>> => {
+  const parsed = await schema.safeParseAsync(value);
+  return parsed.success ? { value: parsed.data } : { issues: parsed.error.issues };
+};
 
 /** Same as `validate` without the Promise; throws a TypeError when the schema is async. */
 export const validateSync = <S extends StandardSchemaV1>(schema: S, value: unknown): ValidationResult<InferOut<S>> => {
