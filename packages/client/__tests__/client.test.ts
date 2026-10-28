@@ -495,7 +495,7 @@ describe('options and hooks', () => {
     expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
   })
 
-  it('sends redirect: "manual" by default: a fetch rejecting on "error" still answers (workerd rejects "error")', async () => {
+  it('sends redirect: "manual" by default, so a fetch rejecting on "error" still answers', async () => {
     const modes: Array<RequestRedirect | undefined> = []
     const fetch = vi.fn<FetchLike>(async (_input, init) => {
       modes.push(init.redirect)
@@ -507,7 +507,7 @@ describe('options and hooks', () => {
     expect(modes).toEqual(['manual'])
   })
 
-  it('passes redirect: "follow" and "error" through when the app opts in', async () => {
+  it('passes an opted-in redirect mode through to fetch', async () => {
     const { fetch } = fakeFetch()
     await createClient(appApi, { fetch, redirect: 'follow' }).users.index()
     await createClient(appApi, { fetch, redirect: 'error' }).users.index()
@@ -518,7 +518,7 @@ describe('options and hooks', () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, {
       fetch,
-      redirect: 'manual',
+      redirect: 'error',
       onRequest: ({ init }) => void (init.redirect = 'follow'),
     })
     await api.users.index()
@@ -863,7 +863,7 @@ describe('the result union', () => {
     expect(result.response!.type).toBe('opaqueredirect')
   })
 
-  it('the "error" opt-in makes fetch reject: the status-0 unexpected result, without response', async () => {
+  it('resolves the "error" opt-in rejection as the status-0 unexpected result without a response', async () => {
     const failure = new TypeError('Failed to fetch')
     const fetch = vi.fn<FetchLike>(async (_input, init) => {
       if (init.redirect === 'error') throw failure
@@ -872,6 +872,18 @@ describe('the result union', () => {
     const result = await createClient(appApi, { fetch, redirect: 'error' }).users.index()
     expect(fetch.mock.calls[0]![1].redirect).toBe('error')
     expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: failure, response: undefined })
+  })
+
+  it('an opaque no-cors response also has status 0, but comes with its response', async () => {
+    const opaque = new Response(null, { status: 200 })
+    Object.defineProperties(opaque, { status: { value: 0 }, ok: { value: false }, type: { value: 'opaque' } })
+    const api = createClient(appApi, {
+      fetch: async () => opaque,
+      onRequest: ({ init }) => void (init.mode = 'no-cors'),
+    })
+    const result = await api.users.index()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: opaque })
+    expect(result.response!.type).toBe('opaque')
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {
