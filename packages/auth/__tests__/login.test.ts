@@ -105,6 +105,8 @@ describe('TokenGuard.attempt()', () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
+    // { select: false }: the password is not a key at all, not a key set to undefined
+    expect(Object.hasOwn(user as object, 'password')).toBe(false)
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
     expect(calls.addSelect).toEqual(['user.password'])
     expect(calls.update).toEqual([])
@@ -219,7 +221,7 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.addSelect).toEqual(['user.pass'])
   })
 
-  it('reads the password under the guard passwordField', async () => {
+  it('throws when the provider model has no column for the guard passwordField', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     await expect(attempt(User, { email: 'ada@example.com', pass: 'secret' }, { passwordField: 'pass' })).rejects.toThrow(
       '[@laratype/auth] User has no "pass" column (the guard\'s passwordField)',
