@@ -14,7 +14,10 @@ export default class PassportGuard<User = any> extends TokenGuard<User> {
   register(passport: PassportStatic, store: unknown) {
     const { usernameField, passwordField } = this.config.options ?? {};
     // The local verify callback looks the user up by exactly these keys: without them it would query `undefined`
-    if (this.config.strategyName === 'local' && (typeof usernameField !== 'string' || typeof passwordField !== 'string')) {
+    if (this.config.strategyName === 'local' && (
+      typeof usernameField !== 'string' || typeof passwordField !== 'string'
+      || usernameField === '' || passwordField === ''
+    )) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy needs options.usernameField and options.passwordField.`);
     }
     // With it passport-local calls verify(req, username, password, done), and the callback below takes three arguments
