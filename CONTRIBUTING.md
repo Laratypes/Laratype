@@ -93,7 +93,7 @@ After the parent PR merges:
 
 - **Review agent-instruction and tooling changes before you base work on a branch or review its PR, and before any agent session or `bun install` runs in a checkout of it.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout:
 
-  Review the exact head SHA, not a branch that can move: `git fetch origin <branch>`, or `git fetch origin refs/pull/<N>/head` for a fork, both from a clone of the base repo, then `git diff origin/master...<sha> -- <paths>`, with `<sha>` from `git rev-parse FETCH_HEAD` and `:(glob)` in front of each path so a leading `**/` also matches the repo root. Check out or start agents only at that reviewed SHA; a new push needs a review of the delta.
+  Review the exact head SHA, not a branch that can move: `git fetch origin master`, then `git fetch origin <branch>` or `git fetch origin refs/pull/<N>/head` for a fork (from a clone of the base repo), then `git diff origin/master...<sha> -- <paths>`, with `<sha>` from `git rev-parse FETCH_HEAD` and `:(glob)` in front of each path so a leading `**/` also matches the repo root. Check out or start agents only at that reviewed SHA; a new push needs a review of the delta.
 
   The paths:
   - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
