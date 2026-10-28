@@ -16,6 +16,13 @@ import type { RawInput } from "./input";
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
 
+/**
+ * A request path as one log line: Hono decodes the path, so `%0A` is a real newline and could break or forge a line in
+ * the log (CWE-117). Control characters, C1 controls and the line separators are escaped as `\uXXXX` instead.
+ */
+const loggablePath = (path: string): string =>
+  path.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
 
@@ -376,7 +383,7 @@ export default class Request extends AppServiceProvider {
    */
   protected disposeRequestScope(scope: Container, ctx: Context): void {
     const disposal = scope.dispose().catch((error: unknown) => {
-      console.error(`[@laratype/http] ${ctx.req.method} ${ctx.req.path}: disposing the request scope failed`, error);
+      console.error(`[@laratype/http] ${ctx.req.method} ${loggablePath(ctx.req.path)}: disposing the request scope failed`, error);
     });
     this.disposals.add(disposal);
     // Dropped once settled, so `settled()` waits on the right ones and only running disposals stay in the set

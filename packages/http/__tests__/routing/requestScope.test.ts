@@ -192,4 +192,27 @@ describe('request scope under RequestKernel', () => {
       process.off('unhandledRejection', unhandled)
     }
   })
+
+  it('escapes control characters in the logged path', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    class Leaky {
+      async [Symbol.asyncDispose]() { throw new Error('close failed') }
+    }
+    class LeakyController extends Controller {
+      constructor(readonly leaky: Leaky) { super() }
+      index() { return { ok: true } }
+    }
+    __laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
+    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
+    // One segment, so `:rest` matches the decoded path: Hono's `*` middleware skips a `%0A` path on its own
+    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
+    const response = await app.request('/leaky%0Aforged%20line')
+    expect(response.status).toBe(200)
+    await kernel.settled()
+    await tick()
+    // Hono decodes the path (`%0A` is a newline), so the log line escapes it instead of starting a forged line (CWE-117)
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky\\u000aforged line: disposing the request scope failed')
+  })
 })
