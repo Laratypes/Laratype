@@ -495,7 +495,7 @@ describe('options and hooks', () => {
     expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
   })
 
-  it('sends redirect: "manual" by default, so a fetch rejecting on "error" still answers', async () => {
+  it('sends redirect: "manual" by default, so a fetch that rejects on "error" still resolves', async () => {
     const modes: Array<RequestRedirect | undefined> = []
     const fetch = vi.fn<FetchLike>(async (_input, init) => {
       modes.push(init.redirect)
