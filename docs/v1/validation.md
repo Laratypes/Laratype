@@ -13,7 +13,7 @@ v1 validates requests against the contract's Standard Schema slots: query and bo
 | Section | Status |
 |---|---|
 | [Standard Schema adapter](#standard-schema-adapter) | merged @ 883a8e2 |
-| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ 1ad388b |
+| [Pipeline validation and 422](#pipeline-validation-and-422) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ dd83fcd |
 | [FormRequest v2](#formrequest-v2) | planned → #137 |
 
 ---
@@ -51,10 +51,10 @@ See [contract.md › Validation adapter](./contract.md#validation-adapter).
 ## Pipeline validation and 422
 
 ### Status
-proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ 1ad388b (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287), H43 [#340](https://github.com/Laratypes/Laratype/issues/340)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
+proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ dd83fcd (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H26 [#287](https://github.com/Laratypes/Laratype/issues/287), H43 [#340](https://github.com/Laratypes/Laratype/issues/340)). The spec for the pipeline as a whole is in [http.md › Request pipeline](./http.md#request-pipeline).
 
 ### Public API
-No new export: `RequestKernel.handle` runs it for every `Route.api` contract route, and the handler gets the ctx (an [ad-hoc route](./http.md#ad-hoc-routes) has no contract: its body is parsed as below, a malformed one is the same 400, but nothing is validated and its handler gets the 0.5 request) typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`request/input.ts` @ 1ad388b](https://github.com/Laratypes/Laratype/blob/1ad388becaf4765f6586e866a926f53b3e386bc0/packages/http/src/request/input.ts), [`request/Request.ts` @ 1ad388b](https://github.com/Laratypes/Laratype/blob/1ad388becaf4765f6586e866a926f53b3e386bc0/packages/http/src/request/Request.ts#L286) (`RequestKernel`), [`routing/api/proof.ts` @ 1ad388b](https://github.com/Laratypes/Laratype/blob/1ad388becaf4765f6586e866a926f53b3e386bc0/packages/http/src/routing/api/proof.ts#L23-L45).
+No new export: `RequestKernel.handle` runs it for every `Route.api` contract route, and the handler gets the ctx (an [ad-hoc route](./http.md#ad-hoc-routes) has no contract: its body is parsed as below, a malformed one is the same 400, but nothing is validated and its handler gets the 0.5 request) typed by `Ctx<E>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)). Code: [`request/input.ts` @ dd83fcd](https://github.com/Laratypes/Laratype/blob/dd83fcd70056e42b127a27e06f12b81874830581/packages/http/src/request/input.ts), [`request/Request.ts` @ dd83fcd](https://github.com/Laratypes/Laratype/blob/dd83fcd70056e42b127a27e06f12b81874830581/packages/http/src/request/Request.ts#L286) (`RequestKernel`), [`routing/api/proof.ts` @ dd83fcd](https://github.com/Laratypes/Laratype/blob/dd83fcd70056e42b127a27e06f12b81874830581/packages/http/src/routing/api/proof.ts#L23-L45).
 
 ```ts
 // @laratype/http (RequestKernel is the default export of request/Request.ts)
