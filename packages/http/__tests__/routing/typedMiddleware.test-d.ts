@@ -5,7 +5,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route, defineMiddleware } from '../../src/index'
-import type { ApiRouteBuilder, ControllerOf, Ctx, MiddlewareItem, RouteProof, TypedMiddleware } from '../../src/index'
+import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, MiddlewareHandler, MiddlewareItem, RouteProof, TypedMiddleware } from '../../src/index'
 
 const posts = defineContract()({ index: endpoint.get('/'), destroy: endpoint.delete('/:post') })
 const appApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
@@ -38,6 +38,13 @@ describe('defineMiddleware', () => {
     defineMiddleware<{ user: User }>((request, next) => next({ user: 'ada' }))
     // @ts-expect-error `user` is not a key this middleware adds
     defineMiddleware<{ user: User }>((request, next) => next({ admin: true }))
+  })
+
+  test('the exported handler types describe the middleware and the keys it adds', () => {
+    expectTypeOf<Parameters<MiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext?: { user: User }) => Promise<unknown>>()
+    expectTypeOf<AnyTypedMiddleware>().toEqualTypeOf<TypedMiddleware<any>>()
+    const item: MiddlewareItem = auth
+    expectTypeOf(item).toMatchTypeOf<MiddlewareItem>()
   })
 
   test('`r.middleware()` takes 0.5 classes and typed middleware', () => {

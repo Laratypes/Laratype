@@ -50,6 +50,9 @@ describe('defineMiddleware', () => {
   it('`r.middleware()` rejects a value that is neither a class nor a typed middleware', () => {
     expect(() => Route.api(appApi, (r) => [r.middleware(42 as never).contract(posts, Plain)]))
       .toThrow('[@laratype/http] Route.api: r.middleware(): 42 is not middleware (a 0.5 Middleware class or defineMiddleware(...))')
+    // an arrow function is not a 0.5 Middleware class: `new` would throw when the request runs
+    expect(() => Route.api(appApi, (r) => [r.middleware(((_request: unknown, next: () => unknown) => next()) as never).contract(posts, Plain)]))
+      .toThrow('is not middleware (a 0.5 Middleware class or defineMiddleware(...))')
   })
 })
 

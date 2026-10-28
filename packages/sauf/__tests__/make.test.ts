@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // H6 #117 (DOC10 Q13): `sauf make:middleware` writes a stub for the v1 typed middleware API. Runs the BUILT sauf
-// (`packages/sauf/dist`), like cli.test.ts: run `bun run build` first.
+// (`packages/sauf/dist`), like packages/sauf/__tests__/manifest/cli.test.ts and devSsr.test.ts: run `bun run build`
+// first.
 
 const saufBin = fileURLToPath(new URL("../dist/index.esm.js", import.meta.url));
 const here = fileURLToPath(new URL(".", import.meta.url));

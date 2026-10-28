@@ -29,9 +29,11 @@ const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
 };
 
-/** A 0.5 `Middleware` class or a `defineMiddleware()` value; anything else would only fail when the request runs. */
+/** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
 const checkMiddleware = (middleware: unknown): void => {
-  if (typeof middleware === "function" || isTypedMiddleware(middleware)) return;
+  // An arrow function has no prototype and `new` would throw: a 0.5 Middleware must be a class
+  if (typeof middleware === "function" && middleware.prototype !== undefined) return;
+  if (isTypedMiddleware(middleware)) return;
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 

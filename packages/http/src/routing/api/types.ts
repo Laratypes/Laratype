@@ -17,7 +17,7 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
 
-/** The extensions of the middleware tuple `M`, intersected in order: a later middleware wins a key it also adds. */
+/** The extensions of the middleware tuple `M`, intersected in order: a key two middleware add must have the same type. */
 type ExtOf<M extends readonly MiddlewareItem[], X extends object = {}> = M extends readonly [
   infer H extends MiddlewareItem,
   ...infer R extends readonly MiddlewareItem[],
@@ -302,4 +302,3 @@ export type UnenforcedCap = "auth" | "authorize" | "validation";
 
 /** What `RouteEntry.unenforced` means; printed by the mount warning. */
 export const UNENFORCED_NOTICE = "auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)";
-

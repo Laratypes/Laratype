@@ -12,7 +12,7 @@ import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
-import { isTypedMiddleware } from "../middleware/defineMiddleware";
+import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
 
 /** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
@@ -188,7 +188,7 @@ export default class Request extends AppServiceProvider {
    */
   public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }, extensions: readonly object[] = []) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = this.extend({ params: input.params, query, body }, extensions);
+    const ctx = this.applyExtensions({ params: input.params, query, body }, extensions);
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
   }
 
@@ -197,7 +197,7 @@ export default class Request extends AppServiceProvider {
    * middleware, H6 #117): a later middleware wins a key it also adds, and `params` is merged one level deep, as `Ctx`
    * merges it, so an extension adds a key next to the path params instead of dropping them.
    */
-  private static extend<T extends object>(arg: T, extensions: readonly object[]): T {
+  private static applyExtensions<T extends object>(arg: T, extensions: readonly object[]): T {
     const target = arg as Record<string, unknown>;
     for (const ext of extensions) {
       for (const key of Object.keys(ext)) {
@@ -229,7 +229,7 @@ export default class Request extends AppServiceProvider {
             if(currentPipelineType === 'request') {
               handlerArg = currentPipeline.contract
                 ? await this.contractContext(currentPipeline.contract, extensions)
-                : this.extend(await this.processValidation(requestInstance, routeOption), extensions);
+                : this.applyExtensions(await this.processValidation(requestInstance, routeOption), extensions);
               return await next(arg);
             }
             else if(currentPipelineType === 'controller') {
@@ -276,8 +276,7 @@ export default class Request extends AppServiceProvider {
               return await middleware.handle(requestInstance, async (ext): Promise<unknown> => {
                 if(ext !== undefined) {
                   if(!isObject(ext)) {
-                    const name = middleware.handle.name || "anonymous";
-                    throw new TypeError(`[@laratype/http] typed middleware ${name} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
+                    throw new TypeError(`[@laratype/http] typed middleware ${middlewareName(middleware)} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
                   }
                   extensions.push(ext);
                 }
@@ -392,3 +391,4 @@ export default class Request extends AppServiceProvider {
     });
   }
 }
+

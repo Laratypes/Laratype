@@ -44,3 +44,7 @@ export const defineMiddleware = <Ext extends object = {}>(handle: MiddlewareHand
 /** Whether `value` is a `defineMiddleware()` value, not a 0.5 `Middleware` class. */
 export const isTypedMiddleware = (value: unknown): value is AnyTypedMiddleware =>
   typeof value === "object" && value !== null && (value as { readonly [TYPED_MIDDLEWARE]?: unknown })[TYPED_MIDDLEWARE] === true;
+
+/** The name the runtime errors print for a middleware: a 0.5 class's name, or a typed middleware's handle name. */
+export const middlewareName = (middleware: MiddlewareItem): string =>
+  typeof middleware === "function" ? middleware.name : middleware.handle.name || "middleware";
