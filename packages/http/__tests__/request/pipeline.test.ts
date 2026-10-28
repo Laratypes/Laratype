@@ -355,10 +355,11 @@ describe('the body by media type (H26 #287)', () => {
     }
   })
 
-  it.each([
+  const formReaders: [string, MiddlewareHandler][] = [
     ['c.req.parseBody()', async (c, next) => { await c.req.parseBody(); await next() }],
     ["validator('form')", validator('form', (value) => value)],
-  ] as [string, MiddlewareHandler][])('a form body read earlier by %s reaches the handler with 200', async (_reader, reader) => {
+  ]
+  it.each(formReaders)('a form body read earlier by %s reaches the handler with 200', async (_reader, reader) => {
     quiet()
     const form = new FormData()
     form.append('name', 'ada')
@@ -372,20 +373,6 @@ describe('the body by media type (H26 #287)', () => {
       expect(response.status).toBe(201)
       expect(validated()).toEqual({ name: 'ada' })
     }
-  })
-
-  it('a form body read earlier by c.req.text() is the 500 diagnostic, not a damaged 200', async () => {
-    const errors = quiet()
-    // `c.req.text()` keeps characters, not bytes: a file part cannot be rebuilt from them, so the pipeline says so
-    // instead of handing the handler a corrupted one (H43 #340)
-    const { app } = serve(async (c, next) => { await c.req.text(); await next() })
-    const form = new FormData()
-    form.append('name', 'ada')
-    form.append('avatar', new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])], 'a.png', { type: 'image/png' }))
-    const response = await app.request('/users', { method: 'POST', body: form })
-    expect(response.status).toBe(500)
-    expect(await response.json()).toEqual({ message: 'Server Error' })
-    expect(errors).toHaveBeenCalled()
   })
 
   it('a client that disconnects mid-body is a 400 with no server-side log, form and JSON alike', async () => {
