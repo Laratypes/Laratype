@@ -28,7 +28,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
-| [Resources](#resources) | proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d |
+| [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
@@ -652,10 +652,10 @@ Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/
 ## Resources
 
 ### Status
-proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
+merged @ 0334308 (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The refused `toJSON` and `constructor` keys and the `V extends ConcreteValue` constraint of `when()`: proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf (H38 [#323](https://github.com/Laratypes/Laratype/issues/323)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
 ### Public API
-[`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
+[`packages/http/src/resource/defineResource.ts`](https://github.com/Laratypes/Laratype/blob/c93aebf/packages/http/src/resource/defineResource.ts):
 
 ```ts
 function defineResource<M extends abstract new (...args: any) => any, R extends ResourceData>(   // an object, not an array or a promise
@@ -667,7 +667,8 @@ interface Resource<M, Out> {
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
 }
 
-function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue;   // the value as it is (a function too); KnownValue refuses any and unknown
+function when<V extends ConcreteValue>(condition: boolean, value: V): V | MissingValue;   // the value as it is (a function too)
+type ConcreteValue;   // object | string | number | boolean | bigint | symbol | void | null | undefined: not exported, it refuses unknown and lets any through
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue; one object per member of a union
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -676,15 +677,19 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
 - **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required. A union return gives one output object per member; a discriminated union's output narrows per member.
-- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). `when()` accepts a generic value: the value needs a concrete type (the `V extends ConcreteValue` constraint), so `unknown` does not compile, while `any` is not refused, as everywhere else in the route checks (and then the key stays required, like any other `any` key). The check is a constraint, not a conditional, since a conditional is deferred for a generic `V` and would reject it. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
 - `make` copies the result's own enumerable keys into a new object, symbol keys included, and a `__proto__` key stays an own key. The resource object is frozen.
+- **Refused keys:** `make` throws on a top-level `toJSON` or `constructor` key of the data `fn` returns, instead of copying it — a key that a `when()` would drop throws too, so the failure does not depend on data. A `toJSON` key makes JSON.stringify send what it returns instead of the `Out` the contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` (`content.constructor === Object`) send the body as text/html. Only the data's own enumerable top-level keys are inspected: a nested `toJSON` stays the nested object's business, and `paginate` copies the page's other fields as they are.
 
 ### Diagnostics
 - `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
+- `[@laratype/http] <Model>: the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data`
+- `[@laratype/http] <Model>: the resource function must not return a constructor key: the body would be sent as text/html instead of JSON`
 - `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
 - `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
+- A value typed `unknown`: `Argument of type 'unknown' is not assignable to parameter of type 'ConcreteValue'` (`when()`). A value of an unconstrained generic type `T` gives the same error naming `T`; constrain `T` to a concrete type such as `object` or `string`.
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example

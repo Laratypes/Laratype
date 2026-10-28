@@ -42,11 +42,27 @@ describe('the inferred output', () => {
     expectTypeOf(Fn.make).returns.toEqualTypeOf<{ format?: (id: number) => string }>()
   })
 
-  test('when() refuses an any or unknown value, whose key would look required', () => {
-    // @ts-expect-error V | MissingValue would be any
-    when(true, {} as any)
-    // @ts-expect-error V | MissingValue would be unknown
+  test('when() refuses an unknown value, whose key would look required', () => {
+    // @ts-expect-error unknown is in no ConcreteValue member: V | MissingValue would be unknown
     when(true, {} as unknown)
+  })
+
+  test('when() accepts a generic value, whose constraint is concrete', () => {
+    const fromString = <T extends string>(t: T, condition: boolean) => when(condition, t)
+    const fromNumber = <T extends number>(t: T, condition: boolean) => when(condition, t)
+    const fromModel = <T extends User>(t: T, condition: boolean) => when(condition, t)
+    const email: string = 'ada@example.com'
+    const id: number = 1
+    expectTypeOf(fromString(email, true)).toEqualTypeOf<string | MissingValue>()
+    expectTypeOf(fromNumber(id, true)).toEqualTypeOf<number | MissingValue>()
+    expectTypeOf(fromModel(user(), true)).toEqualTypeOf<User | MissingValue>()
+  })
+
+  test('when() does not refuse an any value, as no route check does; its key stays required', () => {
+    expectTypeOf(when(true, {} as any)).toEqualTypeOf<any>()
+    const Any = defineResource(User, (user) => ({ id: user.id, extra: when(true, user as any) }))
+    expectTypeOf<ReturnType<typeof Any.make>>().toHaveProperty('extra')
+    expectTypeOf<ReturnType<typeof Any.make>['extra']>().toBeAny()
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {

@@ -84,6 +84,32 @@ describe('defineResource', () => {
     expect(Object.keys(out)).toEqual(['__proto__'])
   })
 
+  it('make refuses a toJSON key, which would send its result instead of the data', () => {
+    const ToJson = defineResource(User, (user) => ({ id: user.id, toJSON: () => ({ id: 0 }) }))
+    expect(() => ToJson.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data',
+    )
+  })
+
+  it('make refuses the key even when a when() would drop it: the check runs before the filter', () => {
+    const Dropped = defineResource(User, () => ({ id: 1, toJSON: when(false, () => ({ id: 0 })) }))
+    expect(() => Dropped.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a toJSON key',
+    )
+  })
+
+  it('make leaves a nested toJSON to the nested object: only the top-level keys are checked', () => {
+    const Nested = defineResource(User, (user) => ({ meta: { toJSON: () => ({ id: user.id }) } }))
+    expect(JSON.parse(JSON.stringify(Nested.make(new User(1, 'ada'))))).toEqual({ meta: { id: 1 } })
+  })
+
+  it('make refuses a constructor key, which would send the body as text/html', () => {
+    const Ctor = defineResource(User, (user) => ({ id: user.id, constructor: user.constructor }))
+    expect(() => Ctor.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a constructor key: the body would be sent as text/html instead of JSON',
+    )
+  })
+
   it('make keeps an own symbol key, as the output type promises', () => {
     const tag = Symbol('tag')
     const Tagged = defineResource(User, (user) => ({ id: user.id, [tag]: user.name }))
