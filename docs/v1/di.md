@@ -548,13 +548,13 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
-- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)).
+- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/auth/src/support/Auth.ts)
+[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts` @ 699f1f8](https://github.com/Laratypes/Laratype/blob/699f1f8f7f91915797880f1ee6f58ccddd3536a1/packages/auth/src/support/Auth.ts) (A4 PR #330)
 
 ```ts
 // @laratype/core
@@ -595,7 +595,7 @@ export class LogManager {
 export class Log extends Facade { static readonly accessor: typeof LogManager; /* the same methods, static */ }
 
 // @laratype/auth
-export class AuthManager {
+export class AuthService {
   attempt<T extends Model>(user: T): Promise<false | Authenticated<T>>;
   user<T extends Model>(): Authenticated<T> | null;
   id<A>(): A;                                                        // throws "Method not implemented." as in 0.5
@@ -605,15 +605,17 @@ export class AuthManager {
   guard<T extends Model>(guardName: string): Authenticate<T>;
   logout(): Promise<void>;                                           // idem
 }
-export class Auth extends Facade { static readonly accessor: typeof AuthManager; /* the same methods, static; attempt() stays an instance method as in 0.5 */ }
+export class Auth extends Facade { static readonly accessor: typeof AuthService; /* the same methods, static; attempt() stays an instance method as in 0.5 */ }
 ```
+
+`AuthService` is stateless: it builds the per-guard handle of a call, and that handle resolves `@laratype/auth`'s `AuthManager` (the guards, bound in the app container by `PassportServiceProvider`, [auth.md › Guards in the container](./auth.md#guards-in-the-container)) from the current request's container. So `Auth.fake()` replaces the 0.5 methods, not the guards.
 
 ### Invariants
 - A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
 - `Hash`, `Log` and `Auth` call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
 - The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
-- The accessors of `Hash`, `Log` and `Auth` are concrete classes, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) keep their signatures: `Log` and `Auth` keep the 0.5 code, while `Hash.make()` returns a salted scrypt hash instead of 0.5's sha256 string (see the invariant below). `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
-- A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthManager`).
+- The accessors of `Hash`, `Log` and `Auth` are concrete classes, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) keep their signatures: `AuthService` keeps the 0.5 methods and delegates `attempt()` to the guard, while `Hash.make()` returns a salted scrypt hash instead of 0.5's sha256 string (see the invariant below). `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
+- A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthService`).
 - A custom `Hasher` (another format) must override `make()`, `check()`, `needsRehash()` and `isHashed()` together: the last three only understand the scrypt format `make()` writes, so overriding `make()` alone breaks every login.
 - `Hasher.make()` salts every hash (scrypt, a random 16-byte salt), so a password hash can't be matched in a query: `Model.findOneBy()` refuses a `password` key, and the auth login looks the user up by its other fields, then calls `Hash.check()`. `check()` also accepts a 0.5 sha256 hash, and a successful login replaces it (`needsRehash()`). `Model.save()` / `update()` / `updateFor()` hash a `password` value unless `isHashed()` accepts it, which is only a hash `make()` wrote (current cost, 16-byte salt, 32-byte key); a `$scrypt$` value at another cost is hashed as a plain password. `check()` refuses a stored hash at another cost, or with a shorter salt or key, without running scrypt.
 - **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. It does nothing when the token was bound again after the swap. Restore functions run in reverse order.
@@ -713,7 +715,7 @@ planned → [#153](https://github.com/Laratypes/Laratype/issues/153) (K2, M3). D
 
 ### Design (non-binding)
 - **Optional:** NestJS-style modules for large apps split by domain. An app made of plain providers keeps working.
-- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes keep `Route.prefix(...)` and `group(...)`; `imports` lists other modules.
+- **Shape:** `defineModule({ providers, routes, imports })`, where `providers` lists `ServiceProvider` classes ([ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot)), `routes` lists the module's route wiring ([http.md › Router v2](./http.md#router-v2)): contract routes take their URL from the contract tree and have no prefix, and ad-hoc routes take their path as written ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)); `imports` lists other modules.
 - **Layout:** modules sit in the optional `app/modules/` ([overview.md › Project structure](./overview.md#project-structure)).
 
 ### Open questions

@@ -1,12 +1,13 @@
 import passport from "passport";
-import { BaseEntity } from "@laratype/database";
+import type { Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault } from "@laratype/support";
+import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault, loadEnv } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
-import Authentication from "./Authentication";
-import { GuardStore } from "../support/GuardStore";
+import AuthManager from "../guard/AuthManager";
+import PassportGuard from "../guard/PassportGuard";
+import { AUTH_CONFIG } from "../guard/tokens";
 
 class StoreManagement {
   public store(req: Request, ctx: any, appState: any, meta: any, cb: (err: any, id: string) => void) {
@@ -76,51 +77,34 @@ const initialize = (passport: any, options: any) => {
 
 export default class PassportServiceProvider extends ServiceProvider {
 
-  protected handleLocalStrategy(guard: any, username: string, password: string, cb: (err: any, profile: any, info?: any) => void) {
-    const result = Authentication.login(guard, {
-      [guard.options.usernameField]: username,
-      [guard.options.passwordField]: password,
-    });
-
-    result.then((res: BaseEntity) => {
-      if(res) {
-        cb(null, res);
-        return res;
-      }
-      cb(null, false, { message: 'Incorrect username or password.' });
-    }, (err: unknown) => cb(err, false))
-  }
-
-  public async boot() {
+  /** Binds `AUTH_CONFIG` and the `AuthManager` singleton from app/config/auth.ts (A4 #151). */
+  public async register() {
     // app/config/auth.ts and the PersonalAccessToken model, from the app manifest (docs/v1/build.md › Plugin chain)
     const authEntry = manifestEntry('configs', 'auth');
     if(!authEntry) throw new Error("app/config/auth.ts not found: the app manifest has no auth config");
+
+    // app/config/auth.ts may read Env.get(), and EnvLoadServiceProvider loads the env file only in boot(), after every register()
+    loadEnv();
+    // Every register() runs before any boot() (K1 #152's ConfigLoadServiceProvider included), so config('auth') is not
+    // loaded yet: the config comes from the manifest, and K1 loads the same module later for config('auth').
     const authConfig = await loadDefault<Config.Auth>(authEntry);
-    GuardStore.setAuthConfig(authConfig);
 
     const personalModel = manifestEntry('models', 'PersonalAccessToken');
+    const tokenModel = personalModel ? await loadDefault<typeof Model>(personalModel) : undefined;
 
-    if(personalModel) {
-      GuardStore.setModelVerify(await loadDefault(personalModel));
-    }
+    this.app.instance(AUTH_CONFIG, authConfig);
+    this.app.singleton(AuthManager, (app) => new AuthManager(app.make(AUTH_CONFIG), tokenModel));
+  }
 
-    for (const guardName in authConfig.guards) {
-      const guard = authConfig.guards[guardName];
+  /** Registers the strategy of every passport guard under the guard's name. */
+  public async boot() {
+    const auth = this.app.make(AuthManager);
 
-      // TODO: Overwrite this module
-      // @ts-ignore
-      passport.use(guardName, new guard.strategy({
-        ...guard.options,
-        store: storeManagement,
-      }, (issuer: any, profile: any, cb: (err: any, profile: any, info?: any) => void) => {
-        if(guard.strategyName !== 'local') {
-          // Handle other strategies
-          cb(null, false, { message: 'Strategy not implemented' });
-          return;
-        }
-
-        this.handleLocalStrategy(guard, issuer, profile, cb);
-      }))    
+    for (const guardName in auth.config.guards) {
+      const guard = auth.guard(guardName);
+      if(guard instanceof PassportGuard) {
+        guard.register(passport, storeManagement);
+      }
     }
 
     passport.framework({

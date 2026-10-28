@@ -1,0 +1,136 @@
+import type { Request } from "@laratype/http";
+import type { Model } from "@laratype/database";
+import { ModelManagement, InternalException } from "@laratype/support";
+import JWTVerification from "../verifications/jwt";
+import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
+import type { GuardConfig } from "./tokens";
+
+export type JWTSignOptions = {
+  expiresIn?: number;
+  name: string;
+  abilities: string;
+}
+
+/**
+ * A guard that authenticates a request by its bearer token, built by `AuthManager` from one entry of
+ * `app/config/auth.ts` (A4 #151). Tokens are JWTs; with a PersonalAccessToken model, each token is also stored
+ * and must have a live record.
+ */
+export default class TokenGuard<User = any> {
+
+  constructor(
+    /** The guard's key in `app/config/auth.ts`. */
+    public readonly name: string,
+    public readonly config: GuardConfig,
+    /** The PersonalAccessToken model, when the app has one. */
+    protected readonly tokenModel?: typeof Model,
+  ) {}
+
+  /** The bearer token of the request, read only through `request.bearerToken()` (A5 #288). */
+  token(request: Request): string | undefined {
+    return request.bearerToken() || undefined;
+  }
+
+  /** The user the request's bearer token belongs to, or `false`. */
+  async user(request: Request): Promise<User | false> {
+    const token = this.token(request);
+    return token ? this.verify(token) : false;
+  }
+
+  /** The user `token` belongs to, or `false` when it is unknown, expired or does not verify. */
+  async verify(token: string): Promise<User | false> {
+    let verificationMode: string = this.config.verification;
+    let verifyRecord: any;
+
+    if (this.tokenModel) {
+      verifyRecord = await this.tokenModel.createQueryBuilder().where('token = :token and expires_at > :expires_at', {
+        token,
+        expires_at: new Date(),
+      }).getOne();
+
+      if (!verifyRecord) {
+        return false;
+      }
+
+      verificationMode = verifyRecord.verification_type;
+    }
+
+    if (verificationMode !== 'jwt') {
+      throw new UnsupportedVerificationModeException();
+    }
+
+    let decoded: any;
+    try {
+      decoded = await JWTVerification.verify(token);
+    }
+    catch (err) {
+      return false;
+    }
+
+    if (!verifyRecord) {
+      return decoded;
+    }
+
+    const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
+    const user = await modelResource?.findOneBy({
+      id: verifyRecord.tokenable_id,
+    } as any);
+
+    if (!user) {
+      return false;
+    }
+
+    verifyRecord.last_used_at = new Date();
+    await verifyRecord.save();
+
+    return user as User;
+  }
+
+  /** The user of the guard's provider model matching `fields`, or `null`. */
+  async attempt(fields: Record<string, any>): Promise<User | null> {
+    const model: typeof Model = this.config.provider;
+    return await model.findOneBy(fields) as User | null;
+  }
+
+  /** Signs a token for `user`, and stores it when the app has a PersonalAccessToken model. */
+  async issueToken(user: User, options: JWTSignOptions): Promise<string> {
+    const fieldIdName = ModelManagement.getPrimaryKeyFromModelInstance(user as any);
+    if (!fieldIdName) {
+      throw new InternalException(`Model ${(user as object).constructor.name} does not have a primary key defined.`);
+    }
+    const payload = {
+      id: (user as any)[fieldIdName],
+    };
+    const expiresIn = options.expiresIn || 3600;
+    const verificationMode = this.config.verification;
+    let token: string | undefined;
+    if (verificationMode === 'jwt') {
+      token = await JWTVerification.sign({
+        guard: this.name,
+        payload: payload,
+      }, {
+        ...options,
+        expiresIn,
+      });
+    }
+
+    if (!token) {
+      throw new UnsupportedVerificationModeException();
+    }
+
+    if (this.tokenModel) {
+      await this.tokenModel.insert({
+        tokenable_type: (user as object).constructor.name,
+        tokenable_id: payload.id,
+        name: options.name,
+        abilities: options.abilities,
+        token,
+        verification_type: verificationMode,
+        last_used_at: new Date(),
+        expires_at: new Date(Date.now() + expiresIn * 1000),
+      } as any);
+    }
+
+    return token;
+  }
+}
