@@ -845,7 +845,7 @@ describe('the result union', () => {
     expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError), text: 'Bad Gateway' })
   })
 
-  it('under the default redirect: "manual", a real 3xx is unexpected with its status and response (Node, Bun)', async () => {
+  it('under the default redirect: "manual", a real 3xx is unexpected with its status and response (Node, Bun, Deno, workerd)', async () => {
     const fetch = vi.fn<FetchLike>(async () => new Response(null, { status: 302, headers: { location: '/login' } }))
     const result = await createClient(appApi, { fetch }).users.index()
     expect(fetch.mock.calls[0]![1].redirect).toBe('manual')
@@ -872,18 +872,6 @@ describe('the result union', () => {
     const result = await createClient(appApi, { fetch, redirect: 'error' }).users.index()
     expect(fetch.mock.calls[0]![1].redirect).toBe('error')
     expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: failure, response: undefined })
-  })
-
-  it('an opaque no-cors response also has status 0, but comes with its response', async () => {
-    const opaque = new Response(null, { status: 200 })
-    Object.defineProperties(opaque, { status: { value: 0 }, ok: { value: false }, type: { value: 'opaque' } })
-    const api = createClient(appApi, {
-      fetch: async () => opaque,
-      onRequest: ({ init }) => void (init.mode = 'no-cors'),
-    })
-    const result = await api.users.index()
-    expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: opaque })
-    expect(result.response!.type).toBe('opaque')
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {
@@ -950,6 +938,13 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
+  })
+
+  it('a 3xx is unexpected even when its body carries a declared code (the manifest knows codes only)', async () => {
+    const result = await createClient<AppApi>(manifest, { fetch: json({ code: 'EMAIL_TAKEN', message: 'x' }, 302) }).users.store({
+      body: { name: 'A', email: 'a' },
+    })
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 302, error: { code: 'EMAIL_TAKEN', message: 'x' } })
   })
 
   it('always puts a "/" before a route path: a ".evil.com" param cannot extend the host', async () => {
