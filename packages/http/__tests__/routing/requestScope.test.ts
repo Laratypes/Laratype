@@ -230,14 +230,16 @@ describe('request scope under RequestKernel', () => {
     ])
   })
 
-  it('escapes a C1 control, the line separator and a bidi control in the logged path', async () => {
+  it('escapes a C1 control, the line separator and the bidi controls in the logged path', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    // U+0085 (NEL, a C1 control), U+2028 (LINE SEPARATOR) and U+202A (LEFT-TO-RIGHT EMBEDDING)
-    expect(await disposalLogs(error, ['/a%C2%85b', '/a%E2%80%A8b', '/a%E2%80%AAb'])).toEqual([
+    // U+0085 (NEL, a C1 control), U+2028 (LINE SEPARATOR), U+202A (LEFT-TO-RIGHT EMBEDDING) and U+2066
+    // (LEFT-TO-RIGHT ISOLATE): one control, one line separator and both bidi ranges
+    expect(await disposalLogs(error, ['/a%C2%85b', '/a%E2%80%A8b', '/a%E2%80%AAb', '/a%E2%81%A6b'])).toEqual([
       '[@laratype/http] GET /a\\u0085b: disposing the request scope failed',
       '[@laratype/http] GET /a\\u2028b: disposing the request scope failed',
       '[@laratype/http] GET /a\\u202ab: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u2066b: disposing the request scope failed',
     ])
   })
 })

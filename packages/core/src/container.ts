@@ -47,6 +47,15 @@ interface SingletonFrame {
   requestDep?: unknown
 }
 
+/** A request scope's values, keyed by binding (or by class when autowired), in creation order for `dispose()`. */
+type RequestCache = Map<unknown, { value: unknown }>
+
+/** The request scope a key resolves in, with its cache. */
+interface ResolutionScope {
+  scope: Container
+  cache: RequestCache
+}
+
 /** State shared by a whole container tree. */
 interface TreeState {
   /** Keys currently being built (circular dependency detection). */
@@ -136,7 +145,7 @@ export class Container {
    * Set on a request scope only: its request-scoped values, keyed by binding (or by class when autowired),
    * in creation order for `dispose()`.
    */
-  protected requestCache: Map<unknown, { value: unknown }> | undefined
+  protected requestCache: RequestCache | undefined
   protected disposed = false
 
   constructor(options: ContainerOptions = {}, parent?: Container) {
@@ -335,24 +344,26 @@ export class Container {
     return undefined
   }
 
-  /** The current request scope: this container's, else the one of the `make()` in progress (a singleton's owner sits above it). */
-  protected currentRequestScope(): Container | undefined {
-    return this.requestScope() ?? this.tree.scopeStack.at(-1)
+  /**
+   * The current request scope: this container's, else the one of the `make()` in progress (a singleton's owner sits
+   * above it), with its cache. Only request scopes are ever returned.
+   */
+  protected currentRequestScope(): ResolutionScope | undefined {
+    const scope = this.requestScope() ?? this.tree.scopeStack.at(-1)
+    const cache = scope?.requestCache
+    return scope && cache ? { scope, cache } : undefined
   }
 
   /**
    * The request scope a request-scoped `key` resolves in, with its cache. A disposed scope is spent: reading or
    * writing its cache would lose the value (nothing disposes what lands after `dispose()`), so it throws like
-   * `make()` does. `currentRequestScope()` only returns request scopes, and every one of those holds a cache.
+   * `make()` does.
    */
-  protected resolutionScope(
-    key: unknown,
-    requiredBy: string | undefined,
-  ): { scope: Container, cache: Map<unknown, { value: unknown }> } {
-    const scope = this.currentRequestScope()
-    if (!scope) throw new DiError(errors.noRequestScope(key, requiredBy))
-    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
-    return { scope, cache: scope.requestCache! }
+  protected resolutionScope(key: unknown, requiredBy: string | undefined): ResolutionScope {
+    const current = this.currentRequestScope()
+    if (!current) throw new DiError(errors.noRequestScope(key, requiredBy))
+    if (current.scope.disposed) throw new DiError(errors.requestScopeDisposed)
+    return current
   }
 
   /** The value of a request-scoped `key`, built once per request scope and cached there under `cacheKey`. */
