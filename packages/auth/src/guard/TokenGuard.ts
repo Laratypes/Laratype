@@ -11,8 +11,8 @@ const ALIAS = "user";
 let unknownUserHash: string | undefined;
 
 /** A value a lookup can compare in the query: a string, a boolean, or a finite number. */
-const isLookupValue = (value: unknown) =>
-  typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+const isLookupValue = (value: unknown): value is string | boolean | number =>
+  typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 
 export type JWTSignOptions = {
   expiresIn?: number;
@@ -104,9 +104,9 @@ export default class TokenGuard<User = any> {
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
     // The model hashes its own credential column, so the guard must check the same one
-    const declared: string | undefined = model.passwordField;
+    const declared: string | undefined = (model as { passwordField?: string }).passwordField;
     const passwordField: string = this.config.options?.passwordField ?? declared ?? "password";
-    if (typeof declared === 'string' && declared !== passwordField) {
+    if (typeof declared === "string" && declared !== passwordField) {
       throw new Error(
         `[@laratype/auth] ${model.name} hashes "${declared}", not the guard's passwordField "${passwordField}": set static passwordField on the model, or use the same name in options.`,
       );
@@ -123,7 +123,9 @@ export default class TokenGuard<User = any> {
     // addSelect: the password column is usually { select: false }
     const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
     if (!user) {
-      await Hash.checkAsync(password, unknownUserHash ??= Hash.make(""));
+      // One dummy hash per process: an unknown user must take as long as a wrong password, without blocking the loop
+      if (!unknownUserHash) unknownUserHash = await Hash.makeAsync("");
+      await Hash.checkAsync(password, unknownUserHash);
       return null;
     }
 

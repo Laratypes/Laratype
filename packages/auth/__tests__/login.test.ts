@@ -107,21 +107,16 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
 describe('TokenGuard.attempt()', () => {
   it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    const checkAsync = vi.spyOn(Hash, 'checkAsync')
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
+    expect(checkAsync).toHaveBeenCalledWith('secret', expect.any(String))
+    checkAsync.mockRestore()
     // { select: false }: the password is not a key at all, not a key set to undefined
     expect(Object.hasOwn(user as object, 'password')).toBe(false)
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
     expect(calls.addSelect).toEqual(['user.password'])
     expect(calls.update).toEqual([])
-  })
-
-  it('checks the password with Hash.checkAsync()', async () => {
-    const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const checkAsync = vi.spyOn(Hash, 'checkAsync')
-    expect(await attempt(User, { email: 'ada@example.com', password: 'secret' })).not.toBeNull()
-    expect(checkAsync).toHaveBeenCalledWith('secret', expect.any(String))
-    checkAsync.mockRestore()
   })
 
   it('never puts the plain password in the lookup', async () => {
@@ -276,34 +271,36 @@ describe('a custom password column end to end', () => {
       static override readonly fillable = ['email', 'pass']
       static override readonly passwordField = 'pass'
     }
-    ;(Account as any).getRepository = () => ({
-      metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
-      save: async (data: Row) => {
-        const row = { id: rows.length + 1, ...data }
-        rows.push(row)
-        return row
-      },
-      update: async (id: number, data: Partial<Row>) => {
-        Object.assign(rows.find((row) => row.id === id)!, data)
+    Object.assign(Account, {
+      getRepository: () => ({
+        metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
+        save: async (data: Row) => {
+          const row = { id: rows.length + 1, ...data }
+          rows.push(row)
+          return row
+        },
+        update: async (id: number, data: Partial<Row>) => {
+          Object.assign(rows.find((row) => row.id === id)!, data)
+        },
+      }),
+      createQueryBuilder: () => {
+        let where: Record<string, unknown> = {}
+        const query = {
+          where(value: Record<string, unknown>) {
+            where = value
+            return query
+          },
+          addSelect() {
+            return query
+          },
+          getOne: async () => {
+            const row = rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value))
+            return row ? Object.assign(new Account(), row) : null
+          },
+        }
+        return query
       },
     })
-    ;(Account as any).createQueryBuilder = () => {
-      let where: Record<string, unknown> = {}
-      const query = {
-        where(value: Record<string, unknown>) {
-          where = value
-          return query
-        },
-        addSelect() {
-          return query
-        },
-        getOne: async () => {
-          const row = rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value))
-          return row ? Object.assign(new Account(), row) : null
-        },
-      }
-      return query
-    }
     return { Account, rows }
   }
 

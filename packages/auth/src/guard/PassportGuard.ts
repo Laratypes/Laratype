@@ -12,20 +12,21 @@ export default class PassportGuard<User = any> extends TokenGuard<User> {
 
   /** Registers the guard's strategy with `passport` under the guard's name. */
   register(passport: PassportStatic, store: unknown) {
+    const local = this.config.strategyName === 'local';
     const { usernameField, passwordField } = this.config.options ?? {};
     // The local verify callback looks the user up by exactly these keys: without them it would query `undefined`
-    if (this.config.strategyName === 'local' && (
+    if (local && (
       typeof usernameField !== 'string' || typeof passwordField !== 'string'
       || usernameField === '' || passwordField === ''
     )) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy needs options.usernameField and options.passwordField.`);
     }
     // One key would be both the lookup and the password, so attempt() would drop it and query without a lookup field
-    if (this.config.strategyName === 'local' && usernameField === passwordField) {
+    if (local && usernameField === passwordField) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": options.usernameField and options.passwordField must be different fields.`);
     }
     // With it passport-local calls verify(req, username, password, done), and the callback below takes three arguments
-    if (this.config.strategyName === 'local' && this.config.options?.passReqToCallback) {
+    if (local && this.config.options?.passReqToCallback) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy does not support options.passReqToCallback.`);
     }
     const Strategy = this.config.strategy as any;
