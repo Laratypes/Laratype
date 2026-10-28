@@ -15,7 +15,7 @@ last-verified: 2026-10-09
 | [Typed Register](#typed-register) | planned → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
-| [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee |
+| [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9 |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
 ---
@@ -79,10 +79,10 @@ A scope policy can define `before(user, params)` for the check shared by every e
 ## Guards in the container
 
 ### Status
-merged @ ea7ab23 ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3), on top of #330's guards. The `attempt()` password check is proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee. The auth config is bound in `register()` from the app manifest, not through `config('auth')`, because K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the config store after every `register()` (see [Invariants](#invariants)). The shared driver `Manager` stays F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard needs a session package; see the [Open questions](#open-questions).
+merged @ ea7ab23 ([#151](https://github.com/Laratypes/Laratype/issues/151), A4, M3), on top of #330's guards. The `attempt()` password check is proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9. The auth config is bound in `register()` from the app manifest, not through `config('auth')`, because K1 [#152](https://github.com/Laratypes/Laratype/issues/152) fills the config store after every `register()` (see [Invariants](#invariants)). The shared driver `Manager` stays F1 [#160](https://github.com/Laratypes/Laratype/issues/160), and the session guard needs a session package; see the [Open questions](#open-questions).
 
 ### Public API
-[`packages/auth/src/guard/` @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee](https://github.com/Laratypes/Laratype/tree/6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee/packages/auth/src/guard) (`AuthManager.ts`, `TokenGuard.ts`, `PassportGuard.ts`, `tokens.ts`), exported from `@laratype/auth`; the D8 facade `Auth` and its `AuthService` come from [`packages/auth/src/support/Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts).
+[`packages/auth/src/guard/` @ cb42cccc6121ad1471e462e7560d50e7903cc5e9](https://github.com/Laratypes/Laratype/tree/cb42cccc6121ad1471e462e7560d50e7903cc5e9/packages/auth/src/guard) (`AuthManager.ts`, `TokenGuard.ts`, `PassportGuard.ts`, `tokens.ts`), exported from `@laratype/auth`; the D8 facade `Auth` and its `AuthService` come from [`packages/auth/src/support/Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts).
 
 ```ts
 // @laratype/auth

@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | planned → #112 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`, and `makeAsync()` / `checkAsync()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`, and `makeAsync()` / `checkAsync()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9 |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -549,13 +549,13 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
 - Facades: merged @ a6fb351 (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
-- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`, plus `makeAsync()` / `checkAsync()` for the request path: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee.
+- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`, plus `makeAsync()` / `checkAsync()` for the request path: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ cb42cccc6121ad1471e462e7560d50e7903cc5e9.
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee](https://github.com/Laratypes/Laratype/blob/6c1b3e13c27126ef2c1e9b7b971eb9a0e9a4aaee/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330)
+[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ cb42cccc6121ad1471e462e7560d50e7903cc5e9](https://github.com/Laratypes/Laratype/blob/cb42cccc6121ad1471e462e7560d50e7903cc5e9/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330)
 
 ```ts
 // @laratype/core
