@@ -1,7 +1,7 @@
 ---
 area: di
 packages: ["@laratype/core", "sauf", "@laratype/support", "laratype", "@laratype/log", "@laratype/auth"]
-issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158]
+issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158, 269]
 verified-against: Laratype@d9e8df2
 last-verified: 2026-10-12
 ---
@@ -456,7 +456,7 @@ export function laratypeDi(options?: DiTransformOptions): Plugin;  // Vite plugi
 - **Source maps:** the plugin returns the transform's map, and Vite composes it with SWC's, so positions point at the original source.
 - **HMR restart:** the plugin keeps no per-server state except the root, which it reads in `configResolved`. On a `--hmr` restart, `dev.ts` reboots the app on the same server and Vite transforms changed files again. `__laratype_deps` registrations are configurable, so a re-run class registers again.
 - **Kernel container:** `Serve.getContainer()` creates `new Container({ deps: depsRegistry })` ([#102 comment](https://github.com/Laratypes/Laratype/issues/102#issuecomment-6084336635)), so the kernel autowires classes with constructor deps through the generated metadata.
-- **Controllers:** the router resolves controllers with `app.make()`, for `Route.api` and 0.5 routes (merged, H2a [#105](https://github.com/Laratypes/Laratype/issues/105); [http.md › Controller resolution](./http.md#controller-resolution)). `examples/basic` also resolves its `GreetingController` from the kernel container in `RouteServiceProvider.boot()`.
+- **Controllers, middleware and policies:** the router resolves controllers with `app.make()`, for `Route.api` and 0.5 routes (merged, H2a [#105](https://github.com/Laratypes/Laratype/issues/105); [http.md › Controller resolution](./http.md#controller-resolution)), and the request pipeline resolves every middleware and the 0.5 `can()` policy the same way (proposed, H21 [#269](https://github.com/Laratypes/Laratype/issues/269); [http.md › Middleware and policy resolution](./http.md#middleware-and-policy-resolution)). `examples/basic` also resolves its `GreetingController` from the kernel container in `RouteServiceProvider.boot()`.
 
 ### Diagnostics
 None of its own. The transform never throws on user code, and resolve-time failures are [Container](#container) `DiError`s.
