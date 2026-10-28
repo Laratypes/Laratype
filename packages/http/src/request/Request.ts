@@ -18,10 +18,12 @@ const CONTAINER = "laratype.container";
 
 /**
  * A request path as one log line: Hono decodes the path, so `%0A` is a real newline and could break or forge a line in
- * the log (CWE-117). Control characters, C1 controls and the line separators are escaped as `\uXXXX` instead.
+ * the log (CWE-117). Control characters, C1 controls, the line separators and the bidi controls are escaped as
+ * `\uXXXX`, and a backslash as `\\`, so a literal `\u000a` a client sent never reads as the escaped newline.
  */
 const loggablePath = (path: string): string =>
-  path.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  path.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+    char === "\\" ? "\\\\" : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
@@ -382,8 +384,11 @@ export default class Request extends AppServiceProvider {
    * once, never turned into an error response. The rejection is handled on the promise itself, so it is never unhandled.
    */
   protected disposeRequestScope(scope: Container, ctx: Context): void {
+    // Read before the disposal starts: the catch closure keeps only this line alive, not the whole context, while a
+    // disposer hangs
+    const label = `${ctx.req.method} ${loggablePath(ctx.req.path)}`;
     const disposal = scope.dispose().catch((error: unknown) => {
-      console.error(`[@laratype/http] ${ctx.req.method} ${loggablePath(ctx.req.path)}: disposing the request scope failed`, error);
+      console.error(`[@laratype/http] ${label}: disposing the request scope failed`, error);
     });
     this.disposals.add(disposal);
     // Dropped once settled, so `settled()` waits on the right ones and only running disposals stay in the set
