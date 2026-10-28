@@ -206,9 +206,44 @@ describe('request scope under RequestKernel', () => {
     const response = await app.request('/leaky%0Aforged%20line')
     expect(response.status).toBe(200)
     await kernel.settled()
-    await tick()
     // Hono decodes the path (`%0A` is a newline), so the log line escapes it instead of starting a forged line (CWE-117)
     expect(error).toHaveBeenCalledTimes(1)
     expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky\\u000aforged line: disposing the request scope failed')
+  })
+
+  it('logs a literal backslash-u000a path differently from a decoded newline', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
+    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
+    const logs: string[] = []
+    for (const path of ['/a%5Cu000a', '/a%0A']) {
+      expect((await app.request(path)).status).toBe(200)
+      await kernel.settled()
+      logs.push(error.mock.calls.at(-1)![0] as string)
+    }
+    // The backslash is escaped too: the literal `\u000a` a client sent can't read as the real newline's escape
+    expect(logs).toEqual([
+      '[@laratype/http] GET /a\\\\u000a: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u000a: disposing the request scope failed',
+    ])
+  })
+
+  it('escapes a C1 control and the line separator in the logged path', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
+    app.get('/:rest', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
+    const logs: string[] = []
+    // U+0085 (NEL, a C1 control) and U+2028 (LINE SEPARATOR)
+    for (const path of ['/a%C2%85b', '/a%E2%80%A8b']) {
+      expect((await app.request(path)).status).toBe(200)
+      await kernel.settled()
+      logs.push(error.mock.calls.at(-1)![0] as string)
+    }
+    expect(logs).toEqual([
+      '[@laratype/http] GET /a\\u0085b: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u2028b: disposing the request scope failed',
+    ])
   })
 })
