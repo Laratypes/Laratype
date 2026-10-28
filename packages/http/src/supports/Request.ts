@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { HonoRequest } from "hono/request";
 import { getConnInfo as getNodeConnInfo } from "@hono/node-server/conninfo";
-import { z, ZodType } from "zod";
+import type { InferOut, StandardSchemaV1 } from "@laratype/contract";
 import type { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
 import { has } from "es-toolkit/compat"
@@ -20,6 +20,12 @@ type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globa
  * connection from it. A symbol, so a request class's own fields and constructor can't clash with it or drop it.
  */
 export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
+
+/**
+ * The brand of the default `rules()`: the kernel skips validation for a request class that doesn't override it. A
+ * `Symbol.for` key, so it holds across two copies of @laratype/http (CJS and ESM), where prototype identity fails.
+ */
+export const DEFAULT_RULES: unique symbol = Symbol.for("laratype.http.defaultRules");
 
 /** `request.ip()` read from the Hono context: the rate limit (#229) keys on it before the request is built. */
 export const clientIp = (ctx: Context | undefined): string => {
@@ -152,8 +158,11 @@ export default class Request implements RequestInterface {
     return this.requestCtx.method;
   }
 
-  validated(): z.infer<ReturnType<typeof this['rules']> extends ZodType ? ReturnType<typeof this['rules']>: ZodType> {
-    return {}
+  /** The output of the `rules()` schema, any Standard Schema (zod, valibot, ...): coerced and defaulted values. */
+  validated(): ReturnType<this['rules']> extends StandardSchemaV1 ? InferOut<ReturnType<this['rules']>> : any {
+    return {} as never
   }
 
 }
+
+Object.defineProperty(Request.prototype.rules, DEFAULT_RULES, { value: true });

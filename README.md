@@ -68,7 +68,7 @@ Status as recorded in [`docs/v1/overview.md`](docs/v1/overview.md#package-graph)
 | `@laratype/client` | Typed frontend client, `createClient(appApi)` | Available (CL1, CL2) |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | ServiceProvider v2 available (D4); other helpers 0.5 |
 | `sauf` | CLI, dev server, constructor DI transform | 0.5. Constructor DI transform available (T1, T3), wired into `sauf dev` (T2) |
-| `@laratype/http` | Router v2, request pipeline, controllers | 0.5. v1 planned → [#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#106](https://github.com/Laratypes/Laratype/issues/106) |
+| `@laratype/http` | Router v2, request pipeline, controllers | 0.5. v1 Router v2, controllers and request validation merged ([#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#106](https://github.com/Laratypes/Laratype/issues/106)) |
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5. v1 planned → [#137](https://github.com/Laratypes/Laratype/issues/137) |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5. v1 planned → [#119](https://github.com/Laratypes/Laratype/issues/119), [#120](https://github.com/Laratypes/Laratype/issues/120), [#121](https://github.com/Laratypes/Laratype/issues/121) |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM). v1 waits for the ORM decision → [#88](https://github.com/Laratypes/Laratype/issues/88) |
