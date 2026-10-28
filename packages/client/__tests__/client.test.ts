@@ -495,19 +495,30 @@ describe('options and hooks', () => {
     expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
   })
 
-  it('sets redirect on every call from options.redirect, default "error"', async () => {
+  it('sends redirect: "manual" by default: a fetch rejecting on "error" still answers (workerd rejects "error")', async () => {
+    const modes: Array<RequestRedirect | undefined> = []
+    const fetch = vi.fn<FetchLike>(async (_input, init) => {
+      modes.push(init.redirect)
+      if (init.redirect === 'error') throw new TypeError('redirect: "error" is not supported')
+      return new Response('{}', { status: 200 })
+    })
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(result.ok).toBe(true)
+    expect(modes).toEqual(['manual'])
+  })
+
+  it('passes redirect: "follow" and "error" through when the app opts in', async () => {
     const { fetch } = fakeFetch()
-    await createClient(appApi, { fetch }).users.index()
     await createClient(appApi, { fetch, redirect: 'follow' }).users.index()
-    await createClient(appApi, { fetch, redirect: 'manual' }).users.index()
-    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['error', 'follow', 'manual'])
+    await createClient(appApi, { fetch, redirect: 'error' }).users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'error'])
   })
 
   it('onRequest setting request.init.redirect wins over options.redirect', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, {
       fetch,
-      redirect: 'error',
+      redirect: 'manual',
       onRequest: ({ init }) => void (init.redirect = 'follow'),
     })
     await api.users.index()
@@ -523,7 +534,7 @@ describe('options and hooks', () => {
     await api.users.index()
     options.redirect = undefined
     await api.users.index()
-    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'manual', 'error'])
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'manual', 'manual'])
   })
 
   it('onRequest gets the url and the merged init just before fetch, and may change the init', async () => {
@@ -834,12 +845,33 @@ describe('the result union', () => {
     expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError), text: 'Bad Gateway' })
   })
 
-  it('an opaque response (redirect: "manual", no-cors) also has status 0, but comes with its response', async () => {
-    const opaque = Object.assign(new Response(null, { status: 200 }), {}) as Response
+  it('under the default redirect: "manual", a real 3xx is unexpected with its status and response (Node, Bun)', async () => {
+    const fetch = vi.fn<FetchLike>(async () => new Response(null, { status: 302, headers: { location: '/login' } }))
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('manual')
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 302, response: expect.any(Response) })
+    expect(result.response!.headers.get('location')).toBe('/login')
+  })
+
+  it('under the default redirect: "manual", a browser opaqueredirect is status 0 with its response', async () => {
+    const opaque = new Response(null, { status: 200 })
     Object.defineProperties(opaque, { status: { value: 0 }, ok: { value: false }, type: { value: 'opaqueredirect' } })
-    const result = await createClient(appApi, { fetch: async () => opaque }).users.index()
+    const fetch = vi.fn<FetchLike>(async () => opaque)
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('manual')
     expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: opaque })
     expect(result.response!.type).toBe('opaqueredirect')
+  })
+
+  it('the "error" opt-in makes fetch reject: the status-0 unexpected result, without response', async () => {
+    const failure = new TypeError('Failed to fetch')
+    const fetch = vi.fn<FetchLike>(async (_input, init) => {
+      if (init.redirect === 'error') throw failure
+      return new Response('{}', { status: 200 })
+    })
+    const result = await createClient(appApi, { fetch, redirect: 'error' }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('error')
+    expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: failure, response: undefined })
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {
