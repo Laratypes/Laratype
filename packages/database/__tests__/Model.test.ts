@@ -79,4 +79,27 @@ describe('Model password cast', () => {
     expect(() => User.findOneBy({ email: 'ada@example.com', password: Hash.make('secret') })).toThrow()
     expect(lookups).toEqual([])
   })
+
+  it('hashes and refuses the credential column a model declares with static passwordField', async () => {
+    const { User, saved, lookups } = model()
+    class Account extends Model {
+      id!: number
+      email!: string
+      pass!: string
+      static override readonly fillable = ['email', 'pass']
+      static override readonly passwordField = 'pass'
+    }
+    ;(Account as any).getRepository = (User as any).getRepository
+
+    await Account.save({ email: 'ada@example.com', pass: 'secret' })
+    expect(saved[0]!.pass).toMatch(/^\$scrypt\$N=16384,r=8,p=1\$/)
+    expect(saved[0]!.password).toBeUndefined()
+    expect(Hash.check('secret', saved[0]!.pass)).toBe(true)
+
+    expect(() => Account.findOneBy({ email: 'ada@example.com', pass: 'secret' })).toThrow(
+      'findOneBy() cannot look a user up by password',
+    )
+    expect(() => Account.findOneBy({ email: 'ada@example.com', password: 'secret' })).not.toThrow()
+    expect(lookups).toEqual([{ email: 'ada@example.com', password: 'secret' }])
+  })
 })

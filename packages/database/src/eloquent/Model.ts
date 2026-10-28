@@ -1,12 +1,12 @@
 import { Hash } from "@laratype/support";
 import { BaseEntity, type DeepPartial, type SaveOptions, type FindOptionsWhere } from "typeorm";
 
-const cast = (input: Record<string, any>) => {
+const cast = (input: Record<string, any>, passwordField: string) => {
   const result: Record<string, any> = {};
   for (const key in input) {
     result[key] = input[key];
     // A value that is already a hash is stored as it is, not hashed again
-    if (key === 'password' && !Hash.isHashed(input[key])) {
+    if (key === passwordField && !Hash.isHashed(input[key])) {
       result[key] = Hash.make(input[key]);
     }
   }
@@ -28,6 +28,12 @@ export default class Model extends BaseEntity {
   static readonly fillable: string[] = [];
 
   /**
+   * The credential column: `save()`, `update()` and `updateFor()` hash a plain value in it, and `findOneBy()` refuses
+   * it. A model that stores the password in another column overrides it, and the guard's `passwordField` names the same.
+   */
+  static readonly passwordField: string = 'password';
+
+  /**
    * Saves all given entities in the database.
    * If entities do not exist in the database then inserts, otherwise updates.
    */
@@ -46,18 +52,18 @@ export default class Model extends BaseEntity {
     if(Array.isArray(data)) {
       const input: Record<string, any>[] = [];
       data.forEach(item => {
-        const castedItem = cast(fillableGuard(item, this.fillable));
+        const castedItem = cast(fillableGuard(item, this.fillable), this.passwordField);
         input.push(castedItem);
       });
       return super.save(input, options);
     }
 
-    const input = cast(fillableGuard(data, this.fillable));
+    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
     return super.save(input, options);
   }
 
   static update(criteria: any, data: any) {
-    const input = cast(fillableGuard(data, this.fillable));
+    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
     
     return super.update(criteria, input);
   }
@@ -70,7 +76,7 @@ export default class Model extends BaseEntity {
   } & typeof BaseEntity, model: T, data: DeepPartial<T>): Promise<T>;
 
   static updateFor(model: any, data: any) {
-    const input = cast(fillableGuard(data, this.fillable));
+    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
     for (const field in input) {
       if(Object.prototype.hasOwnProperty.call(model, field)) {
         model[field] = input[field];
@@ -90,7 +96,7 @@ export default class Model extends BaseEntity {
   // Not cast: a salted password hash never matches in a where clause; check it with Hash.check() after the lookup
   static findOneBy(where: any) {
     // A 0.5 caller's { email, password } would put a plain password in the SQL parameters and never match a hash
-    if (where && typeof where === 'object' && Object.prototype.hasOwnProperty.call(where, 'password')) {
+    if (where && typeof where === 'object' && Object.prototype.hasOwnProperty.call(where, this.passwordField)) {
       throw new Error(
         "[@laratype/database] findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()",
       );
