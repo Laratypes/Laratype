@@ -28,7 +28,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
-| [Resources](#resources) | proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d |
+| [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
@@ -652,10 +652,10 @@ Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/
 ## Resources
 
 ### Status
-proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
+merged @ 0334308 (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The refused `toJSON` and `constructor` keys and the `V extends ConcreteValue` constraint of `when()`: proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf (H38 [#323](https://github.com/Laratypes/Laratype/issues/323)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
 ### Public API
-[`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
+[`packages/http/src/resource/defineResource.ts`](https://github.com/Laratypes/Laratype/blob/c93aebf/packages/http/src/resource/defineResource.ts):
 
 ```ts
 function defineResource<M extends abstract new (...args: any) => any, R extends ResourceData>(   // an object, not an array or a promise
@@ -689,7 +689,7 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - `[@laratype/http] <Model>: the resource function must not return a constructor key: the body would be sent as text/html instead of JSON`
 - `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
 - `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
-- A value typed `unknown` (or one with no concrete type): `Argument of type 'unknown' is not assignable to parameter of type 'ConcreteValue'` (`when()`).
+- A value typed `unknown`: `Argument of type 'unknown' is not assignable to parameter of type 'ConcreteValue'` (`when()`). A value of an unconstrained generic type `T` gives the same error naming `T`; constrain `T` to a concrete type such as `object` or `string`.
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example
