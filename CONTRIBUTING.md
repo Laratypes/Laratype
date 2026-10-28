@@ -46,6 +46,7 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
+| Client tests | `bunx vitest run packages/client` |
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
@@ -90,9 +91,9 @@ After the parent PR merges:
 
 ## Security
 
-- **Review agent-instruction and tooling changes before anything runs in their checkout.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout, before you base work on the branch and before any agent session or `bun install` starts there:
+- **Review agent-instruction and tooling changes before anything runs in their checkout.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout, before you base work on the branch or review its PR, and before any agent session or `bun install` starts there:
 
-  `git diff origin/master...origin/<branch> -- <paths>`
+  `git diff origin/master...origin/<branch> -- <paths>`, with `:(glob)` in front of each path so a leading `**/` also matches the repo root.
 
   The paths:
   - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
