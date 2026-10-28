@@ -223,8 +223,9 @@ export class Container {
   }
 
   /**
-   * A child container for one request: request-scoped values are built once in it, until `dispose()`.
-   * A disposed request scope, or a child of one, throws instead.
+   * A child container for one request: request-scoped values are built once in it, until `dispose()`. It throws under a
+   * disposed request scope, or under a plain child of one; a nested request scope made before the disposal is not
+   * disposed with it, so it keeps resolving until it is disposed itself.
    */
   createRequestScope(options: ContainerOptions = {}): Container {
     if (this.requestScope()?.disposed) throw new DiError('Request scope already disposed.')
