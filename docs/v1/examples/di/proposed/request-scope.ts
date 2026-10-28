@@ -36,8 +36,8 @@ export async function handle(requestId: string) {
     expectTypeOf(orders).toEqualTypeOf<OrderService>()
     return orders.uow === scope.make(UnitOfWork) // true: one UnitOfWork per request
   } finally {
-    // Started, never awaited, and its rejection is handled on the promise: a slow or hung disposer cannot delay the
-    // response, and a failing one is logged instead of becoming an unhandled rejection
+    // Started, never awaited, so a slow or hung disposer cannot delay or hang the response. A failure is logged once
+    // instead of becoming an unhandled rejection; RequestKernel adds the method and path to this message (Diagnostics).
     void scope.dispose().catch((error: unknown) => console.error('disposing the request scope failed', error))
   }
 }

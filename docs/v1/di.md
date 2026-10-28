@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ dda9cbd |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1a5f4cd |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
@@ -519,10 +519,10 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ dda9cbd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
+proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1a5f4cd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Public API
-[`container.ts` @ 902190d](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L225-L260) · [`Request.ts` @ dda9cbd](https://github.com/Laratypes/Laratype/blob/dda9cbd2eb00f17f5feaa60920746a1a1d78d71b/packages/http/src/request/Request.ts#L347-L361) (`RequestKernel.boot()`) · [`disposeRequestScope()`](https://github.com/Laratypes/Laratype/blob/dda9cbd2eb00f17f5feaa60920746a1a1d78d71b/packages/http/src/request/Request.ts#L373-L384) · [`settled()`](https://github.com/Laratypes/Laratype/blob/dda9cbd2eb00f17f5feaa60920746a1a1d78d71b/packages/http/src/request/Request.ts#L363-L371) (`@internal`, tests only)
+[`container.ts` @ 902190d](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L225-L260) · [`Request.ts` @ 1a5f4cd](https://github.com/Laratypes/Laratype/blob/1a5f4cdfaffa50df1c7cd0784de1b191c79ea3f5/packages/http/src/request/Request.ts#L347-L361) (`RequestKernel.boot()`) · [`settled()`](https://github.com/Laratypes/Laratype/blob/1a5f4cdfaffa50df1c7cd0784de1b191c79ea3f5/packages/http/src/request/Request.ts#L363-L371) (`@internal`, tests only)
 
 ```ts
 export type Scope = 'transient' | 'request' | 'singleton';
@@ -571,7 +571,7 @@ Other messages:
 Type-only (`container.types.test.ts`, `decorators.test.ts`): `scoped()` rejects what `singleton()` rejects (a wrong concrete type, self-binding an abstract class or a token), and an unknown scope name is a type error. `RequestKernel.settled()` (`@internal`) is typed `() => Promise<void>`.
 
 ### Example
-[`examples/di/proposed/request-scope.ts`](./examples/di/proposed/request-scope.ts). Tests: [`packages/core/__tests__/requestScope.test.ts`](../../packages/core/__tests__/requestScope.test.ts) and [`packages/http/__tests__/routing/requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests through Hono; the disposal awaits through the kernel's internal `settled()` hook, including a slow, a hung and a failing disposer instead of timing).
+[`examples/di/proposed/request-scope.ts`](./examples/di/proposed/request-scope.ts). Tests: [`packages/core/__tests__/requestScope.test.ts`](../../packages/core/__tests__/requestScope.test.ts) and [`packages/http/__tests__/routing/requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests through Hono; the slow and failing disposers are awaited through the kernel's internal `settled()` hook instead of timing, a disposer that never settles stays pending on purpose and is proven not to hang the response, and `make()` on a disposed scope is covered for a request-scoped key, a singleton, a transient and an autowired class).
 
 ### Non-goals
 - No async factories or async resolution (as in [Container](#container)).

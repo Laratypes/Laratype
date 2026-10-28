@@ -19,7 +19,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
-| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ dda9cbd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1a5f4cd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -373,7 +373,7 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ## Controller resolution
 
 ### Status
-merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The request scope is proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ dda9cbd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)), specified in [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
+merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The request scope is proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1a5f4cd (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)), specified in [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Invariants
 - **Resolution:** `Request.controllerKernel` resolves the controller with `Request.container().make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
@@ -385,7 +385,7 @@ merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The requ
 - **Kernel container:** the kernel container passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 
 ### Example
-Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts) and [`requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests, and disposal after the response through the kernel's internal `settled()` hook: a slow, a hung and a failing disposer). In `examples/basic`, `GreetingService` is injected into `GreetingController` with no decorator.
+Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts) and [`requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests, and disposal after the response: the slow and failing disposers awaited through the kernel's internal `settled()` hook, and a disposer that never settles proven not to hang the response). In `examples/basic`, `GreetingService` is injected into `GreetingController` with no decorator.
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105)
