@@ -4,7 +4,6 @@ import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/m
 import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
-import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
 import LoginRequest from "../../src/http/requests/LoginRequest";
 
 const authRoutes: RouteOptions = {
@@ -59,24 +58,9 @@ const authGuardedRoutes: RouteOptions = {
     AuthGuard,
   ],
   children: [
-    {
-      // GET /api/users, POST /api/users and GET /api/users/:id are served by the v1 contract (app/api/users.ts, mounted
-      // in routes/api.ts); this node keeps the 0.5 PATCH and DELETE routes below it until they are migrated.
-      path: "/users",
-      children: [
-        {
-          path: '/:activeUser',
-          method: 'patch',
-          request: UpdateUserRequest,
-          controller: controller(UserController, 'update'),
-        },
-        {
-          path: '/:id',
-          method: 'delete',
-          controller: controller(UserController, 'destroy'),
-        }
-      ]
-    },
+    // /api/users is the v1 contract's alone (app/api/users.ts, mounted in routes/api.ts): the 0.5 GET /api/users/:user,
+    // PATCH /api/users/:activeUser and DELETE /api/users/:id children are gone (E1 #344). PATCH and DELETE on
+    // /api/users now answer 404 until the v1 endpoints exist.
     {
       path: "/me",
       controller: controller(UserController, 'me'),

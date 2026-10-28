@@ -33,20 +33,25 @@ describe("GET /api/users", () => {
     expect(body).toEqual({ data: expect.any(Array) });
   });
 
-  it("is served by the contract: no 0.5 route registers GET or POST /api/users", async () => {
+  it("is served by the contract alone: no 0.5 route keeps a /api/users path", async () => {
     const registered = example.app.routes.filter(
       (route) => route.path === "/api/users" && (route.method === "GET" || route.method === "POST"),
     );
     // The v1 contract's index (GET) and store (POST). A leftover 0.5 GET/POST would add one more of each.
     expect(registered.map((route) => route.method).sort()).toEqual(["GET", "POST"]);
 
-    // GET /api/users/:id is the v1 show route (its param is `id`): the 0.5 GET /api/users/:user it shadowed is gone,
-    // while the 0.5 PATCH and DELETE children of the same node stay mounted.
+    // /api/users is the v1 contract's alone (E1 #344): GET /api/users/:id is its show route (param `id`), and the 0.5
+    // GET /api/users/:user, PATCH /api/users/:activeUser and DELETE /api/users/:id children are all gone.
     const paths = (method: string) =>
       new Set(example.app.routes.filter((route) => route.method === method).map((route) => route.path));
     expect(paths("GET")).not.toContain("/api/users/:user");
-    expect(paths("PATCH")).toContain("/api/users/:activeUser");
-    expect(paths("DELETE")).toContain("/api/users/:id");
+    expect(paths("PATCH")).not.toContain("/api/users/:activeUser");
+    expect(paths("DELETE")).not.toContain("/api/users/:id");
+
+    // Without a route, the removed PATCH and DELETE answer 404 instead of reaching the 0.5 controller
+    for (const method of ["PATCH", "DELETE"]) {
+      expect((await example.app.request("/api/users/1", { method })).status, method).toBe(404);
+    }
 
     // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
     // registered after this v1 route, so Hono matched the v1 one first.
