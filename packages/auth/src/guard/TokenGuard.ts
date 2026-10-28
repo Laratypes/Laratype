@@ -10,6 +10,10 @@ const ALIAS = "user";
 /** Checked when no user matches, so an unknown user takes as long as a wrong password. */
 let unknownUserHash: string | undefined;
 
+/** A value a lookup can compare in the query: a string, a boolean, or a finite number. */
+const isLookupValue = (value: unknown) =>
+  typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+
 export type JWTSignOptions = {
   expiresIn?: number;
   name: string;
@@ -93,17 +97,24 @@ export default class TokenGuard<User = any> {
 
   /**
    * The user of the guard's provider model matching `fields`, or `null`. `fields` carries the guard's
-   * `passwordField` (`password` by default): the user is looked up by the other fields only, and the password is
-   * then checked with `Hash.check()`, since a salted hash can't be matched in the query. A hash from an older
-   * format (0.5's sha256) is replaced on a successful login.
+   * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
+   * only, and the password is then checked with `Hash.checkAsync()`, since a salted hash can't be matched in the
+   * query. A hash from an older format (0.5's sha256) is replaced on a successful login.
    */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
-    const passwordField: string = this.config.options?.passwordField ?? "password";
+    // The model hashes its own credential column, so the guard must check the same one
+    const declared: string | undefined = model.passwordField;
+    const passwordField: string = this.config.options?.passwordField ?? declared ?? "password";
+    if (typeof declared === 'string' && declared !== passwordField) {
+      throw new Error(
+        `[@laratype/auth] ${model.name} hashes "${declared}", not the guard's passwordField "${passwordField}": set static passwordField on the model, or use the same name in options.`,
+      );
+    }
     const { [passwordField]: password, ...where } = fields;
-    // A lookup field that is not a string (an object or an array, say) would reach the query as a value, not a credential
+    // An object, an array, null or a non-finite number would reach the query as a value, not a credential
     const values = Object.values(where);
-    if (typeof password !== "string" || values.length === 0 || values.some((value) => typeof value !== "string")) {
+    if (typeof password !== "string" || values.length === 0 || values.some((value) => !isLookupValue(value))) {
       return null;
     }
 
@@ -112,18 +123,18 @@ export default class TokenGuard<User = any> {
     // addSelect: the password column is usually { select: false }
     const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
     if (!user) {
-      Hash.check(password, unknownUserHash ??= Hash.make(""));
+      await Hash.checkAsync(password, unknownUserHash ??= Hash.make(""));
       return null;
     }
 
     const hashed = user[passwordField];
     // The returned user has the shape a plain lookup gives: no hidden password column
     if (!column.isSelect) delete user[passwordField];
-    if (!Hash.check(password, hashed)) return null;
+    if (!(await Hash.checkAsync(password, hashed))) return null;
     if (Hash.needsRehash(hashed)) {
       // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
       try {
-        const rehashed = Hash.make(password);
+        const rehashed = await Hash.makeAsync(password);
         await model.getRepository().update(model.getId(user), { [passwordField]: rehashed });
         if (column.isSelect) user[passwordField] = rehashed;
       } catch {

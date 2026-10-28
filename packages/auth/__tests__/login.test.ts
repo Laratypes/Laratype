@@ -1,7 +1,8 @@
-// The password is checked with Hash.check() after the lookup, never matched in the query
+// The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
 import { Container, depsRegistry } from '@laratype/core'
+import { Model } from '@laratype/database'
 import { ContextApi, Hash } from '@laratype/support'
 import { Auth, AuthManager, PassportGuard } from '../src'
 
@@ -11,11 +12,13 @@ const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf
 type Row = { id: number; [key: string]: any }
 
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { column = 'password', select = false, failUpdate = false } = {}) => {
+const fakeModel = (rows: Row[], { column = 'password', declared = column, select = false, failUpdate = false } = {}) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
   const builders = vi.fn()
   const findOneBy = vi.fn(async () => null)
   class User {
+    /** The credential column the model declares: cast() hashes it and attempt() checks it. */
+    static readonly passwordField = declared
     static findOneBy = findOneBy
     static getRepository() {
       return {
@@ -102,7 +105,7 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
   })
 
 describe('TokenGuard.attempt()', () => {
-  it('finds the user by the other fields and checks the password with Hash.check()', async () => {
+  it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
@@ -111,6 +114,14 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
     expect(calls.addSelect).toEqual(['user.password'])
     expect(calls.update).toEqual([])
+  })
+
+  it('checks the password with Hash.checkAsync()', async () => {
+    const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    const checkAsync = vi.spyOn(Hash, 'checkAsync')
+    expect(await attempt(User, { email: 'ada@example.com', password: 'secret' })).not.toBeNull()
+    expect(checkAsync).toHaveBeenCalledWith('secret', expect.any(String))
+    checkAsync.mockRestore()
   })
 
   it('never puts the plain password in the lookup', async () => {
@@ -129,7 +140,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('runs one check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'check')
+    const check = vi.spyOn(Hash, 'checkAsync')
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
     expect(check).toHaveBeenCalledTimes(1)
     expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
@@ -194,14 +205,28 @@ describe('TokenGuard.attempt()', () => {
     expect(findOneBy).not.toHaveBeenCalled()
   })
 
-  it('refuses a username that is not a string before any query', async () => {
+  it('refuses a lookup value that is not a string, a boolean or a finite number, before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    for (const email of [{ $ne: null }, ['ada@example.com'], 42, null, true]) {
+    for (const email of [{ $ne: null }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(await attempt(User, { email, password: 'secret' })).toBeNull()
     }
     expect(calls.where).toEqual([])
     expect(builders).not.toHaveBeenCalled()
     expect(findOneBy).not.toHaveBeenCalled()
+  })
+
+  it('takes a boolean or a finite number lookup value, as a 0.5 caller passes', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', isActive: true, password: Hash.make('secret') }])
+    expect(await attempt(User, { email: 'ada@example.com', isActive: true, password: 'secret' })).toEqual({
+      id: 1,
+      email: 'ada@example.com',
+      isActive: true,
+    })
+    expect(calls.where).toEqual([{ email: 'ada@example.com', isActive: true }])
+
+    const { User: ById, calls: idCalls } = fakeModel([{ id: 7, email: 'ada@example.com', password: Hash.make('secret') }])
+    expect(await attempt(ById, { id: 7, password: 'secret' })).toEqual({ id: 7, email: 'ada@example.com' })
+    expect(idCalls.where).toEqual([{ id: 7 }])
   })
 
   it('refuses a password that is not a string before any query', async () => {
@@ -223,11 +248,85 @@ describe('TokenGuard.attempt()', () => {
   })
 
   it('throws when the provider model has no column for the guard passwordField', async () => {
-    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }], { declared: 'pass' })
     await expect(attempt(User, { email: 'ada@example.com', pass: 'secret' }, { passwordField: 'pass' })).rejects.toThrow(
       '[@laratype/auth] User has no "pass" column (the guard\'s passwordField)',
     )
     expect(calls.where).toEqual([])
+  })
+
+  it('refuses a guard passwordField that is not the model credential column, before any query', async () => {
+    const { User, calls, builders } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    await expect(attempt(User, { email: 'ada@example.com', pass: 'secret' }, { passwordField: 'pass' })).rejects.toThrow(
+      '[@laratype/auth] User hashes "password", not the guard\'s passwordField "pass": set static passwordField on the model, or use the same name in options.',
+    )
+    expect(calls.where).toEqual([])
+    expect(builders).not.toHaveBeenCalled()
+  })
+})
+
+describe('a custom password column end to end', () => {
+  /** A real Model whose save() feeds the rows attempt() reads, so the cast and the login meet. */
+  const account = () => {
+    const rows: Row[] = []
+    class Account extends Model {
+      id!: number
+      email!: string
+      pass!: string
+      static override readonly fillable = ['email', 'pass']
+      static override readonly passwordField = 'pass'
+    }
+    ;(Account as any).getRepository = () => ({
+      metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
+      save: async (data: Row) => {
+        const row = { id: rows.length + 1, ...data }
+        rows.push(row)
+        return row
+      },
+      update: async (id: number, data: Partial<Row>) => {
+        Object.assign(rows.find((row) => row.id === id)!, data)
+      },
+    })
+    ;(Account as any).createQueryBuilder = () => {
+      let where: Record<string, unknown> = {}
+      const query = {
+        where(value: Record<string, unknown>) {
+          where = value
+          return query
+        },
+        addSelect() {
+          return query
+        },
+        getOne: async () => {
+          const row = rows.find((row) => Object.entries(where).every(([key, value]) => row[key] === value))
+          return row ? Object.assign(new Account(), row) : null
+        },
+      }
+      return query
+    }
+    return { Account, rows }
+  }
+
+  it('hashes the declared column on save() and logs in through attempt()', async () => {
+    const { Account, rows } = account()
+    await Account.save({ email: 'ada@example.com', pass: 'secret' })
+    expect(Hash.isHashed(rows[0]!.pass)).toBe(true)
+    expect(Hash.check('secret', rows[0]!.pass)).toBe(true)
+
+    expect(await attempt(Account, { email: 'ada@example.com', pass: 'secret' }, { passwordField: 'pass' })).toEqual({
+      id: 1,
+      email: 'ada@example.com',
+    })
+    expect(await attempt(Account, { email: 'ada@example.com', pass: 'wrong' }, { passwordField: 'pass' })).toBeNull()
+  })
+
+  it('checks the column the model declares when the guard sets no passwordField', async () => {
+    const { Account } = account()
+    await Account.save({ email: 'ada@example.com', pass: 'secret' })
+    expect(await attempt(Account, { email: 'ada@example.com', pass: 'secret' }, { passwordField: undefined })).toEqual({
+      id: 1,
+      email: 'ada@example.com',
+    })
   })
 })
 
@@ -258,14 +357,14 @@ describe('PassportGuard.verifyLocal()', () => {
     expect(wrong.user).toBe(false)
     expect(wrong.info).toEqual({ message: 'Incorrect username or password.' })
 
-    const { User: NoColumn } = fakeModel([], { column: 'password' })
+    const { User: NoColumn } = fakeModel([], { declared: 'pass' })
     const broken = await inApp(NoColumn, () => verifyLocal(NoColumn, 'ada@example.com', 'secret', { passwordField: 'pass' }))
     expect(broken.err).toBeInstanceOf(Error)
     expect((broken.err as Error).message).toContain('has no "pass" column')
     expect(broken.user).toBe(false)
   })
 
-  it('refuses empty field names at boot', () => {
+  it('refuses empty field names, or the same name twice, at boot', () => {
     const message = '[@laratype/auth] Auth guard "web": a local strategy needs options.usernameField and options.passwordField.'
     for (const custom of [{ usernameField: '' }, { passwordField: '' }]) {
       const { User } = fakeModel([])
@@ -274,5 +373,14 @@ describe('PassportGuard.verifyLocal()', () => {
       expect(() => guard.register({ use } as any, undefined)).toThrow(message)
       expect(use).not.toHaveBeenCalled()
     }
+
+    // options() has usernameField 'email'; with the password in the same field attempt() would drop the only lookup field
+    const { User } = fakeModel([])
+    const guard = new PassportGuard('web', configOf(User, { passwordField: 'email' }).guards.web as any)
+    const use = vi.fn()
+    expect(() => guard.register({ use } as any, undefined)).toThrow(
+      '[@laratype/auth] Auth guard "web": options.usernameField and options.passwordField must be different fields.',
+    )
+    expect(use).not.toHaveBeenCalled()
   })
 })
