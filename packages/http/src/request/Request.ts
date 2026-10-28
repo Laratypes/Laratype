@@ -341,27 +341,43 @@ export default class Request extends AppServiceProvider {
     console.log(`${request.req.method} - ${request.req.url}`);
   }
 
+  /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
+  protected readonly disposals = new Set<Promise<void>>();
+
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
-      // One request scope per request (D6 #112): request-scoped values are built in it and disposed after the response
+      // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
+      // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
       const scope = this.app.createRequestScope();
       (ctx.set as (key: string, value: Container) => void)(CONTAINER, scope);
       try {
         this.resolveRequest(ctx);
         return await next();
       } finally {
-        await Request.disposeRequestScope(scope, ctx);
+        this.disposeRequestScope(scope, ctx);
       }
     });
   }
 
-  /** The response is already resolved, so a failed disposal is logged once, never turned into an error response. */
-  protected static async disposeRequestScope(scope: Container, ctx: Context): Promise<void> {
-    try {
-      await scope.dispose();
-    } catch (error) {
+  /**
+   * @internal For tests only: resolves once every disposal this kernel started so far has settled, so a dispose test
+   * doesn't depend on timing. A disposer that never settles keeps it pending, like the request's own work.
+   */
+  public async settled(): Promise<void> {
+    while (this.disposals.size) await Promise.all(this.disposals);
+  }
+
+  /**
+   * The response is already resolved when this runs, so it is started, never awaited, and a failed disposal is logged
+   * once, never turned into an error response. The rejection is handled on the promise itself, so it is never unhandled.
+   */
+  protected disposeRequestScope(scope: Container, ctx: Context): void {
+    const disposal = scope.dispose().catch((error: unknown) => {
       console.error(`[@laratype/http] ${ctx.req.method} ${ctx.req.path}: disposing the request scope failed`, error);
-    }
+    });
+    this.disposals.add(disposal);
+    // Dropped once settled, so `settled()` waits on the right ones and a long-lived kernel's set doesn't grow
+    void disposal.then(() => this.disposals.delete(disposal));
   }
 }

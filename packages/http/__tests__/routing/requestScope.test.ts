@@ -1,4 +1,4 @@
-// D6 #112: RequestKernel gives each request its own request scope and disposes it after the response
+// D6 #112: RequestKernel gives each request its own request scope and disposes it after the response is resolved
 import 'reflect-metadata'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
@@ -46,8 +46,9 @@ const bootApp = (bind: (container: Container) => void) => {
   const app = new Hono()
   container.instance(HTTP_APP, app)
   bind(container)
-  new RequestKernel(container).boot()
-  return { app, container }
+  const kernel = new RequestKernel(container)
+  kernel.boot()
+  return { app, container, kernel }
 }
 
 beforeAll(() => {
@@ -93,15 +94,60 @@ describe('request scope under RequestKernel', () => {
       }
     }
     __laratype_deps(UnitController, [() => Unit], { params: ['unit'] })
-    const { app } = bootApp((container) => container.scoped(Unit))
+    const { app, kernel } = bootApp((container) => container.scoped(Unit))
     app.onError((_error, c) => c.text('error', 500))
     app.get('/unit', RequestKernel.handle({ method: 'get', path: '/unit', controller: [UnitController, 'index'] }))
     app.get('/unit/fail', RequestKernel.handle({ method: 'get', path: '/unit/fail', controller: [UnitController, 'show'] }))
     expect((await app.request('/unit')).status).toBe(200)
+    await kernel.settled()
     expect(disposed).toEqual(['handler', 'unit'])
     disposed.length = 0
     expect((await app.request('/unit/fail')).status).toBe(500)
+    await kernel.settled()
     expect(disposed).toEqual(['unit'])
+  })
+
+  it('a slow disposer does not delay the response', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    let disposed = false
+    class Slow {
+      async [Symbol.asyncDispose]() {
+        await tick()
+        disposed = true
+      }
+    }
+    class SlowController extends Controller {
+      constructor(readonly slow: Slow) { super() }
+      index() { return { ok: true } }
+    }
+    __laratype_deps(SlowController, [() => Slow], { params: ['slow'] })
+    const { app, kernel } = bootApp((container) => container.scoped(Slow))
+    app.get('/slow', RequestKernel.handle({ method: 'get', path: '/slow', controller: [SlowController, 'index'] }))
+    const response = await app.request('/slow')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    // The response resolved while the disposer was still running
+    expect(disposed).toBe(false)
+    await kernel.settled()
+    expect(disposed).toBe(true)
+  })
+
+  it('a disposer that never settles does not hang the request', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const never = new Promise<void>(() => {})
+    class Stuck {
+      [Symbol.asyncDispose]() { return never }
+    }
+    class StuckController extends Controller {
+      constructor(readonly stuck: Stuck) { super() }
+      index() { return { ok: true } }
+    }
+    __laratype_deps(StuckController, [() => Stuck], { params: ['stuck'] })
+    const { app } = bootApp((container) => container.scoped(Stuck))
+    app.get('/stuck', RequestKernel.handle({ method: 'get', path: '/stuck', controller: [StuckController, 'index'] }))
+    const response = await app.request('/stuck')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
   })
 
   it('a failed disposal is logged once and never changes the response', async () => {
@@ -117,13 +163,13 @@ describe('request scope under RequestKernel', () => {
       index() { return { ok: true } }
     }
     __laratype_deps(LeakyController, [() => Leaky], { params: ['leaky'] })
-    const { app } = bootApp((container) => container.scoped(Leaky))
+    const { app, kernel } = bootApp((container) => container.scoped(Leaky))
     app.get('/leaky', RequestKernel.handle({ method: 'get', path: '/leaky', controller: [LeakyController, 'index'] }))
     try {
       const response = await app.request('/leaky')
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true })
-      await tick()
+      await kernel.settled()
       expect(error).toHaveBeenCalledTimes(1)
       expect(error.mock.calls[0]![0]).toBe('[@laratype/http] GET /leaky: disposing the request scope failed')
       expect(error.mock.calls[0]![1]).toBeInstanceOf(AggregateError)
