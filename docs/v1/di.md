@@ -566,7 +566,7 @@ export class Container {
 Other messages:
 - `AggregateError`: `Failed to dispose <n> request-scoped value(s).`, with the disposers' errors in `errors`, newest value first.
 - Dev warning (`console.warn`): `[@laratype/core] <C> is a singleton but depends on request-scoped <D>, so it is resolved once per request. Make <C> request-scoped (or transient) to silence this.` `<D>` is the first request-scoped key reached while `<C>` was built.
-- `console.error` from `RequestKernel`: `[@laratype/http] <METHOD> <path>: disposing the request scope failed`, followed by the `AggregateError`. It is logged once the response is resolved: the disposal is not awaited, so it never turns the request into a 500. Hono decodes the path, so control characters, C1 controls and U+2028/U+2029 in it are escaped as `\uXXXX` (`%0A` logs as `\u000a`) and a request cannot break or forge a log line (CWE-117); a path without them logs unchanged.
+- `console.error` from `RequestKernel`: `[@laratype/http] <METHOD> <path>: disposing the request scope failed`, followed by the `AggregateError`. It is logged once the response is resolved: the disposal is not awaited, so it never turns the request into a 500. Hono decodes the path, so control characters, C1 controls and U+2028/U+2029 in it are escaped as `\uXXXX` (`%0A` logs as `\u000a`); a path without them logs unchanged, so a decoded newline cannot break or forge a line in the log (CWE-117).
 
 Type-only (`container.types.test.ts`, `decorators.test.ts`): `scoped()` rejects what `singleton()` rejects (a wrong concrete type, self-binding an abstract class or a token), and an unknown scope name is a type error. `RequestKernel.settled()` (`@internal`) is typed `() => Promise<void>`.
 
