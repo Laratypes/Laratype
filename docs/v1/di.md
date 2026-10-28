@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1c4d835 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
@@ -519,10 +519,10 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 0c024de (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
+proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 1c4d835 (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Public API
-[`container.ts` @ 0c024de](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L210-L243) · [`Request.ts` @ 0c024de](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/http/src/request/Request.ts#L341-L363) (`RequestKernel.boot()`)
+[`container.ts` @ 0c024de](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/0c024de47dfc6adfdcae0db598d8c53541f806b4/packages/core/src/container.ts#L210-L243) · [`Request.ts` @ 1c4d835](https://github.com/Laratypes/Laratype/blob/1c4d835041ff181bb4ccf5b7f58e50a8640b6991/packages/http/src/request/Request.ts#L347-L382) (`RequestKernel.boot()` and `disposeRequestScope()`) · [`settled()`](https://github.com/Laratypes/Laratype/blob/1c4d835041ff181bb4ccf5b7f58e50a8640b6991/packages/http/src/request/Request.ts#L363-L369) (`@internal`, tests only)
 
 ```ts
 export type Scope = 'transient' | 'request' | 'singleton';
@@ -551,8 +551,10 @@ export class Container {
   - In dev the container prints one `console.warn` per key per process. Copies of `@laratype/core` share the set through `Symbol.for('laratype.di.bubbleWarned')`. It is silent when `globalThis.__PROD__` is `true`, or when `__PROD__` is unset and `NODE_ENV` is `production`: the same check as the http fallback-container warning.
 - **`dispose()`** ends a request scope. It drops the cached values and calls `[Symbol.asyncDispose]()` (awaited), or else `[Symbol.dispose]()`, on each one that has it, newest first. A value cached under two keys (a factory that returns another request-scoped value) is disposed once, where it was first built. It runs every disposer, then rethrows the failures as one `AggregateError`.
   - It never disposes a transient, a plain singleton or an `instance()` value; a singleton that bubbled is a request-scoped value, so it is disposed. It doesn't call a dispose method under another name (`dispose()`, `close()`).
-  - A second `dispose()` does nothing. `make()` on a disposed request scope, or on a child container of one, throws, and a disposed scope can't start a new one with `createRequestScope()`.
-- **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It disposes the scope when the handler settles: after its response, or after it throws and the app's error handler has built the error response (that handler runs outside the request store). A failed disposal is logged once with `console.error` and never changes the response. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
+  - A second `dispose()` does nothing. Once it has started, `make()` on that request scope, or on a child container of one, throws `Request scope already disposed.` for every key, singletons and transients (and `instance()` values) included: the scope is spent, so nothing resolves through it. A disposed scope can't start a new one with `createRequestScope()`.
+- **HTTP:** the middleware of `RequestKernel.boot()` creates one request scope of the app container per request and puts it on the request: `ContextApi.getContainer()` and `RequestKernel.container()` return it, and controllers are resolved from it. It **starts** the scope's `dispose()` when the handler settles: after its response, or after it throws and the app's error handler has built the error response (that handler runs outside the request store). The middleware never awaits it, so a slow disposer does not delay the response and one that never settles does not hang the request. A failed disposal is logged once with `console.error` and never changes the response, and the rejection is handled on the promise that runs it, so it is never an unhandled rejection. Routes served without `RequestKernel` use the autowire-only fallback container, which has no request scope.
+  - A request-scoped value may briefly outlive the response. Work started inside the request and not awaited (a `setTimeout`, an unawaited promise) still sees that scope through the `ContextApi` store, but `make()` on it throws once the disposal has started, for every key (see `dispose()`). Before D6 that store held the root app container, so the same call resolved.
+  - A streamed body must not use request-scoped values: the disposal may run while the body is still being read.
 - `@laratype/core` imports no `node:*` module: the request scope is an object its caller owns. `@laratype/http` keeps it in the AsyncLocalStorage store of `ContextApi`.
 
 ### Diagnostics
@@ -564,17 +566,17 @@ export class Container {
 Other messages:
 - `AggregateError`: `Failed to dispose <n> request-scoped value(s).`, with the disposers' errors in `errors`, newest value first.
 - Dev warning (`console.warn`): `[@laratype/core] <C> is a singleton but depends on request-scoped <D>, so it is resolved once per request. Make <C> request-scoped (or transient) to silence this.` `<D>` is the first request-scoped key reached while `<C>` was built.
-- `console.error` from `RequestKernel`: `[@laratype/http] <METHOD> <path>: disposing the request scope failed`, followed by the `AggregateError`.
+- `console.error` from `RequestKernel`: `[@laratype/http] <METHOD> <path>: disposing the request scope failed`, followed by the `AggregateError`. It is logged once the response is resolved: the disposal is not awaited, so it never turns the request into a 500.
 
-Type-only (`container.types.test.ts`, `decorators.test.ts`): `scoped()` rejects what `singleton()` rejects (a wrong concrete type, self-binding an abstract class or a token), and an unknown scope name is a type error.
+Type-only (`container.types.test.ts`, `decorators.test.ts`): `scoped()` rejects what `singleton()` rejects (a wrong concrete type, self-binding an abstract class or a token), and an unknown scope name is a type error. `RequestKernel.settled()` (`@internal`) is typed `() => Promise<void>`.
 
 ### Example
-[`examples/di/proposed/request-scope.ts`](./examples/di/proposed/request-scope.ts). Tests: [`packages/core/__tests__/requestScope.test.ts`](../../packages/core/__tests__/requestScope.test.ts) and [`packages/http/__tests__/routing/requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests through Hono).
+[`examples/di/proposed/request-scope.ts`](./examples/di/proposed/request-scope.ts). Tests: [`packages/core/__tests__/requestScope.test.ts`](../../packages/core/__tests__/requestScope.test.ts) and [`packages/http/__tests__/routing/requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests through Hono; the disposal awaits through the kernel's internal `settled()` hook, including a slow, a hung and a failing disposer instead of timing).
 
 ### Non-goals
 - No async factories or async resolution (as in [Container](#container)).
 - No boot-time check for singleton → request dependencies: bubbling handles them when they resolve. Eager validation is [Boot-time graph diagnostics](#boot-time-graph-diagnostics).
-- Request-scoped values are disposed once the handler's response is resolved, so a streamed body must not use them afterwards.
+- Request-scoped values are disposed once the handler's response is resolved, without delaying it, so a streamed body must not use them: the scope may be disposed while the body is still being read.
 
 ### Open questions
 - Resolved: autowired classes stay transient, `has()` counts explicit bindings only, and abstract classes get the transform-flag guard ([#112](https://github.com/Laratypes/Laratype/issues/112); see [Container](#container)).
