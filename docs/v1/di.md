@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 78bf4e1 |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 70cb524 |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
@@ -519,10 +519,10 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 78bf4e1 (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
+proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 70cb524 (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Public API
-[`container.ts` @ 902190d](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/902190d81a1b2a10dc59d2a752b1d0df7c348e25/packages/core/src/container.ts#L225-L260) · [`Request.ts` @ 78bf4e1](https://github.com/Laratypes/Laratype/blob/78bf4e1fe6ad65a94c45d0bc31570f7a5881d790/packages/http/src/request/Request.ts#L354-L368) (`RequestKernel.boot()`) · [`settled()`](https://github.com/Laratypes/Laratype/blob/78bf4e1fe6ad65a94c45d0bc31570f7a5881d790/packages/http/src/request/Request.ts#L370-L378) (`@internal`, tests only)
+[`container.ts` @ 70cb524](https://github.com/Laratypes/Laratype/blob/70cb524eefe45f80d26a96c280e79751cfa798c4/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/70cb524eefe45f80d26a96c280e79751cfa798c4/packages/core/src/container.ts#L166-L171), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/70cb524eefe45f80d26a96c280e79751cfa798c4/packages/core/src/container.ts#L225-L261) · [`Request.ts` @ 70cb524](https://github.com/Laratypes/Laratype/blob/70cb524eefe45f80d26a96c280e79751cfa798c4/packages/http/src/request/Request.ts#L354-L368) (`RequestKernel.boot()`) · [`settled()`](https://github.com/Laratypes/Laratype/blob/70cb524eefe45f80d26a96c280e79751cfa798c4/packages/http/src/request/Request.ts#L370-L378) (`@internal`, tests only)
 
 ```ts
 export type Scope = 'transient' | 'request' | 'singleton';
