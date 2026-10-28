@@ -87,7 +87,7 @@ describe('request scope', () => {
     expect(disposed).toBe(2)
   })
 
-  it('a nested request scope keeps resolving after the outer one is disposed', async () => {
+  it('a nested request scope keeps resolving its own keys after the outer one is disposed', async () => {
     class Db {}
     const outer = new Container().scoped(Db).createRequestScope()
     const nested = outer.createRequestScope()
@@ -95,6 +95,21 @@ describe('request scope', () => {
     // The nested scope owns its cache, so the outer disposal doesn't spend it (di.md › dispose(); a plain
     // createChild() does throw, covered by the disposed-scope test)
     expect(nested.make(Db)).toBe(nested.make(Db))
+    await nested.dispose()
+  })
+
+  it('a key whose resolution reaches a disposed outer scope throws instead of filling its cache', async () => {
+    class Db {}
+    class Service {
+      constructor(readonly db: Db) {}
+    }
+    const root = new Container({ deps: depsOf([[Service, { slots: [() => Db] }]]) }).scoped(Db)
+    const outer = root.createRequestScope().singleton(Service)
+    const nested = outer.createRequestScope()
+    await outer.dispose()
+    // Service is a singleton the spent outer scope owns, so its Db would be built and cached in that scope's cache,
+    // where the disposal has already run: it fails like make() on the scope instead of caching a value nothing disposes
+    expect(() => nested.make(Service)).toThrow(new DiError('Request scope already disposed.'))
     await nested.dispose()
   })
 

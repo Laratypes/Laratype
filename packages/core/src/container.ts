@@ -224,8 +224,9 @@ export class Container {
 
   /**
    * A child container for one request: request-scoped values are built once in it, until `dispose()`. It throws under a
-   * disposed request scope, or under a plain child of one; a nested request scope made before the disposal is not
-   * disposed with it, so it keeps resolving until it is disposed itself.
+   * disposed request scope, or under a plain child of one. A nested request scope made before the disposal is not
+   * disposed with it, so it keeps resolving its own request-scoped keys; a key whose resolution reads or writes the
+   * disposed scope's cache instead (a singleton the outer scope builds, that needs such a key) throws too.
    */
   createRequestScope(options: ContainerOptions = {}): Container {
     if (this.requestScope()?.disposed) throw new DiError('Request scope already disposed.')
@@ -338,6 +339,17 @@ export class Container {
     return this.requestScope() ?? this.tree.scopeStack.at(-1)
   }
 
+  /**
+   * The request scope a request-scoped `key` resolves in. A disposed scope is spent: reading or writing its cache
+   * would lose the value (nothing disposes what lands after `dispose()`), so it throws like `make()` does.
+   */
+  protected resolutionScope(key: unknown, requiredBy: string | undefined): Container {
+    const scope = this.currentRequestScope()
+    if (!scope) throw new DiError(errors.noRequestScope(key, requiredBy))
+    if (scope.disposed) throw new DiError('Request scope already disposed.')
+    return scope
+  }
+
   /** The value of a request-scoped `key`, built once per request scope and cached there under `cacheKey`. */
   protected fromRequestScope(
     key: unknown,
@@ -345,8 +357,7 @@ export class Container {
     requiredBy: string | undefined,
     create: (scope: Container) => unknown,
   ): unknown {
-    const scope = this.currentRequestScope()
-    if (!scope) throw new DiError(errors.noRequestScope(key, requiredBy))
+    const scope = this.resolutionScope(key, requiredBy)
     // Every singleton being built depends on this key, directly or not, so it bubbles.
     for (const frame of this.tree.singletons) frame.requestDep ??= key
     const cache = scope.requestCache!
@@ -371,7 +382,7 @@ export class Container {
   /** Cache the first value of a bubbled singleton in the current request scope, and warn once in dev. */
   protected bubble(key: unknown, cacheKey: unknown, value: unknown, requestDep: unknown): unknown {
     warnBubbled(key, requestDep)
-    this.currentRequestScope()!.requestCache!.set(cacheKey, { value })
+    this.resolutionScope(key, undefined).requestCache!.set(cacheKey, { value })
     return value
   }
 
