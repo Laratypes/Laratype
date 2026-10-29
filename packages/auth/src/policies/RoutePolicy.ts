@@ -5,6 +5,12 @@ import { Auth } from "../support";
 import Policy, { type Ability } from "./Policy";
 import PolicyHandler from "./PolicyHandler";
 
+const refuse = (): never => {
+  throw new UnauthorizedException({
+    message: 'You are not authorized to perform this action.'
+  });
+}
+
 export default class RoutePolicy {
 
   static make<T extends Ability>(ability: T, modelPolicy: string | typeof Model, ...args: Array<string | typeof Model>) {
@@ -20,16 +26,12 @@ export default class RoutePolicy {
   static async handle<T extends Ability>(ability: T, policy: Policy, ...models: any) {
     const actor = Auth.user();
     if(!actor) {
-      throw new UnauthorizedException({
-        message: 'You are not authorized to perform this action.'
-      });
+      refuse();
     }
 
     const result = await PolicyHandler.can(actor, policy, ability, ...models);
     if(!result) {
-      throw new UnauthorizedException({
-        message: 'You are not authorized to perform this action.'
-      });
+      refuse();
     }
 
     return true;

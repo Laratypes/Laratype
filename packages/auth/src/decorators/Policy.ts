@@ -9,7 +9,7 @@ export interface UsePolicy<T extends Policy> {
   cannot<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
 }
 
-/** `P` may take constructor dependencies: the request pipeline resolves it from the container (H21 #269). */
+/** `P` may take constructor dependencies: the route pipeline resolves the class it records from the container (H21 #269). */
 export function UsePolicy(P: Newable<Policy>) {
   return function <T extends { new(...args: any[]): {} }>(target: T) {
     Reflect.defineMetadata(MetaDataKey.POLICY, P, target);
