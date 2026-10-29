@@ -15,7 +15,7 @@ last-verified: 2026-10-09
 | [Typed Register](#typed-register) | planned → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
-| [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
+| [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; guard claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ 5235b6b |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
 ---
