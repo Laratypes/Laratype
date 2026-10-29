@@ -30,8 +30,6 @@ const swcOptions: Options = {
   module: { type: "es6" },
   jsc: {
     target: "es2022",
-    // Set per file: `.tsx` needs `tsx: true`, while `.ts`, `.mts` and `.cts` keep angle-bracket assertions
-    parser: { syntax: "typescript", decorators: true, tsx: false },
     transform: { legacyDecorator: true, decoratorMetadata: true },
   },
 };
@@ -55,6 +53,7 @@ const swc = (): Plugin => {
         filename: id,
         jsc: {
           ...swcOptions.jsc,
+          // `.tsx` needs `tsx: true`, while `.ts`, `.mts` and `.cts` keep angle-bracket assertions
           parser: { syntax: "typescript", decorators: true, tsx: tsxRE.test(file) },
         },
       });

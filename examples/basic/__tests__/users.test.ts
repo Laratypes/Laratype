@@ -39,7 +39,7 @@ describe("GET /api/users", () => {
 
     // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
     // registered after this v1 route, so Hono matched the v1 one first.
-    const created = (await example.store({ name: "Ada Byron", email: "ada.byron@example.com" })).body;
+    const created = (await example.store({ name: "Ada Byron", email: "ada.byron@example.com" })).body as { id: number };
     const { response, body } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
@@ -54,7 +54,7 @@ describe("PATCH and DELETE /api/users/:id", () => {
       (route) => route.path.startsWith("/api/users") && (route.method === "PATCH" || route.method === "DELETE"),
     )).toEqual([]);
 
-    const created = (await example.store({ name: "No Update", email: "no.update@example.com" })).body;
+    const created = (await example.store({ name: "No Update", email: "no.update@example.com" })).body as { id: number };
     for (const method of ["PATCH", "DELETE"]) {
       expect((await example.app.request(`/api/users/${created.id}`, { method })).status, method).toBe(404);
     }
@@ -79,14 +79,15 @@ describe("POST /api/users", () => {
       message: "The given data was invalid.",
       errors: { name: expect.any(Array), email: expect.any(Array) },
     });
-    expect(body.errors.name.every((message: unknown) => typeof message === "string")).toBe(true);
-    expect(body.errors.email.every((message: unknown) => typeof message === "string")).toBe(true);
+    const errors = (body as { errors: Record<string, string[]> }).errors;
+    expect(errors.name.every((message) => typeof message === "string")).toBe(true);
+    expect(errors.email.every((message) => typeof message === "string")).toBe(true);
   });
 });
 
 describe("GET /api/users/:id", () => {
   it("answers 200 with the user", async () => {
-    const created = (await example.store({ name: "Grace", email: "grace@example.com" })).body;
+    const created = (await example.store({ name: "Grace", email: "grace@example.com" })).body as { id: number };
     const { response, body } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
@@ -101,7 +102,7 @@ describe("GET /api/users/:id", () => {
   it("answers 404 for ids Number() reads as the stored one: 0x<hex>, <id>e0 and 0<id>", async () => {
     // `0x<hex>`, `<id>e0` and `0<id>` all read back as the same number under Number(), so a loose parse would answer
     // 200. The stored user is this test's own: another test's fixture is skipped when `vitest -t` runs this one alone.
-    const created = (await example.store({ name: "Malformed Id", email: "malformed.id@example.com" })).body;
+    const created = (await example.store({ name: "Malformed Id", email: "malformed.id@example.com" })).body as { id: number };
     const { response } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
 

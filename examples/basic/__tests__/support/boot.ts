@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { PassportServiceProvider } from "@laratype/auth";
 import { RequestKernel, ResponseKernel } from "@laratype/http";
-import { bootProviders } from "@laratype/support";
 import Serve from "../../../../packages/laratype/src/serve";
 import { register } from "../../../../packages/laratype/src/bootstrap";
 import { useAppManifest } from "../../../../packages/sauf/src/manifest";
@@ -23,15 +22,20 @@ const projectDir = fileURLToPath(new URL("../..", import.meta.url));
 // the root `.env` and write `storage/logs/laratype.log` there (E5 #343). Point the process at the example instead.
 process.chdir(projectDir);
 
+interface JsonResult {
+  readonly response: Response;
+  readonly body: unknown;
+}
+
 export interface BootedExample {
   /** The Hono app the example's providers registered their routes on. */
   readonly app: ReturnType<typeof Serve.getInstance>;
   /** Runs the providers' `down()` (in reverse) and resets the app for the next test file. */
   readonly stop: () => Promise<void>;
   /** `app.request()` and the parsed JSON body, for the in-process tests. */
-  readonly requestJson: (path: string, init?: RequestInit) => Promise<{ response: Response; body: any }>;
+  readonly requestJson: (path: string, init?: RequestInit) => Promise<JsonResult>;
   /** `POST /api/users` with a JSON body. */
-  readonly store: (body: unknown) => Promise<{ response: Response; body: any }>;
+  readonly store: (body: unknown) => Promise<JsonResult>;
 }
 
 export const bootExample = async (): Promise<BootedExample> => {
@@ -40,15 +44,8 @@ export const bootExample = async (): Promise<BootedExample> => {
   const providers = await register(false, {
     framework: { RequestKernel, ResponseKernel, PassportServiceProvider },
   });
-
-  let cleanups: Array<() => Promise<void>>;
-  try {
-    cleanups = await bootProviders(Serve.getContainer(), providers);
-  } catch (error) {
-    // As Serve.bootProvider: a failed boot must not leave a half-booted app for the next test
-    Serve.down();
-    throw error;
-  }
+  // Resets the Hono app and container when a provider throws, like `sauf dev`'s boot
+  const cleanups = await Serve.bootProvider(providers);
 
   const app = Serve.getInstance();
   const requestJson = async (path: string, init?: RequestInit) => {

@@ -1,4 +1,4 @@
-import { Controller, Request } from "@laratype/http";
+import { Controller } from "@laratype/http";
 import { Auth } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
@@ -26,10 +26,5 @@ export default class UserController extends Controller {
     const user = Auth.user<User>();
     if(!user) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     return user.getUser();
-  }
-  
-  async view(request: Request, model: { user: User }) {
-    const user = model.user;
-    return user;
   }
 }

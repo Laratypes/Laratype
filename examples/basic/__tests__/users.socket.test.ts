@@ -7,26 +7,29 @@ import { bootExample, type BootedExample } from "./support/boot";
 // picks a free one), so it runs in CI beside another app, and the boot needs neither Google credentials nor MySQL.
 // It covers the four statuses of the contract: 200 (index), 201 (store), 422 (validation) and 404 (show).
 
-let example: BootedExample;
-let server: ServerType;
+let example: BootedExample | undefined;
+let server: ServerType | undefined;
 let baseUrl: string;
 
 beforeAll(async () => {
-  example = await bootExample();
+  const booted = await bootExample();
+  example = booted;
   baseUrl = await new Promise((resolve, reject) => {
-    server = serve({ fetch: example.app.fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
+    const listening = serve({ fetch: booted.app.fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
       resolve(`http://127.0.0.1:${info.port}`);
     });
-    server.once("error", reject);
+    server = listening;
+    listening.once("error", reject);
   });
 });
 
 afterAll(async () => {
-  if (server) {
+  const listening = server;
+  if (listening) {
     await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
+      listening.close((error) => (error ? reject(error) : resolve()));
       // Keep-alive sockets of fetch must not hold the close open
-      server.closeAllConnections();
+      listening.closeAllConnections();
     });
   }
   await example?.stop();

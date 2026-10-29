@@ -11,6 +11,13 @@ const isProduction = () => Boolean(globalThis.__PROD__ ?? globalThis.process?.en
 /** Whether passport-google-oidc can build its strategy: it throws when the clientID is empty. */
 const googleConfigured = () => Boolean(Env.get('AUTH_GOOGLE_CLIENT_ID', '') && Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''));
 
+/** A production boot must not silently run without the Google guard it declares (E5 #343). */
+const requireGoogleInProduction = () => {
+  if (isProduction() && !googleConfigured()) {
+    throw new Error("examples/basic: AUTH_GOOGLE_CLIENT_ID and AUTH_GOOGLE_CLIENT_SECRET are required in production: the Google guard cannot register without them.");
+  }
+};
+
 export default {
 
   default: {
@@ -32,17 +39,21 @@ export default {
       strategyName: 'google',
       /**
        * Without credentials the guard is a TokenGuard (no strategy), so a boot outside production does not need Google
-       * credentials (E5 #343). In production the strategy stays: a missing clientID then fails the boot loudly.
+       * credentials (E5 #343). In production a missing credential throws from the getter, failing the boot loudly.
        */
       get strategy() {
-        return googleConfigured() || isProduction() ? PassportStrategy.make(GoogleStrategy) as typeof Strategy : undefined;
+        requireGoogleInProduction();
+        return googleConfigured() ? PassportStrategy.make(GoogleStrategy) as typeof Strategy : undefined;
       },
       provider: User,
-      options: {
-        clientID: Env.get('AUTH_GOOGLE_CLIENT_ID', ''),
-        clientSecret: Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''),
-        callbackURL: '/api/passport/google/callback',
-        scope: ['profile', 'email'],
+      // Read with the strategy: the config module is evaluated once, but a boot may see different credentials
+      get options() {
+        return {
+          clientID: Env.get('AUTH_GOOGLE_CLIENT_ID', ''),
+          clientSecret: Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''),
+          callbackURL: '/api/passport/google/callback',
+          scope: ['profile', 'email'],
+        };
       },
       verification: 'jwt',
     },

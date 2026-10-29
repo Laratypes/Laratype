@@ -11,6 +11,7 @@ export interface FrameworkProviders {
   readonly PassportServiceProvider?: typeof ServiceProvider;
 }
 
+/** What `register()` may receive instead of resolving the framework packages itself. */
 export interface RegisterOptions {
   /** The framework providers, when the caller already imported them (tests booting from `src`). */
   readonly framework?: FrameworkProviders;
@@ -27,7 +28,12 @@ async function importFrameworkProviders(): Promise<FrameworkProviders> {
   return { RequestKernel, ResponseKernel, PassportServiceProvider };
 }
 
-export async function register(onlyConfig: true, options?: RegisterOptions): Promise<Array<typeof ServiceProvider>>;
+/**
+ * The providers to boot, in order: the config providers (`onlyConfig`), then the framework ones around the app's list
+ * from the manifest. `options.framework` lets a caller boot the framework from source; the default loads the built
+ * packages.
+ */
+export async function register(onlyConfig: true): Promise<Array<typeof ServiceProvider>>;
 export async function register(onlyConfig?: false, options?: RegisterOptions): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;
 export async function register(onlyConfig?: boolean, options: RegisterOptions = {}): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>> {
   // app/config/providers.ts, from the app manifest (docs/v1/build.md › Plugin chain)
