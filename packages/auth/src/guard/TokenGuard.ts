@@ -14,6 +14,21 @@ let unknownUserHash: string | undefined;
 const isLookupValue = (value: unknown): value is string | boolean | number =>
   typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 
+/** The slice of a model a token lookup needs: its name and its primary column. */
+interface PrimaryKeyModel {
+  name: string;
+  getRepository(): { metadata?: { primaryColumns?: { propertyName: string }[] } };
+}
+
+/** The primary key's property name: a model without one cannot be loaded by a token, so it is a configuration error. */
+const primaryKeyOf = (model: PrimaryKeyModel): string => {
+  const primaryKey = ModelManagement.getPrimaryKeyFromModel(model);
+  if (!primaryKey) {
+    throw new InternalException(`[@laratype/auth] Model ${model.name} does not have a primary key defined.`);
+  }
+  return primaryKey;
+};
+
 export type JWTSignOptions = {
   expiresIn?: number;
   name: string;
@@ -46,7 +61,10 @@ export default class TokenGuard<User = any> {
     return token ? this.verify(token) : false;
   }
 
-  /** The user `token` belongs to, or `false` when it is unknown, expired or does not verify. */
+  /**
+   * The user `token` belongs to, or `false` when it is unknown, expired, was issued for another guard or does not
+   * verify. A provider model (or the token's model) without a primary key throws `InternalException`.
+   */
   async verify(token: string): Promise<User | false> {
     let verificationMode: string = this.config.verification;
     let verifyRecord: any;
@@ -76,13 +94,31 @@ export default class TokenGuard<User = any> {
       return false;
     }
 
-    if (!verifyRecord) {
-      return decoded;
+    // A token is signed for exactly one guard: a token issued by guard A never authenticates guard B (A6 #335)
+    if (decoded.guard !== this.name) {
+      return false;
     }
 
+    if (!verifyRecord) {
+      // Without a token record nothing can revoke the token, so its user is loaded by the id it carries
+      const provider: typeof Model = this.config.provider;
+      const primaryKey = primaryKeyOf(provider);
+      // issueToken() signs the primary key's value under `payload.id`, whatever the column is called
+      const id = decoded.payload?.id;
+      if (id === undefined || id === null) {
+        return false;
+      }
+      const user = await provider.findOneBy({ [primaryKey]: id } as any);
+      return (user as User) ?? false;
+    }
+
+    // The record names the model the token was issued for, so its own primary key loads the user, not always `id`
     const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
-    const user = await modelResource?.findOneBy({
-      id: verifyRecord.tokenable_id,
+    if (!modelResource) {
+      return false;
+    }
+    const user = await modelResource.findOneBy({
+      [primaryKeyOf(modelResource)]: verifyRecord.tokenable_id,
     } as any);
 
     if (!user) {
@@ -148,7 +184,7 @@ export default class TokenGuard<User = any> {
   async issueToken(user: User, options: JWTSignOptions): Promise<string> {
     const fieldIdName = ModelManagement.getPrimaryKeyFromModelInstance(user as any);
     if (!fieldIdName) {
-      throw new InternalException(`Model ${(user as object).constructor.name} does not have a primary key defined.`);
+      throw new InternalException(`[@laratype/auth] Model ${(user as object).constructor.name} does not have a primary key defined.`);
     }
     const payload = {
       id: (user as any)[fieldIdName],
