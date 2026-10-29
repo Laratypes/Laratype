@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Console } from '@laratype/console';
+import { Console, command } from '@laratype/console';
 import { appManifest, manifestEntry, setAppManifest, type AppManifest } from '@laratype/support';
 import {
   emitManifest, emitManifestError, inManifestDirs, isManifestFile, laratypeManifest, MANIFEST_DIRS, MANIFEST_ID,
@@ -346,7 +346,7 @@ describe('importRootCommands', () => {
     try {
       expect(await importRootCommands(manifest)).toEqual([SendMail]);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command class (a class with a static signature)');
+      expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command (a class with a static signature, or a closure from command())');
     } finally {
       warn.mockRestore();
     }
@@ -374,6 +374,32 @@ describe('importRootCommands', () => {
       const routes = { ...manifest, commands: [], routes: [{ ...entry('app/routes/console.ts', () => Promise.reject('broken import')), name: 'console' }] };
       expect(await importRouteConsoleCommands(routes)).toEqual([]);
       expect(warn).toHaveBeenLastCalledWith('Skipped app/routes/console.ts: the command file failed to load\nbroken import');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('importRouteConsoleCommands', () => {
+  const routes = (value: unknown) => ({
+    configs: [], commands: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+    routes: [{ name: 'console', path: 'app/routes/console.ts', load: async () => ({ default: value }) }],
+  }) satisfies AppManifest;
+  class Publish { static signature = 'auth:publish'; }
+
+  it('accepts class commands and closure commands, in an array or alone', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    expect(await importRouteConsoleCommands(routes([Publish, hello]))).toEqual([Publish, hello]);
+    expect(await importRouteConsoleCommands(routes(hello))).toEqual([hello]);
+    expect(await importRouteConsoleCommands(routes(undefined))).toEqual([]);
+  });
+
+  it('skips an entry that is not a command, with one warning naming the file', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRouteConsoleCommands(routes([Publish, 42, hello]))).toEqual([Publish, hello]);
+      expect(warn).toHaveBeenCalledWith('Skipped 1 entry of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())');
     } finally {
       warn.mockRestore();
     }

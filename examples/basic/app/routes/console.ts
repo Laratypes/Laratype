@@ -1,5 +1,10 @@
-import { PublishCommand } from "@laratype/auth"
+import { command } from "@laratype/console";
+import { PublishCommand } from "@laratype/auth";
 
 export default [
-  PublishCommand
+  PublishCommand,
+  command("hello:user {user} {--shout}", ({ user, shout }) => {
+    const message = `Hello ${user}`;
+    console.log(shout ? message.toUpperCase() : message);
+  }),
 ]
