@@ -20,7 +20,9 @@ export default class RoutePolicy {
   static async handle<T extends Ability>(ability: T, policy: Policy, ...models: any) {
     const actor = Auth.user();
     if(!actor) {
-      return false;
+      throw new UnauthorizedException({
+        message: 'You are not authorized to perform this action.'
+      });
     }
 
     const result = await PolicyHandler.can(actor, policy, ability, ...models);

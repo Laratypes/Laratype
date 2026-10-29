@@ -1,27 +1,4 @@
-import { Exception, type ExceptionConstructorParams } from "@laratype/support";
+import { UnauthorizedException as BaseUnauthorizedException } from "@laratype/support";
 
-export default class UnauthorizedException extends Exception {
-
-  constructor({
-      httpCode = 401,
-      message = "",
-      code = "UNAUTHORIZED",
-      responsible = true,
-    }: ExceptionConstructorParams) {
-      super({
-        code,
-        httpCode,
-        message,
-        responsible,
-        reportable: false,
-      })
-    }
-  
-    public toJson() {
-      return {
-        code: this.code,
-        message: this.message,
-      }
-    }
-  
-}
+/** The auth 401: the shared exception of `@laratype/support`, as this package's default export. */
+export default class UnauthorizedException extends BaseUnauthorizedException {}
