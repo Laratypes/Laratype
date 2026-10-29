@@ -5,6 +5,12 @@ import LocalStrategy from 'passport-local';
 import User from "../src/models/User";
 import Admin from "../src/models/Admin";
 
+// `sauf build`'s entry sets `__PROD__`; a bare NODE_ENV=production counts too, as the contract response check does.
+const isProduction = () => Boolean(globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production");
+
+/** Whether passport-google-oidc can build its strategy: it throws when the clientID is empty. */
+const googleConfigured = () => Boolean(Env.get('AUTH_GOOGLE_CLIENT_ID', '') && Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''));
+
 export default {
 
   default: {
@@ -24,7 +30,13 @@ export default {
     },
     api: {
       strategyName: 'google',
-      strategy: PassportStrategy.make(GoogleStrategy) as typeof Strategy,
+      /**
+       * Without credentials the guard is a TokenGuard (no strategy), so a boot outside production does not need Google
+       * credentials (E5 #343). In production the strategy stays: a missing clientID then fails the boot loudly.
+       */
+      get strategy() {
+        return googleConfigured() || isProduction() ? PassportStrategy.make(GoogleStrategy) as typeof Strategy : undefined;
+      },
       provider: User,
       options: {
         clientID: Env.get('AUTH_GOOGLE_CLIENT_ID', ''),

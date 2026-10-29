@@ -15,20 +15,9 @@ afterAll(async () => {
   await example.stop();
 });
 
-const json = async (path: string, init?: RequestInit) => {
-  const response = await example.app.request(path, init);
-  return { response, body: await response.json() };
-};
-
-const store = (body: unknown) => json("/api/users", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
-
 describe("GET /api/users", () => {
   it("answers 200 with the list", async () => {
-    const { response, body } = await json("/api/users");
+    const { response, body } = await example.requestJson("/api/users");
     expect(response.status).toBe(200);
     expect(body).toEqual({ data: expect.any(Array) });
   });
@@ -50,25 +39,31 @@ describe("GET /api/users", () => {
 
     // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
     // registered after this v1 route, so Hono matched the v1 one first.
-    const created = (await store({ name: "Ada Byron", email: "ada.byron@example.com" })).body;
-    const { response, body } = await json(`/api/users/${created.id}`);
+    const created = (await example.store({ name: "Ada Byron", email: "ada.byron@example.com" })).body;
+    const { response, body } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
   });
 });
 
 describe("PATCH and DELETE /api/users/:id", () => {
-  it("answer 404: the 0.5 children are gone and the v1 slice has no update or delete yet", async () => {
-    // A re-added 0.5 child would reach AuthGuard (401) or its controller, not a route-less 404
+  it("have no route: the v1 slice has no update or delete yet", async () => {
+    // A re-added 0.5 child, or a v1 update/delete endpoint, would add a PATCH/DELETE route under /api/users: fail here
+    // before the status assertion can pass on a 404 that a missing implementation also answers.
+    expect(example.app.routes.filter(
+      (route) => route.path.startsWith("/api/users") && (route.method === "PATCH" || route.method === "DELETE"),
+    )).toEqual([]);
+
+    const created = (await example.store({ name: "No Update", email: "no.update@example.com" })).body;
     for (const method of ["PATCH", "DELETE"]) {
-      expect((await example.app.request("/api/users/1", { method })).status, method).toBe(404);
+      expect((await example.app.request(`/api/users/${created.id}`, { method })).status, method).toBe(404);
     }
   });
 });
 
 describe("POST /api/users", () => {
   it("answers 201 with the stored user", async () => {
-    const { response, body } = await store({ name: "Ada", email: "ada@example.com" });
+    const { response, body } = await example.store({ name: "Ada", email: "ada@example.com" });
     expect(response.status).toBe(201);
     expect(body).toEqual({ id: expect.any(Number), name: "Ada", email: "ada@example.com" });
 
@@ -77,7 +72,7 @@ describe("POST /api/users", () => {
   });
 
   it("answers 422 with the catalog validation body for an invalid body", async () => {
-    const { response, body } = await store({ name: "", email: "not-an-email" });
+    const { response, body } = await example.store({ name: "", email: "not-an-email" });
     expect(response.status).toBe(422);
     expect(body).toEqual({
       code: "VALIDATION_ERROR",
@@ -91,14 +86,14 @@ describe("POST /api/users", () => {
 
 describe("GET /api/users/:id", () => {
   it("answers 200 with the user", async () => {
-    const created = (await store({ name: "Grace", email: "grace@example.com" })).body;
-    const { response, body } = await json(`/api/users/${created.id}`);
+    const created = (await example.store({ name: "Grace", email: "grace@example.com" })).body;
+    const { response, body } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
   });
 
   it("answers 404 with the catalog NOT_FOUND body for an unknown id", async () => {
-    const { response, body } = await json("/api/users/999999");
+    const { response, body } = await example.requestJson("/api/users/999999");
     expect(response.status).toBe(404);
     expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
   });
@@ -106,12 +101,12 @@ describe("GET /api/users/:id", () => {
   it("answers 404 for ids Number() reads as the stored one: 0x<hex>, <id>e0 and 0<id>", async () => {
     // `0x<hex>`, `<id>e0` and `0<id>` all read back as the same number under Number(), so a loose parse would answer
     // 200. The stored user is this test's own: another test's fixture is skipped when `vitest -t` runs this one alone.
-    const created = (await store({ name: "Malformed Id", email: "malformed.id@example.com" })).body;
-    const { response } = await json(`/api/users/${created.id}`);
+    const created = (await example.store({ name: "Malformed Id", email: "malformed.id@example.com" })).body;
+    const { response } = await example.requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
 
     for (const malformed of [`0x${created.id.toString(16)}`, `${created.id}e0`, `0${created.id}`]) {
-      const { response, body } = await json(`/api/users/${malformed}`);
+      const { response, body } = await example.requestJson(`/api/users/${malformed}`);
       expect(response.status, malformed).toBe(404);
       expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
     }

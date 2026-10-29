@@ -1,5 +1,5 @@
 // app/api/users.ts → /api/users, route names users.index, users.show and users.store (docs/v1/contract.md › Contract folder tree)
-import { defineContract, endpoint, errors } from "@laratype/contract";
+import { defineContract, endpoint } from "@laratype/contract";
 import { z } from "zod";
 import type { Prefix } from "./$types";
 
@@ -17,6 +17,6 @@ const NewUser = z.object({
 
 export default defineContract<Prefix>()({
   index: endpoint.get("/").response(z.object({ data: z.array(UserDto) })),
-  show: endpoint.get("/:id").response(UserDto).throws(errors.notFound),
+  show: endpoint.get("/:id").response(UserDto),
   store: endpoint.post("/").body(NewUser).response(UserDto, 201),
 });
