@@ -23,7 +23,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #126, #134, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | planned → #134; `make:command` proposed: PR #? @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [make:* generators](#make-generators) | planned → #134; `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 
 ---
 

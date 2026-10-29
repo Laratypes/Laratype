@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR #? @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -77,7 +77,7 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-proposed: PR #? @ a62a369 ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ a62a369 ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 
