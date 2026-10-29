@@ -1,11 +1,9 @@
 import { controller, type RouteOptions } from "@laratype/http";
-import { AuthGuard, can } from "@laratype/auth";
+import { AuthGuard } from "@laratype/auth";
 import { GoogleAuthentication, LocalAuthentication, Web } from "../../src/http/middleware/Middleware";
 import LoginController from "../../src/http/controllers/LoginController";
 import UserController from "../..//src/http/controllers/UserController";
 import CreateUserRequest from "../..//src/http/requests/CreateUserRequest";
-import UpdateUserRequest from "../../src/http/requests/UpdateUserRequest";
-import User from "../../src/models/User";
 import LoginRequest from "../../src/http/requests/LoginRequest";
 
 const authRoutes: RouteOptions = {
@@ -60,37 +58,9 @@ const authGuardedRoutes: RouteOptions = {
     AuthGuard,
   ],
   children: [
-    {
-      path: "/users",
-      controller: controller(UserController, 'store'),
-      request: CreateUserRequest,
-      method: "post",
-      children: [
-        {
-          path: '',
-          method: 'get',
-          can: can("viewAny", User),
-          controller: controller(UserController, 'index'),
-        },
-        {
-          path: '/:user',
-          method: 'get',
-          can: can("view", "user"),
-          controller: controller(UserController, 'view'),
-        },
-        {
-          path: '/:activeUser',
-          method: 'patch',
-          request: UpdateUserRequest,
-          controller: controller(UserController, 'update'),
-        },
-        {
-          path: '/:id',
-          method: 'delete',
-          controller: controller(UserController, 'destroy'),
-        }
-      ]
-    },
+    // /api/users is the v1 contract's alone (app/api/users.ts, mounted in routes/api.ts): the 0.5 GET /api/users/:user,
+    // PATCH /api/users/:activeUser and DELETE /api/users/:id children are gone (E1 #344). PATCH and DELETE on
+    // /api/users now answer 404 until the v1 endpoints exist.
     {
       path: "/me",
       controller: controller(UserController, 'me'),
