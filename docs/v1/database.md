@@ -49,14 +49,14 @@ interface BindableModel<M extends object = object> {
 - **Route key.** `routeKeyName` defaults to `primaryKey`. Both are model property names (the names the lookup filters on), not database column names. H14 reads the same static for the implicit lookup property ([http.md › Model binding](./http.md#model-binding)).
 - **Key conversion.** The router passes the raw path param string, and the model converts it to the type of its route key property (a numeric id, a UUID) inside `findByRouteKey`: the router never parses a route key, since it does not know the property's type.
 - **Bound value types.** A class binder constrains the class with `BindableModel` (its default `M = object`) and gives `InstanceType<C>` of the class it is passed, not the return type of `findByRouteKey`: a `findByRouteKey` inherited from a base class returns the base type, so a `BindableModel<InstanceType<C>>` constraint would refuse every subclass (TS2345). A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404; an optional path param (`:post?`) gives `Post | undefined` when absent, while a present one with no match is a 404 ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
-- **No ORM.** The interface has no query builder, repository, entity manager or connection member, so it is satisfied without picking the ORM. On 0.5 TypeORM, the statics go on the base (or on DB6 [#150](https://github.com/Laratypes/Laratype/issues/150)'s adapter): `primaryKey` reads `getRepository().metadata.primaryColumns[0].propertyName` (what `ModelManagement.getPrimaryKeyFromModel` does today), and `findByRouteKey` runs `this.findOne({ where: { [this.routeKeyName ?? this.primaryKey]: key } })`.
+- **No ORM.** The interface has no query builder, repository, entity manager or connection member, so it is satisfied without picking the ORM. On TypeORM, the statics go on the base `Model` (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)): `primaryKey` reads `getRepository().metadata.primaryColumns[0].propertyName` (what `ModelManagement.getPrimaryKeyFromModel` does today), and `findByRouteKey` runs `this.findOne({ where: { [this.routeKeyName ?? this.primaryKey]: key } })`.
 - **Structural.** Any class with those three statics fits, with no `implements` clause and no import of `BindableModel`.
 
 ### Diagnostics
 None yet: the code lands with H7, which defines the 404 body and the compile-time message for a class that does not satisfy the interface ([http.md › Model binding](./http.md#model-binding)).
 
 ### Example
-Planned shape (illustrative, not compiled): the statics on the 0.5 TypeORM base, or in DB6's adapter, make every model bindable.
+Planned shape (illustrative, not compiled): the statics on the TypeORM base `Model` make every model bindable.
 
 ```ts
 class Model {
@@ -160,10 +160,13 @@ From #149: port the current factory and seeder API (`packages/database/src/facto
 ## TypeORM adapter
 
 ### Status
-planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3).
+planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3). Depends on DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) and D7 [#114](https://github.com/Laratypes/Laratype/issues/114).
 
 ### Design (non-binding)
-From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually.
+From #150 (rescoped after S5): with TypeORM kept, the Model API over TypeORM entities is DB1's `Model` itself, so DB6 covers what lets 0.5 apps upgrade gradually:
+- **`DataSource` in the container:** a singleton built from typed config (K1) and the manifest's entities, used by DB1, DB4, DB5, the queue driver and auth. A failed connection fails boot with the driver's message (secrets redacted), instead of only being logged until the `DS` proxy throws `DataSourceNotInitYet`.
+- **0.5 compatibility:** `ModelManagement`, `Route.model` and the 0.5 `Model` statics keep working on DB1's `Model` and that binding.
+- Out of scope: removing `globalThis.__laratype_db` and `__laratype_param_model_map` is D7 [#114](https://github.com/Laratypes/Laratype/issues/114); DB6 builds on the bindings D7 adds.
 
 ### Acceptance
 [#150 Done when](https://github.com/Laratypes/Laratype/issues/150)
