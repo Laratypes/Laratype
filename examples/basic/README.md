@@ -24,4 +24,15 @@ bun run start          # node ./dist/index.js
 bun run saufx -- route:list   # the sauf CLI of the build (node ./dist/cli.js)
 ```
 
-**This example is a demo, not a production-hardened app.** Its `Route.api` routes are fail-open: auth, authorization policies and input validation declared in the contracts are not enforced yet (planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121), [#106](https://github.com/Laratypes/Laratype/issues/106)), so `POST /api/posts` answers every caller. In the built app, controllers with constructor dependencies (`GreetingController`) can't be resolved yet, because the production build doesn't run the DI transform (planned → [#126](https://github.com/Laratypes/Laratype/issues/126), [#128](https://github.com/Laratypes/Laratype/issues/128)). Don't deploy it.
+Tests, at the repo root (`bun run test --run` runs them with the rest):
+```
+bunx vitest run --project examples
+```
+
+The tests boot the app in process with every provider of `app/config/providers.ts` (none stubbed) and drive `/api/users`
+through `app.request()` and `@laratype/client`. They generate `$types.d.ts` and `$api` first, the same scan `sauf dev`
+runs. They set dummy `AUTH_GOOGLE_CLIENT_ID` / `AUTH_GOOGLE_CLIENT_SECRET` values, because the Google guard of
+`app/config/auth.ts` needs both to build its passport strategy; without MySQL, `DatabaseServiceProvider` logs the
+connection error and lets the boot finish.
+
+**This example is a demo, not a production-hardened app.** Its `Route.api` routes are fail-open: auth, authorization policies and headers schemas declared in the contracts are not enforced yet (planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); query and body schemas are validated, [#106](https://github.com/Laratypes/Laratype/issues/106)), so `POST /api/posts` and `POST /api/users` answer every caller. In the built app, controllers with constructor dependencies (`GreetingController`) can't be resolved yet, because the production build doesn't run the DI transform (planned → [#126](https://github.com/Laratypes/Laratype/issues/126), [#128](https://github.com/Laratypes/Laratype/issues/128)). Don't deploy it.

@@ -4,6 +4,7 @@ import config from './vitest.config'
 export default mergeConfig(config, {
   test: {
     name: 'unit',
-    exclude: [...configDefaults.exclude, '**/e2e/**'],
+    // examples/basic has its own project: its app code needs the `laratype:di` transform (vitest.examples.config.ts)
+    exclude: [...configDefaults.exclude, '**/e2e/**', 'examples/basic/**'],
   },
 })

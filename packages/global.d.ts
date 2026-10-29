@@ -7,17 +7,13 @@ declare var requestGlobalStore: import("async_hooks").AsyncLocalStorage<{
   request: import("@laratype/http").Request;
   user: unknown;
   modelBindings: Record<string, import("typeorm").BaseEntity>
-  /** The app container `RequestKernel` resolves controllers from (H2 #105). */
+  /** The request scope of the app container (D6 #112), which `RequestKernel` resolves controllers from (H2 #105). */
   container?: import("@laratype/core").Container
 }>;
 
 declare var __laratype_env_file: string;
 
 declare var __laratype_config: any;
-
-declare var __laratype_auth_config: any;
-
-declare var __laratype_auth_model_verify: any;
 
 declare var __laratype_db: {
   ds: import("typeorm").DataSource,

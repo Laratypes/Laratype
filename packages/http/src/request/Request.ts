@@ -1,43 +1,29 @@
 import type { Context } from "hono";
 import { HonoRequest } from "hono/request"
-import RequestSupport, { HONO_CONTEXT } from "../supports/Request"
+import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
-import type { PolicyFactory, RouteParams } from "../contracts/Route";
+import { resolveContractResponse } from "../response/contractResponse";
+import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
-import type { StandardSchemaV1 } from "@laratype/contract";
+import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
+import { publicIssue, readBody, readQuery, validateInput } from "./input";
+import type { RawInput } from "./input";
 
-/** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
+/** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
 
-type RulesResult = { ok: true; value: any } | { ok: false; issues: unknown[] };
-
 /**
- * Validates `rules()` once. A zod schema runs `safeParseAsync`: its Standard Schema `validate` catches an error thrown
- * by a refinement or transform and runs the whole schema again, async, so side effects would run twice. Its issues are
- * the 422 body as before. Any other Standard Schema runs `validate`, and its issues are cut to `{ path, message }`:
- * raw issues (valibot's) carry the whole `input` of the request. A message may still repeat the submitted value.
+ * A request path as one log line: Hono decodes the path, so `%0A` is a real newline and could break or forge a line in
+ * the log (CWE-117). Control characters, C1 controls, the line separators and the bidi controls are escaped as
+ * `\uXXXX`, and a backslash as `\\`, so a literal `\u000a` a client sent never reads as the escaped newline.
  */
-const validateRules = async (rules: StandardSchemaV1 & { safeParseAsync?: unknown }, data: unknown): Promise<RulesResult> => {
-  if(typeof rules.safeParseAsync === "function") {
-    const parsed = await (rules.safeParseAsync as (data: unknown) => Promise<{ success: boolean; data?: unknown; error?: { issues: unknown[] } }>)(data);
-    return parsed.success ? { ok: true, value: parsed.data } : { ok: false, issues: parsed.error!.issues };
-  }
-  const result = await validate(rules, data);
-  if(result.ok) {
-    return { ok: true, value: result.value };
-  }
-  return {
-    ok: false,
-    issues: result.issues.map((issue) => ({
-      path: (issue.path ?? []).map((segment) => (typeof segment === "object" ? segment.key : segment)),
-      message: issue.message,
-    })),
-  };
-};
+const loggablePath = (path: string): string =>
+  path.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+    char === "\\" ? "\\\\" : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
@@ -62,6 +48,8 @@ type PipeLineType = {
 } | {
   type: 'request',
   handler: RequestSupport,
+  /** A contract route's endpoint and raw input, validated before the handler runs. */
+  contract?: { endpoint: AnyEndpoint, input: RawInput },
 } | {
   type: 'controller',
   handler: any,
@@ -80,13 +68,14 @@ export enum ControllerMethodHttpStatusCode {
 
 export default class Request extends AppServiceProvider {
 
+  /** @deprecated The 0.5 `FormValidation` path: validate a Standard Schema with `validate()` from `@laratype/contract`. */
   public static async validate(data: any, rule: any) {
     const result = FormValidation.validationResult(rule, data);
     return result
   }
 
   /**
-   * The container controllers are resolved from: the app container `boot()` puts on each request, else one
+   * The container controllers are resolved from: the request scope of the app container `boot()` puts on each request, else one
    * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
    */
   public static container(): Container {
@@ -94,14 +83,15 @@ export default class Request extends AppServiceProvider {
   }
 
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {
-    return (req: RequestSupport | undefined) => {
+    // `arg`: the 0.5 request, or the ctx of a contract route
+    return (arg: unknown) => {
 
       // Constructor DI (H2 #105): an unbound controller is autowired, a new instance per request as with `new`
       const controller = Request.container().make(c[0]) as any;
       const method = c[1]
       if(typeof controller[method] === "function") {
         // handle req
-        return controller[method](req, ContextApi.getModelBindings())
+        return controller[method](arg, ContextApi.getModelBindings())
       }
       else
         console.error(`Invoke function expected: function, but got ${typeof controller[method]}`);
@@ -110,7 +100,7 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static transformRequest(request: HonoRequest, routeOption: RouteParams) {
+  public static transformRequest(request: HonoRequest, routeOption: KernelRouteParams) {
     if(routeOption.request) {
       return new routeOption.request(request);
     }
@@ -180,30 +170,37 @@ export default class Request extends AppServiceProvider {
     return Object.fromEntries(models);
   }
 
-  public static async processData(request: HonoRequest) {
-    switch(request.header('Content-Type')) {
-      case 'application/json':
-        request.input = await request.json()
-        break;
-      default:
-        request.input = await request.parseBody({
-          dot: true,
-        })
-    }
-
+  /**
+   * The 0.5 `input()`: the query merged with the body (`readBody`: JSON by media type, else form fields). `body` is
+   * one `readBody()` already read, so the body is parsed once.
+   */
+  public static async processData(request: HonoRequest, body?: unknown) {
     request.input = {
       ...request.query(),
-      ...request.input,
+      ...(body === undefined ? await readBody(request) : body) as Record<string, any>,
     }
     
     return request;
   }
 
-  public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: RouteParams, res: Response) {
+  /**
+   * The handler context of a contract route (docs/v1/http.md › Controller typing: Ctx and ControllerOf): the raw path
+   * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
+   * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
+   */
+  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }) {
+    const { query, body } = await validateInput(endpoint, input);
+    const ctx = { params: input.params, query, body };
+    return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
+  }
+
+  public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: KernelRouteParams, res: Response) {
     if(pipelines.length) {
       const pipeline = async () => {
         let index = 0;
         let error: any;
+        // What the handler gets: the 0.5 request, or the ctx of a contract route
+        let handlerArg: unknown = requestInstance;
         const next = async (arg?: any) => {
           const currentPipeline = pipelines[index++];
           if(arg instanceof Error) {
@@ -213,12 +210,20 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'request') {
-              await this.processValidation(requestInstance, routeOption);
+              handlerArg = currentPipeline.contract
+                ? await this.contractContext(currentPipeline.contract)
+                : await this.processValidation(requestInstance, routeOption);
               return await next(arg);
             }
             else if(currentPipelineType === 'controller') {
               if(routeOption.controller) {
-                return await this.controllerKernel(routeOption.controller)(requestInstance)
+                return await this.controllerKernel(routeOption.controller)(handlerArg)
+              }
+              // An ad-hoc route (`r.get('/health', () => 'ok')`, H12 #139) has no contract: its handler gets the 0.5
+              // request and the raw path params (no model binding), not the ctx of a contract handler
+              if('handler' in routeOption) {
+                const { handler } = routeOption;
+                return await handler(requestInstance, ContextApi.getModelBindings())
               }
               return await next(arg);
             }
@@ -264,19 +269,21 @@ export default class Request extends AppServiceProvider {
     }
   }
 
-  public static async processValidation(requestInstance: RequestSupport, routeOption: RouteParams) {
-    // A request class that doesn't override rules() has nothing to validate: validated() keeps its default `{}`
-    if(routeOption.request && requestInstance.rules !== RequestSupport.prototype.rules) {
+  public static async processValidation(requestInstance: RequestSupport, routeOption: KernelRouteParams) {
+    // A request class that doesn't override rules() has nothing to validate: validated() keeps its default `{}`.
+    // Told by the default's brand, not by prototype identity, which fails with two copies of @laratype/http (CJS, ESM)
+    if(routeOption.request && (requestInstance.rules as { [DEFAULT_RULES]?: true })[DEFAULT_RULES] !== true) {
       // Only invalid input is a 422, with its field errors (#275). Anything thrown, by rules() or inside the schema (an
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
-      const rules = requestInstance.rules() as StandardSchemaV1 & { safeParseAsync?: unknown };
+      const rules = requestInstance.rules() as StandardSchemaV1;
       if(typeof rules?.["~standard"]?.validate !== "function") {
         throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
       }
-      const result = await validateRules(rules, requestInstance.all());
+      // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only
+      const result = await validate(rules, requestInstance.all());
       if(!result.ok) {
         throw new ValidationException({
-          errors: result.issues,
+          errors: result.issues.map(publicIssue),
         })
       }
       requestInstance.validated = () => result.value
@@ -285,27 +292,30 @@ export default class Request extends AppServiceProvider {
     return requestInstance
   }
   
-  public static handle (routeOption: RouteParams) {
+  public static handle (routeOption: KernelRouteParams) {
+    const { endpoint } = routeOption;
+    // A contract route validates its endpoint's schemas: the rules() of a request class would be skipped silently
+    if(endpoint && routeOption.request) {
+      throw new TypeError(`${routeOption.name ?? routeOption.path}: a contract route validates its endpoint's query and body schemas, so it takes no request class (${routeOption.request.name})`);
+    }
     return async (ctx: Context) => {
-      const requestInstance = await this.processData(ctx.req);
+      const body = await readBody(ctx.req);
+      const requestInstance = await this.processData(ctx.req, body);
+      // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
+      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
       // For request.ip() (A5 #288). Non-enumerable, so logging or serializing the request doesn't walk Node's socket
       Object.defineProperty(transformedRequest, HONO_CONTEXT, { value: ctx, writable: false, enumerable: false, configurable: true });
+      // The endpoint (#105) is also a read-only, non-enumerable field of the request, for middleware. A contract route
+      // takes no request class, so the request has no own `endpoint` to clash with
+      if(endpoint) {
+        Object.defineProperty(transformedRequest, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
+      }
       // Route.api routes get the raw path params: their model binding is r.bind (H7 #118), never a 0.5 lookup that
       // could run a query or answer an undeclared 404
       const res = routeOption.modelBinding === false
         ? { ...transformedRequest.param() }
         : await this.queryFromModelBinding(this.explicitModelBinding(transformedRequest));
-
-      // ctx.endpoint (#105): a read-only field of this request's own object, for Route.api routes only
-      if(routeOption.endpoint) {
-        // A request class with its own `endpoint` field would keep that field's attributes (writable, enumerable)
-        if(Object.hasOwn(transformedRequest, 'endpoint')) {
-          throw new InternalException(`${routeOption.name ?? routeOption.path}: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of ${transformedRequest.constructor.name}`);
-        }
-        // Non-enumerable, so spreading or logging the request doesn't copy the endpoint definition
-        Object.defineProperty(transformedRequest, 'endpoint', { value: routeOption.endpoint, writable: false, enumerable: false, configurable: false });
-      }
 
       return ContextApi.run({
         request: transformedRequest,
@@ -321,7 +331,7 @@ export default class Request extends AppServiceProvider {
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
         }
-        pipelines.push({ type: 'request' as const, handler: transformedRequest });
+        pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
         const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
@@ -329,7 +339,9 @@ export default class Request extends AppServiceProvider {
         if(pipelineResult instanceof Error) {
           throw pipelineResult;
         }
-        return ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
+        return routeOption.endpoint
+          ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+          : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
       });
     }
   }
@@ -338,12 +350,48 @@ export default class Request extends AppServiceProvider {
     console.log(`${request.req.method} - ${request.req.url}`);
   }
 
+  /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
+  protected readonly disposals = new Set<Promise<void>>();
+
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
-      (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
-      this.resolveRequest(ctx);
-      return next();
+      // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
+      // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
+      const scope = this.app.createRequestScope();
+      (ctx.set as (key: string, value: Container) => void)(CONTAINER, scope);
+      try {
+        this.resolveRequest(ctx);
+        return await next();
+      } finally {
+        this.disposeRequestScope(scope, ctx);
+      }
     });
+  }
+
+  /**
+   * @internal For tests only: resolves once every disposal this kernel started so far has settled, so a dispose test
+   * doesn't depend on timing. Call it once the response has resolved: the middleware starts the disposal before it
+   * returns, so a call earlier sees no disposal to wait for. A disposer that never settles keeps it pending, like the
+   * request's own work.
+   */
+  public async settled(): Promise<void> {
+    while (this.disposals.size) await Promise.all(this.disposals);
+  }
+
+  /**
+   * The response is already resolved when this runs, so it is started, never awaited, and a failed disposal is logged
+   * once, never turned into an error response. The rejection is handled on the promise itself, so it is never unhandled.
+   */
+  protected disposeRequestScope(scope: Container, ctx: Context): void {
+    // Read before the disposal starts: the catch closure keeps only this line alive, not the whole context, while a
+    // disposer hangs
+    const label = `${ctx.req.method} ${loggablePath(ctx.req.path)}`;
+    const disposal = scope.dispose().catch((error: unknown) => {
+      console.error(`[@laratype/http] ${label}: disposing the request scope failed`, error);
+    });
+    this.disposals.add(disposal);
+    // Dropped once settled, so `settled()` waits on the right ones and only running disposals stay in the set
+    void disposal.then(() => this.disposals.delete(disposal));
   }
 }

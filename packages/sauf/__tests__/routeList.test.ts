@@ -62,6 +62,19 @@ describe('sauf route:list', () => {
     ]);
   });
 
+  it('lists an ad-hoc route as a Closure', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const [, , health] = Route.api(appApi, (r) => [
+      r.contract(users, UserController),
+      r.scope('users/[user]', { policy: UserScopePolicy }),
+      r.contract(posts, PostController, { policy: PostPolicy }),
+      r.middleware(Audit).get('/health', () => 'ok'),
+    ]).mount(new Hono());
+    expect(routeRow(health!)).toEqual({
+      Method: 'get', path: '/health', Name: '-', Controller: 'Closure', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',
+    });
+  });
+
   it('still reads 0.5 entries', () => {
     expect(routeRow({ method: 'get', path: '/me', controller: [UserController, 'me'], middleware: [Audit], can: [] })).toEqual({
       Method: 'get', path: '/me', Name: '-', Controller: 'UserController::me', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',

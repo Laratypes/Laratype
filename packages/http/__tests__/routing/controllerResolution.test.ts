@@ -92,7 +92,7 @@ describe('controller resolution', () => {
     expect(await json(bare, '/legacy')).toEqual({ message: 'hello' })
   })
 
-  it('ContextApi.getContainer() is the app container under RequestKernel; RequestKernel.container() falls back outside it', async () => {
+  it('ContextApi.getContainer() is a request scope of the app container under RequestKernel; RequestKernel.container() falls back outside it', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const container = new Container({ deps: depsRegistry })
     const app = new Hono()
@@ -101,13 +101,18 @@ describe('controller resolution', () => {
     const seen: unknown[] = []
     class Probe extends Controller {
       index() {
-        seen.push(ContextApi.getContainer(), RequestKernel.container())
+        seen.push(ContextApi.getContainer(), RequestKernel.container(), RequestKernel.container().make(Greeter))
         return {}
       }
     }
     app.get('/probe', RequestKernel.handle({ method: 'get', path: '/probe', controller: [Probe, 'index'] }))
+    container.singleton(Greeter)
     await app.request('/probe')
-    expect(seen).toEqual([container, container])
+    const [scope, kernelContainer, greeter] = seen
+    expect(kernelContainer).toBe(scope)
+    expect(scope).toBeInstanceOf(Container)
+    expect(scope).not.toBe(container)
+    expect(greeter).toBe(container.make(Greeter))
     // outside a request, and on a bare app: one autowire-only container, created once
     expect(ContextApi.getContainer()).toBeUndefined()
     const fallback = RequestKernel.container()
@@ -205,24 +210,27 @@ describe('ctx.endpoint', () => {
     expect(await json(app, '/api/greetings')).toEqual({ copied: false, keys: false })
   })
 
-  it('a request class with its own endpoint field is an error, never a writable endpoint', async () => {
-    class WithEndpoint extends LaratypeRequest {
-      endpoint = 'mine'
+  it('middleware reads the endpoint on the request, read-only and non-enumerable', async () => {
+    const seen: unknown[] = []
+    class Reads extends Middleware {
+      async handle(request: any, res: Response, next: (request: any) => unknown) {
+        seen.push(request.endpoint, Reflect.set(request, 'endpoint', 'x'), Object.keys(request).includes('endpoint'))
+        return next(request)
+      }
     }
-    class Handler extends Controller { index() { return {} } }
+    class Plain extends Controller { index() { return {} } show() { return {} } }
     const app = new Hono()
-    const errors: unknown[] = []
-    app.onError((error, c) => {
-      errors.push(error)
-      return c.text('error', 500)
-    })
-    app.get('/own', RequestKernel.handle({
-      method: 'get', path: '/own', name: 'own', request: WithEndpoint, endpoint: greetings.index, controller: [Handler, 'index'],
-    }))
-    expect((await app.request('/own')).status).toBe(500)
-    expect((errors[0] as Error).message).toContain(
-      'own: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of WithEndpoint',
-    )
+    Route.api(greetingsApi, (r) => [r.middleware(Reads).contract(greetings, Plain)]).mount(app)
+    await app.request('/api/greetings')
+    expect(seen).toEqual([greetings.index, false, false])
+  })
+
+  it('a contract route takes no request class: its rules() would be skipped, so registering it throws', () => {
+    class StoreRequest extends LaratypeRequest {}
+    class Handler extends Controller { index() { return {} } }
+    expect(() => RequestKernel.handle({
+      method: 'get', path: '/own', name: 'own', request: StoreRequest, endpoint: greetings.index, controller: [Handler, 'index'],
+    })).toThrow("own: a contract route validates its endpoint's query and body schemas, so it takes no request class (StoreRequest)")
   })
 
   it('a 0.5 route has no endpoint', async () => {

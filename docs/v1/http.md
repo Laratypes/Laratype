@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229]
+issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -10,27 +10,27 @@ last-verified: 2026-10-09
 
 The v1 HTTP layer binds contracts to controllers on a Hono router. It runs a typed pipeline (middleware, binding, policies, validation, interceptors) and turns handler results and exceptions into the responses the contract declares.
 
-**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) and controller resolution (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) are the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are resolved with `app.make()` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and the status is guessed from the method name (`ControllerMethodHttpStatusCode`). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
+**Router v2 ([#104](https://github.com/Laratypes/Laratype/issues/104)) and controller resolution (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) are the only v1 HTTP code so far.** The rest of `@laratype/http` on master is the 0.5 package. Its route tree is built by `_createNestedRoute` in `packages/http/src/routing/Route.ts`, controllers are resolved with `Request.container().make()` in `Request.controllerKernel` (`packages/http/src/request/Request.ts`), and a 0.5 route's status is guessed from the method name (`ControllerMethodHttpStatusCode`); a `Route.api` route's comes from its endpoint ([Response from the contract](#response-from-the-contract)). Everything below is either **decided** (S1) or **planned**. Signatures quoted from the S1 spike (`spikes/v1/s1-controller/lib/*` on PR #197 @ 4c558fd) are the decided *shape* but are not package code. H2 [#105](https://github.com/Laratypes/Laratype/issues/105) owns the real signatures.
 
 Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DECISIONS-S1-S2.md §S1](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/DECISIONS-S1-S2.md#s1-84-decision).
 
 | Section | Status |
 |---|---|
-| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `params`, `query`, `body` planned → #106 |
+| [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
-| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Request pipeline](#request-pipeline) | planned → #106, #138 |
-| [Response from the contract](#response-from-the-contract) | planned → #107 |
-| [Exceptions](#exceptions) | current error handling merged (#267, #272, #275); planned → #108 |
+| [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
+| [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
+| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | planned → #117 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
-| [Resources](#resources) | proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d |
+| [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
-| [Ad-hoc routes](#ad-hoc-routes) | planned → #139 |
+| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
 | [CORS](#cors) | planned → #164 |
 | [Undeclared-error check](#undeclared-error-check) | planned → #157 |
@@ -40,7 +40,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 ## Controller typing: Ctx and ControllerOf
 
 ### Status
-Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Merged: `Ctx<E, Requires>`, `Result<E>` and `ControllerOf<C>` (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)). `BaseCtx`'s `params`, `query` and `body` are planned → [#106](https://github.com/Laratypes/Laratype/issues/106) (H3): the runtime does not build them yet, so `Ctx` has only `endpoint` and `Requires`, and H3 swaps `BaseCtx` in on both sides, `Ctx` and the route's `Provided`. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
+Decided: S1 [#84](https://github.com/Laratypes/Laratype/issues/84) chose option A. Merged: `Ctx<E, Requires>`, `Result<E>` and `ControllerOf<C>` (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)). `BaseCtx` with `params`, `query` and `body`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)): the runtime builds it for every `Route.api` route, and `Ctx` and the route's `Provided` share it. The spike's `fail()`, `ErrorReply` and the error branch of `Result<E>` are removed: errors are thrown, and framework errors come from the contract's capabilities (planned → [#108](https://github.com/Laratypes/Laratype/issues/108)).
 
 ### Public API
 Reference shape from the S1 spike ([`s1-controller/lib/ctx.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/ctx.ts)). This is not package code, and H2 may refine the names of the helper types:
@@ -56,15 +56,16 @@ type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => M
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)):
 
 ```ts
-type Ctx<E extends AnyEndpoint, Requires extends object = {}> = { readonly endpoint: E } & Requires;   // H3 adds BaseCtx
+type BaseCtx<E extends AnyEndpoint, P = PathParams<E path>> = { readonly endpoint: E; params: P; query: InferOut<query>; body: InferOut<body> };
+type Ctx<E extends AnyEndpoint, Requires extends object = {}>;   // BaseCtx<E> merged with Requires, params merged one level deep
 type Result<E extends AnyEndpoint>;   // the response schema INPUT, void without one
 type ControllerOf<C>;                 // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]> | ResponseEscape> }, for a contract or its tree node
 type ResponseEscape;                  // ResponseSupport | JsonResource: 0.5 response() / redirect() and 0.5 resources, unchecked (v2 resources return checked data, #123)
 ```
 
-Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), the first argument of a `Route.api` handler is still the 0.5 request object, with `endpoint` added as a read-only property, so a handler reads `ctx.endpoint` and its `Requires`, or types its parameter as that request object. Destructuring `{ params }` from a `Ctx` does not compile yet.
+The first argument of a `Route.api` contract handler (`r.contract()`) is the ctx, a new object per request (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)): `params` holds the raw path params (strings), folder params included; `query` and `body` hold the output of the endpoint's `query` and `body` schemas, or `undefined` for a slot without one. It is not the 0.5 request object any more; an [ad-hoc route](#ad-hoc-routes) has no contract, and its handler gets the 0.5 request. `Ctx<E>` knows the endpoint's own path params; a folder param (`user` of `users/[user]/posts`) is listed in `Requires`.
 
-Usage (decided style; `query` and `params` as shown need H3 #106):
+Usage (decided style; a bound model in `params` needs `r.bind()`, H7 #118):
 
 ```ts
 export class UserController implements ControllerOf<typeof users> {   // optional
@@ -82,7 +83,7 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 - `Requires` is what the handler **needs from the route**: middleware extensions and `.bind()`-resolved params.
 - `ctx.user` comes from the endpoint's `auth` capability and is typed per guard, so a handler doesn't list it in `Requires` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120)).
 - `ctx.query` and `ctx.body` use the schema **output**, because they hold validated values.
-- `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it (merged, [#105](https://github.com/Laratypes/Laratype/issues/105)). It is a non-writable, non-configurable, non-enumerable own property of the request's own object, so each request and each endpoint sees its own. 0.5 routes have no `endpoint`. A request class with its own `endpoint` field fails the request with `<route name>: the request already has an own "endpoint" property, which ctx.endpoint (#105) reserves: rename that field of <Request>`.
+- `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it (merged, [#105](https://github.com/Laratypes/Laratype/issues/105)). It is a non-writable, non-configurable, non-enumerable own property of the ctx, and of the 0.5 request object that middleware gets, so each request and each endpoint sees its own, and spreading either doesn't copy it. 0.5 routes have no `endpoint`.
 - **Return value:** a handler returns the response schema **input**, since the serializer runs afterwards.
 - **Errors are thrown,** at any depth. A domain error is declared with `throws` ([contract.md › Domain errors](./contract.md#domain-errors)). Framework errors (401, 403, 404, 422, 429) come from the contract's capabilities and need no handler code.
 - `implements ControllerOf<typeof c>` is optional. With it, a wrong return shape or a missing handler is reported at the method. Without it, the error appears at `r.contract()`.
@@ -129,9 +130,9 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)):
 
 ```ts
-// Until H3 #106: what the runtime passes. H3 swaps BaseCtx in for RequestSupport
+// What the runtime passes (H3 #106): BaseCtx with every path param of the full path, X, and the bound params
 type Provided<E, Path extends string, X extends object = {}, B = {}> =
-  RequestSupport & { readonly endpoint: E } & X & ([keyof B] extends [never] ? {} : { params: BoundParams<PathParams<JoinPath<Path, E path>>, B> });
+  Merge<BaseCtx<E, FullParams>, X & { params: BoundParams<FullParams, B> }>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
 // Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 and H7 #118 feed X and B
 type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}>;
 type RouteProof<A, C, I, O>;          // VerifyController for the tree entry r.contract() mounts, with X = B = {}
@@ -145,11 +146,11 @@ interface ApiRouteBuilder<A> {
 ```
 
 ### Invariants
-- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Until H3 [#106](https://github.com/Laratypes/Laratype/issues/106), `Provided` also holds the 0.5 request object, which the runtime passes, so a handler typed with it passes too, and it has no `params` without bindings: a handler that requires a `params` object (even `{}` or one with optional keys) fails.
+- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
 - **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
-- **Second parameter:** until H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
+- **Second parameter:** the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
 - **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
 - **Also checked at `r.contract()`:**
   - exhaustiveness, so every endpoint needs a handler;
@@ -169,7 +170,8 @@ interface ApiRouteBuilder<A> {
 Message templates from the S1 spike (real tsc 5.9.2 output in `s1-controller/tsc-errors.txt` @ 4c558fd). `<c>.<e>` is the route name:
 - `` <c>.<e>: handler requires `<key>`, route does not provide it (add middleware / .bind()) ``, with `{ handler_requires: T }`
 - `` <c>.<e>: `<key>` provided by the route does not match the handler (missing .bind()?) ``, with `{ route_provides; handler_requires }`
-- `` <c>.<e>: `<key>` of the request does not match the handler (Route.api passes the raw request; request classes are #106) ``, for a member of the 0.5 request object
+- `` <c>.<e>: handler takes the 0.5 request (`<key>`), Route.api passes the ctx { endpoint, params, query, body } ``, for a member of the 0.5 request object the ctx doesn't have
+- `` <c>.<e>: `query` of the ctx does not match the handler (it is the output of the endpoint's query schema) ``, and the same for `body`
 - `<c>.<e>: handler ctx is typed for a different endpoint`
 - `<c>.<e>: handler ctx does not accept what the route provides`, with `{ route_provides; handler_requires }`, when no single key explains it (a private member, a call signature)
 - `<c>.<e>: the second parameter gets the raw path params (strings), use .bind() and ctx`
@@ -206,7 +208,7 @@ Route.api(appApi, (r) => [
 ## Router v2
 
 ### Status
-merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are resolved with `app.make()` ([Controller resolution](#controller-resolution), H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) and run through the 0.5 `RequestKernel` pipeline until H3 [#106](https://github.com/Laratypes/Laratype/issues/106).
+merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is planned → [#114](https://github.com/Laratypes/Laratype/issues/114). Controllers are resolved with `Request.container().make()` ([Controller resolution](#controller-resolution), H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) and run through the `RequestKernel` pipeline, which validates their query and body (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), [Request pipeline](#request-pipeline)).
 
 ### Public API
 [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
@@ -223,6 +225,11 @@ interface ApiRouteBuilder<A> {
     contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
     options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;               // a contract or its tree node; Route proof
   scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
+  get: AdHocRouteMethod<"get">;                                                         // ad-hoc routes, see Ad-hoc routes
+  post: AdHocRouteMethod<"post">;
+  put: AdHocRouteMethod<"put">;
+  patch: AdHocRouteMethod<"patch">;
+  delete: AdHocRouteMethod<"delete">;
 }
 
 interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
@@ -242,9 +249,10 @@ interface EndpointRouteBuilder {
 }
 
 class ApiRoutes {                                // exported as a type: only Route.api() builds one
-  readonly routes: readonly RouteEntry[];        // the registry entries, depth-first in tree order
+  readonly routes: readonly RouteEntry[];        // the contract routes' registry entries, depth-first in tree order
+  readonly adHoc: readonly AdHocRouteEntry[];    // the ad-hoc routes' entries, in callback order (see Ad-hoc routes)
   domain(domain: string): ApiRoutes;             // the same checked routes, served on that hostname only
-  mount(app: Hono): RouteEntry[];                // registers every route on Hono (by specificity), returns the entries
+  mount(app: Hono): (RouteEntry | AdHocRouteEntry)[];   // registers every route on Hono (by specificity), returns routes then adHoc
 }
 
 interface RouteEntry extends ApiRoute {          // name, method, path, endpoint, contract, scopes + resolved capabilities
@@ -264,26 +272,26 @@ type ApiTreeNode<A>;          // the tree nodes that hold a contract: typeof app
 type ApiScopeDir<A>;          // "" | "users/[user]"
 type ApiAuthorizeDir<A>;      // the scope folders with authorize
 type CheckApiRoutes<A, M>;    // unknown, or { error: "Route.api: ..." }
-const UNENFORCED_NOTICE: "auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106)";
+const UNENFORCED_NOTICE: "auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)";
 ```
 
 The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it.
 
 ### Invariants
-- **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items. A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
+- **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items, and any ad-hoc routes (`r.get()`, ...; [Ad-hoc routes](#ad-hoc-routes)). A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
 - **Contract or tree node.** `r.contract()` takes the contract or its tree node (`r.contract(appApi.users.posts, PostController)`). At compile time a contract is matched by its exact type and a tree node by its tree name; at runtime both are matched by value. Two contracts of the tree with identical types (`posts.ts` and `comments.ts` in one folder, both `{ index: endpoint.get('/').response(Dto) }`) can't be told apart by type, so mounting either by its contract is a compile error that asks for the tree node; mounted by their nodes, a missing or duplicate one is a compile error again.
 - **Registration order.** Hono matches in registration order, so `mount()` registers the routes by specificity, not in tree order: comparing the path segments left to right, a static segment comes before a param constrained to one segment (`:id{[0-9]+}`), that one before a plain param (`:slug`), a plain param before a regex param that can match `/` (`:path{.+}`: an unescaped `.`, a `/`, a negated class `[^...]`, or `\S`, `\W`, `\D`), and that one before a wildcard (a stable sort, so equal routes keep their tree order). A parent's param route therefore never shadows a child's static one: with `users.ts` `{ show: '/:user' }` and `users/me.ts` `{ index: '/' }`, `GET /api/users/me` reaches `users.me.index`. With `files.ts` `{ show: '/:path{.+}' }` and `files/[id]/raw.ts`, `GET /api/files/42/raw` reaches the raw route; with `/:slug` and `/:id{[0-9]+}` at the same position, `GET /api/posts/42` reaches the id route and `/api/posts/abc` the slug one. `routes` and the returned entries keep the tree order.
   - Known limitation: the sort is per `Route.api`. Other `Route.api` groups and 0.5 `defineRouteGroup` routes register in the order the providers mount them, so a param route of one group can still shadow a static route of another: mount order matters across groups.
-- **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes keep `Route.prefix(...)` and `group(...)` ([Ad-hoc routes](#ad-hoc-routes)), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
+- **URLs from the tree.** A contract route's path is the full path from `apiRoutes()` (the folder tree plus the endpoint path), so contract routes take no prefix. Ad-hoc routes take their path as written ([Ad-hoc routes](#ad-hoc-routes); `Route.prefix(...)` and `group(...)` for them: planned → [#321](https://github.com/Laratypes/Laratype/issues/321)), and the 0.5 `defineRouteGroup` routes keep working next to `Route.api`.
 - **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods of the controller or of a class between it and the base `Controller`: an arrow-function class field, `constructor`, an `Object.prototype` method or a base `Controller` method is not a handler, and is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is the [Route proof at r.contract()](#route-proof-at-rcontract) (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as the `dir` of the entry's `{ scope, dir }` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
-- **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(req, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
+- **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(ctx, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
 - **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner), and the `policy` of `r.contract()` on each route of the contract (`RouteEntry.policy`). Running them is planned → [#121](https://github.com/Laratypes/Laratype/issues/121): a scope policy's `before` needs the signed-in user ([#120](https://github.com/Laratypes/Laratype/issues/120)) and the bound models ([#118](https://github.com/Laratypes/Laratype/issues/118)).
-- **Auth and input validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` is enforced by `mount()` ([Rate limiting](#rate-limiting)). A route whose endpoint has a body, query or headers schema gets its input unchecked until H3 [#106](https://github.com/Laratypes/Laratype/issues/106). `RouteEntry.unenforced` records which of `auth`, `authorize` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
+- **Auth and headers validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` is enforced by `mount()` ([Rate limiting](#rate-limiting)). The query and body schemas are validated (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155); a headers schema is not, so a route whose endpoint has one is listed with `validation`. `RouteEntry.unenforced` records which of `auth`, `authorize` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
 - **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
 - **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The hostname is made of non-empty labels of letters, digits and inner hyphens. `.domain()` re-labels the routes `Route.api` already checked. The match reads the `Host` header only (the request URL's host when there is none, as with an in-process `app.request()`), never `X-Forwarded-Host`: behind a proxy, the proxy must preserve the `Host` header. It ignores case, the request port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). A request for another host falls through to the next matching route, or gets a 404. `.domain()` is name-based virtual hosting, not an access-control boundary: any client can send any `Host` header, so no guard or policy may key on the domain alone.
-- **Registry.** `mount()` returns one `RouteEntry` per route. `RouteAppServiceProvider` stores what `routes()` returns in `globalThis.__laratype_routes`, as in 0.5, and `sauf route:list` reads both v2 and 0.5 entries. The move to a container `RouteRegistry` is planned → [#114](https://github.com/Laratypes/Laratype/issues/114).
+- **Registry.** `mount()` returns one `RouteEntry` per contract route, then one `AdHocRouteEntry` per ad-hoc route ([Ad-hoc routes](#ad-hoc-routes)). `RouteAppServiceProvider` stores what `routes()` returns in `globalThis.__laratype_routes`, as in 0.5, and `sauf route:list` reads both v2 and 0.5 entries. The move to a container `RouteRegistry` is planned → [#114](https://github.com/Laratypes/Laratype/issues/114).
 - **Tree source.** In dev, the `laratype:api` plugin runs G1's scan and emit (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, with no TS checker and no `api.ts`) with config `api.root` / `api.base` from `app/config/config.ts`, then resolves `$api` to `.laratype/api/index.gen.ts`. The config is read outside the app's module graph: the project's `.env` is loaded first (`loadEnv`, as `EnvLoadServiceProvider` does), then the file is imported by an isolated jiti instance with no module cache, so the app's own later import evaluates it fresh with env loaded, and a config importing a module still loading up the app's import chain cannot deadlock the scan. That import evaluates the config's whole import graph, so the plugin runs it again only when the content of `app/config/config.ts` changed: a rescan for a contract added or deleted reuses the last value, and a failed read is not kept.
   - Known limitations of the config read: the isolated import knows no Vite or tsconfig `paths` alias, so `app/config/config.ts` and the modules it imports can't use aliases in dev; such an import fails with `[laratype:api] app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): <error>`. The cache is keyed on the text of `app/config/config.ts` only: after a change to `.env` or to a module the config imports, touch `config.ts` or restart `sauf dev` before `api.root` / `api.base` pick it up.
   - The first `$api` import scans the tree. Once the app has imported `$api`, `sauf dev --hmr` rescans before a restart only when the tree can have changed: a file added or deleted under the root, or the config file changed, added or deleted (see below). An edited config applies on that restart. An app that never imports `$api` is never scanned, so a 0.5 app with helpers in `app/api` still boots. Only files the scan reads count as tree files: no private `_x` / `$x` folders, non-`.ts` files or editor temp files. A failed scan is not cached.
@@ -318,7 +326,8 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `contract "<tree name>": r.contract() got <value> as its controller (a circular import?)`
 - `<route name>: <Controller>.<key> has status <n> from its status decorator, but the endpoint declares <m>: declare .response(schema, <n>) on the endpoint, or drop the decorator`
 - `expected the appApi tree built with defineApi` (told by the root brand, `isApiRoot`: a hand-made object of nodes is rejected; `Route.api` also requires the brand in its type, so most such calls fail to compile)
-- `the routes callback must return r.contract() and r.scope() items`
+- `the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)`
+- `the routes callback must return r.contract(), r.scope() and ad-hoc route (r.get(), ...) items`
 - `.domain("<domain>") must be a hostname, such as "api.example.com"`
 - `<route name>: endpoint has .authorize() but r.contract() has no { policy }`
 - `contract "<tree name>": r.contract() options must be { policy?, endpoints? }`
@@ -331,10 +340,10 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `contract "<tree name>": endpoints.<key> must be a callback, (r) => r.middleware(...)`
 - `<route name>: endpoints.<key> must return the builder it gets, (r) => r.middleware(...)`
 
-Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize and input schema validation are not enforced yet (planned → #105, #121, #106), so these routes skip those checks: <route name> (auth[, authorize][, validation]), ...`
+Warning, logged once per `mount()` when some routes have a non-empty `unenforced`: `[@laratype/http] Route.api: auth, authorize and headers schema validation are not enforced yet (planned → #105, #121), so these routes skip those checks: <route name> (auth[, authorize][, validation]), ...`
 
 ### Example
-[`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts), and its `RouteServiceProvider` registers it with `apiRoutes.mount(this.apps)`. With scopes:
+[`examples/basic/app/routes/api.ts`](../../examples/basic/app/routes/api.ts) mounts [`app/api/posts.ts`](../../examples/basic/app/api/posts.ts) and [`app/api/users.ts`](../../examples/basic/app/api/users.ts) (a v1 `UserController` with constructor DI, tested in `examples/basic/__tests__/`), and its `RouteServiceProvider` registers them with `apiRoutes.mount(this.apps)`. With scopes:
 
 ```ts
 import { appApi } from '$api'
@@ -364,21 +373,19 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 ## Controller resolution
 
 ### Status
-merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). Request scopes are planned → [#112](https://github.com/Laratypes/Laratype/issues/112). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
+merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The request scope is proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)), specified in [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling). The fallback-container warning and the core no-metadata hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) are proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
 
 ### Invariants
-- **Resolution:** `Request.controllerKernel` resolves the controller with `app.make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
-- **Which container:** `RequestKernel.boot()` puts the app container on every request (`ContextApi.getContainer()`). Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use. Creating it prints one `console.warn` per process (module copies and dev restarts included), except in production (`globalThis.__PROD__`, or `NODE_ENV=production` when `__PROD__` is unset): ``[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.`` ([#270](https://github.com/Laratypes/Laratype/issues/270)).
+- **Resolution:** `Request.controllerKernel` resolves the controller with `Request.container().make(Controller)` instead of `new`, for `Route.api` and 0.5 routes alike. That gives constructor DI through the [DI transform](./di.md#di-transform), and an app binding of the controller or of its dependencies applies.
+- **Which container:** `RequestKernel.boot()` creates one request scope of the app container per request (`createRequestScope()`), puts it on the request (`ContextApi.getContainer()`, `RequestKernel.container()`) and starts its disposal when the handler settles: after its response, or after it throws, once the error handler has answered. The middleware does not await the disposal, so a slow disposer never delays the response and one that never settles never hangs it; a failed one is logged once and never changes the response ([di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)). Controllers resolve from it, so app bindings apply and a request-scoped dependency is built once per request. Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use. Creating it prints one `console.warn` per process (module copies and dev restarts included), except in production (`globalThis.__PROD__`, or `NODE_ENV=production` when `__PROD__` is unset): ``[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.`` ([#270](https://github.com/Laratypes/Laratype/issues/270)).
 - **Lifetime:** an unbound controller is transient: a new instance per request, as with `new`. A binding's scope (`singleton`, `@Injectable({ scope })`) applies as it does anywhere else.
+- **Request-scoped dependencies:** a transient controller that depends on a request-scoped provider gets the request's value and needs no bubbling. A singleton controller (a binding, or `@Injectable({ scope: 'singleton' })`) that depends on one bubbles to request scope, with one dev warning per key ([di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)).
 - **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount. A controller (0.5 too) whose constructor takes params needs the [DI transform](./di.md#di-transform)'s metadata, so it must be app code the `laratype:di` plugin compiles; otherwise it fails where `new` used to pass `undefined`: ``Cannot autowire <Controller>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.`` The hint comes from core ([di.md › Resolution errors with fix hints](./di.md#resolution-errors-with-fix-hints)); a binding is an app binding, so it needs RequestKernel. `@Inject` can't fix it: without DI metadata the container fails before it reads `@Inject`.
 - **Mount checks read the declared class:** the handler and status-decorator checks of `Route.api` read the class passed to `r.contract()`. A binding of that class should be a subclass of it.
 - **Kernel container:** the kernel container passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 
-### Design (non-binding)
-- **Scope bubbling:** a controller that depends on a request-scoped provider becomes request-scoped ([#112](https://github.com/Laratypes/Laratype/issues/112)).
-
 ### Example
-Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts). In `examples/basic`, `GreetingService` is injected into `GreetingController` with no decorator.
+Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../packages/http/__tests__/routing/controllerResolution.test.ts) and [`requestScope.test.ts`](../../packages/http/__tests__/routing/requestScope.test.ts) (parallel requests, and disposal after the response: the slow and failing disposers awaited through the kernel's internal `settled()` hook, and a disposer that never settles proven not to hang the response). In `examples/basic`, `GreetingService` is injected into `GreetingController` with no decorator.
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105)
@@ -388,7 +395,18 @@ Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../pa
 ## Request pipeline
 
 ### Status
-planned → [#106](https://github.com/Laratypes/Laratype/issues/106) (H3), [#138](https://github.com/Laratypes/Laratype/issues/138) (H11).
+Parsing, validation and the handler ctx: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
+
+### Public API
+No new export. The parsing and validation steps run inside `RequestKernel.handle`, and the handler ctx is `Ctx<E>`: the signatures, permalinked at the SHA in Status, are in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422) and [Controller typing](#controller-typing-ctx-and-controllerof).
+
+### Invariants
+- **Parsing and validation (H3):** the body by media type, the query and params, the order (after middleware and policies, before the handler), the 400 and 422 bodies, an empty body as `{}` on every method, and the typed ctx are specified once, in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422).
+- **Only a parse failure is a 400.** The pipeline rethrows what is not a malformed body, so a route's `bodyLimit` keeps its own 413 and a body an earlier middleware read already ends as the generic 500 ([validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1)).
+- **Still the 0.5 kernel:** the steps run inside `RequestKernel.handle`; 0.5 routes keep `processValidation`.
+
+### Diagnostics
+The 400 and 422 bodies, an empty body as `{}`, the **413** a `bodyLimit` route keeps (the pipeline rethrows its `BodyLimitError`) and the **500** of a body an earlier middleware read already, and the `TypeError` for a contract route with a request class: [validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1).
 
 ### Design (non-binding)
 Fixed order, combining Nest and Laravel:
@@ -402,7 +420,7 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 
 - **From the contract:** the auth guard, the rate limit and the policies are applied from the contract's capabilities, so API routes need no auth or throttle middleware ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Parsing and validation (H3):** see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422). The pipeline builds the typed handler context.
-- **Replaces:** `RequestKernel.pipeline` and `processValidation`.
+- **Replaces:** `RequestKernel.pipeline` and `processValidation`. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) runs the contract validation as their `request` step, so 0.5 routes keep `processValidation`; the fixed order above replaces both with the guard and interceptor steps ([#105](https://github.com/Laratypes/Laratype/issues/105), [#138](https://github.com/Laratypes/Laratype/issues/138)).
 
 ### Acceptance
 [#106 Done when](https://github.com/Laratypes/Laratype/issues/106) · [#138 Done when](https://github.com/Laratypes/Laratype/issues/138)
@@ -412,13 +430,30 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 ## Response from the contract
 
 ### Status
-planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
+proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)). `Jsonify` is in [contract.md › API type projection](./contract.md#api-type-projection).
 
-### Design (non-binding)
-- **Status:** taken from the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)). The success status is `204` (no content) when there is no response schema and `200` when `.response(schema)` sets one. `.response(schema, status)` sets another status with a JSON body, `.status(status)` another one without a body (`202`), and both must be 2xx (`200`–`299`), in the types and when the endpoint is defined. A body needs a status other than 204 and 205 (Reset Content): `.response(schema, 204)` is an error (use `.status(204)`). `.response(schema)` without a status keeps one set by `.status(n)` before it (`.status(202).response(Dto)` is 202).
-- **Body:** JSON serialization, with optional dev-mode output validation.
-- **Replaces:** the method-name guess in `ControllerMethodHttpStatusCode`.
-- **Done when:** runtime tests for 200, 201 and 204.
+### Public API
+No new API: a `Route.api` route answers through `resolveContractResponse` ([`packages/http/src/response/contractResponse.ts`](../../packages/http/src/response/contractResponse.ts)), which `RequestKernel.handle` calls for a route with an endpoint.
+
+### Invariants
+- **Status:** the endpoint's, decided by the contract ([contract.md › Endpoint builder](./contract.md#endpoint-builder)): `204` when there is no response schema, `200` for `.response(schema)`, the given 2xx for `.response(schema, status)` and `.status(status)`. The method name (`store`, `destroy`) and the 0.5 status decorator play no part; [Router v2](#router-v2) rejects a decorator that disagrees when the routes are mounted.
+- **No body:** an endpoint without a response schema, or with a 204 or 205, answers with no body, whatever the handler returns. `.status(202)` answers 202 with no body.
+- **Body:** the handler's value, a `JsonResource` unwrapped, serialized once with `JSON.stringify` as `application/json`: a string is a JSON string, never HTML, and a `Date` is its ISO string, so the frontend reads `Jsonify<output>`. A value with no JSON text (`undefined`, a function) is sent as `null`. The handler's own `Content-Type` and the other body headers (`Content-Length`, `Content-Encoding`, `Content-Disposition`, ... the `BODY_HEADERS` of [#272](https://github.com/Laratypes/Laratype/issues/272)) are dropped: they describe the body it built, not the one sent here. It is serialized before any of the handler's headers is set, so a value `JSON.stringify` throws on (a `bigint`, a cycle) is an unknown error, a 500 without them.
+- **`Location`:** a `201 Created` keeps the handler's `Location` (the created resource's URL, RFC 9110 §15.3.2), the one `BODY_HEADERS` exception; every other status drops it, and so does an error response. An endpoint cannot declare a 3xx: a redirect is a 0.5 `Response` (below), which keeps its `Location`.
+- **0.5 `Response`:** a handler may return it for its headers and content. A 2xx status set on it must be the endpoint's, else the request ends in a 500. Its body headers (`Content-Type`, `Content-Length`, ...) are dropped: the body is JSON or nothing. A redirect, or a non-2xx status (a middleware answering 401 or 429 without calling `next`), is not the endpoint's success and is sent by the 0.5 response kernel as before, which sends no body for a 304 and accepts a `Response` with no content.
+- **Dev-mode output validation:** unless `__PROD__` is true (or, without it, `NODE_ENV` is `production`), the handler's value is validated with the response schema before any header is set. The handler's value is sent, never the parsed one, in dev and in production alike, so the check also fails when the schema's output differs from the value as JSON (key order aside): a transform, or a key the schema strips (an entity's `passwordHash`), would put on the wire what `Jsonify<output>` doesn't say. A failure is the server's bug, so it answers the generic 500 of [Exceptions](#exceptions), with none of the handler's headers, and logs the reason, never a 422. Production skips the check and sends the handler's value as it is.
+- **0.5 routes** (`Route.group`) keep their 0.5 response: an explicit `Response` status, then the status decorator, then the method-name guess (`ControllerMethodHttpStatusCode`), then 200.
+
+### Diagnostics
+- `[@laratype/http] <route>: the handler answered status <n>, but the endpoint declares <status>: declare it on the endpoint (.response(schema, <n>) or .status(<n>))` (logged, 500)
+- `[@laratype/http] <route>: the handler's value does not match the endpoint's response schema (<path>: <messages>; ...)` (dev and test only; logged, 500). `(root)` names an issue without a path.
+- `[@laratype/http] <route>: the endpoint's response schema changes the handler's value (a transform, or a key it strips), so the client's type would not match what is sent: return the schema's output` (dev and test only; logged, 500)
+
+### Example
+Tests: [`packages/http/__tests__/response/contractResponse.test.ts`](../../packages/http/__tests__/response/contractResponse.test.ts) (200, 201, 202, 204, 205, JSON, a middleware's 429, a 201's `Location`, output validation).
+
+### Non-goals
+- Resources v2 (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) and interceptors (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) wrap this step later; error responses are [Exceptions](#exceptions).
 
 ### Open questions
 - Resolved: the frontend sees the response as `Jsonify<output>` (`Date` → `string`) ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
@@ -431,25 +466,51 @@ planned → [#107](https://github.com/Laratypes/Laratype/issues/107) (H4).
 ## Exceptions
 
 ### Status
-planned → [#108](https://github.com/Laratypes/Laratype/issues/108) (H5). The current error handling in Invariants is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)). The error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+
+### Public API
+[`Response.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/http/src/response/Response.ts) · [`isContractError` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/contract/src/errors.ts) · [`isException` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/support/src/exception/Exception.ts)
+
+```ts
+// @laratype/http: the exception filter, the Hono onError handler that ResponseKernel.boot() registers
+class ResponseKernel {
+  resolveException(err: Error | Exception, c: Context): Response | Promise<Response>;
+}
+// @laratype/contract
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;
+// @laratype/support
+export const isException: (value: unknown) => value is Exception;
+```
 
 ### Invariants
-- **Unknown errors** ([#267](https://github.com/Laratypes/Laratype/issues/267), H20): `Response.resolveException` answers any error that is not an `Exception`, and an `Exception` that is not responsible, with a 500, whatever the route's or controller's status. Every 5xx, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
+- **Contract errors:** a thrown `ContractError`, from `defineError` or the `errors` catalog, at any depth, answers its own status with the JSON body `{ code, ...body }`, whatever the route's or controller's status. A declared 5xx keeps its body too: it is the error the contract declares. A body's own top-level `toJSON` is dropped: JSON serialization would call it, and it could leave out the declared `code`. A contract error is an expected answer, so it is not logged.
+- **By brand:** the filter tells a contract error with `isContractError` and an `Exception` with `isException`, by a `Symbol.for` brand, not `instanceof`, so one from another copy of `@laratype/contract` or `@laratype/support` counts. `isContractError` also requires a 400-599 integer `status`, a string `code` and a non-array object `body` without its own `code`: a contract error whose fields were changed after it was created so that they no longer fit the wire format is an unknown error. `isException` also requires the public methods of an `Exception`: `getErrorCode()`, `getHttpCode()`, `canResponsible()` and `toJson()`.
+- **Framework errors:** the catalog's 401, 403, 404, 422 and 429 go out as `{ code, message }` (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`) and `{ code: "VALIDATION_ERROR", message, errors }`. The 0.5 `NotFoundException` and `UnauthorizedException` send the same `{ code, message }` shape.
+- **Unknown errors:** any error that is not a contract error, a responsible `Exception` or an HTTP error answers 500, whatever the route's or controller's status. Every 5xx other than a contract error, including a responsible `Exception` with a 5xx status (`InternalException`) and a 5xx `HTTPException`, keeps its status but carries only `{ message: "Server Error" }`. A responsible 4xx `Exception` keeps its body, and a 4xx Hono `HTTPException` keeps its response, with the headers middleware set (CORS, Vary).
 - **HTTP errors:** an HTTP error is told by its shape: an integer `status` from 400 to 599 and a `getResponse()` that returns a fetch `Response` whose status is from 400 to 599 too; anything else is an unknown error. Its 4xx or 5xx is decided on the status actually sent, the response's ([#272](https://github.com/Laratypes/Laratype/issues/272), H23).
-- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
-- **Logging:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx; the `Exception` constructor's own log of reportable Exceptions is separate, an open item tracked in [#273](https://github.com/Laratypes/Laratype/issues/273).
-- **Contract errors:** until H5, a thrown `defineError` / catalog error (`ContractError`) is an unknown error too, so it answers 500 instead of its own status.
-- **0.5 request validation** ([#275](https://github.com/Laratypes/Laratype/issues/275), H24; H3 [#106](https://github.com/Laratypes/Laratype/issues/106) replaces this validation): a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once with `safeParseAsync`, async refinements included), valibot, .... Only invalid input answers 422, listing the validator's issues as `errors`: zod's as they are, another library's cut to `{ path, message }`. Their messages, and zod fields such as `received`, may repeat the submitted value; server internals never reach the 422. A request class that doesn't override `rules()` is not validated. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500.
+- **Error headers** ([#272](https://github.com/Laratypes/Laratype/issues/272), H23): an error response, a contract error's included, drops the `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and `Surrogate-Control` headers set before the throw or on an HTTP error's own response, and has `Cache-Control: no-store` (headers a middleware sets after `await next()` are not covered); the other headers set before the throw (CORS, Vary) stay. The headers set before the throw that describe a body or redirect, `Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Range`, `Content-Disposition`, `Content-Location`, `Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`, `Location`, `Refresh`, `Transfer-Encoding` and `Trailer`, are dropped too, whether set with `c.header()` or on a response finalized before the throw (a middleware that throws after `await next()`). A 4xx HTTP error keeps the other headers of its own response, and a 5xx one keeps only `Retry-After` and `WWW-Authenticate` from it.
+- **Non-`Error` throws:** Hono's error handler only sees an `Error`. A `throw "x"`, `throw {}` or a rejection with a non-`Error`, from a controller or any middleware, leaves the app's `fetch`, which `ResponseKernel.boot()` wraps: it answers the generic 500 with `Cache-Control: no-store` and logs the value, on every adapter. That response doesn't carry the headers middleware set.
+- **Unserializable body:** a contract error whose body JSON can't hold (a `BigInt`, a cycle, a getter that throws) answers the generic 500 with `Cache-Control: no-store`, and is logged with the serialization failure.
+- **Logs:** `resolveException` logs each error once (`console.error`) when it is reportable or ends as a 5xx, contract errors aside. The `Exception` constructor's own log of reportable Exceptions is separate ([#273](https://github.com/Laratypes/Laratype/issues/273)).
+- **0.5 request classes:** a 0.5 request class's `rules()` schema must be a Standard Schema: zod 3.25+ (run once by the contract's `validate()`, async refinements included), valibot, .... Only invalid input answers 422 (`ValidationException`, `{ code: "VALIDATION", message, errors }`), listing the validator's issues as `errors`, each cut to `{ path, message }` for every library, zod included (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)); a default message that ends with the submitted value (zod 3 enums, valibot) loses that tail. Server internals never reach the 422. A request class that doesn't override `rules()` is not validated: the default `rules()` carries a `Symbol.for("laratype.http.defaultRules")` brand, so two copies of `@laratype/http` agree. An error from `rules()`, or one thrown inside the schema (an `AggregateError` even with its own `errors` field, a nested parse's `ZodError`), is an unknown error, a generic 500 ([#275](https://github.com/Laratypes/Laratype/issues/275), H24). A `Route.api` route answers invalid input with the catalog 422 instead ([validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)).
 
-### Design (non-binding)
-- **Domain errors:** a thrown `defineError` instance becomes its own status, code and body ([contract.md › Domain errors](./contract.md#domain-errors)).
-- **Framework errors:** 401, 403, 404, 422 and 429 use the built-in catalog.
-- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** an error response's JSON body is the error's body plus its code, flat: `{ code, ...body }`. Domain errors and the framework catalog errors (401, 403, 404, 422, 429) use the same shape with their catalog code, for example `{ code: "VALIDATION_ERROR", message, errors }`. The client narrows by this `code` ([client.md › Result union](./client.md#result-union)).
-- **Removed:** `fail()`, `ErrorReply` and the error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)).
-- **Unknown errors:** a 500 with the body `{ message: "Server Error" }` (`MessageBody`), with no details and no `code`, so the client classifies it as unexpected ([#108](https://github.com/Laratypes/Laratype/issues/108)). A dev-mode detail view is out of scope for M1.
-- **Replaces:** `Response.resolveException`.
-- **Undeclared errors:** checked in dev and test → [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
-- **Done when:** runtime tests for the 404, 403, 422 and 500 bodies.
+- **Wire format (decided by CL2 [#110](https://github.com/Laratypes/Laratype/issues/110)):** the client narrows an error by its `code` ([client.md › Result union](./client.md#result-union)). The unknown-error 500 has no `code`, so the client classifies it as unexpected.
+
+### Diagnostics
+- The unknown-error body, and that of every non-contract 5xx: `{ "message": "Server Error" }`, with `Cache-Control: no-store`.
+- A contract error answers its own status with `{ code, ...body }`; the framework errors are the codes listed in Invariants (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `TOO_MANY_REQUESTS`, `VALIDATION_ERROR`).
+- Logs: one `console.error` per reportable error or 5xx, contract errors aside (Invariants › Logs).
+
+### Example
+Runtime tests in `packages/http/__tests__/response/`: [`exceptionFilter.test.ts`](../../packages/http/__tests__/response/exceptionFilter.test.ts), `unknownError.test.ts`, `errorHeaders.test.ts` and `validationError.test.ts`.
+
+### Non-goals
+- No dev-mode error detail view in M1.
+- No `fail()`, `ErrorReply` or error branch of `Result<E>` ([Controller typing](#controller-typing-ctx-and-controllerof)): errors are thrown. None of them exists in package code.
+- The undeclared-error check in dev and test is a separate section: [Undeclared-error check](#undeclared-error-check) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#108 Done when](https://github.com/Laratypes/Laratype/issues/108)
@@ -477,10 +538,11 @@ planned → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6).
 ## Model binding
 
 ### Status
-planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both wait for the ORM decision, S5 [#88](https://github.com/Laratypes/Laratype/issues/88) (`BindableModel`).
+planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both bind through the `BindableModel` interface ([database.md › BindableModel](./database.md#bindablemodel)), which S5 [#88](https://github.com/Laratypes/Laratype/issues/88) settled in step 1. H7 depends only on that interface; H14 still waits for the ORM ADR (step 2, still pending), as the [S5 decision](./overview.md#decision-log) records.
 
 ### Design (non-binding)
 - **Explicit binding (H7):** `.bind({ user: User })`, with keys restricted to path params, or a custom resolver `.bind({ user: (v) => ... })`.
+  - A bound class satisfies `BindableModel` ([database.md › BindableModel](./database.md#bindablemodel)); a resolver gets the raw string.
   - A miss is a 404.
   - The binding contributes `{ params: { user: User } }` to the provided context.
   - Replaces `Route.model` / `Route.bind` and `explicitModelBinding`.
@@ -489,7 +551,7 @@ planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explic
 - **Implicit binding (H14):**
   - Path params that match a key in `Register['models']` bind automatically. The manifest generates that map, keyed by the camelCase model name.
   - An explicit `.bind()` takes precedence, and `.withoutImplicitBinding()` opts out.
-  - `static routeKeyName` sets the lookup column (the default is the primary key).
+  - `static routeKeyName` sets the lookup property (the default is the primary key, [BindableModel](./database.md#bindablemodel)).
   - `.scopeBindings()` handles nested params.
   - Implicit binding and `.scopeBindings()` use the same folder params as `.bind()`.
   - Removes `globalThis.__laratype_param_model_map`.
@@ -589,10 +651,10 @@ Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/
 ## Resources
 
 ### Status
-proposed: PR [#309](https://github.com/Laratypes/Laratype/pull/309) @ eb4cf8d (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
+merged @ 0334308 (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)). The refused `toJSON` and `constructor` keys and the `V extends ConcreteValue` constraint of `when()`: proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf (H38 [#323](https://github.com/Laratypes/Laratype/issues/323)). The 0.5 `JsonResource` and `ResourceCollection` stay as they are, and unchecked (`ResponseEscape`).
 
 ### Public API
-[`packages/http/src/resource/defineResource.ts`](../../packages/http/src/resource/defineResource.ts):
+[`packages/http/src/resource/defineResource.ts`](https://github.com/Laratypes/Laratype/blob/c93aebf/packages/http/src/resource/defineResource.ts):
 
 ```ts
 function defineResource<M extends abstract new (...args: any) => any, R extends ResourceData>(   // an object, not an array or a promise
@@ -604,7 +666,8 @@ interface Resource<M, Out> {
   paginate<P extends { readonly data: Iterable<InstanceType<M>> }>(page: P): ResourcePage<P, Out>;   // { ...P without data, data: Out[] }
 }
 
-function when<V>(condition: boolean, value: V & KnownValue<V>): V | MissingValue;   // the value as it is (a function too); KnownValue refuses any and unknown
+function when<V extends ConcreteValue>(condition: boolean, value: V): V | MissingValue;   // the value as it is (a function too)
+type ConcreteValue;   // object | string | number | boolean | bigint | symbol | void | null | undefined: not exported, it refuses unknown and lets any through
 type ResourceOutput<R>;   // R with each key that may be MissingValue optional, without MissingValue; one object per member of a union
 interface MissingValue;   // branded: what when() gives for a false condition
 ```
@@ -613,15 +676,19 @@ interface MissingValue;   // branded: what when() gives for a false condition
 - **Plain data:** `.make`, `.collection` and `.paginate` return the mapped data itself, not a wrapper, so the response path serializes it as any object or array (no change to the response path, H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
 - **Contract check:** a handler that returns a resource's data goes through the return check of [Route proof at r.contract()](#route-proof-at-rcontract): `[Out] extends [Result<E>]`, the response schema **input**. A mismatch is `<c>.<e>: return type does not match the response schema`. The contract is the source of truth: a resource must satisfy it, and the schema is never derived from the resource.
 - **Inferred output:** the output type is what `fn` returns. A key whose value may be `MissingValue` (a `when()`) is optional; a key typed `any`, `unknown` or `object` stays required. A union return gives one output object per member; a discriminated union's output narrows per member.
-- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). An `any` or `unknown` value does not compile, since `V | MissingValue` would collapse to it and the key would look required; a value of a generic type `T` needs a concrete type too. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
+- **when():** a false condition drops the key from `make`'s result; a true one keeps the value as it is. A function value is kept, never called (a conditional expression computes a value only when needed). `when()` accepts a generic value: the value needs a concrete type (the `V extends ConcreteValue` constraint), so `unknown` does not compile, while `any` is not refused, as everywhere else in the route checks (and then the key stays required, like any other `any` key). The check is a constraint, not a conditional, since a conditional is deferred for a generic `V` and would reject it. Only the top-level keys of `fn`'s result are dropped: a nested `when()` keeps `MissingValue` in the type, so the contract check rejects it; at runtime its `toJSON` leaves it out of a nested object and gives `null` in an array. The missing value is branded with `Symbol.for("laratype.resource.missing")`, so two copies of the module agree on it at runtime.
 - **The model class** types `fn`'s argument and is not checked at runtime. `fn` is synchronous and returns a plain object: an array, a promise or an object with a `then` key (a thenable) does not compile, and a class instance or `null` throws at `make` (a copy would lose its getters).
 - **paginate** takes a plain page object with `data`, maps `data` and copies the page's other own fields as they are (per member of a union page type). A paginator class instance throws (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) decides the paginator, and may give it a plain form).
 - `make` copies the result's own enumerable keys into a new object, symbol keys included, and a `__proto__` key stays an own key. The resource object is frozen.
+- **Refused keys:** `make` throws on a top-level `toJSON` or `constructor` key of the data `fn` returns, instead of copying it — a key that a `when()` would drop throws too, so the failure does not depend on data. A `toJSON` key makes JSON.stringify send what it returns instead of the `Out` the contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` (`content.constructor === Object`) send the body as text/html. Only the data's own enumerable top-level keys are inspected: a nested `toJSON` stays the nested object's business, and `paginate` copies the page's other fields as they are.
 
 ### Diagnostics
 - `[@laratype/http] <Model>: the resource function must return a plain object, got an instance of <Class>` (or `got null`, `got undefined`, ...)
+- `[@laratype/http] <Model>: the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data`
+- `[@laratype/http] <Model>: the resource function must not return a constructor key: the body would be sent as text/html instead of JSON`
 - `[@laratype/http] <Model>: paginate() takes a plain page object ({ data, ...meta }), got an instance of <Class>` (or `got null`, ...)
 - `[@laratype/http] <Model>: paginate() takes a page whose data holds the models, got data <value>` (or `got data undefined`, ...)
+- A value typed `unknown`: `Argument of type 'unknown' is not assignable to parameter of type 'ConcreteValue'` (`when()`). A value of an unconstrained generic type `T` gives the same error naming `T`; constrain `T` to a concrete type such as `object` or `string`.
 - A mismatch with the contract: `<c>.<e>: return type does not match the response schema` ([Route proof at r.contract()](#route-proof-at-rcontract)).
 
 ### Example
@@ -668,10 +735,79 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-planned → [#139](https://github.com/Laratypes/Laratype/issues/139) (H12, M3).
+proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321).
 
-### Design (non-binding)
-`r.get('/health', () => 'ok')` without a contract keeps the Laravel feel. Types are inferred, but the route has no schema and is **excluded from OpenAPI**. Ad-hoc routes keep `Route.prefix(...)`, `group(...)` and explicit names (`.name()`), unlike contract routes.
+### Public API
+[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/ApiRouter.ts)
+
+```ts
+type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
+
+// r.get / r.post / r.put / r.patch / r.delete of ApiRouteBuilder<A>
+type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
+  path: P, handler: (req: Request, params: PathParams<P>) => R | Promise<R>) => MountedRoute<M, P, R>;
+
+interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = string, R = unknown> {
+  readonly kind: "route";
+  readonly method: M;
+  readonly path: P;
+  handler(req: Request, params: PathParams<P>): R | Promise<R>;
+  readonly middleware: readonly MiddlewareClass[];
+}
+
+interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the registry
+  readonly method: AdHocMethod;
+  readonly path: string;
+  readonly name: undefined;                      // .name() is #162
+  readonly controller: undefined;
+  readonly handler: MountedRoute["handler"];
+  readonly middleware: readonly MiddlewareClass[];
+  readonly domain: string | undefined;
+}
+```
+
+`Request` is the 0.5 request class a 0.5 (`Route.group`) controller method gets; a contract route's handler gets the ctx instead ([Controller typing](#controller-typing-ctx-and-controllerof)), and `PathParams` is the contract's path param type ([contract.md](./contract.md)). `RequestKernel.handle()` takes `KernelRouteParams`, the 0.5 `RouteParams` or an `AdHocRouteParams` (`RouteParams` without a controller, with the `handler`), so the 0.5 `RouteParams` keeps its required `controller`.
+
+### Invariants
+- **In `Route.api`.** An ad-hoc route is an item of the `Route.api(appApi, (r) => [...])` callback, next to the contract routes: `r.get('/health', () => 'ok')`. The group still mounts every contract of the tree. `r.middleware(...)` before `.get()` applies to that route (duplicates removed).
+- **Path as written.** The path starts with `/` (a type error and a runtime error otherwise) and is served as written, in Hono's route syntax: it takes no folder or prefix.
+- **One route per method and path.** Hono answers with the first of two routes with the same method and path, so an ad-hoc route that repeats a contract route or another ad-hoc route of the group is a runtime error in `Route.api`. Param names don't count (`/items/:item` repeats `/items/:id`), a last optional param counts as both its routes (`/items/:id?` repeats `/items` and `/items/:id`), and a param pattern or a trailing slash makes another route. Routes of other groups are not checked (as for the registration order).
+- **Inferred types.** `params` comes from the path (`'/hello/:name'` gives `{ name: string }`, `:id?` an optional key, `:id{[0-9]+}` the key `id`), and `R` from what the handler returns (an async handler's `Promise<R>` gives `R`). `R` types nothing at runtime: the response is not validated.
+- **The 0.5 request and response.** `RequestKernel.handle` parses the body as for a contract route (a malformed JSON or form body is the 400 of [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)), then runs the route middleware, then the handler with the 0.5 request and the raw path params (no model binding, no contract validation, no ctx). Its result goes through the 0.5 response path, not [Response from the contract](#response-from-the-contract): a string as HTML and a plain object, an array, a model or a `JsonResource` as JSON, as for a 0.5 controller method. The status is 200 unless it returns a `Response` (`@laratype/http`) with its own status: there is no controller method, so no status decorator or method-name guess (`store` → 201) applies.
+- **Not a contract route.** An ad-hoc route has no contract, endpoint, schema, capabilities, policies or name. It is in `ApiRoutes.adHoc`, never in `ApiRoutes.routes` or `apiRoutes(appApi)`, so it is **excluded from OpenAPI and from the generated types** ([typegen.md](./typegen.md)), and never in the not-enforced warning.
+- **Registration order.** `mount()` sorts the ad-hoc and the contract routes of a group together, by specificity ([Router v2](#router-v2)): `r.get('/api/users/me', ...)` is reached before a contract's `/api/users/:id`. A more specific ad-hoc route takes those requests from a contract route: `r.get('/api/users/:id{[0-9]+}', ...)` answers `GET /api/users/7` instead of `users.show`.
+- **No scope.** An ad-hoc route is outside the contract tree, so it gets no scope middleware or policy, even when its URL is under a scope folder's path (`/api/users/:user/export`): only the middleware of its own builder (`r.middleware(Auth).get(...)`).
+- **Domain and registry.** `.domain()` applies to the ad-hoc routes too. `mount()` returns the contract entries, then the ad-hoc ones; `sauf route:list` shows an ad-hoc route with the controller `Closure`.
+
+### Diagnostics
+Type errors (`packages/http/__tests__/routing/adHocRoutes.test-d.ts`):
+- a path without a leading `/`: `` TS2345: Argument of type '"health"' is not assignable to parameter of type '`/${string}`'. ``
+- a param name not in the path: `TS2339: Property 'slug' does not exist on type '{ id: string; }'.`
+
+Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
+- `r.<method>('<path>'): the path must start with "/"`
+- `r.<method>('<path>') needs a handler function`
+- `r.<method>('<path>') is the same route as <route name>` (a contract route of the group)
+- `r.<method>('<path>') is the same route as another r.<method>('<path>')`
+
+### Example
+```ts
+export const apiRoutes = Route.api(appApi, (r) => [
+  r.contract(users, UserController),
+  r.get('/health', () => 'ok'),
+  r.middleware(Audit).get('/hello/:name', (req, { name }) => ({ hello: name })),
+])
+```
+
+Tests: [`packages/http/__tests__/routing/adHocRoutes.test.ts`](../../packages/http/__tests__/routing/adHocRoutes.test.ts) and [`adHocRoutes.test-d.ts`](../../packages/http/__tests__/routing/adHocRoutes.test-d.ts).
+
+### Non-goals
+- No names (`.name()`): H13 [#162](https://github.com/Laratypes/Laratype/issues/162).
+- No `Route.prefix(...)` or `group(...)` yet: planned → [#321](https://github.com/Laratypes/Laratype/issues/321).
+- No response or input validation: an ad-hoc route has no schema.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#139 Done when](https://github.com/Laratypes/Laratype/issues/139)

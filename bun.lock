@@ -29,6 +29,7 @@
       "dependencies": {
         "@laratype/auth": "workspace:*",
         "@laratype/contract": "workspace:*",
+        "@laratype/core": "workspace:*",
         "@laratype/database": "workspace:*",
         "@laratype/http": "workspace:*",
         "@laratype/support": "workspace:*",
@@ -61,6 +62,10 @@
         "@types/passport": "^1.0.17",
         "jsonwebtoken": "^9.0.2",
         "passport": "^0.7.0",
+      },
+      "devDependencies": {
+        "hono": "catalog:",
+        "passport-local": "^1.0.0",
       },
     },
     "packages/broadcast": {
