@@ -16,9 +16,9 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378 (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378 (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378 (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
+| [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
+| [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
@@ -99,7 +99,7 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378.
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb.
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
@@ -187,7 +187,7 @@ if (result.ok) result.data.title                     // see Result union
 ## Result union
 
 ### Status
-merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The redirect outcomes are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378 (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)).
+merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The redirect outcomes are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)).
 
 ### Public API
 [`packages/client/src/types.ts`](../../packages/client/src/types.ts), [`packages/client/src/client.ts`](../../packages/client/src/client.ts)
@@ -254,7 +254,7 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 ## Options and hooks
 
 ### Status
-proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3), with the `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ b9bc378 (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)). Extends the `ClientOptions` of [createClient](#createclient).
+proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124), CL3), with the `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)). Extends the `ClientOptions` of [createClient](#createclient).
 
 ### Public API
 [`packages/client/src/types.ts` @ b9bc378](https://github.com/Laratypes/Laratype/blob/b9bc378cea99c1a202e3ae37229d66446bf13c9e/packages/client/src/types.ts)
