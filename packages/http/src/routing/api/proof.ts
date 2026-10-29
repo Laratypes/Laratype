@@ -101,14 +101,11 @@ type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (
  */
 type NeverKeys<O> = { [K in keyof O]-?: [O[K]] extends [never] ? K : never }[keyof O] & string;
 
-/** The `params` of the provided ctx, or `{}`: its keys are merged one level deep, so they are checked one level deep. */
-type ParamsOf<Pv> = "params" extends keyof Pv ? Pv["params"] : {};
-
-/** A conflicting extension: no handler could receive the key, whatever it declares. */
+/** A conflicting extension: no handler could receive the key, whatever it declares. `params` is checked one level deep. */
 type ConflictIssues<N extends string, Pv> = {
   [K in NeverKeys<Pv> as `${N}: middleware provide conflicting types for '${K}'`]: { conflicting_key: K };
 } & {
-  [K in NeverKeys<ParamsOf<Pv>> as `${N}: middleware provide conflicting types for 'params.${K}'`]: { conflicting_key: K };
+  [K in NeverKeys<Sub<Pv, "params">> as `${N}: middleware provide conflicting types for 'params.${K}'`]: { conflicting_key: K };
 };
 
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */

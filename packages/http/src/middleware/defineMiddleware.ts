@@ -2,8 +2,8 @@ import type Middleware from "./Middleware";
 import type Request from "../supports/Request";
 
 /**
- * The brand of a `defineMiddleware()` value, read by `isTypedMiddleware` and by the request pipeline. A `Symbol.for`
- * key, so it holds across two copies of @laratype/http (CJS and ESM).
+ * The brand of a `defineMiddleware()` value, read by `isTypedMiddleware()`. A `Symbol.for` key, so it holds across two
+ * copies of @laratype/http (CJS and ESM).
  */
 export const TYPED_MIDDLEWARE: unique symbol = Symbol.for("laratype.http.typedMiddleware");
 
@@ -17,8 +17,9 @@ export type TypedMiddlewareHandler<Ext extends object = {}> = (
 ) => unknown | Promise<unknown>;
 
 /**
- * The typed middleware that `defineMiddleware()` builds (docs/v1/http.md › Typed middleware, H6 #117): it runs before
- * the request is parsed, and `next(ext)` adds the context keys `Ext` to the handler ctx.
+ * The typed middleware that `defineMiddleware()` builds (docs/v1/http.md › Typed middleware, H6 #117): it runs after
+ * the 0.5 request body is parsed, before contract input validation builds the handler ctx, and `next(ext)` adds the
+ * context keys `Ext` to that ctx.
  */
 export interface TypedMiddleware<Ext extends object = {}> {
   /** Phantom: the context keys the middleware adds, read by the route builder and its proof. */
@@ -37,7 +38,9 @@ export type MiddlewareItem = typeof Middleware | AnyTypedMiddleware;
  * Declares the context keys a middleware adds: `defineMiddleware<{ user: User }>((request, next) => next({ user }))`.
  * The route builder accumulates `Ext` and the route proof checks every handler against it (H6 #117).
  */
-export const defineMiddleware = <Ext extends object = {}>(handle: TypedMiddlewareHandler<Ext>): TypedMiddleware<Ext> => {
+export const defineMiddleware = <Ext extends object = {}>(
+  handle: TypedMiddlewareHandler<Ext>,
+): TypedMiddleware<Ext> => {
   if (typeof handle !== "function") {
     throw new TypeError(`[@laratype/http] defineMiddleware(): expected a function (request, next), got ${typeof handle}`);
   }

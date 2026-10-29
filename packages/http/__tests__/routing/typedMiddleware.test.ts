@@ -251,6 +251,18 @@ describe('withoutMiddleware', () => {
     expect(await json(app, '/api/posts')).toEqual({ ok: true })
     expect(calls).toEqual(['trace'])
   })
+
+  it('an endpoints callback drops a class its withoutMiddleware removes', () => {
+    class Trace extends Middleware {}
+    class Audit extends Middleware {}
+    const routes = Route.api(appApi, (r) => [
+      r.middleware(Trace).contract(posts, Plain, { endpoints: { show: (r) => r.middleware(Audit).withoutMiddleware(Audit) } }),
+    ])
+    expect(routes.routes.map((route) => [route.name, route.middleware])).toEqual([
+      ['posts.index', [Trace]],
+      ['posts.show', [Trace]],
+    ])
+  })
 })
 
 describe('the registry', () => {
