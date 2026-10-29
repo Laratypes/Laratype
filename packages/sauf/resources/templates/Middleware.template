@@ -1,8 +1,11 @@
 import { defineMiddleware } from "@laratype/http";
 
 /**
- * Runs before the request is parsed. `next({ key: value })` adds context keys to the handler of every route that mounts
- * it; declare them as `defineMiddleware<{ key: Type }>((request, next) => next({ key }))` so the route proof checks the
- * handlers against them (docs/v1/http.md › Typed middleware).
+ * Runs after the 0.5 request body is parsed, but before contract input is validated and the handler context is
+ * created. `next({ key: value })` adds context keys to the handler of every route that mounts it; declare them as
+ * `defineMiddleware<{ key: Type }>((request, next) => next({ key }))` so the route proof checks the handlers against
+ * them (docs/v1/http.md › Typed middleware).
  */
-export const {{MiddlewareName}} = defineMiddleware((_request, next) => next());
+export const {{MiddlewareName}} = defineMiddleware(function {{MiddlewareName}}(_request, next) {
+  return next();
+});

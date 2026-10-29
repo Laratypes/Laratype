@@ -51,7 +51,9 @@ describe("sauf make:middleware", () => {
     expect(existsSync(file)).toBe(true);
     const stub = readFileSync(file, "utf-8");
     expect(stub).toContain('import { defineMiddleware } from "@laratype/http";');
-    expect(stub).toContain("export const Audit = defineMiddleware((_request, next) => next());");
+    // The handle is named after the middleware, so `sauf route:list` prints `Audit`, not `middleware`
+    expect(stub).toContain("export const Audit = defineMiddleware(function Audit(_request, next) {");
+    expect(stub).toContain("return next();");
     // a second run keeps the file
     const again = await sauf("make:middleware", "Audit");
     expect(again.code, again.output).toBe(0);
