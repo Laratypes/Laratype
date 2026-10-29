@@ -20,7 +20,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scopes planned → #112; fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
-| [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR #? @ ed117c5 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
+| [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ ed117c5 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -398,7 +398,7 @@ Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../pa
 ## Middleware and policy resolution
 
 ### Status
-proposed: PR #? @ ed117c5 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)). The controller path it mirrors is merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a).
+proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ ed117c5 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)). The controller path it mirrors is merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a).
 
 ### Public API
 No new export: the pipeline resolves through `Request.container()` ([`Request.ts` @ ed117c5](https://github.com/Laratypes/Laratype/blob/ed117c5/packages/http/src/request/Request.ts#L246-L251)), the container [Controller resolution](#controller-resolution) already uses. The exported `PolicyFactory` type changes one member: `handle` takes the policy instance the pipeline resolved, so a factory can no longer expect a class ([`Route.ts` @ ed117c5](https://github.com/Laratypes/Laratype/blob/ed117c5/packages/http/src/contracts/Route.ts#L11-L17)), a signature change internal to `can()` and the pipeline ([`RoutePolicy.ts` @ ed117c5](https://github.com/Laratypes/Laratype/blob/ed117c5/packages/auth/src/policies/RoutePolicy.ts#L19-L20)). `@UsePolicy`'s parameter widens to `Newable<Policy>`, so a policy class with constructor params can be declared on a model ([`Policy.ts` @ ed117c5](https://github.com/Laratypes/Laratype/blob/ed117c5/packages/auth/src/decorators/Policy.ts#L12-L13)).
