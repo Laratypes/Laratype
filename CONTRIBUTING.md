@@ -46,6 +46,7 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
+| Client tests | `bunx vitest run packages/client` |
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
@@ -90,6 +91,18 @@ After the parent PR merges:
 
 ## Security
 
-- **Review `.github/` changes.** Workflows run with the repo's secrets, and a malicious workflow was pushed to this repo in 2026-10. Before you base work on someone else's branch, or review a PR, read every `.github/` change in its diff.
+- **Review agent-instruction and tooling changes before you base work on a branch or review its PR, and before any agent session or `bun install` runs in a checkout of it.** Harnesses load `.claude/**`, `.opencode/**`, `opencode.json` and `.mcp.json` (hooks, plugins, MCP servers) when a session starts in a checkout, and `bun install` runs lifecycle scripts, so an agent working in that checkout has already run them by the time it reads them. Review them first, from a session outside that checkout:
+
+  Review the exact head SHA, not a branch that can move: `git fetch origin master`, then `git fetch origin <branch>` or `git fetch origin refs/pull/<N>/head` for a fork (from a clone of the base repo), then `git diff origin/master...<sha> -- <paths>`, with `<sha>` from `git rev-parse FETCH_HEAD` and `:(glob)` in front of each path so a leading `**/` also matches the repo root. Quote each pathspec, since the shell parses unquoted parentheses: `git diff origin/master...<sha> -- ':(glob)**/AGENTS.md' ':(glob)**/package.json'`. Check out or start agents only at that reviewed SHA; a new push needs a review of the delta.
+
+  The paths:
+  - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
+  - `**/.claude/**`, `**/.opencode/**`, `**/opencode.json`, `**/.mcp.json`
+  - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.vscode/**`
+  - `**/package.json`, for the `preinstall`, `install`, `postinstall` and `prepare` scripts and every file those scripts run
+
+  Read every lifecycle entry in the reviewed tree (`git show <sha>:<package.json>`), not only the entries the diff changes, then diff every file they call with the same command, with the file in place of `<paths>`: a branch can set `"postinstall": "bun scripts/setup.ts"` and add `scripts/setup.ts`, or change the script behind an entry it leaves untouched, and no path pattern above matches the script.
+
+  These files run with secrets or steer what agents do: CodeRabbit's config steers the review that gates merges, and a malicious workflow was pushed to this repo in 2026-10.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.
 - Don't add workflows that use secrets, or trigger `workflow_dispatch` runs, without the maintainer's approval.
