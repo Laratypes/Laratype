@@ -337,6 +337,44 @@ describe("a body that cannot be read (H43 #340)", () => {
     expect((await app.request("/users", init)).status).toBe(413);
   });
 
+  it("a truncated form body a middleware parsed is a 400, not a blank body", async () => {
+    quiet();
+    // The blank fallback must not read a half-sent body as `{}`: its stream errors, no bytes are left to check, and no
+    // Content-Length declares it empty
+    const part = '--x\r\nContent-Disposition: form-data; name="name"\r\n\r\nada';
+    const request = new HonoRequest(new Request("http://localhost/users", truncatedForm(part)));
+    await expect(request.parseBody()).rejects.toThrow();
+    await expect(readBody(request)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("a bodyLimit error left for the blank check is rethrown, not answered as a 400", async () => {
+    quiet();
+    // A body reader the cache kept once a form parse failed: bodyLimit's error has to reach its handler, which answers
+    // the 413, never the malformed-body 400 the blank check would otherwise give it
+    const limit = Object.assign(new Error("Body limit exceeded"), { name: "BodyLimitError" });
+    const request = new HonoRequest(new Request("http://localhost/users", { method: "POST", headers: multipartHeaders }));
+    const cache = request.bodyCache as { formData?: Promise<FormData>; arrayBuffer?: Promise<ArrayBuffer> };
+    cache.formData = Promise.reject(new TypeError("Failed to parse body as FormData."));
+    cache.arrayBuffer = Promise.reject(limit);
+    await expect(readBody(request)).rejects.toBe(limit);
+  });
+
+  it("a TypeError from the pipeline's own code is a logged 500, not the malformed-body 400", async () => {
+    const errors = quiet();
+    // Only the platform's form parse answers a malformed body with a TypeError, the 400. A TypeError from Hono's
+    // conversion of a FormData the pipeline already holds is a bug: it stays the logged 500
+    const { app } = mount([]);
+    vi.spyOn(FormData.prototype, "forEach").mockImplementation(() => {
+      throw new TypeError("the pipeline's own bug");
+    });
+    const form = new FormData();
+    form.append("name", "ada");
+    const response = await app.request("/users", formInit(form));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ message: "Server Error" });
+    expect(errors).toHaveBeenCalled();
+  });
+
   it("a body read off c.req.raw directly is still a server bug: 500, not a 400", async () => {
     const errors = quiet();
     const { app } = mount([
@@ -556,10 +594,12 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
 
   it("a body cache whose first entry is a plain value is a 400, not a raw TypeError 500", async () => {
     // The first entry is the plain `{}` a middleware's `parseBody()` cached, and a reader's promise follows it: Hono's
-    // `#cachedBody` calls `.then` on the plain value synchronously, before `orMalformed` can map the failed read
+    // `#cachedBody` calls `.then` on the plain value synchronously, before `orMalformed` can map the failed read. The
+    // shape is seeded as 4.9.6 leaves it: 4.13 doesn't cache a plain `parsedBody`, so `parseBody()` can't build it there
     const request = new HonoRequest(new Request("http://localhost/users", asJson({ name: "ada" })));
-    await request.parseBody();
-    (request.bodyCache as { arrayBuffer?: Promise<ArrayBuffer> }).arrayBuffer = request.raw.arrayBuffer();
+    const cache = request.bodyCache as { parsedBody?: unknown; arrayBuffer?: Promise<ArrayBuffer> };
+    cache.parsedBody = {};
+    cache.arrayBuffer = request.raw.arrayBuffer();
     await expect(readBody(request)).rejects.toMatchObject({ status: 400 });
   });
 
@@ -597,6 +637,47 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
     const route = { method: "post", path: "/empty", request: EmptyRequest, controller: [Empty, "store"] as const };
     app.post("/empty", RequestKernel.handle(route));
     const response = await app.request("/empty", { method: "POST", headers: multipartHeaders });
+    expect(response.status).toBe(201);
+    expect(validated).toEqual({});
+    expect(later).toEqual({});
+  });
+
+  it("an empty body stream behind a swallowed parseBody() is still no body", async () => {
+    quiet();
+    // @hono/node-server sends `Content-Length: 0` with no bytes: the middleware's `formData()` rejects and the stream
+    // is spent (`raw.bodyUsed`), so the declared length is all that is left to say the body was blank
+    let validated: unknown;
+    class EmptyRequest extends LaratypeRequest {
+      rules() {
+        return z.object({});
+      }
+    }
+    class Empty extends Controller {
+      store(req: EmptyRequest) {
+        validated = req.validated();
+        return { ok: true };
+      }
+    }
+    const app = bootApp([
+      async (c, next) => {
+        try {
+          await c.req.parseBody();
+        } catch {}
+        await next();
+      },
+    ]);
+    let later: unknown;
+    app.use("/empty", async (c, next) => {
+      await next();
+      later = await c.req.parseBody();
+    });
+    const route = { method: "post", path: "/empty", request: EmptyRequest, controller: [Empty, "store"] as const };
+    app.post("/empty", RequestKernel.handle(route));
+    const response = await app.request("/empty", {
+      method: "POST",
+      headers: { ...multipartHeaders, "Content-Length": "0" },
+      body: "",
+    });
     expect(response.status).toBe(201);
     expect(validated).toEqual({});
     expect(later).toEqual({});

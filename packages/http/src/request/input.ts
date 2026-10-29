@@ -116,34 +116,34 @@ const hasFields = (formData: FormData): boolean => formData.entries().next().don
 /**
  * The form fields, with this pipeline's options. Hono caches `parseBody()`'s result, and ignores the options of a later
  * call (4.9.6), so a flat `c.req.parseBody()` from a middleware would hide the dot keys of `parseBody({ dot: true })`
- * from a nested schema. Rebuild the fields from the FormData instead, with Hono's own conversion: a stand-in request
- * whose `formData()` answers it. Hono does not export that conversion (4.9.6), it exports `parseBody()`.
+ * from a nested schema. Rebuild the fields from the FormData in the cache instead, with Hono's own conversion: 4.9.6
+ * reads it through `c.req.formData()`, 4.13+ (4.12 has the 4.9.6 shape) from `bodyCache.formData`, and neither reads
+ * the stream. Hono does not export that conversion, it exports `parseBody()`.
  */
-const parseFormFields = (request: HonoRequest, formData: FormData): Promise<unknown> =>
-  parseBody({ headers: request.raw.headers, formData: async () => formData } as unknown as HonoRequest, { dot: true });
+const parseFormFields = (request: HonoRequest): Promise<unknown> => parseBody(request, { dot: true });
 
 /**
  * Hono's own bytes-to-FormData parse (4.9.6). A cached body Hono rebuilds has no Content-Type, which a multipart
  * boundary needs, so the bytes are parsed with the request's. Its type asks for an `ArrayBuffer`, and the `Response` it
- * builds takes the view as it is, so the bytes are handed over without a copy.
+ * builds takes the view as it is, so the bytes are handed over without a copy. A malformed body is the platform's
+ * `TypeError` ("Failed to parse body as FormData."): the client's 400. Everything else is a bug and goes on to the 500.
  */
-const formDataFromBytes = (bytes: Uint8Array, contentType: string): Promise<FormData> =>
-  bufferToFormData(bytes as unknown as ArrayBuffer, contentType);
-
-/**
- * The form fields of the raw bytes. A rejected parse is the client's malformed body, the 400. The FormData goes back
- * into Hono's cache, so a later `c.req.formData()`/`parseBody()` has one Hono can serve (4.9.6).
- */
-const readFormFields = async (request: HonoRequest, bytes: Uint8Array, contentType: string): Promise<unknown> => {
-  const cache = bodyCacheOf(request);
+const formDataFromBytes = async (bytes: Uint8Array, contentType: string): Promise<FormData> => {
   try {
-    const formData = await formDataFromBytes(bytes, contentType);
-    cacheFormData(cache, formData);
-    // `return await`: the conversion's rejection is the malformed body too
-    return await parseFormFields(request, formData);
+    return await bufferToFormData(bytes as unknown as ArrayBuffer, contentType);
   } catch (error) {
     throw error instanceof TypeError ? badRequest(MALFORMED_FORM) : error;
   }
+};
+
+/**
+ * The form fields of the raw bytes. The FormData goes back into Hono's cache before the conversion, so a later
+ * `c.req.formData()`/`parseBody()` has one Hono can serve and `parseFormFields` reads the same one.
+ */
+const readFormFields = async (request: HonoRequest, bytes: Uint8Array, contentType: string): Promise<unknown> => {
+  const formData = await formDataFromBytes(bytes, contentType);
+  cacheFormData(bodyCacheOf(request), formData);
+  return parseFormFields(request);
 };
 
 /** The bytes a byte reader left in Hono's cache, or the unread ones on `raw`; `undefined` is a blank body, no body. */
@@ -171,16 +171,24 @@ const remainingBytes = async (request: HonoRequest): Promise<Uint8Array | undefi
   try {
     if (cache.arrayBuffer !== undefined || cache.blob !== undefined) return new Uint8Array(await request.arrayBuffer());
     if (!request.raw.bodyUsed) return new Uint8Array(await request.raw.arrayBuffer());
-  } catch {
-    // A byte reader that fails too leaves nothing to tell a blank body from a malformed one
+  } catch (error) {
+    // A byte reader that fails too leaves nothing to tell a blank body from a malformed one, but a bodyLimit's 413 is
+    // not that question: it reaches its handler like every other read
+    if (isBodyLimitError(error)) throw error;
   }
   return undefined;
 };
 
+/** A request that declared a body of no bytes: `Content-Length: 0`, a header Hono's parse cannot consume (it reads the
+ * stream, and a body stream already read is spent). */
+const hasNoBodyBytes = (request: HonoRequest): boolean => request.header("Content-Length") === "0";
+
 /**
  * The FormData Hono's cache holds: `c.req.parseBody()` or `validator('form')` put it there. A rejection is the client's
  * malformed body, the 400 — unless the body is blank: `formData()` rejects an empty multipart body, and a client may
- * send its form Content-Type with no body, which is no body, `{}`. Hono's `bodyLimit` error is rethrown for its 413.
+ * send its form Content-Type with no body, which is no body, `{}`. The bytes still in the cache say so; a spent stream
+ * leaves none, and there a `Content-Length: 0` is the same blank body (`@hono/node-server` sends it). Hono's
+ * `bodyLimit` error is rethrown for its 413.
  */
 const readCachedFormData = async (
   request: HonoRequest,
@@ -191,7 +199,7 @@ const readCachedFormData = async (
   } catch (error) {
     if (isBodyLimitError(error)) throw error;
     const bytes = await remainingBytes(request);
-    if (bytes !== undefined && isBlankBody(bytes)) return undefined;
+    if (bytes === undefined ? hasNoBodyBytes(request) : isBlankBody(bytes)) return undefined;
     throw badRequest(MALFORMED_FORM);
   }
 };
@@ -202,9 +210,10 @@ const readCachedFormData = async (
  * rejects an empty `multipart/form-data` body, yet a client may send its form Content-Type on a GET or a DELETE with no
  * body. A body `formData()` rejects is the client's 400, unless it is blank the same way; so is a truncated one; Hono's
  * `bodyLimit` error is rethrown for its 413. A `formData` promise in the cache that rejected is that 400 too: an
- * earlier middleware saw the malformed body. The exception is a multipart body an earlier middleware read as text
- * (`c.req.text()`): its bytes are gone, and a UTF-8 round trip would hand the handler a damaged file part, so that is
- * the 500, with a message that says why. A urlencoded body is text by definition, so its text is its body.
+ * earlier middleware saw the malformed body. Two are not that 400: a request that declared no body bytes
+ * (`Content-Length: 0`) is `{}`, and a multipart body an earlier middleware read as text (`c.req.text()`) is the 500,
+ * since its bytes are gone and a UTF-8 round trip would hand the handler a damaged file part; its message says why. A
+ * urlencoded body is text by definition, so its text is its body.
  */
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
@@ -230,7 +239,7 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
       return {};
     }
     cacheFormData(cache, formData);
-    return hasFields(formData) ? parseFormFields(request, formData) : {};
+    return hasFields(formData) ? parseFormFields(request) : {};
   }
   // Bytes already (this pipeline's own read, `c.req.arrayBuffer()`, or a `c.req.blob()`), else the stream left on `raw`
   const bytes = await readFormBytes(request);
