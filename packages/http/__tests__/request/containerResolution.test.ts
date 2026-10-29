@@ -7,7 +7,7 @@ import { ContextApi, HTTP_APP } from '@laratype/support'
 import { AuthManager, Policy, UsePolicy, can } from '@laratype/auth'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route, defineRouteGroup } from '../../src/index'
-import type { PolicyFactory } from '../../src/index'
+import type { PolicyFactory, Request } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const users = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
@@ -55,7 +55,7 @@ class LoudGreeter extends Greeter {
 const heard: string[] = []
 class Greeting extends Middleware {
   constructor(private readonly greeter: Greeter) { super() }
-  async handle(request: any, res: Response, next: (request: any) => unknown) {
+  async handle(request: Request, res: Response, next: (request: Request) => unknown) {
     heard.push(`route:${this.greeter.greet()}`)
     return next(request)
   }
@@ -64,7 +64,7 @@ __laratype_deps(Greeting, [() => Greeter], { params: ['greeter'] })
 
 class Audited extends Middleware {
   constructor(private readonly greeter: Greeter) { super() }
-  async handle(request: any, res: Response, next: (request: any) => unknown) {
+  async handle(request: Request, res: Response, next: (request: Request) => unknown) {
     heard.push(`endpoint:${this.greeter.greet()}`)
     return next(request)
   }
@@ -150,7 +150,7 @@ describe('RequestKernel.handle: middleware', () => {
     let built = 0
     class Counted extends Middleware {
       constructor(private readonly greeter: Greeter) { super(); built++ }
-      async handle(request: any, res: Response, next: (request: any) => unknown) {
+      async handle(request: Request, res: Response, next: (request: Request) => unknown) {
         return next(request)
       }
     }
@@ -166,7 +166,7 @@ describe('RequestKernel.handle: middleware', () => {
     const errors = quiet()
     class NoMeta extends Middleware {
       constructor(readonly greeter: Greeter) { super() }
-      async handle(request: any, res: Response, next: (request: any) => unknown) {
+      async handle(request: Request, res: Response, next: (request: Request) => unknown) {
         return next(request)
       }
     }
@@ -204,7 +204,7 @@ __laratype_deps(PostPolicy, [() => Permissions], { params: ['permissions'] })
 class Post {}
 
 class SignIn extends Middleware {
-  async handle(request: any, res: Response, next: (request: any) => unknown) {
+  async handle(request: Request, res: Response, next: (request: Request) => unknown) {
     ContextApi.setUser({ id: 1 })
     return next(request)
   }
