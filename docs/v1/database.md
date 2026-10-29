@@ -98,7 +98,7 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3).
 
 ### Design (non-binding)
-From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata. The type safety a typed query builder would give stays in the typed `Model` statics (`find`, `findOrFail`, `where`, `paginate`), since TypeORM's own query builder types the entity, not each column. Primary key metadata reads `getRepository().metadata.primaryColumns[0].propertyName`, as `ModelManagement` does in 0.5.
+From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata. The type safety a typed query builder would give stays in that typed surface (`query().where(...).paginate()`, `find`, `findOrFail`), since TypeORM's own query builder types the entity, not each column. Primary key metadata reads `getRepository().metadata.primaryColumns[0].propertyName`, as `ModelManagement` does in 0.5.
 
 ### Acceptance
 [#145 Done when](https://github.com/Laratypes/Laratype/issues/145)
@@ -163,7 +163,7 @@ From #149: port the current factory and seeder API (`packages/database/src/facto
 planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3).
 
 ### Design (non-binding)
-From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually. v1's Model is itself TypeORM-based (DB1), so the adapter covers the 0.5 compatibility path; [#150](https://github.com/Laratypes/Laratype/issues/150) holds its scope.
+From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually.
 
 ### Acceptance
 [#150 Done when](https://github.com/Laratypes/Laratype/issues/150)
