@@ -4,7 +4,7 @@
 /// <reference path="../../src/overload.d.ts" />
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
-import { Controller, Middleware, Route, defineMiddleware } from '../../src/index'
+import { Controller, Middleware, Route, defineMiddleware, isTypedMiddleware } from '../../src/index'
 import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
 
 const posts = defineContract()({ index: endpoint.get('/'), destroy: endpoint.delete('/:post') })
@@ -43,8 +43,13 @@ describe('defineMiddleware', () => {
   test('the exported handler types describe the middleware and the keys it adds', () => {
     expectTypeOf<Parameters<TypedMiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext?: { user: User }) => Promise<unknown>>()
     expectTypeOf<AnyTypedMiddleware>().toEqualTypeOf<TypedMiddleware<any>>()
-    const item: MiddlewareItem = auth
-    expectTypeOf(item).toMatchTypeOf<MiddlewareItem>()
+  })
+
+  test('isTypedMiddleware narrows a value to a typed middleware', () => {
+    const value: unknown = auth
+    if (isTypedMiddleware(value)) {
+      expectTypeOf(value).toEqualTypeOf<TypedMiddleware<any>>()
+    }
   })
 
   test('the 0.5 `MiddlewareHandler` keeps its `(request, res, next)` shape', () => {
@@ -111,6 +116,25 @@ describe('the handler sees the accumulated context', () => {
     }
     // @ts-expect-error posts.destroy: middleware provide conflicting types for 'params.post'
     Route.api(appApi, (r) => [r.middleware(postString, postNumber).contract(posts, NeedsPost)])
+  })
+
+  test('an optional key and a nested key are conflicts too', () => {
+    const optionalString = defineMiddleware<{ tag?: string }>((request, next) => next())
+    const optionalNumber = defineMiddleware<{ tag?: number }>((request, next) => next())
+    const userString = defineMiddleware<{ user: { id: string } }>((request, next) => next({ user: { id: 'x' } }))
+    const userNumber = defineMiddleware<{ user: { id: number } }>((request, next) => next({ user: { id: 1 } }))
+    class NeedsTag extends Controller {
+      index(ctx: Ctx<typeof posts.index, { tag?: string }>) { void ctx.tag?.toUpperCase() }
+      destroy() {}
+    }
+    class NeedsUser extends Controller {
+      index(ctx: Ctx<typeof posts.index, { user: { id: string } }>) { void ctx.user.id.toUpperCase() }
+      destroy() {}
+    }
+    // @ts-expect-error posts.index: middleware provide conflicting types for 'tag'
+    Route.api(appApi, (r) => [r.middleware(optionalString, optionalNumber).contract(posts, NeedsTag)])
+    // @ts-expect-error posts.index: middleware provide conflicting types for 'user.id'
+    Route.api(appApi, (r) => [r.middleware(userString, userNumber).contract(posts, NeedsUser)])
   })
 
   test('two middleware that add the same key with the same type still pass', () => {
