@@ -56,7 +56,11 @@ export const routeRow = (route: Record<string, any>) => ({
   Controller: route.controller ? `${route.controller[0].name}::${route.controller[1]}` : 'Closure',
   // A 0.5 middleware class has a name; a `defineMiddleware()` value (H6 #117) names its handle. sauf takes no dependency
   // on @laratype/http, so the fallback stays here rather than in the package's `middlewareName`.
-  Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name || mw.handle?.name || 'middleware').join(', ') : '-',
+  Middleware: route.middleware?.length
+    ? route.middleware
+      .map((middleware: { name?: string; handle?: { name?: string } }) => middleware.name || middleware.handle?.name || 'middleware')
+      .join(', ')
+    : '-',
   Policies: Array.isArray(route.policies)
     ? [
       ...route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`),
