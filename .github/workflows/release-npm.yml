@@ -16,6 +16,10 @@ jobs:
   publish:
     name: Publish to npm registry
     runs-on: ubuntu-latest
+    # The user configures this environment's required reviewers in the repo settings, and the npm trusted
+    # publisher of each package (repo Laratypes/Laratype, workflow file release-npm.yml, environment
+    # npm-release), so a publish waits for a reviewer and npm accepts only this job's OIDC token.
+    environment: npm-release
     steps:
       # Nothing below needs git auth; keep the token out of .git/config while pack and publish run
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -30,9 +34,11 @@ jobs:
         with:
           node-version: 24
 
+      # Pinned to an exact release (>= 11.5.1, at least two weeks old when pinned) instead of a range, so a
+      # newly published npm can't run in the release job before anyone has seen it
       - name: Upgrade npm
         run: |
-          npm install -g 'npm@^11.5.1'
+          npm install -g 'npm@11.21.0'
           npm --version
 
       - name: Build
