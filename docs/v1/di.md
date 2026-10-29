@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -603,13 +603,14 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 
 ### Status
 - Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
-- Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
+- Facades: merged @ a6fb351 (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
+- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e.
 
 ### Design (non-binding)
 - **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
 
 ### Public API
-[`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts` @ 699f1f8](https://github.com/Laratypes/Laratype/blob/699f1f8f7f91915797880f1ee6f58ccddd3536a1/packages/auth/src/support/Auth.ts) (A4 PR #330)
+[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e](https://github.com/Laratypes/Laratype/blob/74b7e8245a6f86832f6d048bb6a62ed79a33011e/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330)
 
 ```ts
 // @laratype/core
@@ -627,8 +628,13 @@ export class Container {
 }
 
 // @laratype/support
-export class Hasher { make(value: string): string }                 // sha256, as in 0.5
-export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
+export class Hasher {
+  make(value: string): string;                                       // salted scrypt: $scrypt$N=16384,r=8,p=1$<salt>$<key> (base64)
+  check(value: string, hashed: string): boolean;                     // a make() hash, or a 0.5 sha256 hash
+  needsRehash(hashed: string): boolean;                              // true unless make() wrote the hash
+  isHashed(value: string): boolean;                                  // a hash make() wrote, stored as is by Model
+}
+export class Hash extends Facade { static readonly accessor: typeof Hasher; /* the same methods, static */ }
 
 // @laratype/log
 export class LogManager {
@@ -664,8 +670,10 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 - A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
 - `Hash`, `Log` and `Auth` call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
 - The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
-- The accessors of `Hash`, `Log` and `Auth` are concrete classes holding the 0.5 code, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) behave as before. `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
+- The accessors of `Hash`, `Log` and `Auth` are concrete classes, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) keep their signatures: `AuthService` keeps the 0.5 methods and delegates `attempt()` to the guard, while `Hash.make()` returns a salted scrypt hash instead of 0.5's sha256 string (see the invariant below). `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthService`).
+- A custom `Hasher` (another format) must override `make()`, `check()`, `needsRehash()` and `isHashed()` together: the last three only understand the scrypt format `make()` writes, so overriding `make()` alone breaks every login.
+- `Hasher.make()` salts every hash (scrypt, a random 16-byte salt), so a password hash can't be matched in a query: the auth login looks the user up by its other fields, then calls `Hash.check()`, and `Model.findOneBy()` refuses the model's credential column ([database.md › Model](./database.md#model)). `check()` also accepts a 0.5 sha256 hash, and a successful login replaces it (`needsRehash()`). `Model.save()` / `update()` / `updateFor()` hash a plain value in the model's `static passwordField` (`password` by default) unless `isHashed()` accepts it, which is only a hash `make()` wrote (current cost, 16-byte salt, 32-byte key); a `$scrypt$` value at another cost is hashed as a plain password. `check()` refuses a stored hash at another cost, or with a shorter salt or key, without running scrypt.
 - **`app.swap(token, value)`** binds `value` as an instance in that container (its children see it, its parent does not) and returns a restore function. Restore puts back the container's own previous binding, cached singleton included, or removes the binding when there was none. It does nothing when the token was bound again after the swap. Restore functions run in reverse order.
 - **`Facade.fake(value)`** is `getFacadeApplication().swap(accessor, value)`, typed by the facade's accessor. A fake lives in the container that was the facade application when it was made: fake after the app container is set.
 - A swap changes what the next `make()` returns. A singleton that resolved the token earlier, or while it was swapped, keeps the instance it got.
