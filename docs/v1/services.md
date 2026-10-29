@@ -10,7 +10,7 @@ last-verified: 2026-10-10
 
 The application services: the driver `Manager`, console commands, events, cache, storage, queues, mail, localization, the scheduler, processes and broadcasting.
 
-> **Planned, except the driver Manager.** No v1 service code is on `master`; the [Driver Manager](#driver-manager) is proposed in PR #?. Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants and Example out until its code merges ([README](./README.md)).
+> **Planned, except the driver Manager.** No v1 service code is on `master`; the [Driver Manager](#driver-manager) is proposed in PR [#355](https://github.com/Laratypes/Laratype/pull/355). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants and Example out until its code merges ([README](./README.md)).
 
 **State on master (0.5):** checked on `256a743`. The same files are unchanged on `v0.5.4`.
 - `@laratype/console` has a `Command` base class with static `signature`, `description`, `options` and `arguments` and a `handle()` method ([`Command.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/console/src/command/Command.ts#L1-L34)). sauf loads app commands from `app/src/console/commands/*.ts` and from the default export of `app/routes/console.ts` ([`sauf/src/utils/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/utils/index.ts#L10-L34)).
@@ -21,7 +21,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 | Section | Status |
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
-| [Driver Manager](#driver-manager) | proposed: PR #? @ 7bc8206 |
+| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 7bc8206 |
 | [Console commands](#console-commands) | planned → #161 |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
@@ -58,10 +58,10 @@ Each service's own issue, linked in its section.
 ## Driver Manager
 
 ### Status
-proposed: PR #? @ 7bc8206 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
+proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 7bc8206 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
 
 ### Design (non-binding)
-The signatures below are the ones PR #? implements; they move to **Public API** when it merges. `Manager` lives in [`packages/core/src/manager.ts` @ 7bc8206](https://github.com/Laratypes/Laratype/blob/7bc8206/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bc8206](https://github.com/Laratypes/Laratype/blob/7bc8206/packages/log/src/support/Log.ts).
+The signatures below are the ones PR [#355](https://github.com/Laratypes/Laratype/pull/355) implements; they move to **Public API** when it merges. `Manager` lives in [`packages/core/src/manager.ts` @ 7bc8206](https://github.com/Laratypes/Laratype/blob/7bc8206/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bc8206](https://github.com/Laratypes/Laratype/blob/7bc8206/packages/log/src/support/Log.ts).
 
 ```ts
 // @laratype/core
