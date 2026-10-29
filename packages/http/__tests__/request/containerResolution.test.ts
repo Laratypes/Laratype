@@ -7,6 +7,7 @@ import { ContextApi, HTTP_APP } from '@laratype/support'
 import { AuthManager, Policy, UsePolicy, can } from '@laratype/auth'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route, defineRouteGroup } from '../../src/index'
+import type { PolicyFactory } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const users = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
@@ -249,7 +250,7 @@ class Recorded extends Controller {
 
 describe('RequestKernel.handle: policy without an authenticated user', () => {
   /** `can` is the only auth step of the route: the middleware list is empty unless the test adds one. */
-  const serveGuarded = (can: any[], middleware: Array<typeof Middleware> = []) => {
+  const serveGuarded = (can: PolicyFactory[], middleware: Array<typeof Middleware> = []) => {
     const app = bootApp()
     app.get('/guarded/:post', RequestKernel.handle({
       method: 'get',
@@ -284,6 +285,15 @@ describe('RequestKernel.handle: policy without an authenticated user', () => {
   it('refuses a custom handler that resolves false', async () => {
     quiet()
     const custom = { ability: 'view', args: [], modelPolicy: Post, handle: async () => false }
+    const response = await serveGuarded([custom]).request('/guarded/1')
+    expect(response.status).toBe(401)
+    expect(reached).toEqual([])
+  })
+
+  it('refuses a custom handler that resolves undefined', async () => {
+    quiet()
+    // A factory typed by hand can return no value, whatever `PolicyFactory` declares
+    const custom = { ability: 'view', args: [], modelPolicy: Post, handle: async () => undefined } as unknown as PolicyFactory
     const response = await serveGuarded([custom]).request('/guarded/1')
     expect(response.status).toBe(401)
     expect(reached).toEqual([])
