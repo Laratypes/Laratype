@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import jsonwebtoken from 'jsonwebtoken'
 import LocalStrategy from 'passport-local'
 import { config, Container, depsRegistry } from '@laratype/core'
 import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
@@ -66,6 +67,9 @@ const make = <T extends User>(Model: { new(): T, rows: T[] }, id: number, email:
 
 const local = { strategyName: 'local', strategy: PassportStrategy.make(LocalStrategy), options: { usernameField: 'email', passwordField: 'password' } }
 
+/** The app key of the tests. */
+const KEY = 'a4-test-key'
+
 // examples/basic/app/config/auth.ts, without the google guard (it needs network)
 const authConfig = {
   default: { guard: 'web' },
@@ -111,9 +115,17 @@ class LoginController extends Controller {
   }
 
   async adminLogin() {
-    const authenticated = Auth.guard<any>('admin').user()
+    // No guard name: Auth.user() must bind the guard AdminLocalAuthentication authenticated with (A6 #335)
+    const authenticated = Auth.user<any>()
     if (!authenticated) return { user: null }
     return { user: authenticated.getUser(), token: await authenticated.generateToken({ name: 'Default Token', abilities: '*' }) }
+  }
+
+  async adminRelogin() {
+    const authenticated = Auth.user<any>()
+    if (!authenticated) return { user: null }
+    const relogged = Auth.login<any>(authenticated.getUser())
+    return { user: relogged.getUser(), token: await relogged.generateToken({ name: 'Default Token', abilities: '*' }) }
   }
 
   me() {
@@ -130,6 +142,7 @@ const boot = async (withTokenModel = true) => {
   app.post('/login', RequestKernel.handle({ method: 'post', path: '/login', controller: [LoginController, 'login'], middleware: [LocalAuthentication] }))
   app.post('/login/manual', RequestKernel.handle({ method: 'post', path: '/login/manual', controller: [LoginController, 'manualLogin'] }))
   app.post('/admin/login', RequestKernel.handle({ method: 'post', path: '/admin/login', controller: [LoginController, 'adminLogin'], middleware: [AdminLocalAuthentication] }))
+  app.post('/admin/login/again', RequestKernel.handle({ method: 'post', path: '/admin/login/again', controller: [LoginController, 'adminRelogin'], middleware: [AdminLocalAuthentication] }))
   app.get('/me', RequestKernel.handle({ method: 'get', path: '/me', controller: [LoginController, 'me'], middleware: [AuthGuard] }))
   return { app, container }
 }
@@ -141,7 +154,7 @@ const me = (app: Hono, token: string) => app.request('/me', { headers: { Authori
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
-  globalThis.__laratype_config = { key: 'a4-test-key' }
+  globalThis.__laratype_config = { key: KEY }
   globalThis.__laratype_route_model_bindings = {}
   globalThis.__laratype_db = { models: { User, Admin, PersonalAccessToken } } as any
   User.rows = []
@@ -295,6 +308,96 @@ describe('TokenGuard', () => {
     await expect(guard.user(request)).resolves.toBe(false)
     await expect(guard.user({ bearerToken: () => '' } as unknown as Request)).resolves.toBe(false)
   })
+
+  it('signs its tokens with HS256', async () => {
+    const token = await guard.issueToken(make(User, 1, 'ada@example.com'), { name: 'Default Token', abilities: '*' })
+    // issueToken() pins the algorithm instead of relying on jsonwebtoken's default
+    expect((jsonwebtoken.decode(token, { complete: true }) as any).header.alg).toBe('HS256')
+  })
+
+  it('answers a real model instance from user()', async () => {
+    const token = await guard.issueToken(make(User, 1, 'ada@example.com'), { name: 'Default Token', abilities: '*' })
+    const verified = await guard.user({ bearerToken: () => token } as unknown as Request)
+    expect(verified).toBeInstanceOf(User)
+    expect(verified).toMatchObject({ id: 1, email: 'ada@example.com' })
+  })
+
+  it('rejects a token signed for another guard', async () => {
+    const user = make(User, 1, 'ada@example.com')
+    const token = await new TokenGuard('web', authConfig.guards.web)
+      .issueToken(user, { name: 'Default Token', abilities: '*' })
+    const admin = new TokenGuard('admin', authConfig.guards.admin)
+    await expect(admin.verify(token)).resolves.toBe(false)
+  })
+
+  it('rejects a token without a guard claim', async () => {
+    make(User, 1, 'ada@example.com')
+    // A token from before the claim existed: a valid signature alone no longer authenticates it
+    const token = jsonwebtoken.sign({ payload: { id: 1 } }, KEY)
+    await expect(guard.verify(token)).resolves.toBe(false)
+  })
+
+  it('rejects a token signed with another algorithm, even with the same secret', async () => {
+    make(User, 1, 'ada@example.com')
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 1 } }, KEY, { algorithm: 'HS384' })
+    await expect(guard.verify(token)).resolves.toBe(false)
+  })
+
+  it('denies a token whose user no longer exists', async () => {
+    const token = await guard.issueToken(make(User, 1, 'ada@example.com'), { name: 'Default Token', abilities: '*' })
+    User.rows = []
+    await expect(guard.verify(token)).resolves.toBe(false)
+  })
+
+  it('loads the user by the provider primary key, not always "id"', async () => {
+    const row = { uuid: 'acc-1', email: 'ada@example.com' }
+    class Account {
+      uuid!: string
+      email!: string
+      static getRepository = () => ({ metadata: { primaryColumns: [{ propertyName: 'uuid' }] } })
+      static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
+        Object.entries(fields).every(([key, value]) => (row as any)[key] === value) ? Object.assign(new Account(), row) : null)
+    }
+    // issueToken() resolves the model by the instance's constructor name
+    ;(globalThis.__laratype_db.models as any).Account = Account
+
+    const guard = new TokenGuard('api', { provider: Account, verification: 'jwt' } as any)
+    const token = await guard.issueToken(Object.assign(new Account(), row) as any, { name: 'Default Token', abilities: '*' })
+    await expect(guard.verify(token)).resolves.toMatchObject({ uuid: 'acc-1', email: 'ada@example.com' })
+    expect(Account.findOneBy).toHaveBeenCalledWith({ uuid: 'acc-1' })
+  })
+
+  it('loads a token record user by the tokenable model primary key', async () => {
+    const row = { uuid: 'acc-2', email: 'grace@example.com' }
+    class Account {
+      uuid!: string
+      email!: string
+      static getRepository = () => ({ metadata: { primaryColumns: [{ propertyName: 'uuid' }] } })
+      static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
+        Object.entries(fields).every(([key, value]) => (row as any)[key] === value) ? Object.assign(new Account(), row) : null)
+    }
+    ;(globalThis.__laratype_db.models as any).Account = Account
+
+    const record: any = {
+      token: 'stored.token',
+      expires_at: new Date(Date.now() + 60_000),
+      verification_type: 'jwt',
+      tokenable_type: 'Account',
+      tokenable_id: 'acc-2',
+      save: vi.fn(),
+    }
+    const tokenModel = {
+      createQueryBuilder: () => {
+        const query = { where: () => query, getOne: async () => record }
+        return query
+      },
+    }
+    const guard = new TokenGuard('api', { provider: Account, verification: 'jwt' } as any, tokenModel as any)
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 'acc-2' } }, KEY)
+
+    await expect(guard.verify(token)).resolves.toMatchObject({ uuid: 'acc-2', email: 'grace@example.com' })
+    expect(record.save).toHaveBeenCalledOnce()
+  })
 })
 
 describe('PassportGuard', () => {
@@ -400,14 +503,28 @@ describe('auth flows of examples/basic', () => {
     expect(await wrong.json()).toEqual({ user: null })
   })
 
-  it('logs an admin in through the admin guard', async () => {
-    const { app } = await boot()
+  it('signs the admin token for the guard that authenticated the request', async () => {
+    const { app, container } = await boot()
     make(Admin, 7, 'root@example.com')
     const login = await post(app, '/admin/login', { email: 'root@example.com', password: 'secret' })
     const { user, token } = await login.json()
     expect(user).toMatchObject({ id: 7 })
     expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'Admin', tokenable_id: 7 })
-    expect((await (await me(app, token)).json()).user).toMatchObject({ id: 7, email: 'root@example.com' })
+    // Auth.user() bound the admin guard Passport.authenticate('admin') ran
+    expect((jsonwebtoken.decode(token) as any).guard).toBe('admin')
+    // The default web guard rejects the token, and the admin guard accepts it
+    expect((await me(app, token)).status).toBe(401)
+    await ContextApi.run({ container } as any, async () => {
+      expect(await AuthVerification.guard<any>('admin').verify(token)).toMatchObject({ id: 7, email: 'root@example.com' })
+    })
+  })
+
+  it('signs through Auth.login() for the guard that authenticated the request', async () => {
+    const { app } = await boot()
+    make(Admin, 8, 'ops@example.com')
+    const login = await post(app, '/admin/login/again', { email: 'ops@example.com', password: 'secret' })
+    const { token } = await login.json()
+    expect((jsonwebtoken.decode(token) as any).guard).toBe('admin')
   })
 
   it('rejects a token with no live record', async () => {
@@ -420,11 +537,13 @@ describe('auth flows of examples/basic', () => {
     expect(await response.json()).toEqual({ code: 'UNAUTHORIZED', message: 'Token is invalid or expired.' })
   })
 
-  it('verifies the JWT itself without a PersonalAccessToken model', async () => {
+  it('loads the user from the provider model without a PersonalAccessToken model', async () => {
     const { app } = await boot(false)
     make(User, 1, 'ada@example.com')
     const { token } = await (await post(app, '/login', { email: 'ada@example.com', password: 'secret' })).json()
-    expect((await (await me(app, token)).json()).user).toMatchObject({ guard: 'web', payload: { id: 1 } })
+    // The payload id is looked up in the guard's provider model, so the response carries the user, not the JWT
+    expect((await (await me(app, token)).json()).user).toMatchObject({ id: 1, email: 'ada@example.com' })
+    expect(PersonalAccessToken.rows).toEqual([])
     expect((await me(app, `${token}x`)).status).toBe(401)
   })
 })
