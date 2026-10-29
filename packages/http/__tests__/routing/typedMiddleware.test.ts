@@ -105,6 +105,29 @@ describe('the context extension', () => {
     expect(await json(app, '/api/posts')).toEqual({ tag: 'second' })
   })
 
+  it('an own __proto__ key becomes an own ctx field, it does not swap the prototype', async () => {
+    // JSON.parse creates an own enumerable `__proto__` data property, as a parsed payload would
+    const spread = JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>
+    const proto = defineMiddleware((_request, next) => next(spread))
+    class Reads extends Controller {
+      index(ctx: Ctx<typeof posts.index>) {
+        return {
+          own: Object.prototype.hasOwnProperty.call(ctx, '__proto__'),
+          value: Object.getOwnPropertyDescriptor(ctx, '__proto__')!.value,
+          polluted: (ctx as unknown as { polluted?: boolean }).polluted,
+          plainPrototype: Object.getPrototypeOf(ctx) === Object.prototype,
+        }
+      }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(proto).contract(posts, Reads)]))
+    expect(await json(app, '/api/posts')).toEqual({
+      own: true,
+      value: { polluted: true },
+      plainPrototype: true,
+    })
+  })
+
   it('an extension that has params merges them one level deep, the extension winning its key', async () => {
     const withParams = defineMiddleware<{ params: { post: string } }>((request, next) => next({ params: { post: `ext-${request.param('post')}` } }))
     class Reads extends Controller {

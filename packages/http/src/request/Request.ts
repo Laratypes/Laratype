@@ -212,7 +212,10 @@ export default class Request extends AppServiceProvider {
       for (const key of Object.keys(ext)) {
         const value = (ext as Record<string, unknown>)[key];
         const params = target.params;
-        target[key] = key === "params" && isObject(value) && isObject(params) ? { ...params, ...value } : value;
+        const merged = key === "params" && isObject(value) && isObject(params) ? { ...params, ...value } : value;
+        // An own data property, never an assignment: an own `__proto__` key (JSON.parse, `{ ['__proto__']: ... }`) then
+        // stays a field of the ctx instead of swapping its prototype, and no inherited setter runs for another key
+        Object.defineProperty(target, key, { value: merged, writable: true, enumerable: true, configurable: true });
       }
     }
     return arg;
