@@ -77,6 +77,9 @@ const initialize = (passport: any, options: any) => {
 
 export default class PassportServiceProvider extends ServiceProvider {
 
+  /** The guards whose strategy this boot registered, so `down()` removes exactly those from passport. */
+  private readonly registered: string[] = [];
+
   /** Binds `AUTH_CONFIG` and the `AuthManager` singleton from app/config/auth.ts (A4 #151). */
   public async register() {
     // app/config/auth.ts and the PersonalAccessToken model, from the app manifest (docs/v1/build.md › Plugin chain)
@@ -104,6 +107,7 @@ export default class PassportServiceProvider extends ServiceProvider {
       const guard = auth.guard(guardName);
       if(guard instanceof PassportGuard) {
         guard.register(passport, storeManagement);
+        this.registered.push(guardName);
       }
     }
 
@@ -111,6 +115,14 @@ export default class PassportServiceProvider extends ServiceProvider {
       initialize,
       authenticate,
     });
+  }
+
+  /** Unregisters the strategies this boot added: a dev restart or a second test boot starts from passport's defaults. */
+  public async down() {
+    for (const guardName of this.registered) {
+      passport.unuse(guardName);
+    }
+    this.registered.length = 0;
   }
 
 }

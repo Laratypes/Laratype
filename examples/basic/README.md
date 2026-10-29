@@ -4,7 +4,7 @@ bun install
 bun run build && bun run build:type
 ```
 
-The example connects to MySQL on start (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`; defaults `localhost:3306`, `root`, no password, database `test`, in `app/config/config.ts`), and its Google auth provider reads `AUTH_GOOGLE_CLIENT_ID` and `AUTH_GOOGLE_CLIENT_SECRET`. Set them in your environment or an `.env` file in `examples/basic`. Outside production the Google guard is skipped when they are missing; a production start still fails until they are set.
+The example connects to MySQL on start (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`; defaults `localhost:3306`, `root`, no password, database `test`, in `app/config/config.ts`), and its Google auth provider reads `AUTH_GOOGLE_CLIENT_ID` and `AUTH_GOOGLE_CLIENT_SECRET`. Set them in your environment or an `.env` file in `examples/basic`. The Google guard is skipped when they are missing only in an explicit non-production environment (`sauf dev`, or `NODE_ENV`/`APP_ENV` = `development`/`test`); an unset environment is treated as production and fails the boot until they are set.
 
 Then start the example:
 ```

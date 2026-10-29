@@ -5,15 +5,24 @@ import LocalStrategy from 'passport-local';
 import User from "../src/models/User";
 import Admin from "../src/models/Admin";
 
-// `sauf build`'s entry sets `__PROD__`; a bare NODE_ENV=production counts too, as the contract response check does.
-const isProduction = () => Boolean(globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production");
+/**
+ * The Google skip keys off an explicit non-production signal, never a missing NODE_ENV: `sauf dev` sets `__PROD__`
+ * false, and NODE_ENV/APP_ENV must name development or test. Anything else, an unset environment included, is
+ * production, where a missing credential fails the boot (E5 #343).
+ */
+const isExplicitNonProduction = () =>
+  globalThis.__PROD__ === false
+  // A production build wins over the test runner's NODE_ENV=test
+  || (globalThis.__PROD__ !== true
+    && (["development", "test"].includes(process.env.NODE_ENV ?? "")
+      || ["development", "test"].includes(Env.get('APP_ENV', ''))));
 
 /** Whether passport-google-oidc can build its strategy: it throws when the clientID is empty. */
 const googleConfigured = () => Boolean(Env.get('AUTH_GOOGLE_CLIENT_ID', '') && Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''));
 
 /** A production boot must not silently run without the Google guard it declares (E5 #343). */
 const requireGoogleInProduction = () => {
-  if (isProduction() && !googleConfigured()) {
+  if (!isExplicitNonProduction() && !googleConfigured()) {
     throw new Error("examples/basic: AUTH_GOOGLE_CLIENT_ID and AUTH_GOOGLE_CLIENT_SECRET are required in production: the Google guard cannot register without them.");
   }
 };
@@ -38,8 +47,8 @@ export default {
     api: {
       strategyName: 'google',
       /**
-       * Without credentials the guard is a TokenGuard (no strategy), so a boot outside production does not need Google
-       * credentials (E5 #343). In production a missing credential throws from the getter, failing the boot loudly.
+       * Outside production without credentials the guard is a TokenGuard (no strategy), so the boot does not need
+       * Google credentials (E5 #343). In production a missing credential throws from the getter, failing boot loudly.
        */
       get strategy() {
         requireGoogleInProduction();
