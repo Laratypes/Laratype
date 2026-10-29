@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Container, Facade, Manager } from '@laratype/core'
 
-class Line {
+class Driver {
   constructor(readonly name: string) {}
 }
 
 type Name = 'single' | 'memory' | 'custom'
 
-class TestManager extends Manager<Record<Name, Line>, Name> {
+class TestManager extends Manager<Record<Name, Driver>, Name> {
   /** The names `createDriver()` was asked for, in order. */
   readonly created: Name[] = []
   defaultName: Name = 'single'
@@ -16,28 +16,28 @@ class TestManager extends Manager<Record<Name, Line>, Name> {
     return this.defaultName
   }
 
-  protected override createDriver(name: Name): Line {
+  protected override createDriver(name: Name): Driver {
     this.created.push(name)
     if (name === 'custom') throw new Error(`[@laratype/core] unknown driver "${name}"`)
-    return new Line(name)
+    return new Driver(name)
   }
 }
 
 /** A service without a configured default: `driver()` throws, a named driver still resolves. */
-class NoDefaultManager extends Manager<{ single: Line }, 'single'> {
+class NoDefaultManager extends Manager<{ single: Driver }, 'single'> {
   protected override get defaultDriver(): 'single' {
     throw new Error('[@laratype/core] no default driver configured')
   }
 
-  protected override createDriver(name: 'single'): Line {
-    return new Line(name)
+  protected override createDriver(name: 'single'): Driver {
+    return new Driver(name)
   }
 }
 
-class Lines extends Facade {
+class DriverFacade extends Facade {
   static override readonly accessor = TestManager
-  static line(name?: Name) {
-    return Lines.root().driver(name)
+  static driver(name?: Name) {
+    return DriverFacade.root().driver(name)
   }
 }
 
@@ -69,13 +69,13 @@ describe('Manager', () => {
   it('extend() replaces the factory of a resolved driver, dropping its cached instance', () => {
     const manager = new TestManager()
     const original = manager.driver('single')
-    const line = new Line('extended')
-    const factory = vi.fn(() => line)
+    const extended = new Driver('extended')
+    const factory = vi.fn(() => extended)
     expect(manager.extend('single', factory)).toBe(manager)
-    expect(manager.driver('single')).toBe(line)
-    expect(manager.driver('single')).toBe(line)
+    expect(manager.driver('single')).toBe(extended)
+    expect(manager.driver('single')).toBe(extended)
     expect(factory).toHaveBeenCalledTimes(1)
-    expect(original).not.toBe(line)
+    expect(original).not.toBe(extended)
     // createDriver() was not asked again: the factory is what the manager builds from then on
     expect(manager.created).toEqual(['single'])
   })
@@ -85,7 +85,7 @@ describe('Manager', () => {
     let seen: TestManager | undefined
     manager.extend('memory', (m) => {
       seen = m
-      return new Line('custom memory')
+      return new Driver('custom memory')
     })
     expect(manager.driver('memory').name).toBe('custom memory')
     expect(seen).toBe(manager)
@@ -96,7 +96,7 @@ describe('Manager', () => {
     const manager = new TestManager()
     const single = manager.driver('single')
     const memory = manager.driver('memory')
-    manager.extend('memory', () => new Line('extended memory'))
+    manager.extend('memory', () => new Driver('extended memory'))
     expect(manager.driver('single')).toBe(single)
     expect(manager.driver('memory')).not.toBe(memory)
   })
@@ -120,8 +120,8 @@ describe('Manager facades', () => {
 
   it('forwards to a manager bound as a singleton, cache included', () => {
     Facade.setFacadeApplication(new Container().singleton(TestManager))
-    expect(Lines.line()).toBe(Lines.line('single'))
-    expect(Lines.line('memory')).not.toBe(Lines.line('single'))
+    expect(DriverFacade.driver()).toBe(DriverFacade.driver('single'))
+    expect(DriverFacade.driver('memory')).not.toBe(DriverFacade.driver('single'))
   })
 
   it('fake() replaces the manager and restore() puts the bound one back', () => {
@@ -129,11 +129,11 @@ describe('Manager facades', () => {
     Facade.setFacadeApplication(app)
     const bound = app.make(TestManager)
     const fake = new TestManager()
-    fake.extend('single', () => new Line('fake'))
-    const restore = Lines.fake(fake)
-    expect(Lines.line('single').name).toBe('fake')
-    expect(Lines.line('single')).toBe(fake.driver('single'))
+    fake.extend('single', () => new Driver('fake'))
+    const restore = DriverFacade.fake(fake)
+    expect(DriverFacade.driver('single').name).toBe('fake')
+    expect(DriverFacade.driver('single')).toBe(fake.driver('single'))
     restore()
-    expect(Lines.line('single')).toBe(bound.driver('single'))
+    expect(DriverFacade.driver('single')).toBe(bound.driver('single'))
   })
 })

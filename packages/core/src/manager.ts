@@ -33,6 +33,7 @@ export abstract class Manager<
   driver<K extends keyof Drivers & string = Default>(name?: K): Drivers[K] {
     const key = name ?? this.defaultDriver
     const cached = this.instances.get(key)
+    // The map is keyed by name, so `key` holds `Drivers[K]`; TypeScript cannot correlate a dynamic key with K.
     if (cached !== undefined) return cached as Drivers[K]
     const factory = this.factories.get(key)
     const driver = factory ? factory(this) : this.createDriver(key)

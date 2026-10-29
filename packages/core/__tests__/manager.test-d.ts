@@ -1,20 +1,20 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { Manager } from '@laratype/core'
 
-interface Line {
+interface Driver {
   readonly name: string
 }
 
-interface Memory extends Line {
+interface MemoryDriver extends Driver {
   readonly lines: string[]
 }
 
-class TestManager extends Manager<{ single: Line; memory: Memory }, 'single'> {
+class TestManager extends Manager<{ single: Driver; memory: MemoryDriver }, 'single'> {
   protected override get defaultDriver(): 'single' {
     return 'single'
   }
 
-  protected override createDriver(name: 'single' | 'memory'): Line | Memory {
+  protected override createDriver(name: 'single' | 'memory'): Driver | MemoryDriver {
     return name === 'single' ? { name } : { name, lines: [] }
   }
 }
@@ -26,9 +26,9 @@ describe('Manager types', () => {
   const manager = new TestManager()
 
   it('types driver() by the default driver and driver(name) by the name', () => {
-    expectTypeOf(manager.driver()).toEqualTypeOf<Line>()
-    expectTypeOf(manager.driver('single')).toEqualTypeOf<Line>()
-    expectTypeOf(manager.driver('memory')).toEqualTypeOf<Memory>()
+    expectTypeOf(manager.driver()).toEqualTypeOf<Driver>()
+    expectTypeOf(manager.driver('single')).toEqualTypeOf<Driver>()
+    expectTypeOf(manager.driver('memory')).toEqualTypeOf<MemoryDriver>()
   })
 
   it('rejects a driver name the manager does not declare', () => {

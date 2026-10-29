@@ -39,7 +39,7 @@ export class LogManager extends Manager<Channels, LaratypeConfig.Logging.Config[
       throw new DriverNotImplement();
     }
     if(LogManager.logger == null) {
-      LogManager.logger = new Logger("single", LOG_PATH);
+      LogManager.logger = new Logger(LOG_PATH);
 
       LogManager.logger.getLogStream()!.format = combine(
         label({ label: Config.get(['env'] as const) }),
@@ -51,7 +51,7 @@ export class LogManager extends Manager<Channels, LaratypeConfig.Logging.Config[
     return LogManager.logger;
   }
 
-  public getLogger() {
+  public getLogger(): Logger {
     return this.driver();
   }
 

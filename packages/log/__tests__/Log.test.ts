@@ -37,9 +37,6 @@ const caught = (fn: () => unknown): unknown => {
   throw new Error('expected the call to throw')
 }
 
-const configs = globalThis.__laratype_config
-afterEach(() => Config.setConfigs(configs))
-
 describe('Log facade', () => {
   afterEach(() => Facade.setFacadeApplication(undefined))
 
@@ -75,6 +72,9 @@ describe('Log facade', () => {
 })
 
 describe('LogManager drivers', () => {
+  const configs = globalThis.__laratype_config
+  afterEach(() => Config.setConfigs(configs))
+
   const logger = (): Logger => ({ log: vi.fn() }) as unknown as Logger
 
   it('resolves the driver of logging.default and caches it', () => {
