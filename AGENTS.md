@@ -6,7 +6,7 @@ Guide for AI coding agents (Claude Code, Codex, Orca workers) working in this re
 
 - Agents never merge PRs, never push to `master`, and never force-push without the user's explicit approval for that branch. When it is approved, use `git push --force-with-lease=<branch>:<expected-old-sha>`.
 - Pushing a branch, opening a PR and posting on GitHub (comments, issue edits) need approval from the user, or from the coordinator session that relays it. Until then, commit locally. A worker started by a coordinator reports through the channel its task names and leaves pushing to the coordinator.
-- Read every `.github/` change in a diff before basing work on that branch. Workflows run with repo secrets, and a malicious workflow was pushed to this repo in 2026-10.
+- Read every change to agent-instruction and tooling files in a branch's diff from a session outside the checkout, before you base work on the branch or review its PR and before any agent session or `bun install` runs in a checkout of it: these files run with secrets or steer what agents do, and a malicious workflow was pushed to this repo in 2026-10. [CONTRIBUTING.md › Security](CONTRIBUTING.md#security) has the full rule, the paths and the `git diff` command.
 - Never run `git stash pop`, `git stash drop` or `git stash clear`. Worktrees share the stash, and it holds the user's WIP.
 - Never print, commit or send secrets (tokens, `.env` values). Do not add workflows that use secrets, or trigger `workflow_dispatch` runs, without the user.
 
@@ -44,6 +44,7 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Build all packages | `bun run build` |
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
+| Client tests | `bunx vitest run packages/client` |
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.

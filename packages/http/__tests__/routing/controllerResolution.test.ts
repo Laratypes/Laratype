@@ -92,7 +92,7 @@ describe('controller resolution', () => {
     expect(await json(bare, '/legacy')).toEqual({ message: 'hello' })
   })
 
-  it('ContextApi.getContainer() is the app container under RequestKernel; RequestKernel.container() falls back outside it', async () => {
+  it('ContextApi.getContainer() is a request scope of the app container under RequestKernel; RequestKernel.container() falls back outside it', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const container = new Container({ deps: depsRegistry })
     const app = new Hono()
@@ -101,13 +101,18 @@ describe('controller resolution', () => {
     const seen: unknown[] = []
     class Probe extends Controller {
       index() {
-        seen.push(ContextApi.getContainer(), RequestKernel.container())
+        seen.push(ContextApi.getContainer(), RequestKernel.container(), RequestKernel.container().make(Greeter))
         return {}
       }
     }
     app.get('/probe', RequestKernel.handle({ method: 'get', path: '/probe', controller: [Probe, 'index'] }))
+    container.singleton(Greeter)
     await app.request('/probe')
-    expect(seen).toEqual([container, container])
+    const [scope, kernelContainer, greeter] = seen
+    expect(kernelContainer).toBe(scope)
+    expect(scope).toBeInstanceOf(Container)
+    expect(scope).not.toBe(container)
+    expect(greeter).toBe(container.make(Greeter))
     // outside a request, and on a bare app: one autowire-only container, created once
     expect(ContextApi.getContainer()).toBeUndefined()
     const fallback = RequestKernel.container()
