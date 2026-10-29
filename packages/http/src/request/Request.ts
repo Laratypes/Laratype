@@ -4,7 +4,7 @@ import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
@@ -243,7 +243,14 @@ export default class Request extends AppServiceProvider {
                 throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
               }
               // Constructor DI (H21 #269): the policy comes from the request's container, as the controller does
-              await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
+              const allowed = await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
+              // A policy handler allows a request explicitly: any other result, `undefined` from a custom one included,
+              // answers 401 rather than running the controller
+              if(allowed !== true) {
+                throw new UnauthorizedException({
+                  message: 'You are not authorized to perform this action.'
+                });
+              }
               return await next(arg);
             }
             else {

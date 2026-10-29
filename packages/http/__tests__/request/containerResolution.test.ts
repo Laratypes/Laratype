@@ -239,3 +239,53 @@ describe('RequestKernel.handle: policy', () => {
     expect(asked).toEqual(['base:view'])
   })
 })
+
+/** A `can` step that runs without an auth middleware in front: no user, or a custom handler that doesn't allow. */
+const reached: string[] = []
+
+class Recorded extends Controller {
+  show() { reached.push('show'); return { one: true } }
+}
+
+describe('RequestKernel.handle: policy without an authenticated user', () => {
+  /** `can` is the only auth step of the route: the middleware list is empty unless the test adds one. */
+  const serveGuarded = (can: any[], middleware: Array<typeof Middleware> = []) => {
+    const app = bootApp()
+    app.get('/guarded/:post', RequestKernel.handle({
+      method: 'get',
+      path: '/guarded/:post',
+      controller: [Recorded, 'show'],
+      middleware,
+      can,
+    }))
+    return app
+  }
+
+  afterEach(() => {
+    reached.length = 0
+  })
+
+  it('answers 401 and never runs the controller', async () => {
+    quiet()
+    const response = await serveGuarded([can('view', Post as never)]).request('/guarded/1')
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ code: 'UNAUTHORIZED', message: 'You are not authorized to perform this action.' })
+    expect(reached).toEqual([])
+  })
+
+  it('lets an authenticated user the policy allows reach the controller', async () => {
+    quiet()
+    const response = await serveGuarded([can('view', Post as never)], [SignIn]).request('/guarded/1')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ one: true })
+    expect(reached).toEqual(['show'])
+  })
+
+  it('refuses a custom handler that resolves false', async () => {
+    quiet()
+    const custom = { ability: 'view', args: [], modelPolicy: Post, handle: async () => false }
+    const response = await serveGuarded([custom]).request('/guarded/1')
+    expect(response.status).toBe(401)
+    expect(reached).toEqual([])
+  })
+})
