@@ -174,7 +174,7 @@ planned → [#169](https://github.com/Laratypes/Laratype/issues/169) (Q1, M3, `@
 - **Deployment:** the Heroku `Procfile` stub runs `worker: sauf queue:work` ([#172](https://github.com/Laratypes/Laratype/issues/172)). Vercel has no long-running queue worker ([#173](https://github.com/Laratypes/Laratype/issues/173)).
 
 ### Open questions
-- Resolved: jobs serialize models through the `BindableModel` interface (primary-key metadata), agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1.
+- Jobs serialize a model by its `primaryKey` (the `BindableModel` metadata agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1). How a job re-fetches it by primary key when `routeKeyName` differs (`findByRouteKey` looks up the route key) is open → [#169](https://github.com/Laratypes/Laratype/issues/169).
 
 ### Acceptance
 [#169 Done when](https://github.com/Laratypes/Laratype/issues/169)
