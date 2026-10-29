@@ -1,6 +1,7 @@
 // Type tests (D8 #115): the `Log` facade forwards to `LogManager`, and `Log.fake()` takes a LogManager.
 import { describe, expectTypeOf, it } from "vitest";
 import { Log, LogManager } from "../src";
+import type Logger from "../src/Logger";
 
 /** Type-level checks only: the body is type-checked but never run. */
 const typeOnly = (_fn: () => void) => {};
@@ -27,6 +28,17 @@ describe("Log facade", () => {
     typeOnly(() => {
       // @ts-expect-error the fake must implement LogManager
       Log.fake({});
+    });
+  });
+
+  it("types driver() by the log channel and rejects an unknown channel", () => {
+    typeOnly(() => {
+      const manager = new LogManager();
+      expectTypeOf(manager.driver()).toEqualTypeOf<Logger>();
+      expectTypeOf(manager.driver("single")).toEqualTypeOf<Logger>();
+      expectTypeOf(manager.getLogger()).toEqualTypeOf<Logger>();
+      // @ts-expect-error "nope" is not a log channel
+      manager.driver("nope");
     });
   });
 });
