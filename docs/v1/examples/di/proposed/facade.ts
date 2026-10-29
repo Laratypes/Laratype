@@ -19,14 +19,18 @@ Facade.setFacadeApplication(app)
 // 0.5 call sites keep working: the unbound Hasher is autowired.
 expectTypeOf(Hash.make('secret')).toEqualTypeOf<string>()
 
-// A provider can bind another implementation.
+// A provider can bind another implementation. A custom format overrides all four methods together:
+// check(), needsRehash() and isHashed() only understand the scrypt format make() writes.
 class Bcrypt extends Hasher {
   override make(value: string) { return `bcrypt:${value}` }
+  override check(value: string, hashed: string) { return hashed === this.make(value) }
+  override needsRehash(hashed: string) { return !this.isHashed(hashed) }
+  override isHashed(value: string) { return value.startsWith('bcrypt:') }
 }
 app.bind(Hasher, Bcrypt)
 
 // Tests: swap the binding in the app, or fake it through the facade. Both return a restore function.
-const restoreHash = app.swap(Hasher, { make: value => `swapped:${value}` })
+const restoreHash = app.swap(Hasher, new Bcrypt())
 const restoreTime = Time.fake({ now: () => 0 })
 restoreTime()
 restoreHash()

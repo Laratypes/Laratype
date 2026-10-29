@@ -37,7 +37,7 @@ export default class ContextApi {
     return this.getRequestStore().getStore()?.modelBindings ?? {};
   }
 
-  /** The app container of the current request, set by `RequestKernel` (undefined outside a booted app). */
+  /** The request scope of the app container for the current request (D6 #112), set by `RequestKernel` (undefined outside a booted app). */
   static getContainer() {
     return this.getRequestStore().getStore()?.container;
   }
