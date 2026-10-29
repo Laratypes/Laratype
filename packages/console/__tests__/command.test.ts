@@ -31,7 +31,9 @@ describe("Command", () => {
     expect(command.opts()).toBeUndefined();
     await expect(command.boot()).resolves.toBeUndefined();
     expect(command.handle()).toBeUndefined();
-    const providers = [ServiceProvider, AppServiceProvider] as Array<typeof ServiceProvider | typeof AppServiceProvider>;
+    const providers = [ServiceProvider, AppServiceProvider] as Array<
+      typeof ServiceProvider | typeof AppServiceProvider
+    >;
     await expect(command.providers(providers)).resolves.toBe(providers);
   });
 

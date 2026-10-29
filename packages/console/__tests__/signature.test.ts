@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { command, isClosureCommand } from "../src/command/closure";
-import { CommandSignatureError, optionKey, parseSignature } from "../src/command/signature";
+import {
+  CommandSignatureError,
+  optionKey,
+  parseSignature,
+} from "../src/command/signature";
 
 describe("parseSignature", () => {
   it("reads the command name, arguments, options and the ` : ` description", () => {

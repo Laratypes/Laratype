@@ -70,7 +70,9 @@ export default class Command {
     this.transpiler = transpiler
     this.signature = command.signature
     this.parsed = parseSignature(command.signature)
-    this.description = isClosureCommand(command) ? this.parsed.description : command.description || this.parsed.description
+    this.description = isClosureCommand(command)
+      ? this.parsed.description
+      : command.description || this.parsed.description
     this.__initCommander()
   }
 
