@@ -1,5 +1,5 @@
 // D8 #115: Log is a facade over the container binding of LogManager; F1 #160: the channels are manager drivers
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Container, Facade } from '@laratype/core'
 import { Config } from '@laratype/support'
 import type { LaratypeConfig } from '@laratype/support'
@@ -73,12 +73,12 @@ describe('Log facade', () => {
 
 describe('LogManager drivers', () => {
   const configs = globalThis.__laratype_config
+  beforeEach(() => Config.setConfigs({ env: 'test', logging: { default: 'single', channels: {} } }))
   afterEach(() => Config.setConfigs(configs))
 
   const logger = (): Logger => ({ log: vi.fn() }) as unknown as Logger
 
   it('resolves the driver of logging.default and caches it', () => {
-    Config.setConfigs({ env: 'test', logging: { default: 'single', channels: {} } })
     const single = logger()
     const manager = managerWith(single)
     expect(manager.getLogger()).toBe(single)
@@ -88,7 +88,6 @@ describe('LogManager drivers', () => {
   })
 
   it('throws DriverNotImplement for the channels 0.5 does not implement', () => {
-    Config.setConfigs({ env: 'test', logging: { default: 'single', channels: {} } })
     const manager = managerWith(logger())
     expect(caught(() => manager.driver('stack'))).toMatchObject({ code: 'DRIVER_NOT_IMPLEMENT' })
     expect(caught(() => manager.driver('daily'))).toMatchObject({ code: 'DRIVER_NOT_IMPLEMENT' })
@@ -101,7 +100,6 @@ describe('LogManager drivers', () => {
   })
 
   it('extend() replaces a channel factory', () => {
-    Config.setConfigs({ env: 'test', logging: { default: 'single', channels: {} } })
     const original = logger()
     const extended = logger()
     const manager = managerWith(original).extend('single', () => extended)

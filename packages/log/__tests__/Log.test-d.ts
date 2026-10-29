@@ -32,11 +32,11 @@ describe("Log facade", () => {
   });
 
   it("types driver() by the log channel and rejects an unknown channel", () => {
-    const manager = new LogManager();
-    expectTypeOf(manager.driver()).toEqualTypeOf<Logger>();
-    expectTypeOf(manager.driver("single")).toEqualTypeOf<Logger>();
-    expectTypeOf(manager.getLogger()).toEqualTypeOf<Logger>();
     typeOnly(() => {
+      const manager = new LogManager();
+      expectTypeOf(manager.driver()).toEqualTypeOf<Logger>();
+      expectTypeOf(manager.driver("single")).toEqualTypeOf<Logger>();
+      expectTypeOf(manager.getLogger()).toEqualTypeOf<Logger>();
       // @ts-expect-error "nope" is not a log channel
       manager.driver("nope");
     });

@@ -38,6 +38,13 @@ describe('Manager types', () => {
     })
   })
 
+  it('requires the Drivers map, so no manager widens its names to string', () => {
+    typeOnly(() => {
+      // @ts-expect-error Manager requires its Drivers map; a manager without one would accept any name
+      type Bare = Manager
+    })
+  })
+
   it('extend() takes a factory of that driver and returns the manager', () => {
     typeOnly(() => {
       expectTypeOf(manager.extend('memory', () => ({ name: 'memory', lines: [] }))).toEqualTypeOf<TestManager>()

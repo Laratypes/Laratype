@@ -15,7 +15,7 @@ export type DriverMap = Record<string, object>
  * }
  */
 export abstract class Manager<
-  Drivers extends DriverMap = DriverMap,
+  Drivers extends DriverMap,
   Default extends keyof Drivers & string = keyof Drivers & string,
 > {
   /** Drivers built so far, by name: the per-name instance cache. */

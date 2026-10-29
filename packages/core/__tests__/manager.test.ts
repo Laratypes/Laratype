@@ -42,9 +42,9 @@ class DriverFacade extends Facade {
 }
 
 describe('Manager', () => {
-  it('resolves the default driver when called without a name, and caches it', () => {
+  it('resolves the default driver when called without a name', () => {
     const manager = new TestManager()
-    expect(manager.driver()).toBe(manager.driver('single'))
+    expect(manager.driver().name).toBe('single')
     expect(manager.created).toEqual(['single'])
   })
 
@@ -52,6 +52,7 @@ describe('Manager', () => {
     const manager = new TestManager()
     const single = manager.driver('single')
     const memory = manager.driver('memory')
+    expect(manager.driver()).toBe(single)
     expect(manager.driver('single')).toBe(single)
     expect(manager.driver('memory')).toBe(memory)
     expect(single).not.toBe(memory)
@@ -66,7 +67,7 @@ describe('Manager', () => {
     expect(manager.driver()).not.toBe(single)
   })
 
-  it('extend() replaces the factory of a resolved driver, dropping its cached instance', () => {
+  it('extend() replaces the factory of a resolved driver', () => {
     const manager = new TestManager()
     const original = manager.driver('single')
     const extended = new Driver('extended')

@@ -11,7 +11,7 @@ const { combine, timestamp, label, printf } = format;
 /** The `logging.channels` keys of app/config/config.ts: the manager's driver names (F1 #160). */
 type Channel = LaratypeConfig.Logging.CHANNEL;
 /** One 0.5 `Logger` per log channel. */
-type Channels = { [C in Channel]: Logger };
+type ChannelDrivers = { [C in Channel]: Logger };
 /** The 0.5 file of the `single` channel. */
 const LOG_PATH = "./storage/logs/laratype.log";
 
@@ -19,7 +19,7 @@ const LOG_PATH = "./storage/logs/laratype.log";
  * The implementation behind the `Log` facade: the log channels are drivers of the shared Manager (F1 #160).
  * `getLogger()` keeps the 0.5 call shape and returns the driver of `logging.default`.
  */
-export class LogManager extends Manager<Channels, LaratypeConfig.Logging.Config["default"]> {
+export class LogManager extends Manager<ChannelDrivers, LaratypeConfig.Logging.Config["default"]> {
 
   /** The 0.5 static cache: one file transport per process, whatever the container (D8, di.md). */
   protected static logger: Logger | null = null;
