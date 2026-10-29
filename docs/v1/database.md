@@ -8,19 +8,19 @@ last-verified: 2026-10-10
 
 # Database, placeholder
 
-> **Placeholder.** S5 [#88](https://github.com/Laratypes/Laratype/issues/88) runs in two steps: the `BindableModel` interface that both options satisfy, then an ADR that picks the ORM. Step 1 is specified in [BindableModel](#bindablemodel) below; the ADR (step 2) is still pending. Until it lands, each other section's Design note only restates its issue's tasks, and none of them gains signatures. The interface is what model binding needs ([http.md › Model binding](./http.md#model-binding)), and it names no ORM, so it does not wait for the ADR.
+> **Placeholder.** **TypeORM chosen (S5 [#88](https://github.com/Laratypes/Laratype/issues/88)).** Step 1 is the `BindableModel` interface in [BindableModel](#bindablemodel) below ([#347](https://github.com/Laratypes/Laratype/pull/347)); it names no ORM. Step 2, the ADR, keeps TypeORM, so the 0.5 `Model`, factories, seeders and migrations carry over to DB1–DB6 and the alternative typed query builder is not adopted. Each other section's Design note only restates its issue's tasks, and none gains signatures before its code lands.
 
 **State on master (0.5):** `@laratype/database` is built on TypeORM (`typeorm` `^0.3.20` in its `package.json`). It has an Eloquent-style `Model` in `packages/database/src/eloquent/Model.ts`, plus factories and seeders under `packages/database/src/factories` and `seeders`.
 
 | Section | Status |
 |---|---|
 | [BindableModel](#bindablemodel) | proposed: PR [#347](https://github.com/Laratypes/Laratype/pull/347) @ 24212c2 (S5 #88 step 1); code → #118, #163 |
-| [Model](#model) | planned → #145 (waits for #88) |
-| [Fillable and hidden](#fillable-and-hidden) | planned → #146 (waits for #88) |
-| [Relations and with()](#relations-and-with) | planned → #147 (waits for #88) |
-| [Migrations and introspection](#migrations-and-introspection) | planned → #148 (waits for #88) |
-| [Factories and seeders](#factories-and-seeders) | planned → #149 (waits for #88) |
-| [TypeORM adapter](#typeorm-adapter) | planned → #150 (waits for #88) |
+| [Model](#model) | planned → #145 |
+| [Fillable and hidden](#fillable-and-hidden) | planned → #146 |
+| [Relations and with()](#relations-and-with) | planned → #147 |
+| [Migrations and introspection](#migrations-and-introspection) | planned → #148 |
+| [Factories and seeders](#factories-and-seeders) | planned → #149 |
+| [TypeORM adapter](#typeorm-adapter) | planned → #150 |
 
 ---
 
@@ -95,10 +95,10 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 ## Model
 
 ### Status
-planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3).
 
 ### Design (non-binding)
-From #145: an Eloquent-like Model on the chosen ORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata.
+From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata. The type safety a typed query builder would give stays in the typed `Model` statics (`find`, `findOrFail`, `where`, `paginate`) and their return types; TypeORM's own query builder types the entity, not each column. `query()` returns a `SelectQueryBuilder` over the entity, and primary key metadata reads `getRepository().metadata.primaryColumns[0].propertyName`, as `ModelManagement` does in 0.5.
 
 ### Acceptance
 [#145 Done when](https://github.com/Laratypes/Laratype/issues/145)
@@ -108,10 +108,10 @@ From #145: an Eloquent-like Model on the chosen ORM: `User.query().where(...).pa
 ## Fillable and hidden
 
 ### Status
-planned → [#146](https://github.com/Laratypes/Laratype/issues/146) (DB2, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#146](https://github.com/Laratypes/Laratype/issues/146) (DB2, M3).
 
 ### Design (non-binding)
-From #146: mass-assignment safety at the type level: `Model.create()` accepts only fillable keys, and `hidden` keys are removed from the serialized type.
+From #146: mass-assignment safety at the type level on the TypeORM entity: `Model.create()` accepts only fillable keys, and `hidden` keys are removed from the serialized type. `fillable` and `hidden` are model statics layered over the entity, not TypeORM column options: `hidden` removes a key from the wire and resource type while the column stays readable from the model.
 
 ### Acceptance
 [#146 Done when](https://github.com/Laratypes/Laratype/issues/146)
@@ -121,10 +121,10 @@ From #146: mass-assignment safety at the type level: `Model.create()` accepts on
 ## Relations and with()
 
 ### Status
-planned → [#147](https://github.com/Laratypes/Laratype/issues/147) (DB3, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#147](https://github.com/Laratypes/Laratype/issues/147) (DB3, M3).
 
 ### Design (non-binding)
-From #147: `hasOne`, `hasMany`, `belongsTo`, `belongsToMany`, and typed eager loading through `with()`.
+From #147: `hasOne`, `hasMany`, `belongsTo`, `belongsToMany`, and typed eager loading through `with()`, on TypeORM's relation metadata and `relations` find options. The relation names and their target model types come from the entity's relation properties, so `with()` types the loaded relations.
 
 ### Acceptance
 [#147 Done when](https://github.com/Laratypes/Laratype/issues/147)
@@ -134,10 +134,10 @@ From #147: `hasOne`, `hasMany`, `belongsTo`, `belongsToMany`, and typed eager lo
 ## Migrations and introspection
 
 ### Status
-planned → [#148](https://github.com/Laratypes/Laratype/issues/148) (DB4, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#148](https://github.com/Laratypes/Laratype/issues/148) (DB4, M3).
 
 ### Design (non-binding)
-From #148: a migration runner, and `sauf db:introspect`, which generates the `Database` interface that types the schema ([cli.md › Command list](./cli.md#command-list)). Other work waits for it: the queue's database driver ([services.md › Queue](./services.md#queue)), the `job_batches` table ([services.md › Job chains and batches](./services.md#job-chains-and-batches)), and the `oauth_*` tables of the OAuth2 server ([#179](https://github.com/Laratypes/Laratype/issues/179)).
+From #148: a migration runner over TypeORM migrations (`MigrationInterface` and `DataSource.runMigrations`), transactions through the same `DataSource`, and `sauf db:introspect`, which reads the DataSource metadata and generates the `Database` interface that types the schema ([cli.md › Command list](./cli.md#command-list)). Other work waits for it: the queue's database driver ([services.md › Queue](./services.md#queue)), the `job_batches` table ([services.md › Job chains and batches](./services.md#job-chains-and-batches)), and the `oauth_*` tables of the OAuth2 server ([#179](https://github.com/Laratypes/Laratype/issues/179)).
 
 ### Acceptance
 [#148 Done when](https://github.com/Laratypes/Laratype/issues/148)
@@ -147,10 +147,10 @@ From #148: a migration runner, and `sauf db:introspect`, which generates the `Da
 ## Factories and seeders
 
 ### Status
-planned → [#149](https://github.com/Laratypes/Laratype/issues/149) (DB5, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#149](https://github.com/Laratypes/Laratype/issues/149) (DB5, M3).
 
 ### Design (non-binding)
-From #149: port the current factory and seeder API (`packages/database/src/factories`, `seeders`) onto the v1 Model. `sauf db:seed` runs on `examples/basic` ([cli.md › Command list](./cli.md#command-list)).
+From #149: port the current factory and seeder API (`packages/database/src/factories`, `seeders`) onto the v1 Model. The 0.5 `Factory` already builds `DeepPartial` definitions over TypeORM entities and saves them through the model, so the port keeps the `definition()` / `state()` / relation wiring. `sauf db:seed` runs on `examples/basic` ([cli.md › Command list](./cli.md#command-list)).
 
 ### Acceptance
 [#149 Done when](https://github.com/Laratypes/Laratype/issues/149)
@@ -160,10 +160,10 @@ From #149: port the current factory and seeder API (`packages/database/src/facto
 ## TypeORM adapter
 
 ### Status
-planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3). Waits for S5 [#88](https://github.com/Laratypes/Laratype/issues/88).
+planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3).
 
 ### Design (non-binding)
-From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually.
+From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually. v1's Model is itself TypeORM-based, so this is a compatibility layer over the 0.5 entities rather than a second backend; [#150](https://github.com/Laratypes/Laratype/issues/150) holds its scope.
 
 ### Acceptance
 [#150 Done when](https://github.com/Laratypes/Laratype/issues/150)
