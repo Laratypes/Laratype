@@ -65,7 +65,8 @@ class Model {
   static readonly primaryKey: string                 // getRepository().metadata.primaryColumns[0].propertyName
   static readonly routeKeyName?: string              // `primaryKey` when unset
   static findByRouteKey(key: string) {
-    return this.findOne({ where: { [this.routeKeyName ?? this.primaryKey]: key } })
+    // converts `key` to the route key property's type first (Invariants › Key conversion), then
+    // runs this.findOne({ where: { [this.routeKeyName ?? this.primaryKey]: converted } })
   }
 }
 
