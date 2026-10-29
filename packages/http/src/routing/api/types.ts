@@ -17,7 +17,10 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
 
-/** The extensions of the middleware tuple `M`, intersected in order: a key two middleware add must have the same type. */
+/**
+ * The extensions of the middleware tuple `M`, intersected in order: a key two middleware add with different types
+ * becomes `never`, and the route proof rejects it (`middleware provide conflicting types for '<key>'`, H6 #117).
+ */
 type ExtOf<M extends readonly MiddlewareItem[], X extends object = {}> = M extends readonly [
   infer H extends MiddlewareItem,
   ...infer R extends readonly MiddlewareItem[],

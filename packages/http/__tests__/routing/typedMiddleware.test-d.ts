@@ -5,7 +5,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route, defineMiddleware } from '../../src/index'
-import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, MiddlewareHandler, MiddlewareItem, RouteProof, TypedMiddleware } from '../../src/index'
+import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
 
 const posts = defineContract()({ index: endpoint.get('/'), destroy: endpoint.delete('/:post') })
 const appApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
@@ -41,10 +41,22 @@ describe('defineMiddleware', () => {
   })
 
   test('the exported handler types describe the middleware and the keys it adds', () => {
-    expectTypeOf<Parameters<MiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext?: { user: User }) => Promise<unknown>>()
+    expectTypeOf<Parameters<TypedMiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext?: { user: User }) => Promise<unknown>>()
     expectTypeOf<AnyTypedMiddleware>().toEqualTypeOf<TypedMiddleware<any>>()
     const item: MiddlewareItem = auth
     expectTypeOf(item).toMatchTypeOf<MiddlewareItem>()
+  })
+
+  test('the 0.5 `MiddlewareHandler` keeps its `(request, res, next)` shape', () => {
+    expectTypeOf<Parameters<MiddlewareHandler>['length']>().toEqualTypeOf<3>()
+    expectTypeOf<Parameters<MiddlewareHandler>[2]>().toEqualTypeOf<NextHandler>()
+    class AdminGuard extends Middleware {
+      handle: MiddlewareHandler = async (request, res, next) => {
+        void res.status
+        return next(request)
+      }
+    }
+    void AdminGuard
   })
 
   test('`r.middleware()` takes 0.5 classes and typed middleware', () => {
@@ -74,6 +86,41 @@ describe('the handler sees the accumulated context', () => {
     }
     const audited = defineMiddleware<{ audited: true }>((request, next) => next({ audited: true }))
     Route.api(appApi, (r) => [r.middleware(auth).middleware(audited).contract(posts, NeedsBoth)])
+  })
+
+  test('two middleware that add the same key with incompatible types fail at r.contract()', () => {
+    const tagString = defineMiddleware<{ tag: string }>((request, next) => next({ tag: 'x' }))
+    const tagNumber = defineMiddleware<{ tag: number }>((request, next) => next({ tag: 1 }))
+    class NeedsString extends Controller {
+      index(ctx: Ctx<typeof posts.index, { tag: string }>) { void ctx.tag.toUpperCase() }
+      destroy() {}
+    }
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsString, { policy: undefined }, { tag: never }>>().toHaveProperty(
+      "posts.index: middleware provide conflicting types for 'tag'",
+    )
+    // @ts-expect-error posts.index: middleware provide conflicting types for 'tag'
+    Route.api(appApi, (r) => [r.middleware(tagString, tagNumber).contract(posts, NeedsString)])
+  })
+
+  test('a conflicting `params` key fails at r.contract()', () => {
+    const postString = defineMiddleware<{ params: { post: string } }>((request, next) => next({ params: { post: 'x' } }))
+    const postNumber = defineMiddleware<{ params: { post: number } }>((request, next) => next({ params: { post: 1 } }))
+    class NeedsPost extends Controller {
+      index() {}
+      destroy(ctx: Ctx<typeof posts.destroy, { params: { post: string } }>) { void ctx.params.post.toUpperCase() }
+    }
+    // @ts-expect-error posts.destroy: middleware provide conflicting types for 'params.post'
+    Route.api(appApi, (r) => [r.middleware(postString, postNumber).contract(posts, NeedsPost)])
+  })
+
+  test('two middleware that add the same key with the same type still pass', () => {
+    const tagString = defineMiddleware<{ tag: string }>((request, next) => next({ tag: 'x' }))
+    const tagAgain = defineMiddleware<{ tag: string }>((request, next) => next({ tag: 'y' }))
+    class NeedsString extends Controller {
+      index(ctx: Ctx<typeof posts.index, { tag: string }>) { void ctx.tag.toUpperCase() }
+      destroy() {}
+    }
+    Route.api(appApi, (r) => [r.middleware(tagString, tagAgain).contract(posts, NeedsString)])
   })
 
   test('the endpoint callbacks take 0.5 classes: typed middleware is a route-level feature', () => {

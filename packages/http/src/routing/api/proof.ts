@@ -95,6 +95,22 @@ type Mismatched<Pv, Rq> = { [K in keyof Rq & keyof Pv]-?: [Pv[K]] extends [Rq[K]
 type Sub<O, K extends string> = K extends keyof O ? O[K] : {};
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
+/**
+ * Keys the route provides as `never`: two middleware added the same key with incompatible types, so the intersection
+ * `ExtOf` builds (H6 #117) has no value for it, while the runtime keeps the later one.
+ */
+type NeverKeys<O> = { [K in keyof O]-?: [O[K]] extends [never] ? K : never }[keyof O] & string;
+
+/** The `params` of the provided ctx, or `{}`: its keys are merged one level deep, so they are checked one level deep. */
+type ParamsOf<Pv> = "params" extends keyof Pv ? Pv["params"] : {};
+
+/** A conflicting extension: no handler could receive the key, whatever it declares. */
+type ConflictIssues<N extends string, Pv> = {
+  [K in NeverKeys<Pv> as `${N}: middleware provide conflicting types for '${K}'`]: { conflicting_key: K };
+} & {
+  [K in NeverKeys<ParamsOf<Pv>> as `${N}: middleware provide conflicting types for 'params.${K}'`]: { conflicting_key: K };
+};
+
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */
 type MissingKeys<Pv, Rq> = Missing<Pv, Rq> | `params.${Missing<Sub<Pv, "params">, Sub<Rq, "params">>}`;
 
@@ -164,16 +180,20 @@ type NoBody<E extends AnyEndpoint> = T<E>["response"] extends undefined ? null :
  * Conditional types, not function assignability: methods compare bivariantly, so `{ show(ctx: Provided): any }`
  * would accept a handler that needs more than the route provides. `[Provided] extends [Param]` is one-directional.
  * Any callable property counts as a handler (class methods, and an `action()` property later); an `any` one passes.
+ * A provided key typed `never` (conflicting middleware) is reported before the parameter check, since the handler
+ * would otherwise be proven against a value the runtime never produces.
  */
 type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw> = IsAny<H> extends true
   ? {}
-  : H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
-    ? [Pv] extends [Rq]
-      ? [Awaited<R>] extends [Result<E> | NoBody<E> | ResponseEscape]
-        ? SecondIssues<N, Rest, Raw>
-        : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
-      : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
-    : { [_ in `${N}: controller has no handler for this endpoint`]: H };
+  : keyof ConflictIssues<N, Pv> extends never
+    ? H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
+      ? [Pv] extends [Rq]
+        ? [Awaited<R>] extends [Result<E> | NoBody<E> | ResponseEscape]
+          ? SecondIssues<N, Rest, Raw>
+          : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
+        : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
+      : { [_ in `${N}: controller has no handler for this endpoint`]: H }
+    : ConflictIssues<N, Pv>;
 
 /** The handler for key `K`: a member of the controller, never one of the base `Controller` (the runtime rejects those). */
 type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : undefined;
