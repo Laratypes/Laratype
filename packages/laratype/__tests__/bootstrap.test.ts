@@ -29,7 +29,9 @@ describe("register", () => {
   const previous = peekAppManifest();
 
   afterEach(() => {
+    // Leave no manifest for the next file in the worker when this one found none (the store is on globalThis)
     if (previous) setAppManifest(previous);
+    else delete (globalThis as { __laratype_manifest?: AppManifest }).__laratype_manifest;
   });
 
   it("boots the app's providers from the manifest between the framework providers, in register()'s order", async () => {

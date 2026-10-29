@@ -76,6 +76,8 @@ export default mergeConfig(config, {
     include: ["__tests__/**/*.test.ts"],
     exclude: [...configDefaults.exclude, "**/e2e/**"],
     globalSetup: [fileURLToPath(new URL("./examples/basic/__tests__/support/generate.ts", import.meta.url))],
+    // Booting the app (manifest scan, SWC transform of the sources, providers) is slower than a plain unit test
+    testTimeout: 30_000,
     hookTimeout: 30_000,
   },
 });
