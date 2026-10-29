@@ -8,7 +8,7 @@ last-verified: 2026-10-10
 
 # Database, placeholder
 
-> **Placeholder.** **TypeORM chosen (S5 [#88](https://github.com/Laratypes/Laratype/issues/88)).** Step 1 is the `BindableModel` interface in [BindableModel](#bindablemodel) below ([#347](https://github.com/Laratypes/Laratype/pull/347)); it names no ORM. Step 2, the ADR, keeps TypeORM, so the 0.5 `Model`, factories, seeders and migrations carry over to DB1–DB6 and the alternative typed query builder is not adopted. Each other section's Design note only restates its issue's tasks, and none gains signatures before its code lands.
+> **Placeholder.** **TypeORM chosen (S5 [#88](https://github.com/Laratypes/Laratype/issues/88)).** Step 1 is the `BindableModel` interface in [BindableModel](#bindablemodel) below ([#347](https://github.com/Laratypes/Laratype/pull/347)); it names no ORM. Step 2, the ADR, keeps TypeORM: the 0.5 `Model`, factories and seeders are TypeORM, DB4's migrations run on its `DataSource`, and the alternative typed query builder is not adopted. The other sections stay planned; their Design notes are non-binding and gain no signatures before their code lands.
 
 **State on master (0.5):** `@laratype/database` is built on TypeORM (`typeorm` `^0.3.20` in its `package.json`). It has an Eloquent-style `Model` in `packages/database/src/eloquent/Model.ts`, plus factories and seeders under `packages/database/src/factories` and `seeders`.
 
@@ -98,7 +98,7 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 planned → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3).
 
 ### Design (non-binding)
-From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata. The type safety a typed query builder would give stays in the typed `Model` statics (`find`, `findOrFail`, `where`, `paginate`) and their return types; TypeORM's own query builder types the entity, not each column. `query()` returns a `SelectQueryBuilder` over the entity, and primary key metadata reads `getRepository().metadata.primaryColumns[0].propertyName`, as `ModelManagement` does in 0.5.
+From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginate()`, `find`, `findOrFail`, primary key metadata. The type safety a typed query builder would give stays in the typed `Model` statics (`find`, `findOrFail`, `where`, `paginate`), since TypeORM's own query builder types the entity, not each column. Primary key metadata reads `getRepository().metadata.primaryColumns[0].propertyName`, as `ModelManagement` does in 0.5.
 
 ### Acceptance
 [#145 Done when](https://github.com/Laratypes/Laratype/issues/145)
@@ -111,7 +111,7 @@ From #145: an Eloquent-like `Model` on TypeORM: `User.query().where(...).paginat
 planned → [#146](https://github.com/Laratypes/Laratype/issues/146) (DB2, M3).
 
 ### Design (non-binding)
-From #146: mass-assignment safety at the type level on the TypeORM entity: `Model.create()` accepts only fillable keys, and `hidden` keys are removed from the serialized type. `fillable` and `hidden` are model statics layered over the entity, not TypeORM column options: `hidden` removes a key from the wire and resource type while the column stays readable from the model.
+From #146: mass-assignment safety at the type level on the TypeORM entity: `Model.create()` accepts only fillable keys, and `hidden` keys are removed from the serialized type. `fillable` and `hidden` are model statics layered over the entity, not TypeORM column options; `hidden` is a type-level removal for the wire and resource types.
 
 ### Acceptance
 [#146 Done when](https://github.com/Laratypes/Laratype/issues/146)
@@ -163,7 +163,7 @@ From #149: port the current factory and seeder API (`packages/database/src/facto
 planned → [#150](https://github.com/Laratypes/Laratype/issues/150) (DB6, M3).
 
 ### Design (non-binding)
-From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually. v1's Model is itself TypeORM-based, so this is a compatibility layer over the 0.5 entities rather than a second backend; [#150](https://github.com/Laratypes/Laratype/issues/150) holds its scope.
+From #150: an adapter that implements `BindableModel` and the Model API over TypeORM entities, so 0.5 apps can upgrade gradually. v1's Model is itself TypeORM-based (DB1), so the adapter covers the 0.5 compatibility path; [#150](https://github.com/Laratypes/Laratype/issues/150) holds its scope.
 
 ### Acceptance
 [#150 Done when](https://github.com/Laratypes/Laratype/issues/150)
