@@ -6,9 +6,7 @@ import Policy, { type Ability } from "./Policy";
 import PolicyHandler from "./PolicyHandler";
 
 const refuse = (): never => {
-  throw new UnauthorizedException({
-    message: 'You are not authorized to perform this action.'
-  });
+  throw new UnauthorizedException();
 }
 
 export default class RoutePolicy {

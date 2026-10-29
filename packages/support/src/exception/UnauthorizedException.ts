@@ -5,7 +5,7 @@ export class UnauthorizedException extends Exception {
 
   constructor({
     httpCode = 401,
-    message = "",
+    message = "You are not authorized to perform this action.",
     code = "UNAUTHORIZED",
     responsible = true,
   }: ExceptionConstructorParams = {}) {

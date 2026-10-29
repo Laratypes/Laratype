@@ -257,9 +257,7 @@ export default class Request extends AppServiceProvider {
               // A policy handler allows a request explicitly: any other result, `undefined` from a custom one included,
               // answers 401 rather than running the controller
               if(allowed !== true) {
-                throw new UnauthorizedException({
-                  message: 'You are not authorized to perform this action.'
-                });
+                throw new UnauthorizedException();
               }
               return await next(arg);
             }
