@@ -7,11 +7,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { Hono } from 'hono'
 import LocalStrategy from 'passport-local'
 import { config, Container, depsRegistry } from '@laratype/core'
-import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
+import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
 
-const repository = { metadata: { primaryColumns: [{ propertyName: 'id' }] } }
+const passwordColumn = { propertyPath: 'password', isSelect: false }
+const repository = { metadata: { primaryColumns: [{ propertyName: 'id' }], findColumnWithPropertyName: (name: string) => (name === 'password' ? passwordColumn : undefined) } }
 
 class User {
   id!: number
@@ -20,6 +21,21 @@ class User {
   static getRepository = () => repository
   static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
     User.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null)
+  /** The password column is { select: false }: the login adds it to the select, then reads it off the row. */
+  static createQueryBuilder(_alias: string) {
+    let where: Record<string, unknown> = {}
+    const Model = this as unknown as { new (): User, rows: User[] }
+    const query = {
+      where: (value: Record<string, unknown>) => { where = value; return query },
+      addSelect: (_: string) => query,
+      getOne: async () => {
+        // A typeorm entity, so issueToken() finds the model by the constructor name
+        const row = Model.rows.find(row => Object.entries(where).every(([key, value]) => (row as any)[key] === value))
+        return row ? Object.assign(new Model(), row) : null
+      },
+    }
+    return query
+  }
 }
 
 class Admin extends User {
@@ -43,7 +59,7 @@ class PersonalAccessToken {
 }
 
 const make = <T extends User>(Model: { new(): T, rows: T[] }, id: number, email: string) => {
-  const row = Object.assign(new Model(), { id, email, password: 'secret' })
+  const row = Object.assign(new Model(), { id, email, password: Hash.make('secret') })
   Model.rows.push(row)
   return row
 }

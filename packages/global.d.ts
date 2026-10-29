@@ -7,7 +7,7 @@ declare var requestGlobalStore: import("async_hooks").AsyncLocalStorage<{
   request: import("@laratype/http").Request;
   user: unknown;
   modelBindings: Record<string, import("typeorm").BaseEntity>
-  /** The app container `RequestKernel` resolves controllers from (H2 #105). */
+  /** The request scope of the app container (D6 #112), which `RequestKernel` resolves controllers from (H2 #105). */
   container?: import("@laratype/core").Container
 }>;
 
