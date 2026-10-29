@@ -217,7 +217,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /**
    * The `redirect` mode of every call, default `"manual"`: the client doesn't follow a redirect, and the call resolves
    * with the real 3xx on Node, Bun, Deno and workerd, or a browser's `opaqueredirect` (status 0), both with `response`
-   * set; a per-call `init.redirect` set by `onRequest` wins. `"follow"` and `"error"` opt in, and workerd refuses
+   * set (except a browser CORS request whose cross-origin 3xx fails the CORS check: `fetch` rejects, so it is the
+   * status-0 result without `response`); a per-call `init.redirect` set by `onRequest` wins. `"follow"` and `"error"` opt in, and workerd refuses
    * `"error"` for every call, a plain 200 included (the status-0 result, or a rejection under
    * `do_not_capture_async_api_throws`).
    */
