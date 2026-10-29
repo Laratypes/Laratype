@@ -172,8 +172,9 @@ describe('decorator types', () => {
       // @ts-expect-error string keys are not tokens
       Inject('mailer')
       Injectable({ scope: 'singleton' })
-      // @ts-expect-error request scope is not available yet (#112)
       Injectable({ scope: 'request' })
+      // @ts-expect-error unknown scope
+      Injectable({ scope: 'session' })
     })
   })
 })
