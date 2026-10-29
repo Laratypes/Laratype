@@ -88,7 +88,7 @@ Runtime tests: [`packages/http/__tests__/request/pipeline.test.ts`](../../packag
 ### Non-goals
 - No coercion by the framework: a query value stays a string until the schema converts it.
 - No prefix in the error bag for the query or the body.
-- The ctx has no headers or request helpers: a handler that needs them reads the 0.5 request with `ContextApi.getRequest()` (`@laratype/support`) until typed middleware (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)) provides them. Changes 0.5 middleware makes to `input()` don't reach the ctx, which is built from the parsed request.
+- The ctx has no headers or request helpers: a handler that needs them reads them from the keys a typed middleware adds ([http.md › Typed middleware](./http.md#typed-middleware), H6 [#117](https://github.com/Laratypes/Laratype/issues/117)), or the 0.5 request with `ContextApi.getRequest()` (`@laratype/support`). Changes 0.5 middleware makes to `input()` don't reach the ctx, which is built from the parsed request.
 
 ### Open questions
 - None recorded.

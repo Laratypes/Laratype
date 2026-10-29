@@ -1,5 +1,6 @@
 import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, PathParams } from "@laratype/contract";
 import type Middleware from "../../middleware/Middleware";
+import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
 import type { EndpointKey, VerifyController } from "./proof";
 
@@ -16,9 +17,33 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 
 export type MiddlewareClass = typeof Middleware;
 
-/** The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. Typed middleware is H6 #117. */
+/** The extensions of the middleware tuple `M`, intersected in order: a key two middleware add must have the same type. */
+type ExtOf<M extends readonly MiddlewareItem[], X extends object = {}> = M extends readonly [
+  infer H extends MiddlewareItem,
+  ...infer R extends readonly MiddlewareItem[],
+]
+  ? ExtOf<R, X & (H extends TypedMiddleware<infer Ext extends object> ? Ext : {})>
+  : X;
+
+/** The middleware tuple `M` without every item of `W` (the same value, or a structurally identical one). */
+type WithoutMiddleware<M extends readonly MiddlewareItem[], W extends readonly MiddlewareItem[]> = M extends readonly [
+  infer H extends MiddlewareItem,
+  ...infer R extends readonly MiddlewareItem[],
+]
+  ? H extends W[number]
+    ? WithoutMiddleware<R, W>
+    : [H, ...WithoutMiddleware<R, W>]
+  : [];
+
+/**
+ * The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. It starts empty: `withoutMiddleware`
+ * removes only what the callback added (route middleware is removed on the builder, before `.contract()`). It takes 0.5
+ * `Middleware` classes: a `defineMiddleware()` value extends the ctx of the handlers its route proves, and the
+ * extensions of a callback cannot join that proof in the same call (docs/v1/http.md › Typed middleware).
+ */
 export interface EndpointRouteBuilder {
   middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+  withoutMiddleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
 /**
@@ -57,7 +82,7 @@ export interface MountedContract<C extends object = AnyContract> {
   readonly kind: "contract";
   readonly contract: C;
   readonly controller: ControllerClass;
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];
   readonly options: ContractRouteOptions<C> | undefined;
 }
 
@@ -67,7 +92,7 @@ export interface MountedScope<D extends string = string> {
   readonly dir: D;
   readonly policy: PolicyClass;
   /** Runs before the middleware of every contract under the folder. */
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];
 }
 
 /** The methods of an ad-hoc route: `r.get()`, `r.post()`, `r.put()`, `r.patch()`, `r.delete()`. */
@@ -83,7 +108,7 @@ export interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends str
   readonly path: P;
   /** Runs as a controller method does: the request, then the raw path params. */
   handler(req: Request, params: PathParams<P>): R | Promise<R>;
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];
 }
 
 export type ApiRouteItem = MountedContract<object> | MountedScope | MountedRoute;
@@ -202,16 +227,17 @@ export type CheckApiRoutes<A, M extends readonly unknown[]> =
 
 /**
  * The route proof of `r.contract(contract, controller, options)` (docs/v1/http.md › Route proof at r.contract()), run
- * with the tree name and path of the mounted contract. A contract that names several tree contracts (twins) is
- * reported by `CheckApiRoutes`, so it is not proven here.
+ * with the tree name and path of the mounted contract and the middleware extensions `X` its builder accumulated
+ * (H6 #117). A contract that names several tree contracts (twins) is reported by `CheckApiRoutes`, so it is not proven
+ * here.
  */
-export type RouteProof<A, C, I, O> = MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
+export type RouteProof<A, C, I, O, X extends object = {}> = MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
   ? [Hit] extends [never]
     ? unknown
     : IsUnion<Hit> extends true
       ? unknown
       : Hit extends { name: infer N extends string; contract: infer EC; path: infer P extends string }
-        ? VerifyController<N, EC, P, I, {}, {}, O>
+        ? VerifyController<N, EC, P, I, X, {}, O>
         : unknown
   : unknown;
 
@@ -220,17 +246,19 @@ type MountedEntry<En, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer Na
   ? Extract<En, { name: Name }>
   : En extends { contract: infer EC } ? (Equal<EC, C> extends true ? En : never) : never;
 
-/** The `r` of `Route.api(appApi, (r) => [...])`. */
-export interface ApiRouteBuilder<A> {
-  /** Route middleware (0.5 classes) for the contracts or scope mounted from the returned builder. */
-  middleware(...middleware: MiddlewareClass[]): ApiRouteBuilder<A>;
+/** The `r` of `Route.api(appApi, (r) => [...])`: its `M` is the middleware it accumulated, for the route proof. */
+export interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
+  /** Middleware for the contracts or scope mounted from the returned builder: 0.5 classes or `defineMiddleware()`. */
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W]>;
+  /** Drops middleware the builder accumulated (the same value, or a structurally identical one): the opt-out. */
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>>;
   /**
    * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
    * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
    */
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
     contract: C,
-    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
     options?: ContractRouteOptions<NoInfer<C>, P>,
   ): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
@@ -248,7 +276,7 @@ export interface RouteEntry extends ApiRoute {
   /** The controller class and the method, named after the endpoint key. */
   readonly controller: readonly [ControllerClass, string];
   /** Scope middleware (outer to inner), then the contract's, then the endpoint's (`endpoints`). */
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];
   /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: A3 #121 runs them. */
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
@@ -266,7 +294,7 @@ export interface AdHocRouteEntry {
   readonly name: undefined;
   readonly controller: undefined;
   readonly handler: MountedRoute["handler"];
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];
   readonly domain: string | undefined;
 }
 

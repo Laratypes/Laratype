@@ -181,8 +181,7 @@ type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : und
 type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B> = UnionToIntersection<
   {
     [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
-      ? // The extensions of the endpoint's own `endpoints` middleware join `X` with typed middleware (H6 #117)
-        HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }>
+      ? HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }>
       : {};
   }[EndpointKey<C>]
 >;
@@ -241,11 +240,11 @@ type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
 
 /**
  * The route proof of `r.contract()` (docs/v1/http.md › Route proof at r.contract()), a low-level type: `Route.api`
- * runs it with `X = {}` and `B = {}` until typed middleware (H6 #117) and `r.bind()` (H7 #118) feed the builder.
+ * runs it with the middleware extensions its builder accumulated (H6 #117).
  *
- * For contract (or tree node) `C` named `N` under `Path`, controller instance `I`, middleware extensions `X`,
- * bindings `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose
- * property names are the diagnosis.
+ * For contract (or tree node) `C` named `N` under `Path`, controller instance `I`, middleware extensions `X`, bindings
+ * `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose property
+ * names are the diagnosis.
  */
 export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}> =
   Flat<ControllerIssues<N, C, Path, I, X, B> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O>> extends infer Errs
