@@ -2,7 +2,7 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at a005ea9)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at feb1557)
 last-verified: 2026-10-29
 ---
 
@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR #? @ a005ea9 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Console commands](#console-commands) | proposed: PR #? @ feb1557 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -77,11 +77,13 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-proposed: PR #? @ a005ea9 ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR #? @ feb1557 ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 
 ### Public API
+
+The types live in [`signature.ts` @ feb1557](https://github.com/Laratypes/Laratype/blob/feb15573cd10608ae8fc46237bb1a0bc0bbe3b20/packages/console/src/command/signature.ts), [`Command.ts` @ feb1557](https://github.com/Laratypes/Laratype/blob/feb15573cd10608ae8fc46237bb1a0bc0bbe3b20/packages/console/src/command/Command.ts), [`closure.ts` @ feb1557](https://github.com/Laratypes/Laratype/blob/feb15573cd10608ae8fc46237bb1a0bc0bbe3b20/packages/console/src/command/closure.ts) and the registration in [`sauf/src/utils/command.ts` @ feb1557](https://github.com/Laratypes/Laratype/blob/feb15573cd10608ae8fc46237bb1a0bc0bbe3b20/packages/sauf/src/utils/command.ts).
 
 ```ts
 // @laratype/console
@@ -98,26 +100,25 @@ class Command<S extends string = string> {
   boot(...args: any[]): void | Promise<void>;
   handle(...args: any[]): unknown;
   providers(providers: Array<typeof ServiceProvider | typeof AppServiceProvider>): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;
+  __setInput(input: CommandInput<S>): void;   // filled by sauf before handle()
 }
 
 function command<S extends string>(signature: S, handler: (input: CommandInput<S>) => unknown): ClosureCommand<S>;
-function command<S extends string>(signature: S, description: string, handler: (input: CommandInput<S>) => unknown): ClosureCommand<S>;
 
 function parseSignature(signature: string): ParsedSignature;
 function optionKey(name: string): string;
-function isClosureCommand(value: unknown): value is ClosureCommand<any>;
+function isClosureCommand(value: unknown): value is AnyClosureCommand;
 function isConsoleCommand(value: unknown): value is ConsoleCommand;
 function overridesProviders(command: { prototype: object }): boolean;
 
 interface ClosureCommand<S extends string = string> {
   readonly [CLOSURE_COMMAND]: true;          // Symbol.for("laratype.console.closure")
   readonly signature: S;
-  readonly description?: string;
   readonly handler: (input: CommandInput<S>) => unknown;
 }
 ```
 
-`ArgumentName`, `OptionName`, `ArgumentValue`, `OptionValue`, `CommandInput`, `ParsedSignature`, `SignatureArgument`, `SignatureOption`, `ConsoleCommand` and `CommandClass` are the supporting types. `CommandSignatureError` is the parse error (see Diagnostics).
+`ArgumentName`, `OptionName`, `ArgumentValue`, `OptionValue`, `CommandInput`, `ClosureHandler`, `ParsedSignature`, `SignatureArgument`, `SignatureOption`, `AnyClosureCommand`, `ConsoleCommand` and `CommandClass` are the supporting types. `CommandSignatureError` is the parse error (see Diagnostics).
 
 The signature grammar:
 
@@ -138,18 +139,18 @@ An argument name or option flag starts with a letter or `_`, then letters, digit
 
 ### Invariants
 - **One source.** The signature declares the command name, arguments and options. `sauf` parses it once, at registration. A 0.5 command's `static options` / `static arguments` are registered first for compatibility; a signature token with the same name is not registered twice. New commands use only the signature.
-- **Types come from the signature.** `ArgumentName`, `OptionName` and `CommandInput` are template-literal types over `S` (`packages/console/src/command/signature.ts`), the technique of the contract's path params. The class must pass its own signature type: `class SendMail extends Command<typeof SendMail.signature>` with `static readonly signature = "..." as const`. When `S` is plain `string` (every 0.5 command, or no `as const` / `readonly`), `argument()` returns `string`, `option()` returns `string | boolean | undefined`, and `CommandInput` is `Record<string, unknown>` instead of `never`.
+- **Types come from the signature.** `ArgumentName`, `OptionName` and `CommandInput` are template-literal types over `S` (`packages/console/src/command/signature.ts`), the technique of the contract's path params. The class must pass its own signature type: `class SendMail extends Command<typeof SendMail.signature>` with `static readonly signature = "..." as const`. When `S` is plain `string` (every 0.5 command, or no `as const` / `readonly`), `argument()` returns `string`, `option()` returns `string | boolean | undefined`, and `CommandInput` falls back to `Record<string, unknown>` instead of the literal signature's keys.
 - **Container resolution.** A command that does not override `providers()` is resolved with `Serve.getContainer().make(Class)` after `register()` and the provider boot, so constructor DI works without decorators ([di.md › Dependency metadata](./di.md#dependency-metadata)). A command that overrides `providers()` keeps the 0.5 order: it is constructed with `new` before the boot so it can filter the provider list itself. `overridesProviders()` tells the two apart across copies of `@laratype/console`, with a shared symbol on the base method.
 - **`bootsApp`.** `static bootsApp = false` skips `register()`, the provider boot and the command's own `providers()` filtering (`types:generate`, `make:*`). A closure command always boots the app. The container is still loaded for a DI command with `bootsApp = false`, so its plain class dependencies autowire.
 - **One input object.** A closure command's handler receives exactly one `CommandInput<S>`; there are no positional parameters. A class command receives the same object through `__setInput()` and reads it with `argument(name)` / `option(name)`; `handle(...args)` still gets commander's positional arguments for 0.5 code.
-- **Registration.** `sauf` loads command files through the app manifest ([build.md › Plugin chain](./build.md#plugin-chain)): `app/src/console/commands` and `app/console/commands` for class commands, and `app/routes/console.ts` for classes and closure commands (an array, or a single command). An entry that is not a command is skipped with a warning; a file that fails to load is skipped with its stack.
-- **Cleanup.** The provider `down()` functions run in reverse order and the dev runner closes in a `finally`, so a failing `handle()` still cleans up. If a `down()` fails too, the original error is kept.
+- **Registration.** `sauf` loads command classes through the app manifest ([build.md › Plugin chain](./build.md#plugin-chain)) from `app/src/console/commands` and `app/console/commands`, and `app/routes/console.ts` adds class and closure commands as an array. An entry that is not a command is skipped with a warning; a file that fails to load is skipped with its stack. A closure in a command file is skipped, because closure commands live in the route file.
+- **Cleanup.** The provider `down()` functions run in reverse order and the dev runner closes after the command body, so a failing `handle()` still cleans up. Every cleanup runs even when one throws; the command's own error stays the one the caller sees.
 - **No coercion.** Commander hands every argument and option value as a string (or `true` for a flag, an array for a variadic one); the signature types do not parse numbers, booleans or dates.
 
 ### Diagnostics
-- `CommandSignatureError: Invalid command signature "<signature>": <reason>`, thrown at registration. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, and `"<key>" is declared twice`.
-- A command file whose default export is not a command: `Skipped <files>: the default export is not a command (a class with a static signature, or a closure from command())`.
-- A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1).
+- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
+- A command file whose default export is not a command class: `Skipped <files>: the default export is not a command class (a class with a static signature)`.
+- A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
 - Constructor DI in a production `dist/cli.js` fails with `Cannot autowire <Class>: its constructor takes N param(s) but no dependency metadata was found.` The DI transform runs in `sauf dev` only ([build.md › Plugin chain](./build.md#plugin-chain)).
 - Unknown arguments and options are commander's own errors; the wrapper adds no message.
 
