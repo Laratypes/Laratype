@@ -2,15 +2,15 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38)
-last-verified: 2026-10-10
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at a62a369)
+last-verified: 2026-10-29
 ---
 
 # CLI
 
 The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` options and the `make:*` generators. App-defined console commands are specified in [services.md › Console commands](./services.md#console-commands).
 
-> **Planned only.** On master, `sauf` is the 0.5 CLI. Every section is `planned → #N` and holds a **Design (non-binding)** note built from the issue bodies. Public API, Invariants, Diagnostics and Example are left out until code lands ([README](./README.md)).
+> **Planned only, except `make:command` and the sections whose Status says merged.** On master, `sauf` is the 0.5 CLI. A section marked `planned → #N` holds a **Design (non-binding)** note built from the issue bodies. Public API, Invariants, Diagnostics and Example are left out until code lands ([README](./README.md)).
 
 **State on master (0.5):**
 - **Framework commands:** `dev`, `build`, `db:init`, `db:seed`, `route:list`, and ten generators: `make:command`, `make:controller`, `make:factory`, `make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:request`, `make:resource`, `make:seeder` ([`commands/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/commands/index.ts)).
@@ -23,7 +23,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #126, #134, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | planned → #134 |
+| [make:* generators](#make-generators) | planned → #134; `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 
 ---
 
@@ -108,12 +108,13 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). Depends on H2 #105, H9 #123. Templates live under `packages/sauf/src/commands/make`.
+planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). Depends on H2 #105, H9 #123. Templates live under `packages/sauf/src/commands/make`. `make:command` is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) at a62a369.
 
 ### Design (non-binding)
 - **New:** `make:contract`. It writes a contract file into the [folder tree](./contract.md#contract-folder-tree) under the API root, with the `import type { Prefix } from './$types'` line.
 - **Scope of E2:** `make:contract`, `make:controller`, `make:request` and `make:resource`.
 - **0.5 generators ported with their area:** `make:middleware` with H6 [#117](https://github.com/Laratypes/Laratype/issues/117), `make:policy` and `make:gate` with A3 [#121](https://github.com/Laratypes/Laratype/issues/121), `make:command` with F2 [#161](https://github.com/Laratypes/Laratype/issues/161), `make:model` with DB1 [#145](https://github.com/Laratypes/Laratype/issues/145), `make:factory` and `make:seeder` with DB5 [#149](https://github.com/Laratypes/Laratype/issues/149).
+  - **`make:command` (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)):** writes `app/console/commands/<Name>.ts`, the v1 layout, with `class <Name> extends Command<typeof <Name>.signature>`, `static readonly signature = "<signature>" as const` and an empty `handle()`. The signature is derived from the class name (`SendMail` -> `send:mail`); the author edits it. A sub-path is flattened to the top level, where the manifest reads commands. The stub type-checks and boots the app like any other command ([services.md › Console commands](./services.md#console-commands)).
 - **Service generators, with Laravel names:** `make:event` and `make:listener` with EV1 [#165](https://github.com/Laratypes/Laratype/issues/165), `make:job` with Q1 [#169](https://github.com/Laratypes/Laratype/issues/169), `make:mail` with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170).
 - **Updated to the v1 API:** the controller template ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)), the request template ([validation.md › FormRequest v2](./validation.md#formrequest-v2)) and the resource template ([http.md › Resources](./http.md#resources)).
 - **Generated files type-check** in `examples/basic`.

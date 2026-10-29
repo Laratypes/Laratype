@@ -1,5 +1,13 @@
 import MakeCommand from "../../utils/MakeCommand";
 
+/** `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. */
+export function commandSignature(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1:$2")
+    .replace(/[_\s]+/g, ":")
+    .toLowerCase();
+}
+
 export default class MakeCommandCommand extends MakeCommand {
 
   static signature = "make:command";
@@ -17,8 +25,10 @@ export default class MakeCommandCommand extends MakeCommand {
     const resourcePath = this.resolve("sauf", "Command.template");
 
     return commandNames.map(commandName => {
-      const destinationPath = "./src/console/commands/" + commandName + ".ts";
-      const result = this.build(resourcePath, { CommandName: this.getFileName(commandName) });
+      const CommandName = this.getFileName(commandName).replace(/\.ts$/, "");
+      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
+      const destinationPath = `./app/console/commands/${CommandName}.ts`;
+      const result = this.build(resourcePath, { CommandName, signature: commandSignature(CommandName) });
       this.publish(result, destinationPath);
       return destinationPath;
     });

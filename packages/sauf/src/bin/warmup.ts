@@ -1,4 +1,4 @@
-import { type Command as CommandInstance } from "@laratype/console";
+import type { ConsoleCommand } from "@laratype/console";
 import { program } from "commander"
 import { resolveModule, type AppManifest } from "@laratype/support";
 import { resolve } from "node:path";
@@ -20,7 +20,7 @@ if(globalThis.__PROD__ === undefined) {
 export class CommandManager {
   protected commands: Array<Command> = [];
 
-  public registerCommand(command: typeof CommandInstance, transpiler: Transpile) {
+  public registerCommand(command: ConsoleCommand, transpiler: Transpile) {
     const commandWrapper = new Command(command, transpiler);
     this.commands.push(commandWrapper);
   }
