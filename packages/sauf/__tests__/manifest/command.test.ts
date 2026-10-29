@@ -39,7 +39,13 @@ beforeAll(() => {
   write("app/config/config.ts", "export default { name: 'fixture' };\n");
   write("app/config/providers.ts", "export default [];\n");
   write("app/config/auth.ts", "export default { default: { guard: 'web' }, guards: {} };\n");
-  write("app/src/services/GreetingService.ts", "export default class GreetingService {\n  greet(name: string) { return `Hello ${name}, from GreetingService`; }\n}\n");
+  write(
+    "app/src/services/GreetingService.ts",
+    `export default class GreetingService {
+  greet(name: string) { return \`Hello \${name}, from GreetingService\`; }
+}
+`,
+  );
   write("app/src/console/commands/SendMail.ts", `
 import { Command } from "@laratype/console";
 import GreetingService from "../../services/GreetingService";

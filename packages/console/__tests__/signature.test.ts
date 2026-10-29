@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { command, isClosureCommand } from "../src/command/closure";
-import {
-  CommandSignatureError,
-  optionKey,
-  parseSignature,
-} from "../src/command/signature";
+import { CommandSignatureError } from "../src/command/CommandSignatureError";
+import { optionKey, parseSignature } from "../src/command/signature";
 
 describe("parseSignature", () => {
   it("reads the command name, arguments, options and the ` : ` description", () => {
-    expect(parseSignature("send:mail")).toEqual({ name: "send:mail", description: undefined, arguments: [], options: [] });
+    expect(parseSignature("send:mail")).toEqual({
+      name: "send:mail",
+      description: undefined,
+      arguments: [],
+      options: [],
+    });
     expect(parseSignature("send:mail {user} {--queue=} : Send the welcome mail")).toEqual({
       name: "send:mail",
       description: "Send the welcome mail",

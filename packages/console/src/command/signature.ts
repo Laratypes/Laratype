@@ -3,9 +3,10 @@
  * and its options, and the types are read from the same string.
  *
  * `"send:mail {user} {--queue=}"`, `"deploy {env=production} {tags*}"`, `"clean {--dry-run} {--level=info}"` and a
- * `" : "` description after the parameters (`"send:mail {user} : Send the welcome mail"`). The grammar is the one
- * Laravel's `Artisan::command(signature, closure)` uses.
+ * `" : "` description after the parameters (`"send:mail {user} : Send the welcome mail"`). The token forms follow
+ * Laravel's `Artisan::command(signature, closure)` grammar; per-parameter descriptions are not supported.
  */
+import { CommandSignatureError } from "./CommandSignatureError";
 
 /** One argument of a signature. `kind` decides whether commander makes it required, optional or variadic. */
 export interface SignatureArgument {
@@ -26,23 +27,12 @@ export interface SignatureOption {
   readonly default?: string;
 }
 
+/** The result of `parseSignature()`: the command name, its description, arguments and options. */
 export interface ParsedSignature {
   readonly name: string;
   readonly description?: string;
   readonly arguments: readonly SignatureArgument[];
   readonly options: readonly SignatureOption[];
-}
-
-/** A malformed signature. Thrown at registration time, before commander parses anything. */
-export class CommandSignatureError extends Error {
-  override name = "CommandSignatureError";
-
-  readonly signature: string;
-
-  constructor(signature: string, reason: string) {
-    super(`Invalid command signature ${JSON.stringify(signature)}: ${reason}`);
-    this.signature = signature;
-  }
 }
 
 const DESCRIPTION_SEPARATOR = " : ";

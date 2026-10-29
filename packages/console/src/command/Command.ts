@@ -18,7 +18,7 @@ export type ArgumentType = {
  * Marks the base `providers()` method. `sauf` and the app may each load their own copy of this module, so a
  * prototype comparison would mistake the two base methods for an override; the shared symbol survives both copies.
  */
-const DEFAULT_PROVIDERS: unique symbol = Symbol.for("laratype.console.defaultProviders");
+const DEFAULT_PROVIDERS: unique symbol = Symbol.for('laratype.console.defaultProviders');
 
 /**
  * Base class of app commands (docs/v1/services.md › Console commands).
@@ -101,7 +101,7 @@ Object.defineProperty(Command.prototype.providers, DEFAULT_PROVIDERS, { value: t
 export function overridesProviders(command: { prototype: object }): boolean {
   const providers = (command.prototype as { providers?: unknown }).providers;
   return (
-    typeof providers !== "function" ||
+    typeof providers !== 'function' ||
     (providers as unknown as Record<symbol, unknown>)[DEFAULT_PROVIDERS] !== true
   );
 }

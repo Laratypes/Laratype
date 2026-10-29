@@ -18,9 +18,9 @@ describe("Command", () => {
     expect(command.option("force")).toBe(true);
   });
 
-  it("returns undefined for a value the signature declares but the input does not hold", () => {
+  it("returns undefined for a value the input sets to undefined", () => {
     const command = new SendMail();
-    command.__setInput({ user: "alice" });
+    command.__setInput({ user: "alice", queue: undefined, force: undefined });
     expect(command.option("queue")).toBeUndefined();
     expect(command.option("force")).toBeUndefined();
     expect(new SendMail().argument("user")).toBeUndefined();

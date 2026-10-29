@@ -12,11 +12,11 @@ export {
   command,
   isClosureCommand,
 } from './command/closure'
+export { CommandSignatureError } from './command/CommandSignatureError'
 export {
   type ArgumentName,
   type ArgumentValue,
   type CommandInput,
-  CommandSignatureError,
   type OptionName,
   type OptionValue,
   type ParsedSignature,

@@ -2,7 +2,14 @@
 import { describe, expectTypeOf, test } from "vitest";
 import Command from "../src/command/Command";
 import { command } from "../src/command/closure";
-import type { ArgumentName, CommandInput, OptionName } from "../src/command/signature";
+import type {
+  ArgumentName,
+  CommandInput,
+  OptionName,
+  ParsedSignature,
+  SignatureArgument,
+  SignatureOption,
+} from "../src/command/signature";
 import type { AnyClosureCommand, ClosureCommand, CommandClass, ConsoleCommand } from "../src/index";
 
 class SendMail extends Command<typeof SendMail.signature> {
@@ -104,6 +111,15 @@ describe("closure commands", () => {
     const fromClosure: ConsoleCommand = declared;
     expectTypeOf(fromClass).toMatchTypeOf<CommandClass>();
     expectTypeOf(fromClosure).toMatchTypeOf<AnyClosureCommand>();
+  });
+
+  test("parseSignature's result", () => {
+    expectTypeOf<ParsedSignature>().toMatchTypeOf<{
+      name: string;
+      description?: string;
+      arguments: readonly SignatureArgument[];
+      options: readonly SignatureOption[];
+    }>();
   });
 
   test("defaults keep a bare generic usable", () => {
