@@ -2,7 +2,7 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at 0f2f2bb)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at a62a369)
 last-verified: 2026-10-29
 ---
 
@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR #? @ 0f2f2bb (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Console commands](#console-commands) | proposed: PR #? @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -77,13 +77,13 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-proposed: PR #? @ 0f2f2bb ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR #? @ a62a369 ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 
 ### Public API
 
-The types live in [`signature.ts` @ 0f2f2bb](https://github.com/Laratypes/Laratype/blob/0f2f2bbe1aecf92e435a8d5612a1a93ee3b2cd7a/packages/console/src/command/signature.ts), [`Command.ts` @ 0f2f2bb](https://github.com/Laratypes/Laratype/blob/0f2f2bbe1aecf92e435a8d5612a1a93ee3b2cd7a/packages/console/src/command/Command.ts), [`closure.ts` @ 0f2f2bb](https://github.com/Laratypes/Laratype/blob/0f2f2bbe1aecf92e435a8d5612a1a93ee3b2cd7a/packages/console/src/command/closure.ts) and the registration in [`sauf/src/utils/command.ts` @ 0f2f2bb](https://github.com/Laratypes/Laratype/blob/0f2f2bbe1aecf92e435a8d5612a1a93ee3b2cd7a/packages/sauf/src/utils/command.ts).
+The types live in [`signature.ts` @ a62a369](https://github.com/Laratypes/Laratype/blob/a62a369dbc11023699237496a73279c8a53f3814/packages/console/src/command/signature.ts), [`Command.ts` @ a62a369](https://github.com/Laratypes/Laratype/blob/a62a369dbc11023699237496a73279c8a53f3814/packages/console/src/command/Command.ts), [`closure.ts` @ a62a369](https://github.com/Laratypes/Laratype/blob/a62a369dbc11023699237496a73279c8a53f3814/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ a62a369](https://github.com/Laratypes/Laratype/blob/a62a369dbc11023699237496a73279c8a53f3814/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ a62a369](https://github.com/Laratypes/Laratype/blob/a62a369dbc11023699237496a73279c8a53f3814/packages/sauf/src/utils/command.ts).
 
 ```ts
 // @laratype/console
@@ -150,7 +150,7 @@ An argument name or option flag starts with a letter or `_`, then letters, digit
 ### Diagnostics
 - `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
 - A command file whose default export is not a command class: `Skipped <files>: the default export is not a command class (a class with a static signature)`.
-- A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
+- A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A defined default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
 - Constructor DI in a production `dist/cli.js` fails with `Cannot autowire <Class>: its constructor takes N param(s) but no dependency metadata was found.` The DI transform runs in `sauf dev` only ([build.md › Plugin chain](./build.md#plugin-chain)).
 - Unknown arguments and options are commander's own errors; the wrapper adds no message.
 
