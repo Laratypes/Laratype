@@ -12,7 +12,8 @@ export type PolicyFactory = {
   ability: Ability,
   args: any[],
   modelPolicy: any,
-  handle: (ability: Ability, policy: new () => Policy, ...args: any[]) => Promise<boolean>
+  /** The policy instance the request pipeline resolves from its container (H21 #269). */
+  handle: (ability: Ability, policy: Policy, ...args: any[]) => Promise<boolean>
 }
 
 export type RouteOptions = ({

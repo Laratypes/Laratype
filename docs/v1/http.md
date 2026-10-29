@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229]
+issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -20,6 +20,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ a57ccea (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -389,6 +390,66 @@ Tests: [`packages/http/__tests__/routing/controllerResolution.test.ts`](../../pa
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105)
+
+---
+
+## Middleware and policy resolution
+
+### Status
+proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ a57ccea (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)). The controller path it mirrors is merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a).
+
+### Public API
+No new export in `@laratype/http`: the pipeline resolves through `Request.container()` ([`Request.ts` @ a57ccea](https://github.com/Laratypes/Laratype/blob/a57ccea/packages/http/src/request/Request.ts#L256-L268)), the container [Controller resolution](#controller-resolution) already uses. The exported `PolicyFactory` type changes one member: `handle` takes the policy instance the pipeline resolved, so a factory can no longer expect a class ([`Route.ts` @ a57ccea](https://github.com/Laratypes/Laratype/blob/a57ccea/packages/http/src/contracts/Route.ts#L11-L17)), a signature change internal to `can()` and the pipeline ([`RoutePolicy.ts` @ a57ccea](https://github.com/Laratypes/Laratype/blob/a57ccea/packages/auth/src/policies/RoutePolicy.ts#L25-L26)). `@UsePolicy`'s parameter widens to `Newable<Policy>`, so a policy class with constructor params can be declared on a model ([`Policy.ts` @ a57ccea](https://github.com/Laratypes/Laratype/blob/a57ccea/packages/auth/src/decorators/Policy.ts#L12-L13)). A refusal answers 401 with `@laratype/support`'s `UnauthorizedException` ([`UnauthorizedException.ts` @ a57ccea](https://github.com/Laratypes/Laratype/blob/a57ccea/packages/support/src/exception/UnauthorizedException.ts)), the 0.5 `{ code: "UNAUTHORIZED", message }` shape, so `@laratype/http` imports nothing from `@laratype/auth`.
+
+```ts
+// @laratype/http, contracts/Route.ts
+type PolicyFactory = {
+  ability: Ability;
+  args: any[];
+  modelPolicy: any;
+  handle: (ability: Ability, policy: Policy, ...args: any[]) => Promise<boolean>;
+};
+// @laratype/auth, RoutePolicy.ts: not exported (reached through `can()`), and it never builds the policy
+class RoutePolicy {
+  static handle<T extends Ability>(ability: T, policy: Policy, ...models: any): Promise<boolean>;
+}
+// @laratype/auth, decorators/Policy.ts: the class decorator records P and adds can()/cannot()
+interface UsePolicy<T extends Policy> {
+  can<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
+  cannot<U extends Ability>(ability: U, ...args: ExcludeFirstParameter<T[U]>): ReturnType<T[U]>;
+}
+export function UsePolicy(P: Newable<Policy>): <T extends { new(...args: any[]): {} }>(target: T) => {
+  new (...args: any[]): {
+    can(ability: Ability, ...args: any): boolean | Promise<boolean>;
+    cannot(ability: Ability, ...args: any): boolean | Promise<boolean>;
+  };
+} & T;
+```
+
+### Invariants
+- **Middleware:** every middleware class the pipeline runs is resolved with `Request.container().make(...)` instead of `new`, whatever mounted it: the `r.middleware()` stack of a contract or a scope, the per-endpoint `endpoints` map of `r.contract()`, an ad-hoc route's, and 0.5 `Route.group` middleware (a group's own and its parents', so a group at the root too). A middleware's constructor params are injected through the [DI transform](./di.md#di-transform) metadata, and an app binding of the middleware or of a dependency applies.
+- **Policies:** the 0.5 `can()` step resolves the class `@UsePolicy` records on the model with the same container, then hands the instance to `PolicyFactory.handle`. Running contract policies (`r.scope()` and `r.contract()` `{ policy }`) is still planned → [#121](https://github.com/Laratypes/Laratype/issues/121): they are recorded, not resolved.
+- **Policy refusals:** a `can` step with no authenticated user answers 401 (`UNAUTHORIZED`, "You are not authorized to perform this action."), and the controller does not run. A custom `PolicyFactory.handle` must resolve to `true` to allow the request; any other result, `undefined` included, is refused the same way.
+- **Which container:** exactly the controller's ([Controller resolution](#controller-resolution)): middleware and policies resolve from the same request scope of the app container (`RequestKernel.boot()`), and from the same autowire-only fallback container outside `RequestKernel`, so app bindings and request-scoped dependencies apply to them too.
+- **Lifetime:** unbound, a middleware or policy is transient, so a new instance per request, as with `new`. A binding's scope (`singleton`, `@Injectable({ scope })`) applies as it does anywhere else. The 0.5 `previousResult` is per request: the pipeline keys the value by the request and the middleware instance, not on the instance alone, so a `singleton` serving concurrent requests still reads the value its own request's previous middleware passed, before and after `next()`. `setPreviousResult()` and `getPreviousResult()` keep their 0.5 signatures, and outside a request context the instance field is the fallback.
+- **Errors:** a class whose constructor takes params and has no dependency metadata is a `DiError` when the request runs, not when the routes mount, with the controller's `Cannot autowire` hint ([di.md › Resolution errors with fix hints](./di.md#resolution-errors-with-fix-hints)). Before, `new` passed `undefined` silently.
+- **Ordering:** unchanged: resolution happens in `RequestKernel.handle`'s pipeline, where the class was built before.
+
+### Diagnostics
+The [Controller resolution](#controller-resolution) ones: `Cannot autowire <Middleware>` and `Cannot resolve <Middleware> constructor param #<n> \`<name>\`: ...`, from [Container](./di.md#container).
+
+### Example
+Tests: [`packages/http/__tests__/request/containerResolution.test.ts`](../../packages/http/__tests__/request/containerResolution.test.ts) (a contract route's middleware and an endpoint's, a 0.5 route's and a 0.5 group's, a binding of the middleware class, the fallback container, one instance per request, a `DiError` for missing metadata, a policy declared with `@UsePolicy` whose injected dependency decides, a `can` step with no authenticated user answering 401, and a custom handler resolving `false` or `undefined`), and [`previousResult.test.ts`](../../packages/http/__tests__/request/previousResult.test.ts) (one singleton middleware, two concurrent requests interleaving across an `await`, each reading its own previous result before and after `next()`).
+
+### Non-goals
+- Running contract policies ([#121](https://github.com/Laratypes/Laratype/issues/121)) and typed middleware ([#117](https://github.com/Laratypes/Laratype/issues/117)): this only changes how the class is built.
+- The instance `@UsePolicy` builds at decoration time for model-level `can()` is unchanged: it is built when the model class is defined, with no request and no container. The route path resolves the policy class it records, not that instance, so model-level `can()` on a policy with constructor deps still gets none until [#121](https://github.com/Laratypes/Laratype/issues/121).
+
+### Open questions
+- None recorded.
+
+### Acceptance
+[#269 Done when](https://github.com/Laratypes/Laratype/issues/269)
 
 ---
 

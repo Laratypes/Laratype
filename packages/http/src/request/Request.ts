@@ -4,7 +4,7 @@ import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
@@ -75,8 +75,9 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers are resolved from: the request scope of the app container `boot()` puts on each request, else one
-   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   * The container controllers, middleware and policies are resolved from: the request scope of the app container
+   * `boot()` puts on each request, else one autowire-only container (outside `RequestKernel`, they are autowired
+   * without app bindings).
    */
   public static container(): Container {
     return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
@@ -251,11 +252,18 @@ export default class Request extends AppServiceProvider {
               if(!policy) {
                 throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
               }
-              await policyHandler.handle(policyHandler.ability, policy, ...modelArgs);
+              // Constructor DI (H21 #269): the policy comes from the request's container, as the controller does
+              const allowed = await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
+              // A policy handler allows a request explicitly: any other result, `undefined` from a custom one included,
+              // answers 401 rather than running the controller
+              if(allowed !== true) {
+                throw new UnauthorizedException();
+              }
               return await next(arg);
             }
             else {
-              const middleware = await new currentPipeline.handler();
+              // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
+              const middleware = Request.container().make(currentPipeline.handler);
               middleware.setPreviousResult(arg);
               return await middleware.handle(requestInstance, res, next);
             }
