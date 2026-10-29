@@ -13,8 +13,17 @@ import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 
-/** The Hono variable holding the app container, set by `RequestKernel.boot()`. */
+/** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
+
+/**
+ * A request path as one log line: Hono decodes the path, so `%0A` is a real newline and could break or forge a line in
+ * the log (CWE-117). Control characters, C1 controls, the line separators and the bidi controls are escaped as
+ * `\uXXXX`, and a backslash as `\\`, so a literal `\u000a` a client sent never reads as the escaped newline.
+ */
+const loggablePath = (path: string): string =>
+  path.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+    char === "\\" ? "\\\\" : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 /** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
 let fallbackContainer: Container | undefined;
@@ -66,8 +75,9 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers, middleware and policies are resolved from: the app container `boot()` puts on each
-   * request, else one autowire-only container (outside `RequestKernel`, they are autowired without app bindings).
+   * The container controllers, middleware and policies are resolved from: the request scope of the app container
+   * `boot()` puts on each request, else one autowire-only container (outside `RequestKernel`, they are autowired
+   * without app bindings).
    */
   public static container(): Container {
     return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
@@ -350,12 +360,48 @@ export default class Request extends AppServiceProvider {
     console.log(`${request.req.method} - ${request.req.url}`);
   }
 
+  /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
+  protected readonly disposals = new Set<Promise<void>>();
+
   public boot(): void {
     globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
-      (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
-      this.resolveRequest(ctx);
-      return next();
+      // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
+      // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
+      const scope = this.app.createRequestScope();
+      (ctx.set as (key: string, value: Container) => void)(CONTAINER, scope);
+      try {
+        this.resolveRequest(ctx);
+        return await next();
+      } finally {
+        this.disposeRequestScope(scope, ctx);
+      }
     });
+  }
+
+  /**
+   * @internal For tests only: resolves once every disposal this kernel started so far has settled, so a dispose test
+   * doesn't depend on timing. Call it once the response has resolved: the middleware starts the disposal before it
+   * returns, so a call earlier sees no disposal to wait for. A disposer that never settles keeps it pending, like the
+   * request's own work.
+   */
+  public async settled(): Promise<void> {
+    while (this.disposals.size) await Promise.all(this.disposals);
+  }
+
+  /**
+   * The response is already resolved when this runs, so it is started, never awaited, and a failed disposal is logged
+   * once, never turned into an error response. The rejection is handled on the promise itself, so it is never unhandled.
+   */
+  protected disposeRequestScope(scope: Container, ctx: Context): void {
+    // Read before the disposal starts: the catch closure keeps only this line alive, not the whole context, while a
+    // disposer hangs
+    const label = `${ctx.req.method} ${loggablePath(ctx.req.path)}`;
+    const disposal = scope.dispose().catch((error: unknown) => {
+      console.error(`[@laratype/http] ${label}: disposing the request scope failed`, error);
+    });
+    this.disposals.add(disposal);
+    // Dropped once settled, so `settled()` waits on the right ones and only running disposals stay in the set
+    void disposal.then(() => this.disposals.delete(disposal));
   }
 }
