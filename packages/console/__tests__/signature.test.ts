@@ -77,13 +77,12 @@ describe("command()", () => {
     const send = command("send:mail {user}", handler);
     expect(send.signature).toBe("send:mail {user}");
     expect(send.handler).toBe(handler);
-    expect(send.description).toBeUndefined();
     expect(isClosureCommand(send)).toBe(true);
   });
 
-  it("takes an explicit description", () => {
-    const send = command("send:mail {user}", "Send the welcome mail", () => undefined);
-    expect(send.description).toBe("Send the welcome mail");
+  it("keeps the signature description for the registry", () => {
+    const send = command("send:mail {user} : Send the welcome mail", () => undefined);
+    expect(parseSignature(send.signature).description).toBe("Send the welcome mail");
   });
 
   it("rejects anything that is not a closure command", () => {

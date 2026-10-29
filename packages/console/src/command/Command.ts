@@ -1,4 +1,4 @@
-import { AppServiceProvider, ServiceProvider } from "@laratype/support";
+import { AppServiceProvider, ServiceProvider } from '@laratype/support';
 import {
   type ArgumentName,
   type ArgumentValue,
@@ -6,7 +6,7 @@ import {
   type OptionName,
   type OptionValue,
   optionKey,
-} from "./signature";
+} from './signature';
 
 /** A 0.5-style argument declaration (`static arguments`), kept for commands written before typed signatures. */
 export type ArgumentType = {
@@ -100,5 +100,8 @@ Object.defineProperty(Command.prototype.providers, DEFAULT_PROVIDERS, { value: t
  */
 export function overridesProviders(command: { prototype: object }): boolean {
   const providers = (command.prototype as { providers?: unknown }).providers;
-  return typeof providers !== "function" || (providers as unknown as Record<symbol, unknown>)[DEFAULT_PROVIDERS] !== true;
+  return (
+    typeof providers !== "function" ||
+    (providers as unknown as Record<symbol, unknown>)[DEFAULT_PROVIDERS] !== true
+  );
 }

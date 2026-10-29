@@ -25,8 +25,9 @@ export default class MakeCommandCommand extends MakeCommand {
     const resourcePath = this.resolve("sauf", "Command.template");
 
     return commandNames.map(commandName => {
-      const destinationPath = "./app/console/commands/" + commandName + ".ts";
       const CommandName = this.getFileName(commandName).replace(/\.ts$/, "");
+      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
+      const destinationPath = "./app/console/commands/" + CommandName + ".ts";
       const result = this.build(resourcePath, { CommandName, signature: commandSignature(CommandName) });
       this.publish(result, destinationPath);
       return destinationPath;

@@ -346,7 +346,7 @@ describe('importRootCommands', () => {
     try {
       expect(await importRootCommands(manifest)).toEqual([SendMail]);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command (a class with a static signature, or a closure from command())');
+      expect(warn).toHaveBeenCalledWith('Skipped app/src/console/commands/format.ts, app/src/console/commands/util.ts: the default export is not a command class (a class with a static signature)');
     } finally {
       warn.mockRestore();
     }
@@ -387,11 +387,21 @@ describe('importRouteConsoleCommands', () => {
   }) satisfies AppManifest;
   class Publish { static signature = 'auth:publish'; }
 
-  it('accepts class commands and closure commands, in an array or alone', async () => {
+  it('accepts class commands and closure commands in the array', async () => {
     const hello = command('hello:user {user}', () => undefined);
     expect(await importRouteConsoleCommands(routes([Publish, hello]))).toEqual([Publish, hello]);
-    expect(await importRouteConsoleCommands(routes(hello))).toEqual([hello]);
     expect(await importRouteConsoleCommands(routes(undefined))).toEqual([]);
+  });
+
+  it('skips a default export that is not an array, with a warning naming the file', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRouteConsoleCommands(routes(hello))).toEqual([]);
+      expect(warn).toHaveBeenCalledWith('Skipped app/routes/console.ts: the default export is not an array of commands');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('skips an entry that is not a command, with one warning naming the file', async () => {

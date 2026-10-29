@@ -3,6 +3,7 @@ import { describe, expectTypeOf, test } from "vitest";
 import Command from "../src/command/Command";
 import { command } from "../src/command/closure";
 import type { ArgumentName, CommandInput, OptionName } from "../src/command/signature";
+import type { AnyClosureCommand, ClosureCommand, CommandClass, ConsoleCommand } from "../src/index";
 
 class SendMail extends Command<typeof SendMail.signature> {
   static readonly signature = "send:mail {user} {--queue=} {--force} {--dry-run}" as const;
@@ -88,10 +89,27 @@ describe("closure commands", () => {
     command("send:mail {user} {--queue=}", (input) => {
       expectTypeOf(input).toEqualTypeOf<{ user: string; queue: string | undefined }>();
     });
-    command("deploy {tags*} {--dry-run}", "Deploy the app", ({ tags, dryRun }) => {
+    command("deploy {tags*} {--dry-run} : Deploy the app", ({ tags, dryRun }) => {
       expectTypeOf(tags).toEqualTypeOf<string[]>();
       expectTypeOf(dryRun).toEqualTypeOf<boolean | undefined>();
     });
+  });
+
+  test("the registration types accept both command shapes", () => {
+    const declared: ClosureCommand<"send:mail {user}"> = command("send:mail {user}", ({ user }) => user);
+    expectTypeOf(declared.signature).toEqualTypeOf<"send:mail {user}">();
+    expectTypeOf(SendMail).toMatchTypeOf<CommandClass>();
+    expectTypeOf(declared).toMatchTypeOf<AnyClosureCommand>();
+    const fromClass: ConsoleCommand = SendMail;
+    const fromClosure: ConsoleCommand = declared;
+    expectTypeOf(fromClass).toMatchTypeOf<CommandClass>();
+    expectTypeOf(fromClosure).toMatchTypeOf<AnyClosureCommand>();
+  });
+
+  test("defaults keep a bare generic usable", () => {
+    expectTypeOf<ArgumentName>().toEqualTypeOf<string>();
+    expectTypeOf<OptionName>().toEqualTypeOf<string>();
+    expectTypeOf<CommandInput>().toEqualTypeOf<Record<string, unknown>>();
   });
 
   test("negatives", () => {

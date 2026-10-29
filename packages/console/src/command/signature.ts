@@ -13,7 +13,6 @@ export interface SignatureArgument {
   readonly kind: "required" | "optional" | "default" | "rest";
   /** The default value of `{name=default}`. */
   readonly default?: string;
-  readonly description?: string;
 }
 
 /** One option of a signature. `flag` takes no value; `value` and `rest` do (`--opt=`, `--opt=default`, `--opt=*`). */
@@ -25,7 +24,6 @@ export interface SignatureOption {
   readonly kind: "flag" | "value" | "rest";
   /** The default value of `--opt=default`. */
   readonly default?: string;
-  readonly description?: string;
 }
 
 export interface ParsedSignature {
@@ -69,7 +67,8 @@ export function parseSignature(signature: string): ParsedSignature {
 
   const separator = text.indexOf(DESCRIPTION_SEPARATOR);
   const head = (separator === -1 ? text : text.slice(0, separator)).trim();
-  const description = separator === -1 ? undefined : text.slice(separator + DESCRIPTION_SEPARATOR.length).trim() || undefined;
+  const description =
+    separator === -1 ? undefined : text.slice(separator + DESCRIPTION_SEPARATOR.length).trim() || undefined;
   const [name, ...tokens] = head.split(/\s+/);
   if (!name || !NAME_PATTERN.test(name)) {
     throw new CommandSignatureError(signature, `"${name ?? ""}" is not a valid command name`);
@@ -114,9 +113,6 @@ function parseArgument(signature: string, body: string): SignatureArgument {
   const name = namePart.replace(/[*?]$/, "");
   if (!PARAMETER_PATTERN.test(name)) {
     throw new CommandSignatureError(signature, `"${body}" is not a valid argument name`);
-  }
-  if (rest && body.indexOf("*") !== name.length) {
-    throw new CommandSignatureError(signature, `"${body}" puts * in the middle of an argument name`);
   }
   return hasDefault
     ? { name, kind: "default", default: defaultParts.join("=") }
@@ -182,16 +178,16 @@ type OptionSpecs<S extends string> = OptionSpec<Tokens<S>>;
 type SpecName<Spec> = Spec extends { name: infer Name extends string } ? Name : never;
 
 /** The argument names of a signature; `string` when the signature is not a literal (a 0.5 command). */
-export type ArgumentName<S extends string> = string extends S ? string : SpecName<ArgumentSpecs<S>>;
+export type ArgumentName<S extends string = string> = string extends S ? string : SpecName<ArgumentSpecs<S>>;
 
 /** The option flag names of a signature, without the dashes (`dry-run`); `string` when the signature is not literal. */
-export type OptionName<S extends string> = string extends S ? string : SpecName<OptionSpecs<S>>;
+export type OptionName<S extends string = string> = string extends S ? string : SpecName<OptionSpecs<S>>;
 
 type FindArgument<S extends string, Name extends string> = Extract<ArgumentSpecs<S>, { name: Name }>;
 type FindOption<S extends string, Name extends string> = Extract<OptionSpecs<S>, { name: Name }>;
 
 /** The value `this.argument(name)` returns: `string`, `string | undefined` or `string[]`. */
-export type ArgumentValue<S extends string, Name extends ArgumentName<S>> = string extends S
+export type ArgumentValue<S extends string = string, Name extends ArgumentName<S> = ArgumentName<S>> = string extends S
   ? string
   : [FindArgument<S, Name>] extends [never]
     ? string
@@ -202,7 +198,7 @@ export type ArgumentValue<S extends string, Name extends ArgumentName<S>> = stri
         : string | undefined;
 
 /** The value `this.option(name)` returns: boolean for flags, strings for values, an array for `--opt=*`. */
-export type OptionValue<S extends string, Name extends OptionName<S>> = string extends S
+export type OptionValue<S extends string = string, Name extends OptionName<S> = OptionName<S>> = string extends S
   ? string | boolean | undefined
   : [FindOption<S, Name>] extends [never]
     ? string | boolean | undefined
@@ -226,7 +222,7 @@ export type Prettify<T> = { [K in keyof T]: T[K] } & {};
  * one camelCase key per option (`--dry-run` -> `dryRun`). A non-literal signature (`string`) falls back to a loose
  * record, so 0.5 commands keep compiling.
  */
-export type CommandInput<S extends string> = string extends S
+export type CommandInput<S extends string = string> = string extends S
   ? Record<string, unknown>
   : Prettify<
       { [Name in ArgumentName<S>]: ArgumentValue<S, Name> } & {

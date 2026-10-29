@@ -1,16 +1,17 @@
-import Command from "./command/Command";
-import type { ArgumentType } from "./command/Command";
-import { type ClosureCommand, isClosureCommand } from "./command/closure";
+import type Command from './command/Command'
+import type { ArgumentType } from './command/Command'
+import { type AnyClosureCommand, isClosureCommand } from './command/closure'
 
-export { default as Console } from "./support/Console";
-export { default as Command, type ArgumentType, overridesProviders } from "./command/Command";
+export { default as Console } from './support/Console'
+export { default as Command, type ArgumentType, overridesProviders } from './command/Command'
 export {
   CLOSURE_COMMAND,
+  type AnyClosureCommand,
   type ClosureCommand,
   type ClosureHandler,
   command,
   isClosureCommand,
-} from "./command/closure";
+} from './command/closure'
 export {
   type ArgumentName,
   type ArgumentValue,
@@ -23,26 +24,26 @@ export {
   optionKey,
   type SignatureArgument,
   type SignatureOption,
-} from "./command/signature";
+} from './command/signature'
 
 /** The static side of a `Command` class, as `sauf` registers it (any signature, the 0.5 shape included). */
 export interface CommandClass {
-  new (...args: any[]): Command<any>;
-  readonly prototype: Command<any>;
-  signature: string;
-  description?: string;
-  options?: string[][];
-  arguments?: ArgumentType[];
-  bootsApp?: boolean;
+  new (...args: any[]): Command<any>
+  readonly prototype: Command<any>
+  signature: string
+  description?: string
+  options?: string[][]
+  arguments?: ArgumentType[]
+  bootsApp?: boolean
 }
 
 /** What `sauf` registers from a command file or `app/routes/console.ts`: a `Command` class or a closure command. */
-export type ConsoleCommand = CommandClass | ClosureCommand<any>;
+export type ConsoleCommand = CommandClass | AnyClosureCommand
 
 /** Whether a value is something `sauf` can register as a command. */
 export function isConsoleCommand(value: unknown): value is ConsoleCommand {
-  if (typeof value === "function") {
-    return typeof (value as { signature?: unknown }).signature === "string";
+  if (typeof value === 'function') {
+    return typeof (value as { signature?: unknown }).signature === 'string'
   }
-  return isClosureCommand(value);
+  return isClosureCommand(value)
 }
