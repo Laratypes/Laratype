@@ -336,7 +336,7 @@ export enum ServiceProviderType {
   APP_PROVIDER = "app_provider",
   ROUTE_PROVIDER = "route_provider",
 }
-export const HTTP_APP: InjectionToken<Hono>;              // TEMPORARY: kept on globalThis until #188 (B13)
+export const HTTP_APP: InjectionToken<Hono>;              // bound by Serve.getContainer(), before any provider runs
 export class ServiceProvider {
   static type: ServiceProviderType;                        // ServiceProviderType.CORE_PROVIDER
   readonly app: Container;
@@ -551,7 +551,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 - Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 
 ### Design (non-binding)
-- **D7:** `RouteRegistry`, `ModelBindingRegistry` and `DataSource` replace the 0.5 registries. `RouteRegistry` holds the route entries `RouteAppServiceProvider.boot()` binds. `ModelBindingRegistry` holds the 0.5 `Route.model` / `Route.bind` entries, the camelCase param → model name map and the app's model classes by name; `AppServiceProvider` binds it and `DatabaseServiceProvider.register()` fills it. `DataSource` is the initialized TypeORM connection `DatabaseServiceProvider.boot()` binds; the 0.5 `DS` proxy reads it from the facade application (deprecated import). `RouteRegistry.current()` and `ModelBindingRegistry.current()` resolve the registry from the current request's container, else the facade application, and bind an empty one there when it is missing (a bare Hono app, `sauf route:list`).
+- **D7:** `RouteRegistry`, `ModelBindingRegistry` and `DataSource` replace the 0.5 registries. `RouteRegistry` holds the route entries `RouteAppServiceProvider.boot()` binds. `ModelBindingRegistry` holds the 0.5 `Route.model` / `Route.bind` entries, the camelCase param → model name map and the app's model classes by name; `AppServiceProvider` binds it and `DatabaseServiceProvider` fills the models and the map when it loads the manifest's models. `DataSource` is the initialized TypeORM connection `DatabaseServiceProvider.boot()` binds; the 0.5 `DS` proxy reads it from the facade application (deprecated import). `RouteRegistry.current()` resolves the registry from the facade application, and `ModelBindingRegistry.current()` from the current request's container first; either binds an empty one there when it is missing (a bare Hono app, `sauf route:list`).
 - Still on `globalThis`: `__laratype_config` and `__laratype_configs` (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)), `__laratype_manifest` (the build manifest, [build.md](./build.md)) and `__laratype_env_file` (`EnvLoadServiceProvider`).
 
 ### Public API

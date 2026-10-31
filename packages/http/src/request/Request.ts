@@ -345,7 +345,7 @@ export default class Request extends AppServiceProvider {
 
   public boot(): void {
     // Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app.
-    // The registry itself stays: `DatabaseServiceProvider.register()` has already filled its models and param map.
+    // Only the bindings are cleared: the models and the param map `DatabaseServiceProvider` fills stay.
     this.app.make(ModelBindingRegistry).bindings = {};
     this.apps.use(async (ctx, next) => {
       (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);

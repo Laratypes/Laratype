@@ -7,8 +7,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { Hono } from 'hono'
 import LocalStrategy from 'passport-local'
 import { config, Container, depsRegistry } from '@laratype/core'
-import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
-import { ModelBindingRegistry } from '@laratype/support'
+import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, ModelBindingRegistry, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
 

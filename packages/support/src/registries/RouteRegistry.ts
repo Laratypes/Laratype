@@ -2,7 +2,7 @@ import { Facade } from "@laratype/core";
 
 /**
  * The routes the app's `RouteAppServiceProvider`s mounted (docs/v1/http.md › Router v2 › Registry).
- * `RouteAppServiceProvider.boot()` binds it in the app container, `sauf route:list` and Detective read it.
+ * `RouteAppServiceProvider.boot()` binds it in the app container, `sauf route:list` reads it.
  */
 export default class RouteRegistry {
 
