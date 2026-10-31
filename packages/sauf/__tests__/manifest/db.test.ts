@@ -35,7 +35,7 @@ const seed = (options: { class?: string }) => {
 beforeAll(() => {
   tmp = mkdtempSync(join(tmpdir(), 'laratype-db-'));
   const empty: ManifestEntry[] = [];
-  setAppManifest({ configs: empty, routes: empty, commands: empty, models: empty, migrations: empty, seeders: seeders(tmp), factories: empty, modules: empty } satisfies AppManifest);
+  setAppManifest({ configs: empty, routes: empty, commands: empty, models: empty, migrations: empty, seeders: seeders(tmp), factories: empty, modules: empty, lang: empty } satisfies AppManifest);
 });
 
 afterAll(() => {

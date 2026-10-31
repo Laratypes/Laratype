@@ -180,7 +180,7 @@ describe('writeDistManifest', () => {
 
 describe('getAppPath (deprecated) in production', () => {
   const previous = { prod: globalThis.__APP_PROD__, cwd: process.cwd(), manifest: (globalThis as { __laratype_manifest?: AppManifest }).__laratype_manifest };
-  const base = { configs: [], routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [] } satisfies AppManifest;
+  const base = { configs: [], routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [], lang: [] } satisfies AppManifest;
   let dir: string;
 
   beforeAll(() => {

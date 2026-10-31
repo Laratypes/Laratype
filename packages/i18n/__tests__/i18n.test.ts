@@ -1,0 +1,79 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { Facade } from '@laratype/core'
+import { Lang, Translator, __, getLocale, locales, setLocale, trans } from '../src'
+import type { LangCatalog } from '../src'
+
+const catalog: LangCatalog = {
+  en: {
+    messages: {
+      greeting: 'Hello {name}',
+      apples: { one: '{count} apple', other: '{count} apples' },
+      nested: { farewell: 'Bye {name}' },
+      plain: 'No params',
+    },
+  },
+  vi: {
+    messages: {
+      greeting: 'Xin chào {name}',
+      apples: { other: '{count} quả táo' },
+    },
+  },
+  ru: {
+    messages: {
+      apples: { one: '{count} яблоко', few: '{count} яблока', many: '{count} яблок', other: '{count} яблока' },
+    },
+  },
+}
+
+const useTranslator = (locale = 'en', fallbackLocale = 'en') => {
+  const translator = new Translator(catalog, { locale, fallbackLocale })
+  Lang.fake(translator)
+  return translator
+}
+
+afterEach(() => {
+  Facade.setFacadeApplication(undefined)
+})
+
+describe('trans() / __()', () => {
+  it('interpolates placeholders in the current locale', () => {
+    useTranslator('en')
+    expect(__('messages.greeting', { name: 'Ada' })).toBe('Hello Ada')
+    expect(trans('messages.nested.farewell', { name: 'Ada' })).toBe('Bye Ada')
+    expect(trans('messages.plain')).toBe('No params')
+  })
+
+  it('switches the locale with setLocale() and takes an explicit locale argument', () => {
+    useTranslator('en')
+    setLocale('vi')
+    expect(getLocale()).toBe('vi')
+    expect(__('messages.greeting', { name: 'Ada' })).toBe('Xin chào Ada')
+    expect(trans('messages.greeting', { name: 'Ada' }, 'en')).toBe('Hello Ada')
+    expect(trans('messages.greeting', { name: 'Ada' }, 'vi')).toBe('Xin chào Ada')
+  })
+
+  it('falls back from a missing locale and a missing key to the fallback locale, then returns the key', () => {
+    useTranslator('fr', 'en')
+    expect(__('messages.greeting', { name: 'Ada' })).toBe('Hello Ada')
+    const looseTrans = __ as unknown as (key: string) => string
+    expect(looseTrans('messages.missing')).toBe('messages.missing')
+  })
+
+  it('selects plural forms with Intl.PluralRules', () => {
+    useTranslator('en')
+    expect(trans('messages.apples', { count: 1 })).toBe('1 apple')
+    expect(trans('messages.apples', { count: 3 })).toBe('3 apples')
+    expect(trans('messages.apples', { count: 3 }, 'ru')).toBe('3 яблока')
+    expect(trans('messages.apples', { count: 5 }, 'ru')).toBe('5 яблок')
+    expect(trans('messages.apples', { count: 3 }, 'vi')).toBe('3 quả táo')
+  })
+
+  it('has() and locales() read the loaded catalog', () => {
+    useTranslator('en')
+    expect(Lang.has('messages.greeting')).toBe(true)
+    expect(Lang.has('messages.missing')).toBe(false)
+    expect(Lang.has('messages.greeting', 'vi')).toBe(true)
+    expect(Lang.has('messages.greeting', 'ru')).toBe(false)
+    expect(locales()).toEqual(['en', 'ru', 'vi'])
+  })
+})
