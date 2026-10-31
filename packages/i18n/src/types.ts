@@ -72,14 +72,14 @@ type ParamsOf<V> = V extends PluralForms
       : {});
 
 /** The params `trans(key, ...)` takes; any record before the app registers its lang tree. */
-export type TransParams<K extends string> = string extends LangKey
+export type TransParams<K extends string = LangKey> = string extends LangKey
   ? MessageParams
   : K extends LangKey
     ? ParamsOf<ValueAt<AppLangs, K>>
     : never;
 
 /** The arguments after the key: no params when the message has no placeholders, required ones otherwise. */
-export type TransArgs<K extends string> = string extends LangKey
+export type TransArgs<K extends string = LangKey> = string extends LangKey
   ? [params?: MessageParams, locale?: string]
   : keyof TransParams<K> extends never
     ? [params?: undefined, locale?: string]

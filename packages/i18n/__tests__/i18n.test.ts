@@ -51,6 +51,7 @@ describe("trans() / __()", () => {
     expect(__("messages.greeting", { name: "Ada" })).toBe("Xin chào Ada");
     expect(trans("messages.greeting", { name: "Ada" }, "en")).toBe("Hello Ada");
     expect(trans("messages.greeting", { name: "Ada" }, "vi")).toBe("Xin chào Ada");
+    expect(trans("messages.greeting", { name: "Ada" }, "en-US")).toBe("Hello Ada");
   });
 
   it("falls back from a missing locale and a missing key to the fallback locale, then returns the key", () => {

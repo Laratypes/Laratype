@@ -12,12 +12,13 @@ const PLURAL_CATEGORIES: ReadonlySet<string> = new Set<PluralCategory>(["zero", 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Whether a node is a plural message: only plural-category keys, every template a string. */
+/** Whether a node is a plural message: only plural-category keys, `other` present, every template a string. */
 export const isPluralForms = (value: unknown): value is Record<string, string> => {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
   return (
     keys.length > 0 &&
+    keys.includes("other") &&
     keys.every((key) => PLURAL_CATEGORIES.has(key)) &&
     keys.every((key) => typeof value[key] === "string")
   );
