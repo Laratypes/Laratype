@@ -233,7 +233,7 @@ export default class Request extends AppServiceProvider {
 
               let modelPolicy = policyHandler.modelPolicy;
               if(typeof modelPolicy === 'string') {
-                const registry = this.container().make(ModelBindingRegistry);
+                const registry = ModelBindingRegistry.current();
                 const modelName = registry.paramModelMap?.[modelPolicy];
                 if(modelName) {
                   modelPolicy = registry.models?.[modelName];
