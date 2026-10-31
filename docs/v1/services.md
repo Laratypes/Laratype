@@ -216,18 +216,85 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-planned → [#167](https://github.com/Laratypes/Laratype/issues/167) (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+proposed: PR pending (`feat/i1-localization`) @ f59d3bb (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
-### Design (non-binding)
-- **Files:** translations live in `lang/{locale}/*.ts` with typed keys, discovered by the build manifest.
-- **Lookup:** `__()` / `trans()`. The key and the placeholder params are inferred: `"Hello {name}"` → `{ name: string }`.
-- **Locale:** a locale middleware reads Accept-Language, the query or the user's preference. The locale is stored per request (D6, [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)).
-- **Fallback** from `config.fallback_locale`; plurals through `Intl.PluralRules`. The 0.5 app config already has `locale` and `fallback_locale` ([`Config.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/contracts/Config.ts#L25-L26)).
-- **Validation messages:** default localized messages from Standard Schema issues, used by FormRequest v2 ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
-- **FE:** an optional JSON export per locale.
+### Public API
+`packages/i18n/src/index.ts` at the Status SHA.
+
+```ts
+// lang/<locale>/<file>.ts
+export const defineLang: <const T extends LangTree>(messages: T) => T
+export type LangTree = { readonly [key: string]: string | PluralForms | LangTree }
+export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
+export type PluralForms = { readonly other: string } & Partial<Record<Exclude<PluralCategory, "other">, string>>
+export interface Register {} // { lang: { <file>: typeof import("../lang/en/<file>") } }
+
+export function trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string
+export const __: typeof trans
+export class Translator {
+  constructor(catalog?: LangCatalog, options?: TranslatorOptions); // defaults outside a request
+  static current(): Translator;
+  trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string;
+  translate(key: string, params?: MessageParams, locale?: string): string; // dynamic keys
+  has(key: string, locale?: string): boolean;
+  getLocale(): string;
+  setLocale(locale: string): void;
+  getFallbackLocale(): string;
+  locales(): string[];
+}
+export class Lang extends Facade { /* trans, getLocale, setLocale, getFallbackLocale, locales, has, fake() */ }
+export function getLocale(): string
+export function setLocale(locale: string): void
+export function locales(): string[]
+export class Locale {} // @Injectable({ scope: "request" }), the request's locale
+export class LocaleMiddleware extends Middleware {} // 0.5 Middleware; defineMiddleware is follow-up #352
+export class I18nServiceProvider extends ServiceProvider { register(): Promise<void> }
+export function validationMessage(rule: string, params?: MessageParams, locale?: string): string
+export function loadMessages(manifest?: AppManifest): Promise<LangCatalog>
+export class I18nError extends Error
+
+export type LangKey = /* every "<file>.<dotted key>" of Register.lang */ string
+export type TransParams<K extends string> = /* the placeholders of K: string, count: number */ unknown
+export type TransArgs<K extends string> = /* [] when no params, [params, locale?] otherwise */ unknown
+export type MessageParams = Record<string, string | number>
+export type LangCatalog = Readonly<Record<string, Readonly<Record<string, LangTree>>>>
+export interface TranslatorOptions { locale?: string; fallbackLocale?: string }
+```
+
+**Config:** `app/config/i18n.ts` default-exports `defineConfig({ locale, fallback_locale })`, read as `config("i18n.locale")` / `config("i18n.fallback_locale")`. Without it, the 0.5 single config file's `config.locale` / `config.fallback_locale` are read, then `en`.
+
+**Manifest:** `AppManifest.lang` is the `lang` kind: one entry per `lang/<locale>/<file>.ts`, named `<locale>/<file>` (build.md › manifest).
+
+### Invariants
+- **Keys** are `<file>.<dotted key>` (`messages.greeting`, `validation.required`). A registered `Register.lang` makes an unknown key, a missing placeholder param and an extra param type errors. `"Hello {name}"` takes `{ name: string }`; a `{count}` placeholder and every plural take `{ count: number }`. Key typing uses the K1/Q16 module-augmentation pattern; generating it from the manifest is a follow-up.
+- **Plurals** are a leaf object whose keys are all `Intl.PluralRules` categories (`zero|one|two|few|many|other`, `other` required); `Intl.PluralRules` selects the form from `params.count`.
+- **Fallback:** requested locale → its base language (`en-US` → `en`) → `fallback_locale` → the key itself. A missing key never throws.
+- **Locale per request (D6):** `Locale` is request-scoped; `LocaleMiddleware` reads `?locale=`, then the authenticated user's `locale`, then the `Accept-Language` q-list, then leaves the app default. Only locales with a catalog (plus the default and fallback) are accepted, and `?locale=` wins. Outside a request, `setLocale()` changes the translator default (CLI, queued jobs).
+- **Validation messages:** `validationMessage(rule, params?, locale?)` reads the app's `validation.<rule>` (for example `lang/vi/validation.ts` exporting `{ required: "..." }`), or its built-in English default. Standard Schema issues carry no rule code, so H10 maps an issue to its rule and passes that rule name.
+- **Provider:** `I18nServiceProvider` loads the catalog once and binds `Translator`; add it to `app/config/providers.ts`.
+
+### Diagnostics
+- `I18nError`: `[@laratype/i18n] lang entry "<name>" (<path>) must be named <locale>/<file>: put each file in lang/<locale>/`
+- `I18nError`: `[@laratype/i18n] <path> must default-export an object of messages (defineLang({...}))`
+- Type errors: an unknown key, a missing placeholder param, an extra param, or a non-string placeholder value.
+
+### Example
+```ts
+// app/declare/i18n.d.ts
+import messages from "../../lang/en/messages"
+declare module "@laratype/i18n" { interface Register { lang: { messages: typeof messages } } }
+
+// controller
+__("messages.greeting", { name: "Ada" })
+```
+
+### Non-goals
+- JSON export per locale: not in this package yet; remaining in [#167](https://github.com/Laratypes/Laratype/issues/167).
+- FormRequest v2 wiring is H10 [#137](https://github.com/Laratypes/Laratype/issues/137); this package provides the lookup.
+- `defineMiddleware` typing is PR [#352](https://github.com/Laratypes/Laratype/pull/352); `LocaleMiddleware` uses the 0.5 `Middleware` class.
 
 ### Open questions
-- Resolved: `lang/` sits at the project root ([overview.md › Project structure](./overview.md#project-structure), [#167](https://github.com/Laratypes/Laratype/issues/167)).
+- The JSON export's shape and command → [#167](https://github.com/Laratypes/Laratype/issues/167).
 
 ### Acceptance
 [#167 Done when](https://github.com/Laratypes/Laratype/issues/167)
