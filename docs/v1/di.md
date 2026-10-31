@@ -365,8 +365,8 @@ export { bootProviders } from "@laratype/support";
 - **Two phases:** `bootProviders` instantiates every provider with the container, awaits `register()` on all of them in order, then awaits `boot()` on all of them in order. It returns the `down()` cleanups in **reverse** order.
 - Providers receive the **container**, not the Hono app. Code that needs the app resolves `HTTP_APP` (`AppServiceProvider.apps` does this in its constructor).
 - `Serve.getContainer()` lazily creates one container per process, `new Container({ deps: depsRegistry })` ([#102](https://github.com/Laratypes/Laratype/issues/102)), and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
-- `HTTP_APP` is stored on `globalThis.__laratype_http_app_token`. The code marks this as temporary: it was needed while every package dist inlined its own copy of `@laratype/support`, which B13 [#188](https://github.com/Laratypes/Laratype/issues/188) fixed.
-- `RouteAppServiceProvider.boot()` still writes `globalThis.__laratype_routes`, which is replaced in [#114](https://github.com/Laratypes/Laratype/issues/114). `AppServiceProvider.bindings` is an unused 0.5 leftover.
+- `HTTP_APP` is a plain module-level `token<Hono>("http.app")`: the `@laratype` packages are externals of the package builds, so every bundle gets the same token (B13 [#188](https://github.com/Laratypes/Laratype/issues/188)).
+- `AppServiceProvider` binds `ModelBindingRegistry` in the app container, `RouteAppServiceProvider.boot()` binds `RouteRegistry` with the routes `routes()` returns, and `RequestKernel.boot()` clears that registry's route bindings while keeping the models `DatabaseServiceProvider` put there (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)). `AppServiceProvider.bindings` is an unused 0.5 leftover.
 
 ### Diagnostics
 None of its own. Errors thrown in `register()` or `boot()` propagate and abort the boot.
@@ -547,11 +547,12 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ## Container-backed registries and facades
 
 ### Status
-- Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
+- Registries: merged ([#114](https://github.com/Laratypes/Laratype/issues/114), D7).
 - Facades: proposed: PR [#303](https://github.com/Laratypes/Laratype/pull/303) @ b1ca24d (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 
 ### Design (non-binding)
-- **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
+- **D7:** `RouteRegistry`, `ModelBindingRegistry` and `DataSource` replace the 0.5 registries. `RouteRegistry` holds the route entries `RouteAppServiceProvider.boot()` binds. `ModelBindingRegistry` holds the 0.5 `Route.model` / `Route.bind` entries, the camelCase param → model name map and the app's model classes by name; `AppServiceProvider` binds it and `DatabaseServiceProvider.register()` fills it. `DataSource` is the initialized TypeORM connection `DatabaseServiceProvider.boot()` binds; the 0.5 `DS` proxy reads it from the facade application (deprecated import). `RouteRegistry.current()` and `ModelBindingRegistry.current()` resolve the registry from the current request's container, else the facade application, and bind an empty one there when it is missing (a bare Hono app, `sauf route:list`).
+- Still on `globalThis`: `__laratype_config` and `__laratype_configs` (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)), `__laratype_manifest` (the build manifest, [build.md](./build.md)) and `__laratype_env_file` (`EnvLoadServiceProvider`).
 
 ### Public API
 [`facade.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/facade.ts) · [`container.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/core/src/container.ts) · [`Hash.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/support/src/security/Hash.ts) · [`Log.ts`](https://github.com/Laratypes/Laratype/blob/b1ca24d5334a36cb7ae476161c8a246c8054c314/packages/log/src/support/Log.ts) · [`Auth.ts` @ 699f1f8](https://github.com/Laratypes/Laratype/blob/699f1f8f7f91915797880f1ee6f58ccddd3536a1/packages/auth/src/support/Auth.ts) (A4 PR #330)
@@ -574,6 +575,17 @@ export class Container {
 // @laratype/support
 export class Hasher { make(value: string): string }                 // sha256, as in 0.5
 export class Hash extends Facade { static readonly accessor: typeof Hasher; static make(value: string): string }
+export class RouteRegistry {
+  constructor(routes?: Array<Record<string, any>>);
+  routes: Array<Record<string, any>>;                               // bound by RouteAppServiceProvider.boot()
+  static current(): RouteRegistry;
+}
+export class ModelBindingRegistry {
+  bindings: Record<string, any>;                                    // param → model class or (value) => model
+  paramModelMap: Record<string, string>;                            // camelCase param → model name
+  models: Record<string, any>;                                      // model name → the app's model classes
+  static current(): ModelBindingRegistry;
+}
 
 // @laratype/log
 export class LogManager {

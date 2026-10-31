@@ -1,4 +1,5 @@
 import { api } from "../routing/api/ApiRouter";
+import { ModelBindingRegistry } from "@laratype/support";
 
 export default class Route {
 
@@ -6,12 +7,12 @@ export default class Route {
   static api = api;
 
   static model(paramName: string, modelClass: any) {
-    globalThis.__laratype_route_model_bindings[paramName] = modelClass;
+    ModelBindingRegistry.current().bindings[paramName] = modelClass;
     return this;
   }
 
   static bind(paramName: string, callback: (value: string) => any) {
-    globalThis.__laratype_route_model_bindings[paramName] = callback;
+    ModelBindingRegistry.current().bindings[paramName] = callback;
     return this;
   }
 

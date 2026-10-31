@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, token } from '@laratype/core'
 import { AppServiceProvider, bootProviders, HTTP_APP, RouteAppServiceProvider, ServiceProvider } from '../src/ServiceProvider'
+import RouteRegistry from '../src/registries/RouteRegistry'
 
 const makeApp = () => new Container().instance(HTTP_APP, new Hono())
 
@@ -19,15 +20,16 @@ describe('ServiceProvider v2', () => {
     expect(provider.apps).toBe(app.make(HTTP_APP))
   })
 
-  it('RouteAppServiceProvider stores its routes on boot', async () => {
+  it('RouteAppServiceProvider binds its routes in the app container on boot', async () => {
     const routes = [{ path: '/x' }]
     class Routes extends RouteAppServiceProvider {
       routes() {
         return routes
       }
     }
-    await bootProviders(makeApp(), [Routes])
-    expect(globalThis.__laratype_routes).toBe(routes)
+    const app = makeApp()
+    await bootProviders(app, [Routes])
+    expect(app.make(RouteRegistry).routes).toBe(routes)
   })
 })
 
@@ -90,8 +92,9 @@ describe('bootProviders', () => {
 })
 
 describe('HTTP_APP', () => {
-  it('is shared through globalThis so duplicated bundles use the same key', () => {
-    expect((globalThis as { __laratype_http_app_token?: unknown }).__laratype_http_app_token).toBe(HTTP_APP)
+  it('is a plain module-level token, not a global (#188 makes the packages externals)', () => {
+    expect((globalThis as { __laratype_http_app_token?: unknown }).__laratype_http_app_token).toBeUndefined()
+    expect(HTTP_APP.name).toBe('http.app')
   })
 })
 

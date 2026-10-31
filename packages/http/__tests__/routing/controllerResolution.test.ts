@@ -1,7 +1,7 @@
 // H2a #105: controllers resolved with app.make(), the r.contract() options and ctx.endpoint
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
@@ -45,10 +45,6 @@ const bootApp = (bind?: (container: Container) => void) => {
 }
 
 const json = async (app: Hono, path: string, init?: RequestInit) => (await app.request(path, init)).json()
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 afterEach(() => {
   vi.restoreAllMocks()

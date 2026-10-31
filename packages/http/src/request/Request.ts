@@ -4,7 +4,7 @@ import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
@@ -101,13 +101,14 @@ export default class Request extends AppServiceProvider {
   public static explicitModelBinding(request: RequestSupport) {
     const res: Record<string, any> = {};
     const params = request.param();
+    const registry = ModelBindingRegistry.current();
     
     for (const paramName in params) {
-      let model = globalThis.__laratype_route_model_bindings[paramName];
+      let model = registry.bindings[paramName];
       if (!model) {
-        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        const modelName = registry.paramModelMap?.[paramName];
         if(modelName) {
-          model = globalThis.__laratype_db?.models?.[modelName];
+          model = registry.models?.[modelName];
         }
       }
 
@@ -232,9 +233,10 @@ export default class Request extends AppServiceProvider {
 
               let modelPolicy = policyHandler.modelPolicy;
               if(typeof modelPolicy === 'string') {
-                const modelName = globalThis.__laratype_param_model_map?.[modelPolicy];
+                const registry = this.container().make(ModelBindingRegistry);
+                const modelName = registry.paramModelMap?.[modelPolicy];
                 if(modelName) {
-                  modelPolicy = globalThis.__laratype_db.models?.[modelName];
+                  modelPolicy = registry.models?.[modelName];
                 }
               }
               
@@ -342,7 +344,9 @@ export default class Request extends AppServiceProvider {
   }
 
   public boot(): void {
-    globalThis.__laratype_route_model_bindings = {};
+    // Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app.
+    // The registry itself stays: `DatabaseServiceProvider.register()` has already filled its models and param map.
+    this.app.make(ModelBindingRegistry).bindings = {};
     this.apps.use(async (ctx, next) => {
       (ctx.set as (key: string, value: Container) => void)(CONTAINER, this.app);
       this.resolveRequest(ctx);

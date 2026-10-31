@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { token } from "@laratype/core";
-import type { Container, InjectionToken } from "@laratype/core";
+import type { Container } from "@laratype/core";
+import ModelBindingRegistry from "./registries/ModelBindingRegistry";
+import RouteRegistry from "./registries/RouteRegistry";
 
 export enum ServiceProviderType {
   CORE_PROVIDER = "core_provider",
@@ -8,15 +10,8 @@ export enum ServiceProviderType {
   ROUTE_PROVIDER = "route_provider",
 };
 
-/**
- * The Hono instance the kernel serves, bound in the container before any provider runs.
- * TEMPORARY: kept on globalThis because every package dist inlines its own copy of
- * @laratype/support (the @laratype externals regex in bun.build.js has no effect), so a
- * module-level token would be a different key per bundle. Make it a plain module-level
- * `token()` once the @laratype packages are real externals (remove after #188 (B13)).
- */
-const tokens = globalThis as { __laratype_http_app_token?: InjectionToken<Hono> };
-export const HTTP_APP = tokens.__laratype_http_app_token ??= token<Hono>("http.app");
+/** The Hono instance the kernel serves, bound in the container before any provider runs. */
+export const HTTP_APP = token<Hono>("http.app");
 
 export class ServiceProvider {
 
@@ -53,6 +48,10 @@ export class AppServiceProvider extends ServiceProvider {
   constructor(app: Container) {
     super(app);
     this.apps = app.make(HTTP_APP);
+    // The 0.5 route model bindings (D7) every app container has; RequestKernel.boot() clears its route bindings
+    if(!app.has(ModelBindingRegistry)) {
+      app.singleton(ModelBindingRegistry);
+    }
   }
 }
 
@@ -65,7 +64,7 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
   public boot(): void {
     const routes = this.routes();
 
-    globalThis.__laratype_routes = routes;
+    this.app.instance(RouteRegistry, new RouteRegistry(routes));
   }
 }
 

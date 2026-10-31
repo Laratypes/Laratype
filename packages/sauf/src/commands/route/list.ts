@@ -1,4 +1,4 @@
-import { AppServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, RouteRegistry, ServiceProviderType } from "@laratype/support";
 import { Console, Command } from "@laratype/console";
 
 export default class RouteListCommand extends Command {
@@ -14,7 +14,7 @@ export default class RouteListCommand extends Command {
 
   public async handle() {
 
-    const routes = globalThis.__laratype_routes?.map(routeRow) ?? [];
+    const routes = RouteRegistry.current().routes.map(routeRow);
 
     if(routes.length === 0) {
       Console.warn("No routes registered.");
