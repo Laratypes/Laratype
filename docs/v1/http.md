@@ -17,13 +17,13 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | Section | Status |
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ bee8377); `r.bind()` planned → #118 |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ 2f1a2e2); `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage planned → #114 |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155; interceptors planned → #138 |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
-| [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ bee8377 |
+| [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ 2f1a2e2 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
@@ -111,7 +111,7 @@ Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../pack
 ## Route proof at r.contract()
 
 ### Status
-Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ bee8377) and with no bindings until `r.bind()` lands ([#118](https://github.com/Laratypes/Laratype/issues/118), H7). Until then a handler that requires a bound param fails the proof.
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ 2f1a2e2) and with no bindings until `r.bind()` lands ([#118](https://github.com/Laratypes/Laratype/issues/118), H7). Until then a handler that requires a bound param fails the proof.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -522,19 +522,20 @@ Runtime tests in `packages/http/__tests__/response/`: [`exceptionFilter.test.ts`
 ## Typed middleware
 
 ### Status
-proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ bee8377 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117), M2). The 0.5 `Middleware` class
+proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ 2f1a2e2 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117), M2). The 0.5 `Middleware` class
 stays for 0.5 routes; `Route.api` builders take both it and the typed middleware. `MiddlewareHandler` stays the 0.5
 `(request, res, next)` type; the typed handler is `TypedMiddlewareHandler`, so the two names don't shadow each other.
 
 ### Public API
-[`packages/http/src/middleware/defineMiddleware.ts`](https://github.com/Laratypes/Laratype/blob/bee837795557fa3fa8430caf083796f95f6ff1c7/packages/http/src/middleware/defineMiddleware.ts) ·
-[`routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/bee837795557fa3fa8430caf083796f95f6ff1c7/packages/http/src/routing/api/types.ts)
+[`packages/http/src/middleware/defineMiddleware.ts`](https://github.com/Laratypes/Laratype/blob/2f1a2e215a24d1e11ad344a54d5617ce7dadd8a5/packages/http/src/middleware/defineMiddleware.ts) ·
+[`routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/2f1a2e215a24d1e11ad344a54d5617ce7dadd8a5/packages/http/src/routing/api/types.ts)
 
 ```ts
 function defineMiddleware<Ext extends object = {}>(handle: TypedMiddlewareHandler<Ext>): TypedMiddleware<Ext>;
 type TypedMiddlewareHandler<Ext extends object = {}> = (
   request: Request,                                  // the 0.5 request class: headers, params, body
-  next: (ext?: Ext) => Promise<unknown>,
+  // `ext` is required when Ext has a required key; optional when every key is optional (or Ext is `{}`)
+  next: (...args: {} extends Ext ? [ext?: Ext] : [ext: Ext]) => Promise<unknown>,
 ) => unknown | Promise<unknown>;
 interface TypedMiddleware<Ext extends object = {}> {
   readonly __ext?: Ext;                               // phantom: the context keys it adds
@@ -565,8 +566,9 @@ interface EndpointRouteBuilder {                       // the r of an endpoints 
 - **Definition:** `defineMiddleware<Ext>((request, next) => next(ext))` declares the context keys it adds. It runs after
   the 0.5 request body is parsed, but before contract input is validated and the handler ctx is built: `request` is the
   0.5 request object (a contract route's has `endpoint`), and `next(ext)` merges `ext` into the handler ctx and
-  continues the pipeline. `next()` without an argument adds nothing. A middleware that does not call `next()`
-  short-circuits: its value is the handler's value (a 0.5 `response()` keeps its status, see
+  continues the pipeline. `next` takes `ext` as a required argument when `Ext` has a required key, and as an optional one
+  when every key is optional or `Ext` is `{}`; a call without it adds nothing at runtime. A middleware that does not
+  call `next()` short-circuits: its value is the handler's value (a 0.5 `response()` keeps its status, see
   [Response from the contract](#response-from-the-contract)).
 - **The merge:** own enumerable keys of `ext`, in middleware order, so a later middleware wins a key it also adds. Each
   key is defined as an own enumerable data property, so an own `__proto__` key is a ctx field and never swaps the ctx
@@ -592,6 +594,9 @@ interface EndpointRouteBuilder {                       // the r of an endpoints 
   intersection of two array types is still an array, not `never`, so only the runtime's later value tells them apart. The
   route proof (`Provided`) checks each handler against the intersection: a handler that requires a key no middleware
   adds is the diagnosis of [Route proof at r.contract()](#route-proof-at-rcontract).
+- **Known limit ([#349](https://github.com/Laratypes/Laratype/issues/349)):** keys added by two middleware must have
+  the same type: the proof intersects them, while the runtime keeps the later middleware's value (`params` merges one
+  level deep).
 - **0.5 middleware keeps working:** a `typeof Middleware` class and a `TypedMiddleware` value share `r.middleware(...)`
   and run in route order, each once (duplicates removed, as [Router v2](#router-v2) says). The registry's
   `RouteEntry.middleware` keeps both, in order. `sauf route:list` names a typed middleware by its handle.
@@ -873,10 +878,10 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ bee8377 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
+proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ 2f1a2e2 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Public API
-[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/bee837795557fa3fa8430caf083796f95f6ff1c7/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/bee837795557fa3fa8430caf083796f95f6ff1c7/packages/http/src/routing/api/ApiRouter.ts)
+[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/2f1a2e215a24d1e11ad344a54d5617ce7dadd8a5/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/2f1a2e215a24d1e11ad344a54d5617ce7dadd8a5/packages/http/src/routing/api/ApiRouter.ts)
 
 ```ts
 type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
