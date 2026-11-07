@@ -30,7 +30,7 @@ const routes = Route.api(appApi, (r) => [
   r.middleware(Audit).contract(posts, PostController, { policy: PostPolicy }),
 ]);
 
-/** The kernel sets the facade application and `RouteAppServiceProvider` binds the registry in it (D7). */
+/** The kernel sets the facade application and `RouteAppServiceProvider` binds the registry in it (D7 #114). */
 const useRegistry = (entries: Array<Record<string, any>>) => {
   Facade.setFacadeApplication(new Container().instance(RouteRegistry, new RouteRegistry(entries)));
 };

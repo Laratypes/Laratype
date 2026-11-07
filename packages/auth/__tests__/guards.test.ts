@@ -126,7 +126,7 @@ const boot = async (withTokenModel = true) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   container.instance(HTTP_APP, app)
-  // The TypeORM entities `DatabaseServiceProvider` registers, for TokenGuard's tokenable_type lookup (D7)
+  // The TypeORM entities `DatabaseServiceProvider` registers, for TokenGuard's tokenable_type lookup (D7 #114)
   const registry = new ModelBindingRegistry()
   registry.models = { User, Admin, PersonalAccessToken }
   container.instance(ModelBindingRegistry, registry)

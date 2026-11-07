@@ -3,7 +3,7 @@ import { DataSource } from "typeorm";
 import DataSourceNotInitYet from "../exceptions/DataSourceNotInitYet";
 
 /**
- * The app's initialized DataSource: `DatabaseServiceProvider.boot()` binds it in the app container (D7).
+ * The app's initialized DataSource: `DatabaseServiceProvider.boot()` binds it in the app container (D7 #114).
  * @deprecated Resolve `DataSource` from the container instead of importing this proxy.
  */
 const DS = new Proxy({} as DataSource, {
