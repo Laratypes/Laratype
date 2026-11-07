@@ -24,7 +24,10 @@ const warnFailed = (entry: ManifestEntry, error: unknown) =>
  * and `types:generate` still run. A default export that is not a command class is skipped, with one warning naming
  * the files; a closure command belongs in `app/routes/console.ts`.
  */
-export const importRootCommands = async (manifest: AppManifest, load: EntryLoader = loadEntry): Promise<CommandClass[]> => {
+export const importRootCommands = async (
+  manifest: AppManifest,
+  load: EntryLoader = loadEntry
+): Promise<CommandClass[]> => {
   if (manifest.error !== undefined) return [];
   const modules = await Promise.all(manifest.commands.map(async (entry) => {
     try {
@@ -47,7 +50,10 @@ export const importRootCommands = async (manifest: AppManifest, load: EntryLoade
  * classes and closure commands. One that fails to load (it imports a broken command file) is skipped with the same
  * warning as a command file.
  */
-export const importRouteConsoleCommands = async (manifest: AppManifest, load: EntryLoader = loadEntry): Promise<ConsoleCommand[]> => {
+export const importRouteConsoleCommands = async (
+  manifest: AppManifest,
+  load: EntryLoader = loadEntry
+): Promise<ConsoleCommand[]> => {
   if (manifest.error !== undefined) return [];
   const entry = manifest.routes.find((e) => e.name === "console");
   if (!entry) return [];
@@ -61,7 +67,10 @@ export const importRouteConsoleCommands = async (manifest: AppManifest, load: En
     const registered = value.filter(isConsoleCommand);
     if (registered.length !== value.length) {
       const skipped = value.length - registered.length;
-      Console.warn(`Skipped ${skipped} ${skipped === 1 ? "entry" : "entries"} of ${entry.path}: not a command (a class with a static signature, or a closure from command())`);
+      Console.warn(
+        `Skipped ${skipped} ${skipped === 1 ? "entry" : "entries"} of ${entry.path}: not a command ` +
+          "(a class with a static signature, or a closure from command())"
+      );
     }
     return registered;
   } catch (error) {
