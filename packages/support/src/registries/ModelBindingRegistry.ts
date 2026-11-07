@@ -5,7 +5,7 @@ import ContextApi from "../context/ContextApi";
 /**
  * The 0.5 route model bindings (docs/v1/http.md › Model binding): the `Route.model()` / `Route.bind()` entries,
  * the camelCase param → model name map and the app's model classes by name.
- * `AppServiceProvider` binds it in the app container; RequestKernel.boot() clears its route bindings. H7 #118
+ * `AppServiceProvider` binds it in the app container; RequestKernel.register() clears its route bindings. H7 #118
  * replaces it with `BindableModel`.
  */
 export default class ModelBindingRegistry {

@@ -366,7 +366,7 @@ export { bootProviders } from "@laratype/support";
 - Providers receive the **container**, not the Hono app. Code that needs the app resolves `HTTP_APP` (`AppServiceProvider.apps` does this in its constructor).
 - `Serve.getContainer()` lazily creates one container per process, `new Container({ deps: depsRegistry })` ([#102](https://github.com/Laratypes/Laratype/issues/102)), and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
 - `HTTP_APP` is a plain module-level `token<Hono>("http.app")`: the `@laratype` packages are externals of the package builds, so every bundle gets the same token (B13 [#188](https://github.com/Laratypes/Laratype/issues/188)).
-- `AppServiceProvider` binds `ModelBindingRegistry` in the app container, `RouteAppServiceProvider.boot()` binds `RouteRegistry` with the routes `routes()` returns, and `RequestKernel.boot()` clears that registry's route bindings while keeping the models `DatabaseServiceProvider` put there (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)). `AppServiceProvider.bindings` is an unused 0.5 leftover.
+- `AppServiceProvider` binds `ModelBindingRegistry` in the app container, `RouteAppServiceProvider.boot()` binds `RouteRegistry` with the routes `routes()` returns, and `RequestKernel.register()` (before the app providers register) clears that registry's route bindings while keeping the models `DatabaseServiceProvider` put there (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)). `AppServiceProvider.bindings` is an unused 0.5 leftover.
 
 ### Diagnostics
 None of its own. Errors thrown in `register()` or `boot()` propagate and abort the boot.

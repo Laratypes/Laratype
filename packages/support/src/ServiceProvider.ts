@@ -48,7 +48,7 @@ export class AppServiceProvider extends ServiceProvider {
   constructor(app: Container) {
     super(app);
     this.apps = app.make(HTTP_APP);
-    // The 0.5 route model bindings (D7 #114) every app container has; RequestKernel.boot() clears its route bindings
+    // The 0.5 route model bindings (D7 #114) every app container has; RequestKernel.register() clears its route bindings
     if(!app.has(ModelBindingRegistry)) {
       app.singleton(ModelBindingRegistry);
     }

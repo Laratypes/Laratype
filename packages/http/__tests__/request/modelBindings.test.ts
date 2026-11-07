@@ -84,7 +84,7 @@ describe('the 0.5 route model bindings', () => {
     expect(() => Route.model('user', class User {})).toThrow('[@laratype/http] Route.model() ran before an app was booted')
   })
 
-  it('RequestKernel.boot() clears the route bindings and keeps the models and the param map', () => {
+  it('RequestKernel.register() clears the route bindings and keeps the models and the param map', () => {
     const container = new Container({ deps: depsRegistry })
     container.instance(HTTP_APP, new Hono())
     class User {}
@@ -94,10 +94,27 @@ describe('the 0.5 route model bindings', () => {
     registry.paramModelMap = { user: 'User' }
     container.instance(ModelBindingRegistry, registry)
 
-    new RequestKernel(container).boot()
+    new RequestKernel(container).register()
 
     expect(container.make(ModelBindingRegistry).bindings).toEqual({})
     expect(container.make(ModelBindingRegistry).models).toEqual({ User })
     expect(container.make(ModelBindingRegistry).paramModelMap).toEqual({ user: 'User' })
+  })
+
+  it('keeps a binder an app provider registers in register(), before the kernel boots', async () => {
+    const container = new Container({ deps: depsRegistry })
+    container.instance(HTTP_APP, new Hono())
+    Facade.setFacadeApplication(container)
+    const binder = (value: string) => ({ id: Number(value) })
+    class RegistersBinder extends ServiceProvider {
+      register() {
+        Route.bind('user', binder)
+      }
+    }
+
+    // bootstrap's order: RequestKernel first, then the app providers
+    await bootProviders(container, [RequestKernel, RegistersBinder])
+
+    expect(container.make(ModelBindingRegistry).bindings.user).toBe(binder)
   })
 })

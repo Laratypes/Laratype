@@ -355,10 +355,17 @@ export default class Request extends AppServiceProvider {
   /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
   protected readonly disposals = new Set<Promise<void>>();
 
-  public boot(): void {
-    // Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app.
-    // Only the bindings are cleared: the models and the param map `DatabaseServiceProvider` fills stay.
+  /**
+   * Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app. Cleared in
+   * `register()`, which runs before the app providers' (bootstrap lists RequestKernel first), so a `Route.bind()` from
+   * an app provider's `register()` or `boot()` is kept. Only the bindings are cleared: the models and the param map
+   * `DatabaseServiceProvider` fills stay.
+   */
+  public register(): void {
     this.app.make(ModelBindingRegistry).bindings = {};
+  }
+
+  public boot(): void {
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
