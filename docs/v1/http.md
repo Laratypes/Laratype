@@ -559,6 +559,8 @@ interface EndpointRouteBuilder {                       // the r of an endpoints 
 }
 ```
 
+`ExtOf<M>` is exported too: it is the intersection of the extensions of `M` (Invariants).
+
 ### Invariants
 - **Definition:** `defineMiddleware<Ext>((request, next) => next(ext))` declares the context keys it adds. It runs after
   the 0.5 request body is parsed, but before contract input is validated and the handler ctx is built: `request` is the
