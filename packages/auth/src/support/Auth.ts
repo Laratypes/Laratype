@@ -67,7 +67,7 @@ class Authenticate<T extends Model> {
  * resolves the app container's `AuthManager` from the current request's container (A4 #151).
  */
 export class AuthService {
-  async attempt<T extends Model = RegisteredUser>(user: T) {
+  async attempt<T extends Model>(user: T) {
     return new Authenticate<T>().attempt(user);
   }
 
@@ -108,7 +108,7 @@ export class AuthService {
 export default class Auth extends Facade {
   static override readonly accessor = AuthService;
 
-  async attempt<T extends Model = RegisteredUser>(user: T) {
+  async attempt<T extends Model>(user: T) {
     return Auth.root().attempt(user);
   }
 
