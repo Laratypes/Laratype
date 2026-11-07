@@ -41,17 +41,20 @@ type IsPlural<T> = T extends string
  * always a container, so a file whose only keys are `one`/`other` exposes `messages.one`/`messages.other`. A plural
  * message below a file is a leaf, so the path stops there.
  */
-export type LangPaths<T, Prefix extends string = "", Root extends boolean = true> = {
+type LangPathsIn<T, Prefix extends string, Root extends boolean> = {
   [K in keyof T & string]: T[K] extends string
     ? `${Prefix}${K}`
     : T[K] extends object
       ? Root extends true
-        ? `${Prefix}${K}.${LangPaths<T[K], "", false>}`
+        ? `${Prefix}${K}.${LangPathsIn<T[K], "", false>}`
         : IsPlural<T[K]> extends true
           ? `${Prefix}${K}`
-          : `${Prefix}${K}.${LangPaths<T[K], "", false>}`
+          : `${Prefix}${K}.${LangPathsIn<T[K], "", false>}`
       : never;
 }[keyof T & string];
+
+/** Every message key of a registered lang tree: a file root is a container, a plural message below it a leaf. */
+export type LangPaths<T, Prefix extends string = ""> = LangPathsIn<T, Prefix, true>;
 
 /** The registered message keys, or any string before the app registers its lang tree. */
 export type LangKey = Register extends { lang: infer L } ? LangPaths<L> : string;

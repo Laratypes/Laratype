@@ -89,6 +89,16 @@ describe("trans() / __()", () => {
     expect(getLocale()).toBe("en");
   });
 
+  it("the Lang facade shares the fallback translator with the helpers", () => {
+    expect(Lang.getLocale()).toBe("en");
+    Lang.setLocale("vi");
+    expect(Lang.getLocale()).toBe("vi");
+    expect(getLocale()).toBe("vi");
+    Lang.fake(new Translator(catalog, { locale: "ru" }));
+    expect(Lang.getLocale()).toBe("ru");
+    expect(getLocale()).toBe("ru");
+  });
+
   it("has() and locales() read the loaded catalog", () => {
     useTranslator("en");
     expect(Lang.has("messages.greeting")).toBe(true);
