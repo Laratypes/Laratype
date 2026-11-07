@@ -229,7 +229,7 @@ describe('withoutMiddleware', () => {
     Route.api(appApi, (r) => [r.middleware(auth, audit).withoutMiddleware(audit).contract(posts, NeedsUser)])
   })
 
-  test('drops a 0.5 class by identity', () => {
+  test('still drops a 0.5 class', () => {
     Route.api(appApi, (r) => {
       const withoutAudit = r.middleware(Audit, auth).withoutMiddleware(Audit)
       expectTypeOf(withoutAudit).toEqualTypeOf<ApiRouteBuilder<typeof appApi, [typeof auth]>>()

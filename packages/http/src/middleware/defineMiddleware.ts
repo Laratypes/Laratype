@@ -8,12 +8,9 @@ import type Request from "../supports/Request";
 export const TYPED_MIDDLEWARE: unique symbol = Symbol.for("laratype.http.typedMiddleware");
 
 /**
- * What typed middleware gets: the 0.5 request (its headers, params and body), and `next`. Named apart from the 0.5
- * `MiddlewareHandler` (`(request, res, next)`) it would otherwise shadow in the package exports (H6 #117).
- *
- * `next` takes the extension `Ext`: required when `Ext` has a required key, optional when every key is optional or
- * `Ext` is `{}`. The route proof promises every key of `Ext` to the handlers, so a middleware that adds a required
- * key passes it; a middleware that short-circuits does not call `next()` at all.
+ * What typed middleware gets: the 0.5 request (its headers, params and body), and `next`, which takes the extension
+ * `Ext` — required when `Ext` has a required key, optional when every key is optional or `Ext` is `{}`. Named apart from
+ * the 0.5 `MiddlewareHandler` (`(request, res, next)`) it would otherwise shadow in the package exports (H6 #117).
  */
 export type TypedMiddlewareHandler<Ext extends object = {}> = (
   request: Request,
