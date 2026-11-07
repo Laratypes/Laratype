@@ -59,6 +59,42 @@ describe("loadMessages", () => {
     setAppManifest(manifest([entry("en/messages", "Hello")]));
     await expect(loadMessages()).rejects.toThrow("lang/en/messages.ts must default-export an object of messages");
   });
+
+  it("accepts a plural leaf and rejects any other non-string leaf, naming the file and the dotted key", async () => {
+    setAppManifest(
+      manifest([entry("en/messages", { apples: { one: "{count} apple", other: "{count} apples" } })]),
+    );
+    const catalog = await loadMessages();
+    expect(catalog.en!.messages).toEqual({ apples: { one: "{count} apple", other: "{count} apples" } });
+
+    setAppManifest(manifest([entry("en/messages", { user: { name: 42 } })]));
+    await expect(loadMessages()).rejects.toThrow(
+      'lang/en/messages.ts: message "messages.user.name" must be a string or a plural object',
+    );
+
+    setAppManifest(manifest([entry("en/messages", { apples: { one: "one", other: "other", extra: 1 } })]));
+    await expect(loadMessages()).rejects.toThrow('message "messages.apples.extra"');
+  });
+
+  it("rejects two locale folders that normalize to the same locale", async () => {
+    setAppManifest(
+      manifest([
+        entry("en-US/messages", { greeting: "Hi" }),
+        entry("en_US/messages", { greeting: "Hi" }),
+      ]),
+    );
+    await expect(loadMessages()).rejects.toThrow(
+      'lang/en_US/messages.ts: lang folder "en_US" and "en-US" are the same locale ("en-us")',
+    );
+  });
+
+  it("rejects a file name or a message key containing a dot", async () => {
+    setAppManifest(manifest([entry("en/email.subject", { greeting: "Hi" })]));
+    await expect(loadMessages()).rejects.toThrow('file name "email.subject" contains "."');
+
+    setAppManifest(manifest([entry("en/messages", { "account.created": "Hi" })]));
+    await expect(loadMessages()).rejects.toThrow('message key "messages.account.created" contains "."');
+  });
 });
 
 describe("I18nServiceProvider", () => {

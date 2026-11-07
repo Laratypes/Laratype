@@ -1,10 +1,14 @@
 import { Facade } from "@laratype/core";
+import type { Container } from "@laratype/core";
 import { ContextApi } from "@laratype/support";
 import type { LangKey, MessageParams, TransArgs } from "./types";
 import { configuredFallbackLocale, configuredLocale } from "./config";
 import { lookupMessage, renderMessage } from "./catalog";
 import type { LangCatalog } from "./catalog";
 import { Locale } from "./locale";
+
+/** The fallback translator of each facade application, so helper calls without a provider share one default locale. */
+const fallbackTranslators = new WeakMap<Container, Translator>();
 
 /** Options for a `Translator`: its defaults outside a request and the locale tried after the requested one. */
 export interface TranslatorOptions {
@@ -29,9 +33,18 @@ export class Translator {
     this.fallback = options.fallbackLocale;
   }
 
-  /** The translator of the facade application (or a default, empty one outside a booted app). */
+  /**
+   * The translator of the facade application: its binding when a provider or `Lang.fake()` set one, else one fallback
+   * translator cached per facade application, so `setLocale()` persists across helper calls.
+   */
   static current(): Translator {
-    return Facade.getFacadeApplication().make(Translator);
+    const app = Facade.getFacadeApplication();
+    if (app.has(Translator)) return app.make(Translator);
+    const cached = fallbackTranslators.get(app);
+    if (cached !== undefined) return cached;
+    const translator = app.make(Translator);
+    fallbackTranslators.set(app, translator);
+    return translator;
   }
 
   /** The request's locale when it chose one, else the translator default from config. */

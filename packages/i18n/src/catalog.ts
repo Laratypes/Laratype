@@ -25,16 +25,59 @@ export const isPluralForms = (value: unknown): value is Record<string, string> =
 };
 
 /**
+ * Checks a file's messages at load: a key segment cannot contain `.`, because lookup splits `<file>.<dotted key>` on
+ * dots, and every leaf must be a string or a plural form (`other` plus only plural categories, all strings).
+ */
+const validateTree = (
+  tree: Record<string, unknown>,
+  file: string,
+  sourcePath: string,
+  path: readonly string[] = [],
+): void => {
+  for (const [key, value] of Object.entries(tree)) {
+    const dotted = [file, ...path, key].join(".");
+    if (key.includes(".")) {
+      throw new I18nError(
+        `[@laratype/i18n] ${sourcePath}: message key "${dotted}" contains ".": keys are <file>.<dotted key>, so a dot cannot be part of a file name or key`,
+      );
+    }
+    if (typeof value === "string" || isPluralForms(value)) continue;
+    if (isRecord(value)) {
+      validateTree(value, file, sourcePath, [...path, key]);
+      continue;
+    }
+    throw new I18nError(
+      `[@laratype/i18n] ${sourcePath}: message "${dotted}" must be a string or a plural object ({ other, one, two, few, many, zero } with string templates)`,
+    );
+  }
+};
+
+/**
  * Reads `appManifest().lang` (`lang/<locale>/<file>.ts`) and loads every file, once, at boot. A key without a locale
- * folder is a manifest error rather than a silent top-level file (I1 #167).
+ * folder is a manifest error rather than a silent top-level file; so are two folders that normalize to one locale
+ * (`en-US`, `en_US`), a file name or key with a dot, and a leaf that is neither a string nor a plural form (I1 #167).
  */
 export const loadMessages = async (manifest: AppManifest = appManifest()): Promise<LangCatalog> => {
   const catalog: Record<string, Record<string, LangTree>> = Object.create(null);
+  const locales = new Map<string, string>();
   for (const entry of manifest.lang ?? []) {
     const [locale, file, ...rest] = entry.name.split("/");
     if (!locale || !file || rest.length > 0) {
       throw new I18nError(
         `[@laratype/i18n] lang entry "${entry.name}" (${entry.path}) must be named <locale>/<file>: put each file in lang/<locale>/`,
+      );
+    }
+    const normalized = normalizeLocale(locale);
+    const known = locales.get(normalized);
+    if (known !== undefined && known !== locale) {
+      throw new I18nError(
+        `[@laratype/i18n] ${entry.path}: lang folder "${locale}" and "${known}" are the same locale ("${normalized}"): spell a locale one way`,
+      );
+    }
+    locales.set(normalized, locale);
+    if (file.includes(".")) {
+      throw new I18nError(
+        `[@laratype/i18n] ${entry.path}: file name "${file}" contains ".": keys are <file>.<dotted key>, so a dot cannot be part of a file name or key`,
       );
     }
     const tree = await loadDefault<unknown>(entry);
@@ -43,6 +86,7 @@ export const loadMessages = async (manifest: AppManifest = appManifest()): Promi
         `[@laratype/i18n] ${entry.path} must default-export an object of messages (defineLang({...}))`,
       );
     }
+    validateTree(tree, file, entry.path);
     const files = catalog[locale] ?? (catalog[locale] = {});
     files[file] = tree as LangTree;
   }
@@ -110,16 +154,17 @@ export const interpolate = (template: string, params?: MessageParams): string =>
 
 const pluralRules = new Map<string, Intl.PluralRules>();
 
-/** `Intl.PluralRules` for a locale; an invalid tag falls back to English. */
+/** `Intl.PluralRules` for a locale; an invalid tag falls back to English, and `fr_FR` uses the French rules. */
 export const pluralCategory = (locale: string, count: number): PluralCategory => {
-  let rules = pluralRules.get(locale);
+  const tag = normalizeLocale(locale);
+  let rules = pluralRules.get(tag);
   if (rules === undefined) {
     try {
-      rules = new Intl.PluralRules(locale);
+      rules = new Intl.PluralRules(tag);
     } catch {
       rules = new Intl.PluralRules("en");
     }
-    pluralRules.set(locale, rules);
+    pluralRules.set(tag, rules);
   }
   return rules.select(count) as PluralCategory;
 };

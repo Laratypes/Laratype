@@ -47,6 +47,13 @@ describe("validationMessage()", () => {
     expect(validationMessage("nope", { attribute: "x" })).toBe("validation.nope");
   });
 
+  it("keeps a configured message whose text equals the key", () => {
+    Lang.fake(
+      new Translator({ en: { validation: { required: "validation.required" } } }, { locale: "en", fallbackLocale: "en" }),
+    );
+    expect(validationMessage("required", { attribute: "email" })).toBe("validation.required");
+  });
+
   it("has no default for a rule named like an Object.prototype member", () => {
     useTranslator("en");
     expect(validationMessage("toString")).toBe("validation.toString");

@@ -29,7 +29,7 @@ type IsPlural<T> = T extends string
   : T extends object
     ? [Exclude<keyof T, PluralCategoryKey>] extends [never]
       ? "other" extends keyof T
-        ? [T[keyof T]] extends [string]
+        ? [T[keyof T]] extends [string | undefined]
           ? true
           : false
         : false
@@ -37,17 +37,20 @@ type IsPlural<T> = T extends string
     : false;
 
 /**
- * Every message key: `**<file>.<dotted key>**` (`messages.greeting`, `validation.required`). A plural message is a
- * leaf, so the path stops there.
+ * Every message key: `**<file>.<dotted key>**` (`messages.greeting`, `validation.required`). A registered file root is
+ * always a container, so a file whose only keys are `one`/`other` exposes `messages.one`/`messages.other`. A plural
+ * message below a file is a leaf, so the path stops there.
  */
-export type LangPaths<T, Prefix extends string = ""> = {
-  [K in keyof T & string]: IsPlural<T[K]> extends true
+export type LangPaths<T, Prefix extends string = "", Root extends boolean = true> = {
+  [K in keyof T & string]: T[K] extends string
     ? `${Prefix}${K}`
-    : T[K] extends string
-      ? `${Prefix}${K}`
-      : T[K] extends object
-        ? `${Prefix}${K}.${LangPaths<T[K]>}`
-        : never;
+    : T[K] extends object
+      ? Root extends true
+        ? `${Prefix}${K}.${LangPaths<T[K], "", false>}`
+        : IsPlural<T[K]> extends true
+          ? `${Prefix}${K}`
+          : `${Prefix}${K}.${LangPaths<T[K], "", false>}`
+      : never;
 }[keyof T & string];
 
 /** The registered message keys, or any string before the app registers its lang tree. */

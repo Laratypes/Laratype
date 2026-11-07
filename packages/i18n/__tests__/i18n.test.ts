@@ -70,6 +70,25 @@ describe("trans() / __()", () => {
     expect(trans("messages.apples", { count: 3 }, "vi")).toBe("3 quả táo");
   });
 
+  it("normalizes the locale before Intl.PluralRules: fr_FR count 0 uses the French one", () => {
+    Lang.fake(
+      new Translator(
+        { fr_FR: { messages: { apples: { one: "{count} pomme", other: "{count} pommes" } } } },
+        { locale: "fr_FR", fallbackLocale: "en" },
+      ),
+    );
+    expect(trans("messages.apples", { count: 0 })).toBe("0 pomme");
+    expect(trans("messages.apples", { count: 2 })).toBe("2 pommes");
+  });
+
+  it("reuses one fallback translator without a provider, so setLocale persists, and a later fake wins", () => {
+    expect(getLocale()).toBe("en");
+    setLocale("vi");
+    expect(getLocale()).toBe("vi");
+    Lang.fake(new Translator(catalog, { locale: "en" }));
+    expect(getLocale()).toBe("en");
+  });
+
   it("has() and locales() read the loaded catalog", () => {
     useTranslator("en");
     expect(Lang.has("messages.greeting")).toBe(true);

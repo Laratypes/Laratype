@@ -1,7 +1,15 @@
 // Type tests for I1 #167: run by `bunx vitest run --project types`.
 import { describe, expectTypeOf, it } from "vitest";
 import { Lang, Translator, __, defineLang, trans } from "@laratype/i18n";
-import type { LangCatalog, LangKey, LangTree, MessageParams, PluralForms, TranslatorOptions } from "@laratype/i18n";
+import type {
+  LangCatalog,
+  LangKey,
+  LangPaths,
+  LangTree,
+  MessageParams,
+  PluralForms,
+  TranslatorOptions,
+} from "@laratype/i18n";
 import messages from "./fixtures/lang/en/messages";
 
 // The app's registration, the K1/Q16 module-augmentation pattern.
@@ -23,6 +31,16 @@ describe("typed translations", () => {
   it("exposes the registered keys as a union", () => {
     expectTypeOf<LangKey>().toEqualTypeOf<
       "messages.greeting" | "messages.apples" | "messages.nested.farewell" | "messages.plain"
+    >();
+  });
+
+  it("treats an annotated PluralForms leaf as a plural, not a group", () => {
+    expectTypeOf<LangPaths<{ messages: { apples: PluralForms } }>>().toEqualTypeOf<"messages.apples">();
+  });
+
+  it("treats a file root as a container even when its keys look plural", () => {
+    expectTypeOf<LangPaths<{ messages: { one: "one"; other: "other" } }>>().toEqualTypeOf<
+      "messages.one" | "messages.other"
     >();
   });
 

@@ -34,8 +34,11 @@ const DEFAULT_VALIDATION_MESSAGES: Readonly<Record<string, string>> = {
  */
 export const validationMessage = (rule: string, params?: MessageParams, locale?: string): string => {
   const key = `validation.${rule}`;
-  const translated = Translator.current().translate(key, params, locale);
-  if (translated !== key) return translated;
+  const translator = Translator.current();
+  const requested = locale ?? translator.getLocale();
+  if (translator.has(key, requested) || translator.has(key, translator.getFallbackLocale())) {
+    return translator.translate(key, params, locale);
+  }
   // Own keys only: a rule named like an Object.prototype member (`toString`) has no default either
   if (!Object.hasOwn(DEFAULT_VALIDATION_MESSAGES, rule)) return key;
   return interpolate(DEFAULT_VALIDATION_MESSAGES[rule]!, params);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Container, Facade } from "@laratype/core";
 import { ContextApi } from "@laratype/support";
 import type { Request } from "@laratype/http";
@@ -19,10 +19,16 @@ const request = (query: Record<string, string> = {}, headers: Record<string, str
 
 const next = (value: unknown) => value;
 
-const setup = () => {
+const setup = (
+  langs: LangCatalog = catalog,
+  options: { locale?: string; fallbackLocale?: string } = {},
+) => {
   const app = new Container();
   app.scoped(Locale);
-  app.instance(Translator, new Translator(catalog, { locale: "en", fallbackLocale: "en" }));
+  app.instance(
+    Translator,
+    new Translator(langs, { locale: options.locale ?? "en", fallbackLocale: options.fallbackLocale ?? "en" }),
+  );
   Facade.setFacadeApplication(app);
   return app;
 };
@@ -78,7 +84,7 @@ describe("LocaleMiddleware", () => {
     });
   });
 
-  it("orders Accept-Language by q-value, ignores q=0, and matches a base language", async () => {
+  it("orders Accept-Language by q-value, treats q=0 as an exclusion, and matches a base language", async () => {
     const app = setup();
     await inScope(app, undefined, async () => {
       await new LocaleMiddleware().handle(
@@ -93,6 +99,36 @@ describe("LocaleMiddleware", () => {
       await new LocaleMiddleware().handle(request({}, { "accept-language": "vi;q=0,en;q=0.1" }), {} as Response, next);
       expect(getLocale()).toBe("en");
     });
+  });
+
+  it("never picks a catalog locale excluded by a q=0 range", async () => {
+    const app = setup(
+      {
+        "en-US": { messages: { greeting: "Hello {name}" } },
+        fr: { messages: { greeting: "Bonjour {name}" } },
+      },
+      { locale: "fr", fallbackLocale: "fr" },
+    );
+    await inScope(app, undefined, async () => {
+      await new LocaleMiddleware().handle(
+        request({}, { "accept-language": "en-US;q=0,en;q=1,fr;q=0.5" }),
+        {} as Response,
+        next,
+      );
+      expect(getLocale()).toBe("fr");
+    });
+  });
+
+  it("leaves the shared default unchanged when the request has no container", async () => {
+    setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await new LocaleMiddleware().handle(request({ locale: "vi" }), {} as Response, next);
+      expect(getLocale()).toBe("en");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("no request container"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("ignores an unsupported query locale and leaves the default when nothing matches", async () => {
