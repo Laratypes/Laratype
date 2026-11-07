@@ -7,7 +7,11 @@ const CONTRACT_SEGMENT = /^(?:[A-Za-z0-9_-]+|\[[A-Za-z_][A-Za-z0-9_]*\])$/;
 function contractPath(contractName: string): string {
   const name = contractName.replace(/\\/g, "/").replace(/\.ts$/, "");
   const segments = name.split("/");
-  if (!name.startsWith("/") && segments.every((segment) => CONTRACT_SEGMENT.test(segment))) return name;
+  // `[param]` is a folder only; the last segment is the contract file
+  const valid = segments.every((segment, index) =>
+    index === segments.length - 1 ? /^[A-Za-z0-9_-]+$/.test(segment) : CONTRACT_SEGMENT.test(segment),
+  );
+  if (!name.startsWith("/") && valid) return name;
   const reason = `Invalid contract name ${JSON.stringify(contractName)}`;
   throw new Error(`${reason}: use letters, digits, "_" and "-", or a [param] folder, under app/api.`);
 }
