@@ -33,18 +33,18 @@ const expectOk = (result: { code: number | null; output: string }) => {
 
 beforeAll(() => {
   if (!existsSync(saufBin)) throw new Error(`${saufBin} not found: run \`bun run build\` before this test.`);
-  // Under examples/, so the copied tsconfig's `extends: ../../tsconfig.json` still resolves
+  // Next to examples/basic, so the copied tsconfig's `extends: ../../tsconfig.json` and `rootDir` still resolve
   project = mkdtempSync(join(repo, "examples", ".make-"));
   for (const entry of ["app", "package.json", "tsconfig.json"]) {
     cpSync(join(example, entry), join(project, entry), { recursive: true });
   }
   // `$api` must point at the copy, not at examples/basic: the tsconfig's `paths` are relative to the repo root
   const tsconfig = join(project, "tsconfig.json");
+  const source = readFileSync(tsconfig, "utf8");
   const api = join(project, ".laratype/api/index.gen.ts").replace(/\\/g, "/").slice(repo.length);
-  writeFileSync(
-    tsconfig,
-    readFileSync(tsconfig, "utf8").replace('"$api": ["examples/basic/.laratype/api/index.gen.ts"]', `"$api": ["${api}"]`),
-  );
+  const patched = source.replace(/"\$api": \[[^\]]*\]/, `"$api": ["${api}"]`);
+  expect(patched).not.toBe(source);
+  writeFileSync(tsconfig, patched);
 });
 
 afterAll(() => {
@@ -74,12 +74,14 @@ describe("v1 make generators", () => {
   }, 120_000);
 
   it("the generated stubs type-check with examples/basic's tsconfig", async () => {
+    expectOk(await sauf("make:command", "DraftCommand"));
     expectOk(await sauf("make:controller", "DraftController"));
     expectOk(await sauf("make:request", "DraftRequest"));
     expectOk(await sauf("make:resource", "Draft", "--collection"));
 
     const generated = [
       "app/api/reports/monthly.ts",
+      "app/console/commands/DraftCommand.ts",
       "app/http/controllers/DraftController.ts",
       "app/http/requests/DraftRequest.ts",
       "app/http/resources/DraftResource.ts",

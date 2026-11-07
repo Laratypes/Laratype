@@ -104,13 +104,14 @@ describe("app commands", () => {
     expect(stub).toContain('static readonly signature = "clean:cache" as const');
   }, 120_000);
 
-  it("make:command refuses a name the 0.5 layout already declares", async () => {
+  it("make:command refuses a name the 0.5 layout already uses", async () => {
+    const target = "app/console/commands/SendMail.ts";
+    const existing = "app/src/console/commands/SendMail.ts";
     const { code, output } = await sauf("make:command", "SendMail");
     expect(code, output).not.toBe(0);
-    expect(output).toContain(
-      'Cannot create app/console/commands/SendMail.ts: app/src/console/commands/SendMail.ts already declares the command "send:mail"',
-    );
-    expect(existsSync(join(project, "app/console/commands/SendMail.ts"))).toBe(false);
+    expect(output).toContain(`Cannot create ${target}: ${existing} already uses the command name "SendMail"`);
+    expect(output).toContain("and the manifest reads both. Fix: rename or remove one.");
+    expect(existsSync(join(project, target))).toBe(false);
   }, 120_000);
 
   it("make:command refuses a .mts file of the same name in the v1 folder", async () => {
@@ -120,11 +121,25 @@ describe("app commands", () => {
       const { code, output } = await sauf("make:command", "Draft");
       expect(code, output).not.toBe(0);
       expect(output).toContain(
-        'Cannot create app/console/commands/Draft.ts: app/console/commands/Draft.mts already declares the command "draft"',
+        `Cannot create app/console/commands/Draft.ts: ${existing} already uses the command name "Draft"`,
       );
       expect(existsSync(join(project, "app/console/commands/Draft.ts"))).toBe(false);
     } finally {
       rmSync(join(project, existing), { force: true });
+    }
+  }, 120_000);
+
+  it("make:command refuses a .mts file next to the destination .ts", async () => {
+    const files = ["app/console/commands/Clash.ts", "app/console/commands/Clash.mts"];
+    for (const file of files) write(file, "export default class Clash {}\n");
+    try {
+      const { code, output } = await sauf("make:command", "Clash");
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(
+        `Cannot create ${files[0]}: ${files[1]} already uses the command name "Clash"`,
+      );
+    } finally {
+      for (const file of files) rmSync(join(project, file), { force: true });
     }
   }, 120_000);
 

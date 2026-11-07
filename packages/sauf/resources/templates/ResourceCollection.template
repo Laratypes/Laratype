@@ -1,6 +1,5 @@
 import { {{ ResourceName }} } from "./{{ ResourceName }}";
 
 // A v1 collection is `resource.collection(models)` (docs/v1/http.md › Resources).
-export function {{ CollectionName }}(models: Parameters<typeof {{ ResourceName }}.collection>[0]) {
-  return {{ ResourceName }}.collection(models);
-}
+export const {{ CollectionFunction }} = (models: Parameters<typeof {{ ResourceName }}.collection>[0]) =>
+  {{ ResourceName }}.collection(models);

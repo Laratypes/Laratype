@@ -2,16 +2,9 @@ import MakeCommand from "../../utils/MakeCommand";
 
 export default class MakeContractCommand extends MakeCommand {
 
-  static signature = "make:contract";
+  static signature = "make:contract {names*}";
 
   static description = "Create a new contract file";
-
-  static arguments = [
-    {
-      name: "<names...>",
-      description: "The names of the contract to create"
-    }
-  ]
 
   async make(contractNames: string[]) {
     const resourcePath = this.resolve("sauf", "Contract.template");

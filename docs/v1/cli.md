@@ -122,21 +122,20 @@ proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/
 | `sauf make:command <names...>` | `app/console/commands/<name>.ts`; a sub-path is flattened | `class <Name> extends Command<typeof <Name>.signature>` with the signature derived from the class name ([services.md › Console commands](./services.md#console-commands)) |
 
 ### Invariants
-- **Destinations** are the v1 project layout ([overview.md › Project structure](./overview.md#project-structure)): contracts under the `api.root` folder (`app/api`), controllers, requests and resources under `app/http/`, commands under `app/console/commands/`. An existing file is left untouched with a `[SKIPPED]` warning.
-- **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only.
-- **The stubs type-check** in `examples/basic` ([#134 Done when](https://github.com/Laratypes/Laratype/issues/134)). The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
+- **Destinations** are the v1 project layout ([overview.md › Project structure](./overview.md#project-structure)): contracts under `app/api` (the default `api.root`), controllers, requests and resources under `app/http/`, commands under `app/console/commands/`. An existing file is left untouched with a `[SKIPPED]` warning.
+- **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A sub-path is kept (`users/posts` -> `app/api/users/posts.ts`); a trailing `.ts` and `\` path separators in the argument are normalized. A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only. An invalid tree name (a `.` in a file name, a root `index.ts`, a duplicate contract name) fails that scan.
+- **The stubs type-check** in `examples/basic`. The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
   - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
   - on the repo's zod 3.25 `zod` entry, contract and request stubs write `z.coerce.number()`. With zod 4's default entry the input type of plain `z.coerce.number()` is `unknown`, so the stub then needs `z.coerce.number<number>()`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 - **`make:request` stays 0.5** until FormRequest v2 ([#137](https://github.com/Laratypes/Laratype/issues/137)): the class extends `Request` and declares `rules()`. A contract route validates the contract's schemas and takes no request class ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 - **`make:resource` maps plain data:** `defineResource(model, fn)` returns `make`, `collection` and `paginate`; the contract checks the returned data at `r.contract()` ([http.md › Resources](./http.md#resources)). The placeholder model class in the stub is replaced by the app's model.
-- **`make:command`** writes the v1 layout with `Command<typeof <Name>.signature>` and an empty `handle()`; the author edits the derived signature. It refuses a name that another file in `app/src/console/commands` or `app/console/commands` already declares, because the manifest reads both layouts and both `.ts`/`.mts` extensions.
+- **`make:command`** writes the v1 layout with `Command<typeof <Name>.signature>` and an empty `handle()`; the author edits the derived signature. It refuses a name that another file in `app/src/console/commands` or `app/console/commands` already uses, because the manifest reads both layouts and both `.ts`/`.mts` extensions.
 
 ### Diagnostics
 - `[SKIPPED] The file <path> already exists.` (the generator leaves the file untouched).
-- `Cannot create <path>: <existing path> already declares the command "<signature>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or a `.mts` file already uses the name).
-- `make:contract` writes the name as given. An invalid tree name (a `.` in a file name, a root `index.ts`, a duplicate contract name) fails the next `sauf types:generate` with the scan's message ([typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate)).
+- `Cannot create <path>: <existing path> already uses the command name "<name>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or another `.ts`/`.mts` file already uses the name).
 
 ### Example
 ```ts
