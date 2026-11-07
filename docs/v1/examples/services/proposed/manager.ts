@@ -34,8 +34,8 @@ class CacheManager extends Manager<Record<keyof typeof cache.stores, Store>, typ
 
 const stores = new CacheManager()
 
-// Run after boot: `config()` reads the store that ConfigLoadServiceProvider fills, so a driver resolved at
-// module scope throws when this file is imported before the app boots.
+// Run after boot: the default driver reads `config('cache.default')`, and config() throws until
+// ConfigLoadServiceProvider fills the store, so resolve the drivers from boot-time code.
 export const readStores = () => {
   const fromDefault: Promise<string | null> = stores.driver().get('key') // the 'redis' store
   const fromArray: Promise<string | null> = stores.driver('array').get('key')
