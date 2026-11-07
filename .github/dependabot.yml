@@ -1,0 +1,40 @@
+# Dependabot version updates (B27 #364, docs/v1/build.md › CI and release). Security updates and alerts are
+# enabled in the repo settings; this file adds weekly version updates. Every PR goes through the normal review
+# (CodeRabbit, leader, security for lockfile and lifecycle-script changes) and is never auto-merged.
+version: 2
+updates:
+  # Workspace dependencies: bun.lock covers the root, packages/* and examples/*
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Never propose a release younger than two weeks, the same rule as the SHA and version pins
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 5
+    groups:
+      bun-minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["v1", "area: build"]
+    commit-message:
+      prefix: "build(deps)"
+
+  # Actions are pinned by SHA with a `# vX.Y.Z` comment; Dependabot bumps both together. The composite action in
+  # .github/setup-bun is not under .github/workflows, so it is listed as its own directory.
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/.github/setup-bun"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["v1", "area: build"]
+    commit-message:
+      prefix: "ci(deps)"
