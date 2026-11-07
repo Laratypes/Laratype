@@ -21,14 +21,13 @@ export default class MakeResourceCommand extends MakeCommand {
   async make(resourceNames: string[]) {
     const options = this.opts();
     const resourcePath = this.resolve("sauf", "Resource.template");
-    // Validate every name, resource and collection, before the first file is written
     const names = resourceNames.map(resourceName => {
       const name = generatorPath(resourceName, "resource");
       // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
-      const resource = name.endsWith("Resource") ? name : name + "Resource";
+      const resource = name.endsWith("Resource") ? name : `${name}Resource`;
       return {
         resource,
-        collection: options.collection ? generatorPath(resource + "Collection", "resource") : undefined,
+        collection: options.collection ? generatorPath(`${resource}Collection`, "resource") : undefined,
       };
     });
 

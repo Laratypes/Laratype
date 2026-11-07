@@ -12,6 +12,9 @@ const saufBin = fileURLToPath(new URL("../../dist/index.esm.js", import.meta.url
 const repo = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\\/g, "/");
 const example = join(repo, "examples/basic");
 
+/** The runs that are expected to fail, so the type-check test does not demand their files. */
+const failingRuns = new Set(["escape", "escapeController", "escapeRequest", "escapeResource"]);
+
 interface Run {
   readonly code: number | null;
   readonly output: string;
@@ -143,7 +146,7 @@ describe("v1 make generators", () => {
 
   it("the generated stubs type-check with examples/basic's tsconfig", () => {
     for (const [name, result] of Object.entries(runs)) {
-      if (name.startsWith("escape")) continue;
+      if (failingRuns.has(name)) continue;
       expect(result.code, `${name}: ${result.output}`).toBe(0);
     }
 
