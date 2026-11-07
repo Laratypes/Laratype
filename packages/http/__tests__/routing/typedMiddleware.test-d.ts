@@ -5,13 +5,18 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route, defineMiddleware, isTypedMiddleware } from '../../src/index'
-import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
+import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, ExtOf, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
 
 const posts = defineContract()({ index: endpoint.get('/'), destroy: endpoint.delete('/:post') })
 const appApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
 
 class User {
   declare readonly id: number
+}
+
+/** A self-referencing extension value: the conflict walk must terminate on it (H6 round 3, docs/v1/http.md › Typed middleware › Invariants). */
+interface RecursiveNode {
+  next: RecursiveNode
 }
 
 const auth = defineMiddleware<{ user: User }>((request, next) => next({ user: new User() }))
@@ -100,11 +105,55 @@ describe('the handler sees the accumulated context', () => {
       index(ctx: Ctx<typeof posts.index, { tag: string }>) { void ctx.tag.toUpperCase() }
       destroy() {}
     }
-    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsString, { policy: undefined }, { tag: never }>>().toHaveProperty(
-      "posts.index: middleware provide conflicting types for 'tag'",
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsString, { policy: undefined }, ExtOf<[typeof tagString, typeof tagNumber]>>>().toHaveProperty(
+      "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
     )
-    // @ts-expect-error posts.index: middleware provide conflicting types for 'tag'
+    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
     Route.api(appApi, (r) => [r.middleware(tagString, tagNumber).contract(posts, NeedsString)])
+  })
+
+  test('a conflict four keys deep fails at r.contract()', () => {
+    const deepString = defineMiddleware<{ a: { b: { c: { d: string } } } }>((request, next) => next({ a: { b: { c: { d: 'x' } } } }))
+    const deepNumber = defineMiddleware<{ a: { b: { c: { d: number } } } }>((request, next) => next({ a: { b: { c: { d: 1 } } } }))
+    class NeedsDeep extends Controller {
+      index(ctx: Ctx<typeof posts.index, { a: { b: { c: { d: string } } } }>) { void ctx.a.b.c.d.toUpperCase() }
+      destroy() {}
+    }
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsDeep, { policy: undefined }, ExtOf<[typeof deepString, typeof deepNumber]>>>().toHaveProperty(
+      "posts.index: middleware extension 'a.b.c.d' is `never` (conflicting types, or declared `never`)",
+    )
+    // @ts-expect-error posts.index: middleware extension 'a.b.c.d' is `never` (conflicting types, or declared `never`)
+    Route.api(appApi, (r) => [r.middleware(deepString, deepNumber).contract(posts, NeedsDeep)])
+  })
+
+  test('a self-referencing extension type is walked once per path', () => {
+    const tree = defineMiddleware<{ node: RecursiveNode }>((request, next) => next({ node: { next: null as unknown as RecursiveNode } }))
+    class ReadsTree extends Controller {
+      index(ctx: Ctx<typeof posts.index, { node: RecursiveNode }>) { void ctx.node.next }
+      destroy() {}
+    }
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, ReadsTree, { policy: undefined }, ExtOf<[typeof tree]>>>().toEqualTypeOf<unknown>()
+    Route.api(appApi, (r) => [r.middleware(tree).contract(posts, ReadsTree)])
+  })
+
+  test('a function-valued key is not compared: the intersection is an overload, not `never`', () => {
+    const fnString = defineMiddleware<{ fn: (value: string) => string }>((request, next) => next({ fn: (value) => value }))
+    const fnNumber = defineMiddleware<{ fn: (value: number) => number }>((request, next) => next({ fn: (value) => value }))
+    class NeedsFn extends Controller {
+      index(ctx: Ctx<typeof posts.index, { fn: (value: string) => string }>) { void ctx.fn('x').toUpperCase() }
+      destroy() {}
+    }
+    // Unchecked, so it compiles: the runtime would keep `fnNumber`'s function here (docs/v1/http.md › Typed middleware › Invariants)
+    Route.api(appApi, (r) => [r.middleware(fnString, fnNumber).contract(posts, NeedsFn)])
+  })
+
+  test('a middleware that declares a key `never` gets the same diagnosis', () => {
+    const neverTag = defineMiddleware<{ tag: never }>((request, next) => next())
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof neverTag]>>>().toHaveProperty(
+      "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
+    )
+    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
+    Route.api(appApi, (r) => [r.middleware(neverTag).contract(posts, Plain)])
   })
 
   test('a conflicting `params` key fails at r.contract()', () => {
@@ -114,7 +163,7 @@ describe('the handler sees the accumulated context', () => {
       index() {}
       destroy(ctx: Ctx<typeof posts.destroy, { params: { post: string } }>) { void ctx.params.post.toUpperCase() }
     }
-    // @ts-expect-error posts.destroy: middleware provide conflicting types for 'params.post'
+    // @ts-expect-error posts.destroy: middleware extension 'params.post' is `never` (conflicting types, or declared `never`)
     Route.api(appApi, (r) => [r.middleware(postString, postNumber).contract(posts, NeedsPost)])
   })
 
@@ -131,9 +180,9 @@ describe('the handler sees the accumulated context', () => {
       index(ctx: Ctx<typeof posts.index, { user: { id: string } }>) { void ctx.user.id.toUpperCase() }
       destroy() {}
     }
-    // @ts-expect-error posts.index: middleware provide conflicting types for 'tag'
+    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
     Route.api(appApi, (r) => [r.middleware(optionalString, optionalNumber).contract(posts, NeedsTag)])
-    // @ts-expect-error posts.index: middleware provide conflicting types for 'user.id'
+    // @ts-expect-error posts.index: middleware extension 'user.id' is `never` (conflicting types, or declared `never`)
     Route.api(appApi, (r) => [r.middleware(userString, userNumber).contract(posts, NeedsUser)])
   })
 

@@ -19,9 +19,9 @@ export type MiddlewareClass = typeof Middleware;
 
 /**
  * The extensions of the middleware tuple `M`, intersected in order: a key two middleware add with different types
- * becomes `never`, and the route proof rejects it (`middleware provide conflicting types for '<key>'`, H6 #117).
+ * becomes `never`, and the route proof rejects it (`middleware extension '<key>' is \`never\``, H6 #117).
  */
-type ExtOf<M extends readonly MiddlewareItem[], X extends object = {}> = M extends readonly [
+export type ExtOf<M extends readonly MiddlewareItem[], X extends object = {}> = M extends readonly [
   infer H extends MiddlewareItem,
   ...infer R extends readonly MiddlewareItem[],
 ]

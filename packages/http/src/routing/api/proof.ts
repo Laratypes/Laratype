@@ -96,26 +96,36 @@ type Sub<O, K extends string> = K extends keyof O ? O[K] : {};
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
 /**
- * The paths of `O` whose type is `never`: two middleware added the same key with incompatible types, so the
- * intersection `ExtOf` builds (H6 #117) has no value for it, while the runtime keeps the later one. `undefined` is
- * dropped first, since an optional key two middleware add is `never | undefined`; nested objects are walked (a key is
- * named by its path, `user.id`), arrays and functions are not.
+ * The paths of `O` whose type is `never`: the intersection `ExtOf` builds (H6 #117) has no value for it, while the
+ * runtime keeps the later middleware's value. `undefined` is dropped first, since an optional key two middleware add is
+ * `never | undefined`; nested objects are walked (a key is named by its path, `user.id`), arrays and functions are not
+ * walked or compared. A self-referencing extension type is walked once per path: `Matches` stops the walk at a type it
+ * already saw there, so a recursive type does not hit TypeScript's instantiation limit.
  */
-type NeverKeys<O, D extends 0[] = []> = {
+type NeverKeys<O, Seen = never> = {
   [K in keyof O & string]-?: [Exclude<O[K], undefined>] extends [never]
     ? K
-    : D["length"] extends 2
+    : Exclude<O[K], undefined> extends readonly unknown[] | ((...args: any[]) => unknown)
       ? never
-      : Exclude<O[K], undefined> extends readonly unknown[] | ((...args: any[]) => unknown)
-        ? never
-        : Exclude<O[K], undefined> extends object
-          ? `${K}.${NeverKeys<Exclude<O[K], undefined>, [...D, 0]>}`
-          : never;
+      : Exclude<O[K], undefined> extends object
+        ? true extends Matches<Exclude<O[K], undefined>, Seen>
+          ? never
+          : `${K}.${NeverKeys<Exclude<O[K], undefined>, Seen | Exclude<O[K], undefined>>}`
+        : never;
 }[keyof O & string];
+
+/** `true` when `X` is one of the types of `S`; `never` otherwise (so `S = never` gives `never`). */
+type Matches<X, S> = S extends unknown ? (Equal<X, S> extends true ? true : never) : never;
+
+type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
+
+/** The path and the diagnosis of a key whose extension type is `never`. */
+type ConflictLabel<N extends string, K extends string> =
+  `${N}: middleware extension '${K}' is \`never\` (conflicting types, or declared \`never\`)`;
 
 /** A conflicting extension: no handler could receive the key, whatever it declares. */
 type ConflictIssues<N extends string, X> = {
-  [K in NeverKeys<X> as `${N}: middleware provide conflicting types for '${K}'`]: { conflicting_key: K };
+  [K in NeverKeys<X> as ConflictLabel<N, K>]: { conflicting_key: K };
 };
 
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */
@@ -187,8 +197,9 @@ type NoBody<E extends AnyEndpoint> = T<E>["response"] extends undefined ? null :
  * Conditional types, not function assignability: methods compare bivariantly, so `{ show(ctx: Provided): any }`
  * would accept a handler that needs more than the route provides. `[Provided] extends [Param]` is one-directional.
  * Any callable property counts as a handler (class methods, and an `action()` property later); an `any` one passes.
- * A key the extensions add typed `never` (two middleware gave it incompatible types) is reported before the parameter
- * check, since the handler would otherwise be proven against a value the runtime never produces.
+ * A key the extensions add typed `never` (two middleware gave it incompatible types, or one declared it `never`) is
+ * reported before the parameter check, since the handler would otherwise be proven against a value the runtime never
+ * produces.
  */
 type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extends object> = IsAny<H> extends true
   ? {}
