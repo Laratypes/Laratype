@@ -1,11 +1,16 @@
 // Type tests for the container-backed registries (D7 #114): the classes and the 0.5 field shapes di.md documents
 import { describe, expectTypeOf, it } from "vitest";
+import type { Container } from "@laratype/core";
 import { ModelBindingRegistry, RouteRegistry } from "@laratype/support";
 
 describe("registry types", () => {
   it("current() returns the registry class", () => {
     expectTypeOf(RouteRegistry.current).returns.toEqualTypeOf<RouteRegistry>();
     expectTypeOf(ModelBindingRegistry.current).returns.toEqualTypeOf<ModelBindingRegistry>();
+  });
+
+  it("container() returns the container current() reads", () => {
+    expectTypeOf(ModelBindingRegistry.container).returns.toEqualTypeOf<Container>();
   });
 
   it("keeps the 0.5 field shapes", () => {

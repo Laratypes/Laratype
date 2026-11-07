@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { Container, token } from '@laratype/core'
+import { Container, Facade, token } from '@laratype/core'
 import { AppServiceProvider, bootProviders, HTTP_APP, RouteAppServiceProvider, ServiceProvider } from '../src/ServiceProvider'
 import RouteRegistry from '../src/registries/RouteRegistry'
 
 const makeApp = () => new Container().instance(HTTP_APP, new Hono())
+
+afterEach(() => Facade.setFacadeApplication(undefined))
 
 describe('ServiceProvider v2', () => {
   it('receives the container as this.app', () => {
@@ -88,6 +90,34 @@ describe('bootProviders', () => {
     const downs = await bootProviders(makeApp(), [make('a'), make('b')])
     for (const down of downs) await down()
     expect(calls).toEqual(['b', 'a'])
+  })
+})
+
+describe('bootProviders and the facade application', () => {
+  it('sets its container as the facade application when none is set', async () => {
+    const app = makeApp()
+    await bootProviders(app, [])
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    expect(Facade.getFacadeApplication()).toBe(app)
+  })
+
+  it('keeps an existing facade application', async () => {
+    // No HTTP_APP: bootProviders() checks the facade state, not the container's bindings
+    const existing = new Container()
+    Facade.setFacadeApplication(existing)
+    await bootProviders(makeApp(), [])
+    expect(Facade.getFacadeApplication()).toBe(existing)
+  })
+
+  it('unsets the facade application it set when the boot fails', async () => {
+    Facade.setFacadeApplication(undefined)
+    class Fails extends ServiceProvider {
+      boot() {
+        throw new Error('boot failed')
+      }
+    }
+    await expect(bootProviders(makeApp(), [Fails])).rejects.toThrow('boot failed')
+    expect(Facade.hasFacadeApplication()).toBe(false)
   })
 })
 

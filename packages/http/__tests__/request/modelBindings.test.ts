@@ -1,9 +1,9 @@
 // D7 #114: the 0.5 Route.bind / Route.model bindings live in the app container's ModelBindingRegistry
 import 'reflect-metadata'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry, Facade } from '@laratype/core'
-import { HTTP_APP, ModelBindingRegistry } from '@laratype/support'
+import { bootProviders, HTTP_APP, InternalException, ModelBindingRegistry, ServiceProvider } from '@laratype/support'
 import { Controller, RequestKernel, Route } from '../../src/index'
 
 /** An app booted like `sauf dev`, with the facade application the kernel sets. */
@@ -35,6 +35,53 @@ describe('the 0.5 route model bindings', () => {
 
     app.get('/legacy/users/:user', RequestKernel.handle({ method: 'get', path: '/legacy/users/:user', controller: [Legacy, 'show'] }))
     expect(await (await app.request('/legacy/users/7')).json()).toEqual({ user: { id: 7 } })
+  })
+
+  it('a bare bootProviders() boot writes the binder the request path reads', async () => {
+    // No Serve and no manual setFacadeApplication(): the bare boot supplies the facade application
+    Facade.setFacadeApplication(undefined)
+
+    const container = new Container({ deps: depsRegistry })
+    const app = new Hono()
+    container.instance(HTTP_APP, app)
+    class User {
+      static dataSource = {}
+      static getRepository() {
+        return { metadata: { primaryColumns: [{ propertyName: 'id' }] } }
+      }
+      // The implicit primary-key lookup that would run without the restricted binder
+      static findOne = vi.fn(async () => ({ id: 1, tenantId: 'another-tenant' }))
+    }
+    const registry = new ModelBindingRegistry()
+    registry.models = { User }
+    registry.paramModelMap = { user: 'User' }
+    container.instance(ModelBindingRegistry, registry)
+
+    class Binder extends ServiceProvider {
+      boot() {
+        Route.bind('user', (value) => ({ id: Number(value), tenantId: 'tenant-7' }))
+      }
+    }
+
+    await bootProviders(container, [RequestKernel, Binder])
+    expect(Facade.getFacadeApplication()).toBe(container)
+    expect(container.make(ModelBindingRegistry).bindings.user).toBeTypeOf('function')
+
+    app.get('/legacy/users/:user', RequestKernel.handle({ method: 'get', path: '/legacy/users/:user', controller: [Legacy, 'show'] }))
+    expect(await (await app.request('/legacy/users/7')).json()).toEqual({
+      user: { id: 7, tenantId: 'tenant-7' },
+    })
+    expect(User.findOne).not.toHaveBeenCalled()
+  })
+
+  it('Route.bind() throws before an app is booted', () => {
+    expect(() => Route.bind('user', () => null)).toThrow(InternalException)
+    expect(() => Route.bind('user', () => null)).toThrow('[@laratype/http] Route.bind() ran before an app was booted')
+  })
+
+  it('Route.model() throws before an app is booted', () => {
+    expect(() => Route.model('user', class User {})).toThrow(InternalException)
+    expect(() => Route.model('user', class User {})).toThrow('[@laratype/http] Route.model() ran before an app was booted')
   })
 
   it('RequestKernel.boot() clears the route bindings and keeps the models and the param map', () => {

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { token } from "@laratype/core";
+import { Facade, token } from "@laratype/core";
 import type { Container } from "@laratype/core";
 import ModelBindingRegistry from "./registries/ModelBindingRegistry";
 import RouteRegistry from "./registries/RouteRegistry";
@@ -69,14 +69,16 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
 }
 
 /**
- * Two-phase provider lifecycle: instantiate every provider with the container, call `register()` on all of them,
- * then `boot()` on all of them, in order. Returns the `down()` cleanups in reverse boot order.
- * When a constructor, `register()` or `boot()` throws, `down()` runs on every provider whose `boot()` started: the
- * ones that completed and the one that threw, which may have opened something before it failed (reverse order; a
- * failing `down()` is logged). Then the original error is rethrown. A failure before any boot (a constructor or a
- * `register()`) runs no `down()`.
+ * Boots every provider against `app` (construct, `register()` on all, `boot()` on all) and returns the `down()` cleanups
+ * in reverse boot order; when no facade application is set, `app` becomes it for the process first (an existing one is
+ * kept), so a provider's `Route.model()` / `Route.bind()` writes the registry the request path reads. A failure runs
+ * `down()` on every provider whose `boot()` started (reverse order; a failing `down()` is logged; a failure before any
+ * boot runs none), unsets the facade application when this boot set it, then rethrows.
  */
 export async function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>> {
+  const ownsFacadeApplication = !Facade.hasFacadeApplication();
+  // Kept after a successful boot: the app's facades resolve from it for its whole life, and Serve.down() unsets its own
+  if(ownsFacadeApplication) Facade.setFacadeApplication(app);
   const started: ServiceProvider[] = [];
   let providers: ServiceProvider[] = [];
   try {
@@ -97,6 +99,8 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
         console.error(`[@laratype/support] bootProviders: ${provider.constructor.name}.down() failed while rolling back a failed boot`, rollbackError);
       }
     }
+    // A bare boot's failed container must not stay the facade application: the next boot would keep it and write there
+    if(ownsFacadeApplication && Facade.getFacadeApplication() === app) Facade.setFacadeApplication(undefined);
     throw error;
   }
   return providers.map(provider => provider.down.bind(provider)).reverse();

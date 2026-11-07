@@ -1,4 +1,5 @@
 import { Facade } from "@laratype/core";
+import type { Container } from "@laratype/core";
 import ContextApi from "../context/ContextApi";
 
 /**
@@ -20,11 +21,16 @@ export default class ModelBindingRegistry {
 
   /** The request's registry, else the app container's (the facade application `Serve` sets). */
   static current(): ModelBindingRegistry {
-    const app = ContextApi.getContainer() ?? Facade.getFacadeApplication();
+    const app = ModelBindingRegistry.container();
     if(!app.has(ModelBindingRegistry)) {
       app.singleton(ModelBindingRegistry);
     }
     return app.make(ModelBindingRegistry);
+  }
+
+  /** The container `current()` resolves from: the current request's scope, else the facade application. */
+  static container(): Container {
+    return ContextApi.getContainer() ?? Facade.getFacadeApplication();
   }
 
 }

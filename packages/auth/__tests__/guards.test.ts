@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import LocalStrategy from 'passport-local'
-import { config, Container, depsRegistry } from '@laratype/core'
+import { config, Container, depsRegistry, Facade } from '@laratype/core'
 import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, ModelBindingRegistry, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
@@ -153,6 +153,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  // bootProviders() makes its container the facade application when none is set: don't leak it into the next test
+  Facade.setFacadeApplication(undefined)
 })
 
 afterAll(() => {

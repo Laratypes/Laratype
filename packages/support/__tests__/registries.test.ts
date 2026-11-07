@@ -25,6 +25,16 @@ describe('RouteRegistry', () => {
 })
 
 describe('ModelBindingRegistry', () => {
+  it('container() is the request container, else the facade application', () => {
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(ModelBindingRegistry.container()).toBe(app)
+    const request = new Container()
+    ContextApi.run({ container: request } as any, () => {
+      expect(ModelBindingRegistry.container()).toBe(request)
+    })
+  })
+
   it('prefers the request container over the facade application', () => {
     const request = new Container()
     const app = new Container()
