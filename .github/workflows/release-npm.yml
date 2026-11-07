@@ -2,17 +2,100 @@ name: 'Publish Packages'
 on:
   workflow_dispatch:
 
+# npm trusted publishing for the release (B15 #190, docs/v1/build.md › CI and release): the job
+# authenticates with a GitHub OIDC token, which npm exchanges for a short-lived publish token, and
+# `--provenance` signs the statement the same way. No registry credential is configured; `contents: read`
+# is all the checkout uses.
+# A trusted publisher can only be configured on a package that already exists on npm, so the first publish
+# of a new package (`@laratype/client`, `@laratype/contract`, `@laratype/core`) stays manual.
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   publish:
     name: Publish to npm registry
     runs-on: ubuntu-latest
+    # The user configures this environment's required reviewers in the repo settings, and the npm trusted
+    # publisher of each package (repo Laratypes/Laratype, workflow file release-npm.yml, environment
+    # npm-release), so a publish waits for a reviewer and npm accepts only this job's OIDC token.
+    environment: npm-release
     steps:
-      - uses: actions/checkout@v4
+      # Nothing below needs git auth; keep the token out of .git/config while pack and publish run
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Setup bun
         uses: ./.github/setup-bun
 
-      - name: Release
-        run: bun run build && bun run build:type && bunx publish -r --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing needs npm >= 11.5.1, so the runner's bundled npm is upgraded below
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # Pinned to an exact release (>= 11.5.1, at least two weeks old when pinned) instead of a range, so a
+      # newly published npm can't run in the release job before anyone has seen it
+      - name: Upgrade npm
+        run: |
+          npm install -g 'npm@11.21.0'
+          npm --version
+
+      - name: Build
+        run: bun run build
+
+      - name: Build declarations
+        run: bun run build:type
+
+      # `npm publish` ships `workspace:` and `catalog:` specifiers as-is, so each package is packed with
+      # `bun pm pack`, which resolves them, and the tarball is published instead of the directory.
+      # A public package is every packages/*/package.json without "private": true.
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pack_dir="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$pack_dir"
+
+          published=0
+          skipped=0
+
+          for pkg_json in packages/*/package.json; do
+            pkg_dir=$(dirname "$pkg_json")
+            name=$(node -p "require('./$pkg_json').name")
+            version=$(node -p "require('./$pkg_json').version")
+
+            if [ "$(node -p "require('./$pkg_json').private === true")" = "true" ]; then
+              echo "Skipping $name@$version: private package"
+              continue
+            fi
+
+            # A re-run, or a release where some packages were already published, skips those versions
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "Skipping $name@$version: already published on npm"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            tarball=$(cd "$pkg_dir" && bun pm pack --destination "$pack_dir" --quiet | tr -d '\r' | tail -n 1)
+            if [ ! -f "$tarball" ]; then
+              echo "::error::bun pm pack produced no tarball for $name@$version"
+              exit 1
+            fi
+
+            # Never publish a tarball whose manifest still needs a workspace to resolve.
+            # The manifest is read into a variable first, so a broken tarball fails the step
+            # instead of looking like a manifest with nothing to grep.
+            manifest=$(tar -xzOf "$tarball" package/package.json)
+            if printf '%s' "$manifest" | grep -q -E '(workspace|catalog):'; then
+              echo "::error::$name@$version still carries workspace:/catalog: specifiers in its tarball"
+              exit 1
+            fi
+
+            echo "Publishing $name@$version from $(basename "$tarball")"
+            npm publish "$tarball" --provenance --access public
+            published=$((published + 1))
+          done
+
+          echo "Published $published package(s), skipped $skipped already on npm"
