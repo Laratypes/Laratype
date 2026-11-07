@@ -7,7 +7,7 @@
 //   BENCH_TYPES_NODE    Node binary that runs tsc (default node)
 //
 // The fixture lives in .bench-types/ (gitignored), is regenerated on every run and is never shipped.
-// The CI job is not in this repo yet: see docs/v1/build.md › Type-performance benchmark.
+// CI runs it in .github/workflows/type-bench.yml: see docs/v1/build.md › Type-performance benchmark.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

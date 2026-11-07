@@ -1,0 +1,38 @@
+# Type-performance benchmark (S6 #95, docs/v1/build.md › Type-performance benchmark): generates the fixture,
+# runs tsc --extendedDiagnostics and fails when the app program at 500 endpoints checks in 3 s or more.
+name: Type benchmark
+on:
+  pull_request:
+  push:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: type-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  type-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Nothing below needs git auth
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The harness runs tsc under Node, not Bun
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      # Installs bun and runs `bun install --frozen-lockfile`
+      - name: Setup bun
+        uses: ./.github/setup-bun
+
+      - name: Type benchmark
+        run: bun run bench:types
+        env:
+          BENCH_TYPES_MAX_MS: '3000'

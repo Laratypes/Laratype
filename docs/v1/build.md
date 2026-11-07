@@ -259,13 +259,14 @@ Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr
 ## Type-performance benchmark
 
 ### Status
-proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)); the SHA is the harness commit. The CI job is not in this PR: a `.github/` change needs the PM's `.github` check and the user's approval, so the draft workflow is in the PR report.
+proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)); the SHA is the harness commit. CI runs it in [`.github/workflows/type-bench.yml`](../../.github/workflows/type-bench.yml) on every pull request and on push to `master`.
 
 ### Public API
 No public API. Build tooling only, with no new dependency:
 - **`bun run bench:types`** ([`scripts/bench-types/run.mjs`](https://github.com/Laratypes/Laratype/blob/ea2c120/scripts/bench-types/run.mjs)) generates the fixture, runs `tsc --extendedDiagnostics` on each case, prints the table and exits non-zero when a threshold fails. The generator is [`scripts/bench-types/fixture.mjs`](https://github.com/Laratypes/Laratype/blob/ea2c120/scripts/bench-types/fixture.mjs).
 - **`BENCH_TYPES_MAX_MS`** (default `3000`): the check-time limit, in milliseconds, for the `app` program at 500 endpoints. `BENCH_TYPES_MAX_MS=1` always fails.
 - **`BENCH_TYPES_NODE`** (default `node`): the Node binary that runs `node_modules/typescript/lib/tsc.js` (tsc runs under Node, not Bun).
+- **CI:** the `Type benchmark` workflow (`type-bench.yml`, `pull_request` and push to `master`, `contents: read`, no secrets) runs `bun run bench:types` with `BENCH_TYPES_MAX_MS=3000` under the repo's `.node-version`. `BENCH_TYPES_NODE` is never set there.
 
 ```sh
 bun run bench:types
@@ -308,12 +309,12 @@ The app program scales linearly (about 780 instantiations per endpoint plus a 61
 
 ### Non-goals
 - No change to `@laratype/contract`, `@laratype/http` or `@laratype/client` types, and no library tuning: this PR measures, it does not optimize.
-- No `.github/` workflow, no `workflow_dispatch`, no new dependency.
+- No `workflow_dispatch`, no secret and no new dependency; the workflow only runs the benchmark.
 - No TypeORM or `@laratype/support` type-graph refactor.
 - No committed fixture and no schema library in the fixture.
 
 ### Open questions
-- CI wiring: a separate `type-bench` workflow or a step in `ci.yml`, and whether the threshold should also cover the `routes` program now that its TypeORM baseline is visible → [#95](https://github.com/Laratypes/Laratype/issues/95).
+- The gate covers the `app` program only; the `routes` program stays recorded until the TypeORM type floor has its own perf issue. If the wall-clock gate flakes on shared runners, it moves to instantiations → [#95](https://github.com/Laratypes/Laratype/issues/95).
 
 ### Acceptance
 [#95 Done when](https://github.com/Laratypes/Laratype/issues/95)
