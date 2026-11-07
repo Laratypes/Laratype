@@ -2,15 +2,15 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at a62a369)
-last-verified: 2026-10-29
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at a9c9871)
+last-verified: 2026-11-07
 ---
 
 # CLI
 
 The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` options and the `make:*` generators. App-defined console commands are specified in [services.md › Console commands](./services.md#console-commands).
 
-> **Planned only, except `make:command` and the sections whose Status says merged.** On master, `sauf` is the 0.5 CLI. A section marked `planned → #N` holds a **Design (non-binding)** note built from the issue bodies. Public API, Invariants, Diagnostics and Example are left out until code lands ([README](./README.md)).
+> **Planned only, except the `make:*` generators and the sections whose Status says merged.** On master, `sauf` is the 0.5 CLI. A section marked `planned → #N` holds a **Design (non-binding)** note built from the issue bodies. Public API, Invariants, Diagnostics and Example are left out until code lands ([README](./README.md)).
 
 **State on master (0.5):**
 - **Framework commands:** `dev`, `build`, `db:init`, `db:seed`, `route:list`, and ten generators: `make:command`, `make:controller`, `make:factory`, `make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:request`, `make:resource`, `make:seeder` ([`commands/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/commands/index.ts)).
@@ -20,10 +20,10 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 
 | Section | Status |
 |---|---|
-| [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #126, #134, #148, #149, #168, #169, #171, #179, #180 |
+| [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | planned → #134; `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ a62a369 (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [make:* generators](#make-generators) | proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), stacked on #357); `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ f10c36c (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 
 ---
 
@@ -42,7 +42,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 | `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry: `Route.api` entries (name, method, path, controller, middleware, scope and contract policies, a "Not enforced" column for auth and authorize until #105/#121 and headers schema validation (no tracking issue yet), domain) and 0.5 routes | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) | [http.md › Router v2](./http.md#router-v2) |
-| `sauf make:*` | Generators from stubs | planned → #134 | [make:* generators](#make-generators) |
+| `sauf make:*` | Generators from stubs | proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
 | `sauf db:seed` | Runs the seeders | planned → #149 | [database.md › Factories and seeders](./database.md#factories-and-seeders) |
 | `sauf queue:work`, `queue:failed`, `queue:retry` | Queue worker and failed jobs | planned → #169 (Procfile: #172) | [services.md › Queue](./services.md#queue) |
@@ -108,20 +108,54 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). Depends on H2 #105, H9 #123. Templates live under `packages/sauf/src/commands/make`. `make:command` is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) at a62a369.
+proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2), stacked on F2's PR [#357](https://github.com/Laratypes/Laratype/pull/357). `make:command` is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in that PR @ f10c36c. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/resources/templates).
 
-### Design (non-binding)
-- **New:** `make:contract`. It writes a contract file into the [folder tree](./contract.md#contract-folder-tree) under the API root, with the `import type { Prefix } from './$types'` line.
-- **Scope of E2:** `make:contract`, `make:controller`, `make:request` and `make:resource`.
-- **0.5 generators ported with their area:** `make:middleware` with H6 [#117](https://github.com/Laratypes/Laratype/issues/117), `make:policy` and `make:gate` with A3 [#121](https://github.com/Laratypes/Laratype/issues/121), `make:command` with F2 [#161](https://github.com/Laratypes/Laratype/issues/161), `make:model` with DB1 [#145](https://github.com/Laratypes/Laratype/issues/145), `make:factory` and `make:seeder` with DB5 [#149](https://github.com/Laratypes/Laratype/issues/149).
-  - **`make:command` (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)):** writes `app/console/commands/<Name>.ts`, the v1 layout, with `class <Name> extends Command<typeof <Name>.signature>`, `static readonly signature = "<signature>" as const` and an empty `handle()`. The signature is derived from the class name (`SendMail` -> `send:mail`); the author edits it. A sub-path is flattened to the top level, where the manifest reads commands. The stub type-checks and boots the app like any other command ([services.md › Console commands](./services.md#console-commands)).
-- **Service generators, with Laravel names:** `make:event` and `make:listener` with EV1 [#165](https://github.com/Laratypes/Laratype/issues/165), `make:job` with Q1 [#169](https://github.com/Laratypes/Laratype/issues/169), `make:mail` with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170).
-- **Updated to the v1 API:** the controller template ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)), the request template ([validation.md › FormRequest v2](./validation.md#formrequest-v2)) and the resource template ([http.md › Resources](./http.md#resources)).
-- **Generated files type-check** in `examples/basic`.
+### Public API
+[`make/index.ts` @ a9c9871](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names.
+
+| Command | Writes | Stub |
+|---|---|---|
+| `sauf make:contract <names...>` | `app/api/<name>.ts`; a sub-path is kept (`users/posts` -> `app/api/users/posts.ts`) | `export default defineContract<Prefix>()({...})` with `import type { Prefix } from "./$types"` and an `index` GET endpoint whose query schema coerces its number |
+| `sauf make:controller <names...>` | `app/http/controllers/<name>.ts` | a `Controller` subclass with an `index(_ctx: Ctx<AnyEndpoint>)` method; mount it with `r.contract()` and annotate each method `Ctx<typeof contract.endpoint>` ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)) |
+| `sauf make:request <names...>` | `app/http/requests/<name>.ts` | the 0.5 `Request` class with a zod `rules()` schema; FormRequest v2 is planned → [#137](https://github.com/Laratypes/Laratype/issues/137) |
+| `sauf make:resource <names...> [-c, --collection]` | `app/http/resources/<name>Resource.ts`, and `<name>ResourceCollection.ts` with `--collection` | `defineResource` over a placeholder model class the author swaps for the app's model ([http.md › Resources](./http.md#resources)) |
+| `sauf make:command <names...>` | `app/console/commands/<name>.ts`; a sub-path is flattened | `class <Name> extends Command<typeof <Name>.signature>` with the signature derived from the class name ([services.md › Console commands](./services.md#console-commands)) |
+
+### Invariants
+- **Destinations** are the v1 project layout ([overview.md › Project structure](./overview.md#project-structure)): contracts under the `api.root` folder (`app/api`), controllers, requests and resources under `app/http/`, commands under `app/console/commands/`. An existing file is left untouched with a `[SKIPPED]` warning.
+- **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only.
+- **The stubs type-check** in `examples/basic` ([#134 Done when](https://github.com/Laratypes/Laratype/issues/134)). The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
   - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
-  - contract and request stubs write `z.coerce.number<number>()`, because zod 4's `z.coerce.number()` has input type `unknown`;
+  - on the repo's zod 3.25 `zod` entry, contract and request stubs write `z.coerce.number()`. With zod 4's default entry the input type of plain `z.coerce.number()` is `unknown`, so the stub then needs `z.coerce.number<number>()`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
+- **`make:request` stays 0.5** until FormRequest v2 ([#137](https://github.com/Laratypes/Laratype/issues/137)): the class extends `Request` and declares `rules()`. A contract route validates the contract's schemas and takes no request class ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
+- **`make:resource` maps plain data:** `defineResource(model, fn)` returns `make`, `collection` and `paginate`; the contract checks the returned data at `r.contract()` ([http.md › Resources](./http.md#resources)). The placeholder model class in the stub is replaced by the app's model.
+- **`make:command`** writes the v1 layout with `Command<typeof <Name>.signature>` and an empty `handle()`; the author edits the derived signature. It refuses a name that another file in `app/src/console/commands` or `app/console/commands` already declares, because the manifest reads both layouts and both `.ts`/`.mts` extensions.
+
+### Diagnostics
+- `[SKIPPED] The file <path> already exists.` (the generator leaves the file untouched).
+- `Cannot create <path>: <existing path> already declares the command "<signature>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or a `.mts` file already uses the name).
+- `make:contract` writes the name as given. An invalid tree name (a `.` in a file name, a root `index.ts`, a duplicate contract name) fails the next `sauf types:generate` with the scan's message ([typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate)).
+
+### Example
+```ts
+// app/api/reports/monthly.ts, from `sauf make:contract reports/monthly`
+import { defineContract, endpoint } from "@laratype/contract";
+import * as z from "zod";
+import type { Prefix } from "./$types";
+
+const IndexQuery = z.object({ page: z.coerce.number().int().min(1).default(1) });
+
+export default defineContract<Prefix>()({
+  index: endpoint.get("/").query(IndexQuery),
+});
+```
+
+### Non-goals
+- The other 0.5 generators ship with their area's issue: `make:middleware` with H6 [#117](https://github.com/Laratypes/Laratype/issues/117), `make:policy` and `make:gate` with A3 [#121](https://github.com/Laratypes/Laratype/issues/121), `make:model` with DB1 [#145](https://github.com/Laratypes/Laratype/issues/145), `make:factory` and `make:seeder` with DB5 [#149](https://github.com/Laratypes/Laratype/issues/149).
+- The service generators ship with their area: `make:event` and `make:listener` with EV1 [#165](https://github.com/Laratypes/Laratype/issues/165), `make:job` with Q1 [#169](https://github.com/Laratypes/Laratype/issues/169), `make:mail` with ML1 [#170](https://github.com/Laratypes/Laratype/issues/170).
+- No v1 request stub until [#137](https://github.com/Laratypes/Laratype/issues/137).
 
 ### Open questions
 - Resolved: each remaining 0.5 generator and each service generator ships with its area's issue, listed above ([#134](https://github.com/Laratypes/Laratype/issues/134)).
