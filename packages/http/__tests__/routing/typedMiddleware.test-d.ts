@@ -14,7 +14,7 @@ class User {
   declare readonly id: number
 }
 
-/** A self-referencing extension value: the conflict walk must terminate on it (H6 round 3, docs/v1/http.md › Typed middleware › Invariants). */
+/** A self-referencing extension value: the conflict walk must terminate on it (H6 #117, docs/v1/http.md › Typed middleware › Invariants). */
 interface RecursiveNode {
   next: RecursiveNode
 }
@@ -105,6 +105,7 @@ describe('the handler sees the accumulated context', () => {
       index(ctx: Ctx<typeof posts.index, { tag: string }>) { void ctx.tag.toUpperCase() }
       destroy() {}
     }
+    expectTypeOf<ExtOf<[typeof tagString, typeof tagNumber]>>().toHaveProperty('tag').toBeNever()
     expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsString, { policy: undefined }, ExtOf<[typeof tagString, typeof tagNumber]>>>().toHaveProperty(
       "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
     )

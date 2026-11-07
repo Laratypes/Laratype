@@ -123,7 +123,10 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 type ConflictLabel<N extends string, K extends string> =
   `${N}: middleware extension '${K}' is \`never\` (conflicting types, or declared \`never\`)`;
 
-/** A conflicting extension: no handler could receive the key, whatever it declares. */
+/**
+ * A conflicting extension: the proof refuses the key, whatever the handler declares. The runtime does not: it keeps
+ * the later middleware's value, which is why the handler must not see a type that value cannot satisfy.
+ */
 type ConflictIssues<N extends string, X> = {
   [K in NeverKeys<X> as ConflictLabel<N, K>]: { conflicting_key: K };
 };
