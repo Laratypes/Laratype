@@ -150,6 +150,26 @@ describe('RequestKernel.handle: previousResult', () => {
     expect(fieldReads).toEqual(['marked'])
   })
 
+  it('refuses a subclass that redeclares the field as an own property', async () => {
+    const errors = quiet()
+    /** What define semantics (sauf's SWC, esbuild) emit for `protected previousResult!: string`. */
+    class RedeclaresField extends Middleware<string> {
+      constructor() {
+        super()
+        Object.defineProperty(this, 'previousResult', { value: undefined, writable: true, enumerable: true, configurable: true })
+      }
+    }
+    const app = bootApp(() => {})
+    app.get('/redeclared', RequestKernel.handle({
+      method: 'get',
+      path: '/redeclared',
+      controller: [Responder, 'show'],
+      middleware: [RedeclaresField],
+    }))
+    expect((await app.request('/redeclared')).status).toBe(500)
+    expect(String(errors.mock.calls.flat().find((value) => value instanceof Error))).toContain('declares previousResult as a class field')
+  })
+
   it('keeps the field and the accessors in sync outside a request context', () => {
     const middleware = new ReadsField() as unknown as { previousResult: unknown } & ReadsField
     middleware.previousResult = 'written'

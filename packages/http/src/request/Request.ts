@@ -264,6 +264,13 @@ export default class Request extends AppServiceProvider {
             else {
               // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
               const middleware = Request.container().make(currentPipeline.handler);
+              // A subclass that redeclares the 0.5 field (`protected previousResult!: T`) gets an own property under
+              // define semantics (sauf's SWC, esbuild), which hides the request-local accessor: fail closed (H21 #269)
+              if(Object.hasOwn(middleware, "previousResult")) {
+                throw new InternalException(
+                  `[@laratype/http] ${middleware.constructor.name} declares previousResult as a class field, which hides the request-local previous result. Fix: remove the field, use \`declare\`, or type it through Middleware<T>.`
+                );
+              }
               // The same instance can be mounted at more than one level (a container singleton at group and route
               // level): each run restores the value it found, so an inner run leaves no result behind for the outer
               // one to read after `next()` (H21 #269)
