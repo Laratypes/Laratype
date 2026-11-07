@@ -29,6 +29,12 @@ const primaryKeyOf = (model: PrimaryKeyModel): string => {
   return primaryKey;
 };
 
+/** Whether a token record's model is one the guard loads: the provider itself, or a subclass of it. */
+const isProviderModel = (model: unknown, provider: unknown): boolean => {
+  if (model === provider) return true;
+  return typeof model === "function" && typeof provider === "function" && model.prototype instanceof provider;
+};
+
 export type JWTSignOptions = {
   expiresIn?: number;
   name: string;
@@ -62,8 +68,8 @@ export default class TokenGuard<User = any> {
   }
 
   /**
-   * The user `token` belongs to, or `false` when it is unknown, expired, was issued for another guard or does not
-   * verify. A provider model (or the token's model) without a primary key throws `InternalException`.
+   * The user `token` belongs to, or `false` when it is unknown, expired, was issued for another guard or model, or
+   * does not verify. A provider model (or the token's model) without a primary key throws `InternalException`.
    */
   async verify(token: string): Promise<User | false> {
     let verificationMode: string = this.config.verification;
@@ -99,9 +105,14 @@ export default class TokenGuard<User = any> {
       return false;
     }
 
+    const provider: typeof Model = this.config.provider;
+    // A token names the provider model it was signed for: another model's token never authenticates this guard (A6 #335)
+    if (decoded.payload?.type !== provider.name) {
+      return false;
+    }
+
     if (!verifyRecord) {
       // Without a token record nothing can revoke the token, so its user is loaded by the id it carries
-      const provider: typeof Model = this.config.provider;
       const primaryKey = primaryKeyOf(provider);
       // issueToken() signs the primary key's value under `payload.id`, whatever the column is called
       const id = decoded.payload?.id;
@@ -114,7 +125,8 @@ export default class TokenGuard<User = any> {
 
     // The record names the model the token was issued for, so its own primary key loads the user, not always `id`
     const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
-    if (!modelResource) {
+    // A record of another model would load a different identity than the guard's provider (A6 #335)
+    if (!modelResource || !isProviderModel(modelResource, provider)) {
       return false;
     }
     const user = await modelResource.findOneBy({
@@ -182,12 +194,22 @@ export default class TokenGuard<User = any> {
 
   /** Signs a token for `user`, and stores it when the app has a PersonalAccessToken model. */
   async issueToken(user: User, options: JWTSignOptions): Promise<string> {
+    const provider: typeof Model = this.config.provider;
+    // The token only ever loads the guard's provider model, so another model is refused where it is signed (A6 #335)
+    if (!(user instanceof provider)) {
+      const modelName = (user as { constructor?: { name?: string } } | null | undefined)?.constructor?.name ?? String(user);
+      throw new InternalException(
+        `[@laratype/auth] Guard "${this.name}" issues tokens for ${provider.name}, not ${modelName}.`,
+      );
+    }
     const fieldIdName = ModelManagement.getPrimaryKeyFromModelInstance(user as any);
     if (!fieldIdName) {
       throw new InternalException(`[@laratype/auth] Model ${(user as object).constructor.name} does not have a primary key defined.`);
     }
     const payload = {
       id: (user as any)[fieldIdName],
+      // verify() compares it with the guard's provider, so a token never loads another model's row (A6 #335)
+      type: provider.name,
     };
     const expiresIn = options.expiresIn || 3600;
     const verificationMode = this.config.verification;

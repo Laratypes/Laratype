@@ -8,24 +8,26 @@ import { Hono } from 'hono'
 import jsonwebtoken from 'jsonwebtoken'
 import LocalStrategy from 'passport-local'
 import { config, Container, depsRegistry } from '@laratype/core'
-import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
+import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, InternalException, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
 
 const passwordColumn = { propertyPath: 'password', isSelect: false }
 const repository = { metadata: { primaryColumns: [{ propertyName: 'id' }], findColumnWithPropertyName: (name: string) => (name === 'password' ? passwordColumn : undefined) } }
 
-class User {
+/** The model statics the test models share: rows, the password-column repository and the query of `attempt()`. */
+class ModelFixture {
   id!: number
   email!: string
-  static rows: User[] = []
+  static rows: ModelFixture[] = []
   static getRepository = () => repository
-  static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
-    User.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null)
+  static async findOneBy(fields: Record<string, unknown>) {
+    return this.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null
+  }
   /** The password column is { select: false }: the login adds it to the select, then reads it off the row. */
-  static createQueryBuilder(_alias: string) {
+  static createQueryBuilder(this: typeof ModelFixture, _alias: string) {
     let where: Record<string, unknown> = {}
-    const Model = this as unknown as { new (): User, rows: User[] }
+    const Model = this
     const query = {
       where: (value: Record<string, unknown>) => { where = value; return query },
       addSelect: (_: string) => query,
@@ -39,10 +41,13 @@ class User {
   }
 }
 
-class Admin extends User {
-  static rows: Admin[] = []
-  static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
-    Admin.rows.find(row => Object.entries(fields).every(([key, value]) => (row as any)[key] === value)) ?? null)
+// Two separate models, as examples/basic: an Admin is not a User (A6 #358)
+class User extends ModelFixture {
+  static override rows: User[] = []
+}
+
+class Admin extends ModelFixture {
+  static override rows: Admin[] = []
 }
 
 /** The PersonalAccessToken model: a token must have a live record. */
@@ -59,7 +64,7 @@ class PersonalAccessToken {
   }
 }
 
-const make = <T extends User>(Model: { new(): T, rows: T[] }, id: number, email: string) => {
+const make = <T extends ModelFixture>(Model: { new(): T, rows: T[] }, id: number, email: string) => {
   const row = Object.assign(new Model(), { id, email, password: Hash.make('secret') })
   Model.rows.push(row)
   return row
@@ -322,6 +327,41 @@ describe('TokenGuard', () => {
     expect(verified).toMatchObject({ id: 1, email: 'ada@example.com' })
   })
 
+  it('refuses to sign an Admin with a User guard', async () => {
+    const admin = make(Admin, 2, 'root@example.com')
+    // The default guard's provider is User: this token would verify as User#2
+    const token = new TokenGuard('web', authConfig.guards.web).issueToken(admin, { name: 'Default Token', abilities: '*' })
+    await expect(token).rejects.toBeInstanceOf(InternalException)
+    await expect(token).rejects.toThrow('[@laratype/auth] Guard "web" issues tokens for User, not Admin.')
+  })
+
+  it('refuses to sign a User with an Admin guard', async () => {
+    const user = make(User, 1, 'ada@example.com')
+    const token = new TokenGuard('admin', authConfig.guards.admin).issueToken(user, { name: 'Default Token', abilities: '*' })
+    await expect(token).rejects.toBeInstanceOf(InternalException)
+    await expect(token).rejects.toThrow('[@laratype/auth] Guard "admin" issues tokens for Admin, not User.')
+  })
+
+  it('refuses a user that is not a model instance with an InternalException', async () => {
+    for (const user of [null, undefined, { id: 1 }, 'User']) {
+      await expect(guard.issueToken(user as any, { name: 'Default Token', abilities: '*' })).rejects.toBeInstanceOf(InternalException)
+    }
+  })
+
+  it('signs a token for a subclass of the provider', async () => {
+    class SuperAdmin extends Admin {
+      static override rows: SuperAdmin[] = []
+    }
+    ;(globalThis.__laratype_db.models as any).SuperAdmin = SuperAdmin
+
+    const guard = new TokenGuard('admin', authConfig.guards.admin, PersonalAccessToken as any)
+    const superAdmin = make(SuperAdmin, 9, 'root@example.com')
+    const token = await guard.issueToken(superAdmin, { name: 'Default Token', abilities: '*' })
+    // The record keeps the real model; the model it names is a subclass of the provider
+    expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'SuperAdmin', tokenable_id: 9 })
+    await expect(guard.verify(token)).resolves.toMatchObject({ id: 9, email: 'root@example.com' })
+  })
+
   it('rejects a token signed for another guard', async () => {
     const user = make(User, 1, 'ada@example.com')
     const token = await new TokenGuard('web', authConfig.guards.web)
@@ -333,13 +373,26 @@ describe('TokenGuard', () => {
   it('rejects a token without a guard claim', async () => {
     make(User, 1, 'ada@example.com')
     // A token from before the claim existed: a valid signature alone no longer authenticates it
-    const token = jsonwebtoken.sign({ payload: { id: 1 } }, KEY)
+    const token = jsonwebtoken.sign({ payload: { id: 1, type: 'User' } }, KEY)
+    await expect(guard.verify(token)).resolves.toBe(false)
+  })
+
+  it('rejects a token without a model claim', async () => {
+    make(User, 1, 'ada@example.com')
+    // Tokens issued before the model claim existed carry the right guard and id but no model
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 1 } }, KEY)
+    await expect(guard.verify(token)).resolves.toBe(false)
+  })
+
+  it('rejects a token signed for another model, even with the right secret and guard', async () => {
+    make(User, 1, 'ada@example.com')
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 1, type: 'Admin' } }, KEY)
     await expect(guard.verify(token)).resolves.toBe(false)
   })
 
   it('rejects a token signed with another algorithm, even with the same secret', async () => {
     make(User, 1, 'ada@example.com')
-    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 1 } }, KEY, { algorithm: 'HS384' })
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 1, type: 'User' } }, KEY, { algorithm: 'HS384' })
     await expect(guard.verify(token)).resolves.toBe(false)
   })
 
@@ -393,10 +446,26 @@ describe('TokenGuard', () => {
       },
     }
     const guard = new TokenGuard('api', { provider: Account, verification: 'jwt' } as any, tokenModel as any)
-    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 'acc-2' } }, KEY)
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: 'acc-2', type: 'Account' } }, KEY)
 
     await expect(guard.verify(token)).resolves.toMatchObject({ uuid: 'acc-2', email: 'grace@example.com' })
     expect(record.save).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a token record of a model that is not the provider or a subclass', async () => {
+    const admin = make(Admin, 3, 'root@example.com')
+    const token = jsonwebtoken.sign({ guard: 'api', payload: { id: admin.id, type: 'User' } }, KEY)
+    PersonalAccessToken.rows.push({
+      token,
+      expires_at: new Date(Date.now() + 60_000),
+      verification_type: 'jwt',
+      tokenable_type: 'Admin',
+      tokenable_id: admin.id,
+      save: vi.fn(),
+    })
+
+    const guard = new TokenGuard('api', authConfig.guards.api, PersonalAccessToken as any)
+    await expect(guard.verify(token)).resolves.toBe(false)
   })
 })
 
@@ -461,6 +530,19 @@ describe('Auth.login', () => {
       const authenticated = Auth.login<any>(user)
       const token = await authenticated.generateToken({ name: 'Default Token', abilities: '*' })
       expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'User', tokenable_id: 3, token })
+    })
+  })
+
+  it('refuses to generate a token for a model that is not the guard provider', async () => {
+    const { container } = await boot()
+    await ContextApi.run({ container } as any, async () => {
+      const admin = make(Admin, 5, 'root@example.com')
+      // The default guard's provider is User: the Admin login is refused where the token is signed
+      const authenticated = Auth.login<any>(admin)
+      await expect(authenticated.generateToken({ name: 'Default Token', abilities: '*' })).rejects.toThrow(
+        '[@laratype/auth] Guard "web" issues tokens for User, not Admin.',
+      )
+      expect(PersonalAccessToken.rows).toEqual([])
     })
   })
 })
