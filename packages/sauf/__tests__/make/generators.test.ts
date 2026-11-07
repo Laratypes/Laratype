@@ -18,7 +18,7 @@ interface Run {
 }
 
 let project: string;
-let runs: Record<"contract" | "escape" | "types" | "command" | "controller" | "request" | "resource", Run>;
+let runs: Record<"contract" | "escape" | "types" | "command" | "controller" | "request" | "resource" | "nestedResource", Run>;
 
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
 const sauf = (...args: string[]) => new Promise<Run>((resolve) => {
@@ -61,6 +61,7 @@ beforeAll(async () => {
     controller: await sauf("make:controller", "DraftController"),
     request: await sauf("make:request", "DraftRequest"),
     resource: await sauf("make:resource", "Draft", "--collection"),
+    nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
   };
 }, 120_000);
 
@@ -107,6 +108,9 @@ describe("v1 make generators", () => {
       "app/http/requests/DraftRequest.ts",
       "app/http/resources/DraftResource.ts",
       "app/http/resources/DraftResourceCollection.ts",
+      // A sub-path is a folder, never part of an exported name
+      "app/http/resources/admin/NoteResource.ts",
+      "app/http/resources/admin/NoteResourceCollection.ts",
     ].map((path) => join(project, path));
     for (const file of generated) expect(existsSync(file), file).toBe(true);
 

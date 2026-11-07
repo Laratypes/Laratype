@@ -31,7 +31,9 @@ export default class MakeResourceCommand extends MakeCommand {
         const collectionPath = this.resolve("sauf", "ResourceCollection.template");
         const collectionName = resourceName + "Collection";
         const collectionDestinationPath = "./app/http/resources/" + collectionName + ".ts";
-        const collectionFunction = collectionName.charAt(0).toLowerCase() + collectionName.slice(1);
+        // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
+        const collectionFile = this.getFileName(collectionName);
+        const collectionFunction = collectionFile.charAt(0).toLowerCase() + collectionFile.slice(1);
         const collectionResult = this.build(collectionPath, {
           CollectionFunction: collectionFunction,
           ResourceName: this.getFileName(resourceName)
