@@ -692,7 +692,7 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
 // Round 5 of #345: Hono 4.12.28's parseBody() reads the bytes even when the FormData is cached, and rebuilds them with
 // a new multipart boundary, so the pipeline converts the FormData it holds instead (toDotFields).
 describe("a form body a middleware read with c.req.formData() (H43 #345 round 5)", () => {
-  const fields = () => z.object({ name: z.string(), user: z.object({ age: z.string() }), "tags[]": z.array(z.string()) });
+  const formSchema = () => z.object({ name: z.string(), user: z.object({ age: z.string() }), "tags[]": z.array(z.string()) });
 
   const readFormData: MiddlewareHandler = async (c, next) => {
     await c.req.formData();
@@ -717,7 +717,7 @@ describe("a form body a middleware read with c.req.formData() (H43 #345 round 5)
     quiet();
     // `c.req.formData()` leaves only its promise in Hono's cache. Hono 4.12.28's `parseBody()` rebuilds its bytes with
     // a new multipart boundary (a TypeError on multipart, no fields on urlencoded); the pipeline converts the FormData
-    const { app, validated } = mount([readFormData], [], [], fields);
+    const { app, validated } = mount([readFormData], [], [], formSchema);
     const response = await app.request("/users", init());
     expect(response.status).toBe(201);
     expect(validated()).toEqual({ name: "ada", user: { age: "36" }, "tags[]": ["a", "b"] });
@@ -754,6 +754,8 @@ describe("toDotFields (H43 #345 round 5)", () => {
     const request = new HonoRequest(new Request("http://localhost/users", { method: "POST", body: formOf() }));
     const hono = await request.parseBody({ dot: true });
     const fields = toDotFields(formOf());
+    // `toEqual`, not `toStrictEqual`: the own `__proto__` key makes vitest's strict comparison report a difference
+    // between two structurally identical null-prototype objects; the prototype checks below cover what it would add
     expect(fields).toEqual(hono);
     // A `__proto__`, `constructor` or `prototype` segment is an own key of a null-prototype object: no prototype of
     // Object.prototype is reachable, so the submitted value reaches no prototype
