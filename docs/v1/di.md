@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed @ 8b5bae2 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -602,7 +602,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ## Container-backed registries and facades
 
 ### Status
-- Registries: proposed → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7), on PR pending review.
+- Registries: proposed @ 8b5bae2 → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7), on PR pending review.
 - Facades: merged @ a6fb351 (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 - `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e.
 
@@ -611,7 +611,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 - Still on `globalThis`: `__laratype_config` and `__laratype_configs` (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)), `__laratype_manifest` (the build manifest, [build.md](./build.md)) and `__laratype_env_file` (`EnvLoadServiceProvider`).
 
 ### Public API
-[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e](https://github.com/Laratypes/Laratype/blob/74b7e8245a6f86832f6d048bb6a62ed79a33011e/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330)
+[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e](https://github.com/Laratypes/Laratype/blob/74b7e8245a6f86832f6d048bb6a62ed79a33011e/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330) · [`RouteRegistry.ts` @ 8b5bae2](https://github.com/Laratypes/Laratype/blob/8b5bae2617fc8cc5d0b6d122d96e3d34db536ce2/packages/support/src/registries/RouteRegistry.ts) · [`ModelBindingRegistry.ts` @ 8b5bae2](https://github.com/Laratypes/Laratype/blob/8b5bae2617fc8cc5d0b6d122d96e3d34db536ce2/packages/support/src/registries/ModelBindingRegistry.ts)
 
 ```ts
 // @laratype/core
@@ -702,7 +702,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ### Non-goals
 - No `__callStatic`-style proxy: each facade forwards its methods explicitly, so their types (generics included) stay as written.
 - No fake classes with assertions (Laravel's `Mail::fake()`): `fake()` takes the fake instance.
-- No registries: D7 [#114](https://github.com/Laratypes/Laratype/issues/114).
+- No registry accessors on the facades: the registries are container bindings (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)), not `Hash`/`Log`-style facades.
 
 ### Open questions
 - The `Mail` facade → [#170](https://github.com/Laratypes/Laratype/issues/170)
