@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)); variadic check proposed: PR pending @ 56ee54c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) |
+| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)); variadic check proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 56ee54c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
