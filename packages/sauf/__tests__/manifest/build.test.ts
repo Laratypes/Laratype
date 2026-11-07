@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Console } from '@laratype/console';
 import { getAppPath, setAppManifest, type AppManifest } from '@laratype/support';
-import LaratypeBuildCommand, { loadBuildTypeScript, writeDistManifest } from '../../src/commands/build';
+import LaratypeBuildCommand, { loadBuildTypeScript, warnOmitted, writeDistManifest } from '../../src/commands/build';
 import { MANIFEST_FILE, useAppManifest } from '../../src/manifest';
 
 /**
@@ -21,13 +21,14 @@ const write = (dir: string, file: string, content = 'export default {};\n') => {
 };
 
 /** A project with `tsconfig.build.json` = `compilerOptions` + `extra`, compiled with tsc (the build's first step). */
-const project = (name: string, compilerOptions: Record<string, unknown>, extra: Record<string, unknown> = {}, root = tmp) => {
+const project = (name: string, compilerOptions: Record<string, unknown>, extra: Record<string, unknown> = {}, root = tmp, files: Record<string, string> = {}) => {
   const dir = join(root, name);
   write(dir, 'app/config/config.ts', 'export default { name: "demo" };\n');
   write(dir, 'app/config/providers.ts', 'export default [];\n');
   write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
   write(dir, 'app/database/factories/UserFactory.ts', 'export default class UserFactory {};\n');
   write(dir, 'database/seeders/DatabaseSeeder.ts', 'export default class DatabaseSeeder { layout = "v1" };\n');
+  for (const [file, content] of Object.entries(files)) write(dir, file, content);
   write(dir, 'tsconfig.build.json', JSON.stringify({
     compilerOptions: { target: 'ES2022', module: 'ES2022', moduleResolution: 'node', skipLibCheck: true, types: [], outDir: './dist', ...compilerOptions },
     include: ['app/**/*'],
@@ -175,6 +176,38 @@ describe('writeDistManifest', () => {
     expect(code).toContain("path: 'app/src/models/User.ts', load: () => import('../app/src/models/User.js')");
     expect(code).not.toContain("path: 'app/src/models/User.js'");
     expect(new ((await (await load(file)).models[0]!.load()).default)()).toBeInstanceOf(Object);
+  });
+});
+
+describe('warnOmitted', () => {
+  it('a lang file outside the build program gets its own warning, naming the files and the lang/**/* fix', async () => {
+    const dir = project('lang-outside', {}, {}, tmp, {
+      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+    });
+    const { omitted } = writeDistManifest(ts, dir);
+    expect(omitted).toContain('lang/en/messages.ts');
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      warnOmitted(omitted);
+      expect(warn).toHaveBeenCalledWith(
+        'Lang files are not in the program of tsconfig.build.json, so production ships no translations: lang/en/messages.ts (add "lang/**/*" to the build tsconfig\'s "include")',
+      );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('database/seeders/DatabaseSeeder.ts'));
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a lang file inside the build program ships in the manifest', async () => {
+    const dir = project('lang-inside', {}, { include: ['app/**/*', 'database/**/*', 'lang/**/*'] }, tmp, {
+      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+    });
+    const { file, omitted } = writeDistManifest(ts, dir);
+    expect(omitted).toEqual([]);
+    const manifest = await load(file);
+    expect(manifest.lang.map((entry) => entry.name)).toEqual(['en/messages']);
+    expect((await manifest.lang[0]!.load()).default).toEqual({ greeting: 'Hello {name}' });
   });
 });
 

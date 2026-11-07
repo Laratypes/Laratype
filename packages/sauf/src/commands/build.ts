@@ -127,6 +127,24 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
   return { file, omitted, appDir };
 }
 
+/**
+ * Warns about the manifest entries `writeDistManifest()` left out of the build program. A lang file gets its own line:
+ * production then ships no translations and `trans()` returns the raw keys, and the fix is always `lang/**\/*` in the
+ * build tsconfig (I1 #167).
+ */
+export function warnOmitted(omitted: readonly string[]): void {
+  const lang = omitted.filter((path) => path.startsWith("lang/"));
+  if (lang.length) {
+    Console.warn(
+      `Lang files are not in the program of tsconfig.build.json, so production ships no translations: ${lang.join(', ')} (add "lang/**/*" to the build tsconfig's "include")`,
+    );
+  }
+  const others = omitted.filter((path) => !path.startsWith("lang/"));
+  if (others.length) {
+    Console.warn(`Not in the program of tsconfig.build.json, so left out of dist/${MANIFEST_FILE}: ${others.join(', ')} (add their folder to "include" to ship them)`);
+  }
+}
+
 export default class LaratypeBuildCommand extends Command {
 
   static signature = 'build'
@@ -157,9 +175,7 @@ export default class LaratypeBuildCommand extends Command {
     rmSync(manifestFile, { force: true });
     const ts = await loadBuildTypeScript();
     const { file, omitted } = writeDistManifest(ts, getProjectPath('', false));
-    if (omitted.length) {
-      Console.warn(`Not in the program of tsconfig.build.json, so left out of dist/${MANIFEST_FILE}: ${omitted.join(', ')} (add their folder to "include" to ship them)`);
-    }
+    warnOmitted(omitted);
     Console.info(`Generated ${file}`);
 
     const targets = {
