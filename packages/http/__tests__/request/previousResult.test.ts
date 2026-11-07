@@ -57,6 +57,15 @@ class Remember extends Middleware {
   }
 }
 
+/** A 0.5 middleware that reads the protected field directly, as 0.5 code does. */
+class ReadsField extends Middleware<string> {
+  async handle(_request: Request, _res: Response, next: (request: unknown) => unknown) {
+    fieldReads.push(this.previousResult)
+    return next(this.previousResult)
+  }
+}
+const fieldReads: unknown[] = []
+
 /** Gives the rest of the stack its own previous result, after Remember's. */
 class Touch extends Middleware {
   async handle(_request: Request, _res: Response, next: (request: unknown) => unknown) {
@@ -125,6 +134,26 @@ describe('RequestKernel.handle: previousResult', () => {
       { run: 1, start: 'run-0', after: 'run-0' },
       { run: 0, start: 'marked', after: 'marked' },
     ])
+  })
+
+  it('serves the 0.5 protected field inside a request', async () => {
+    quiet()
+    fieldReads.length = 0
+    const app = bootApp(() => {})
+    app.get('/field/:value', RequestKernel.handle({
+      method: 'get',
+      path: '/field/:value',
+      controller: [Responder, 'show'],
+      middleware: [Mark, ReadsField],
+    }))
+    expect((await app.request('/field/marked')).status).toBe(200)
+    expect(fieldReads).toEqual(['marked'])
+  })
+
+  it('keeps the field and the accessors in sync outside a request context', () => {
+    const middleware = new ReadsField() as unknown as { previousResult: unknown } & ReadsField
+    middleware.previousResult = 'written'
+    expect(middleware.getPreviousResult()).toBe('written')
   })
 
   it('keeps the instance fallback outside a request context', () => {
