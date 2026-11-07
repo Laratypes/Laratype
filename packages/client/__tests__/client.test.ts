@@ -495,6 +495,48 @@ describe('options and hooks', () => {
     expect('credentials' in fetch.mock.calls[1]![1]).toBe(false)
   })
 
+  it('sends redirect: "manual" by default, so a fetch that rejects on "error" still resolves', async () => {
+    const modes: Array<RequestRedirect | undefined> = []
+    const fetch = vi.fn<FetchLike>(async (_input, init) => {
+      modes.push(init.redirect)
+      if (init.redirect === 'error') throw new TypeError('redirect: "error" is not supported')
+      return new Response('{}', { status: 200 })
+    })
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(result.ok).toBe(true)
+    expect(modes).toEqual(['manual'])
+  })
+
+  it('passes an opted-in redirect mode through to fetch', async () => {
+    const { fetch } = fakeFetch()
+    await createClient(appApi, { fetch, redirect: 'follow' }).users.index()
+    await createClient(appApi, { fetch, redirect: 'error' }).users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'error'])
+  })
+
+  it('onRequest setting request.init.redirect wins over options.redirect', async () => {
+    const { fetch } = fakeFetch()
+    const api = createClient(appApi, {
+      fetch,
+      redirect: 'error',
+      onRequest: ({ init }) => void (init.redirect = 'follow'),
+    })
+    await api.users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('follow')
+  })
+
+  it('reads redirect at each call: mutating the options takes effect on the next call', async () => {
+    const { fetch } = fakeFetch()
+    const options: ClientOptions = { fetch, redirect: 'follow' }
+    const api = createClient(appApi, options)
+    await api.users.index()
+    options.redirect = 'manual'
+    await api.users.index()
+    options.redirect = undefined
+    await api.users.index()
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['follow', 'manual', 'manual'])
+  })
+
   it('onRequest gets the url and the merged init just before fetch, and may change the init', async () => {
     const { fetch, calls } = fakeFetch()
     const controller = new AbortController()
@@ -803,12 +845,33 @@ describe('the result union', () => {
     expect(badGateway).toMatchObject({ ok: false, unexpected: true, status: 502, error: expect.any(SyntaxError), text: 'Bad Gateway' })
   })
 
-  it('an opaque response (redirect: "manual", no-cors) also has status 0, but comes with its response', async () => {
-    const opaque = Object.assign(new Response(null, { status: 200 }), {}) as Response
+  it('under the default redirect: "manual", a real 3xx is unexpected with its status and response (Node, Bun, Deno, workerd)', async () => {
+    const fetch = vi.fn<FetchLike>(async () => new Response(null, { status: 302, headers: { location: '/login' } }))
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('manual')
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 302, response: expect.any(Response) })
+    expect(result.response!.headers.get('location')).toBe('/login')
+  })
+
+  it('under the default redirect: "manual", a browser opaqueredirect is status 0 with its response', async () => {
+    const opaque = new Response(null, { status: 200 })
     Object.defineProperties(opaque, { status: { value: 0 }, ok: { value: false }, type: { value: 'opaqueredirect' } })
-    const result = await createClient(appApi, { fetch: async () => opaque }).users.index()
+    const fetch = vi.fn<FetchLike>(async () => opaque)
+    const result = await createClient(appApi, { fetch }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('manual')
     expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: opaque })
     expect(result.response!.type).toBe('opaqueredirect')
+  })
+
+  it('resolves the "error" opt-in rejection as the status-0 unexpected result without a response', async () => {
+    const failure = new TypeError('Failed to fetch')
+    const fetch = vi.fn<FetchLike>(async (_input, init) => {
+      if (init.redirect === 'error') throw failure
+      return new Response('{}', { status: 200 })
+    })
+    const result = await createClient(appApi, { fetch, redirect: 'error' }).users.index()
+    expect(fetch.mock.calls[0]![1].redirect).toBe('error')
+    expect(result).toEqual({ ok: false, unexpected: true, status: 0, error: failure, response: undefined })
   })
 
   it('a network failure or an abort resolves as unexpected, with status 0 and no response', async () => {
@@ -875,6 +938,13 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
+  })
+
+  it('a 3xx is unexpected even when its body carries a declared code (the manifest knows codes only)', async () => {
+    const result = await createClient<AppApi>(manifest, { fetch: json({ code: 'EMAIL_TAKEN', message: 'x' }, 302) }).users.store({
+      body: { name: 'A', email: 'a' },
+    })
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 302, error: { code: 'EMAIL_TAKEN', message: 'x' } })
   })
 
   it('always puts a "/" before a route path: a ".evil.com" param cannot extend the host', async () => {
