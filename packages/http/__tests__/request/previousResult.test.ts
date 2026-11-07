@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
-import { Controller, Middleware, RequestKernel, ResponseKernel } from '../../src/index'
+import { Controller, Middleware, RequestKernel, ResponseKernel, defineRouteGroup } from '../../src/index'
 import type { Request } from '../../src/index'
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles its errors. */
@@ -31,6 +31,10 @@ class Responder extends Controller {
 /** What each request saw before `next()`, after its await, and after the downstream middleware ran. */
 const seen: Array<{ start: unknown, end: unknown, after: unknown }> = []
 let rememberBuilt = 0
+
+/** Each run of the two mounts of one singleton: what it read before and after the downstream middleware ran. */
+const mounts: Array<{ run: number, start: unknown, after: unknown }> = []
+let sharedBuilt = 0
 
 /** Passes its (request-specific) path value to the rest of the stack. */
 class Mark extends Middleware {
@@ -60,11 +64,28 @@ class Touch extends Middleware {
   }
 }
 
+/** One singleton mounted at the group and at the route level: each mount must keep its own previous result. */
+class Shared extends Middleware {
+  constructor() { super(); sharedBuilt++ }
+
+  private runs = 0
+
+  async handle(_request: Request, _res: Response, next: (request: unknown) => unknown) {
+    const run = this.runs++
+    const start = this.getPreviousResult()
+    const result = await next(`run-${run}`)
+    mounts.push({ run, start, after: this.getPreviousResult() })
+    return result
+  }
+}
+
 describe('RequestKernel.handle: previousResult', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     seen.length = 0
     rememberBuilt = 0
+    mounts.length = 0
+    sharedBuilt = 0
   })
 
   it('is per request for a singleton middleware whose requests interleave across an await', async () => {
@@ -83,6 +104,26 @@ describe('RequestKernel.handle: previousResult', () => {
     expect(seen).toEqual([
       { start: 'second', end: 'second', after: 'second' },
       { start: 'first', end: 'first', after: 'first' },
+    ])
+  })
+
+  it('keeps the group and route mounts of one singleton independent', async () => {
+    quiet()
+    const app = bootApp((container) => container.singleton(Shared))
+    defineRouteGroup('/api', {
+      path: '/',
+      middleware: [Mark, Shared],
+      children: [{ path: '/shared/:value', method: 'get', controller: [Responder, 'show'], middleware: [Shared] }],
+    }, { apps: app } as never)
+    const response = await app.request('/api/shared/marked')
+    expect(response.status).toBe(200)
+    // One instance served both mounts
+    expect(sharedBuilt).toBe(1)
+    // The route mount's run starts with what the group mount passed to next(); after the route mount finishes, the
+    // group mount still reads its own previous result ('marked', from Mark), not the route mount's run
+    expect(mounts).toEqual([
+      { run: 1, start: 'run-0', after: 'run-0' },
+      { run: 0, start: 'marked', after: 'marked' },
     ])
   })
 

@@ -264,8 +264,16 @@ export default class Request extends AppServiceProvider {
             else {
               // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
               const middleware = Request.container().make(currentPipeline.handler);
+              // The same instance can be mounted at more than one level (a container singleton at group and route
+              // level): each run restores the value it found, so an inner run leaves no result behind for the outer
+              // one to read after `next()` (H21 #269)
+              const previousResult = middleware.getPreviousResult();
               middleware.setPreviousResult(arg);
-              return await middleware.handle(requestInstance, res, next);
+              try {
+                return await middleware.handle(requestInstance, res, next);
+              } finally {
+                middleware.setPreviousResult(previousResult);
+              }
             }
           }
         };
