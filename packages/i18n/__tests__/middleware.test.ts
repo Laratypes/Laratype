@@ -129,8 +129,8 @@ describe("LocaleMiddleware", () => {
       expect(getLocale()).toBe("vi");
     });
 
-    // A non-numeric q or more than three decimals is malformed too: en is not silently q=1
-    const malformed = setup();
+    // A non-numeric q or more than three decimals is malformed too: en is not silently q=1, and fr is not 0.1234
+    const malformed = setup(withFrench);
     await inScope(malformed, undefined, async () => {
       await new LocaleMiddleware().handle(
         request({}, { "accept-language": "en;q=abc, fr;q=0.1234, vi;q=0.1" }),
@@ -171,8 +171,8 @@ describe("LocaleMiddleware", () => {
     }
   });
 
-  it("setLocale() in a request without a container leaves the default alone, warns once, and the next request gets it", async () => {
-    const app = setup();
+  it("setLocale() in a request without a container leaves the shared default alone and warns once", async () => {
+    setup();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // A 0.5 route run inside ContextApi.run but not through RequestKernel: no request container to hold the locale
@@ -183,8 +183,18 @@ describe("LocaleMiddleware", () => {
       expect(getLocale()).toBe("en");
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("setLocale() has no request container"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
 
-      // The next request still reads the app default, not what the container-less route tried to set
+  it("setLocale() in a request without a container leaves the next request on the app default", async () => {
+    const app = setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await ContextApi.run({ request: {} as Request, modelBindings: {} }, () => {
+        setLocale("vi");
+      });
       await inScope(app, undefined, async () => {
         expect(getLocale()).toBe("en");
       });

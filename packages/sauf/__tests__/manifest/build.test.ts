@@ -180,11 +180,13 @@ describe('writeDistManifest', () => {
 });
 
 describe('warnOmitted', () => {
-  it('a lang file outside the build program gets its own warning, naming the files and the lang/**/* fix', async () => {
-    const dir = project('lang-outside', {}, {}, tmp, {
+  const langFixture = (name: string) =>
+    project(name, {}, {}, tmp, {
       'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
     });
-    const { omitted } = writeDistManifest(ts, dir);
+
+  it('warns that a lang file outside the build program is not shipped', async () => {
+    const { omitted } = writeDistManifest(ts, langFixture('lang-outside'));
     expect(omitted).toContain('lang/en/messages.ts');
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     try {
@@ -192,8 +194,19 @@ describe('warnOmitted', () => {
       expect(warn).toHaveBeenCalledWith(
         'Lang files are not in the program of tsconfig.build.json, so production ships no translations: lang/en/messages.ts (add "lang/**/*" to the build tsconfig\'s "include")',
       );
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('database/seeders/DatabaseSeeder.ts'));
-      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps the generic warning for the other kinds left out of the program', async () => {
+    const { omitted } = writeDistManifest(ts, langFixture('lang-outside-generic'));
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      warnOmitted(omitted);
+      expect(warn).toHaveBeenCalledWith(
+        'Not in the program of tsconfig.build.json, so left out of dist/app.manifest.js: database/seeders/DatabaseSeeder.ts (add their folder to "include" to ship them)',
+      );
     } finally {
       warn.mockRestore();
     }
@@ -288,6 +301,34 @@ describe('sauf build', () => {
       process.chdir(cwd);
       info.mockRestore();
       start.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('warns without failing when a lang file is outside the build program', async () => {
+    const cwd = process.cwd();
+    const root = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), '.cli-lang-'));
+    const start = vi.spyOn(Console, 'start').mockImplementation(() => {});
+    const info = vi.spyOn(Console, 'info').mockImplementation(() => {});
+    const success = vi.spyOn(Console, 'success').mockImplementation(() => {});
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const dir = project('app', {}, {}, root, {
+        'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+      });
+      write(dir, 'package.json', '{ "name": "build-lang-fixture", "version": "0.0.0" }');
+      process.chdir(dir);
+      const command = new LaratypeBuildCommand();
+      command.opts = () => ({ platform: 'node' });
+      await expect(command.handle()).resolves.toBe(0);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('production ships no translations: lang/en/messages.ts'));
+      expect(readFileSync(join(dir, 'dist', MANIFEST_FILE), 'utf8')).toContain('  lang: [],');
+    } finally {
+      process.chdir(cwd);
+      start.mockRestore();
+      info.mockRestore();
+      success.mockRestore();
+      warn.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });

@@ -16,7 +16,10 @@ interface LanguageRange {
   readonly index: number;
 }
 
-/** RFC 9110 §12.4.2 qvalue: `0`–`1` with at most three decimals; `undefined` for anything else (empty, non-numeric, out of range). */
+/**
+ * RFC 9110 §12.4.2 qvalue: `0`–`1` with at most three decimals; `undefined` for anything else (empty, non-numeric,
+ * out of range).
+ */
 const parseQuality = (value: string): number | undefined => {
   const trimmed = value.trim();
   return /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(trimmed) ? Number(trimmed) : undefined;

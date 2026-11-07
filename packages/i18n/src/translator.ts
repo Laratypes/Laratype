@@ -81,15 +81,18 @@ export class Translator {
     return Object.keys(this.catalog).sort();
   }
 
-  /** Whether `key` has a message in `locale` (its base language included), without falling back to another locale. */
+  /**
+   * Whether `key` has a message in `locale` (matching its base language and sibling regions), without another
+   * locale's fallback.
+   */
   has(key: string, locale = this.getLocale()): boolean {
     return lookupMessage(this.catalog, key, locale) !== undefined;
   }
 
   /**
-   * Translates `key` (`<file>.<dotted key>`): requested locale, its base language, then the fallback locale; returns
-   * the key when no locale has it. Placeholders come from `params`, and a plural message selects its form with
-   * `Intl.PluralRules` from `params.count`.
+   * Translates `key` (`<file>.<dotted key>`): the requested locale (matched like `LocaleMiddleware`), then the
+   * fallback locale; returns the key when no locale has it. Placeholders come from `params`, and a plural message
+   * selects its form with `Intl.PluralRules` from `params.count`.
    */
   trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string;
   trans(key: string, params?: MessageParams, locale?: string): string {
