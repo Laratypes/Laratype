@@ -9,7 +9,10 @@ export const GENERATOR_FOLDERS = {
 /** A v1 generator: its key selects the destination folder and the diagnostic's name. */
 type Generator = keyof typeof GENERATOR_FOLDERS;
 
-/** A plain folder or file name. A `[param]` segment is a folder, never the file name (docs/v1/contract.md › Contract folder tree). */
+/**
+ * A plain folder or file name. A `[param]` segment is a folder, never the file name
+ * (docs/v1/contract.md › Contract folder tree).
+ */
 const PLAIN_SEGMENT = /^[A-Za-z0-9_-]+$/;
 const PARAM_FOLDER = /^\[[A-Za-z_][A-Za-z0-9_]*\]$/;
 
@@ -35,11 +38,11 @@ export function generatorPath(name: string, generator: Generator, options: Gener
     (options.params === true && index < segments.length - 1 && PARAM_FOLDER.test(segment)),
   );
   if (valid) return path;
-  throw new Error(invalidName(name, generator, options.params === true));
+  throw new Error(invalidNameMessage(name, generator, options.params === true));
 }
 
 /** The diagnostic of a name outside the rules (docs/v1/cli.md › Diagnostics). */
-function invalidName(name: string, generator: Generator, params: boolean): string {
+function invalidNameMessage(name: string, generator: Generator, params: boolean): string {
   const allowed = params
     ? 'use letters, digits, "_" and "-", or a [param] folder,'
     : 'use letters, digits, "_" and "-", in folders';

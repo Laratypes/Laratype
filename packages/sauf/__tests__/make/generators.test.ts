@@ -111,15 +111,18 @@ describe("v1 make generators", () => {
     const escapes = [
       {
         run: runs.escapeController,
-        message: 'Invalid controller name "../x": use letters, digits, "_" and "-", in folders under app/http/controllers.',
+        message:
+          'Invalid controller name "../x": use letters, digits, "_" and "-", in folders under app/http/controllers.',
       },
       {
         run: runs.escapeRequest,
-        message: 'Invalid request name "../x": use letters, digits, "_" and "-", in folders under app/http/requests.',
+        message:
+          'Invalid request name "../x": use letters, digits, "_" and "-", in folders under app/http/requests.',
       },
       {
         run: runs.escapeResource,
-        message: 'Invalid resource name "../x": use letters, digits, "_" and "-", in folders under app/http/resources.',
+        message:
+          'Invalid resource name "../x": use letters, digits, "_" and "-", in folders under app/http/resources.',
       },
     ];
     for (const { run, message } of escapes) {
