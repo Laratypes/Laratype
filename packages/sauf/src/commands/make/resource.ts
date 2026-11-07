@@ -1,4 +1,5 @@
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 export default class MakeResourceCommand extends MakeCommand {
 
@@ -20,25 +21,31 @@ export default class MakeResourceCommand extends MakeCommand {
   async make(resourceNames: string[]) {
     const options = this.opts();
     const resourcePath = this.resolve("sauf", "Resource.template");
+    // Validate every name, resource and collection, before the first file is written
+    const names = resourceNames.map(resourceName => {
+      const name = generatorPath(resourceName, "resource");
+      // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
+      const resource = name.endsWith("Resource") ? name : name + "Resource";
+      return {
+        resource,
+        collection: options.collection ? generatorPath(resource + "Collection", "resource") : undefined,
+      };
+    });
 
-    return resourceNames.map(_resourceName => {
-      const resourceName = _resourceName.endsWith("Resource") ? _resourceName : _resourceName + "Resource";
-      const destinationPath = "./app/http/resources/" + resourceName + ".ts";
-      const result = this.build(resourcePath, { ResourceName: this.getFileName(resourceName) });
+    return names.map(({ resource, collection }) => {
+      const destinationPath = `./${GENERATOR_FOLDERS.resource}/${resource}.ts`;
+      const result = this.build(resourcePath, { ResourceName: this.getFileName(resource) });
       this.publish(result, destinationPath);
 
-      if(options.collection) {
+      if(collection) {
         const collectionPath = this.resolve("sauf", "ResourceCollection.template");
-        const collectionName = resourceName + "Collection";
-        const collectionDestinationPath = "./app/http/resources/" + collectionName + ".ts";
-        // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
-        const collectionFile = this.getFileName(collectionName);
+        const collectionFile = this.getFileName(collection);
         const collectionFunction = collectionFile.charAt(0).toLowerCase() + collectionFile.slice(1);
         const collectionResult = this.build(collectionPath, {
           CollectionFunction: collectionFunction,
-          ResourceName: this.getFileName(resourceName)
+          ResourceName: this.getFileName(resource)
         });
-        this.publish(collectionResult, collectionDestinationPath);
+        this.publish(collectionResult, `./${GENERATOR_FOLDERS.resource}/${collection}.ts`);
       }
 
       return destinationPath;

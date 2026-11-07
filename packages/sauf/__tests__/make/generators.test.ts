@@ -18,7 +18,20 @@ interface Run {
 }
 
 let project: string;
-let runs: Record<"contract" | "escape" | "types" | "command" | "controller" | "request" | "resource" | "nestedResource", Run>;
+let runs: Record<
+  | "contract"
+  | "escape"
+  | "types"
+  | "command"
+  | "controller"
+  | "request"
+  | "resource"
+  | "nestedResource"
+  | "escapeController"
+  | "escapeRequest"
+  | "escapeResource",
+  Run
+>;
 
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
 const sauf = (...args: string[]) => new Promise<Run>((resolve) => {
@@ -62,6 +75,9 @@ beforeAll(async () => {
     request: await sauf("make:request", "DraftRequest"),
     resource: await sauf("make:resource", "Draft", "--collection"),
     nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
+    escapeController: await sauf("make:controller", "../x"),
+    escapeRequest: await sauf("make:request", "../x"),
+    escapeResource: await sauf("make:resource", "../x", "--collection"),
   };
 }, 120_000);
 
@@ -88,6 +104,36 @@ describe("v1 make generators", () => {
     expect(existsSync(join(project, "app/escape.ts"))).toBe(false);
   });
 
+  it("make:controller, make:request and make:resource reject a path that leaves their folder", () => {
+    const escapes = [
+      {
+        run: runs.escapeController,
+        message: 'Invalid controller name "../x": use letters, digits, "_" and "-", in folders under app/http/controllers.',
+      },
+      {
+        run: runs.escapeRequest,
+        message: 'Invalid request name "../x": use letters, digits, "_" and "-", in folders under app/http/requests.',
+      },
+      {
+        run: runs.escapeResource,
+        message: 'Invalid resource name "../x": use letters, digits, "_" and "-", in folders under app/http/resources.',
+      },
+    ];
+    for (const { run, message } of escapes) {
+      expect(run.code, run.output).not.toBe(0);
+      expect(run.output).toContain(message);
+    }
+    // No file of the rejected name, and none outside app/http, is written
+    const files = [
+      "app/http/x.ts",
+      "app/http/xResource.ts",
+      "app/http/xResourceCollection.ts",
+      "app/x.ts",
+      "x.ts",
+    ];
+    for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+  });
+
   it("types:generate gives the nested folder its Prefix", () => {
     expectOk(runs.types);
     const types = join(project, ".laratype/types/app/api/reports/$types.d.ts");
@@ -97,7 +143,7 @@ describe("v1 make generators", () => {
 
   it("the generated stubs type-check with examples/basic's tsconfig", () => {
     for (const [name, result] of Object.entries(runs)) {
-      if (name === "escape") continue;
+      if (name.startsWith("escape")) continue;
       expect(result.code, `${name}: ${result.output}`).toBe(0);
     }
 
