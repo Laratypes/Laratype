@@ -216,7 +216,7 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ bbaf7a0 (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ 3fe9dbd (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
 ### Public API
 `packages/i18n/src/index.ts` at the Status SHA.
@@ -227,7 +227,7 @@ export const defineLang: <const T extends LangTree>(messages: T) => T
 export type LangTree = { readonly [key: string]: string | PluralForms | LangTree }
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
 export type PluralForms = { readonly other: string } & Partial<Record<Exclude<PluralCategory, "other">, string>>
-export interface Register {} // { lang: { <file>: typeof import("../lang/en/<file>") } }
+export interface Register {} // { lang: { <file>: typeof import("../lang/en/<file>").default } }
 
 export function trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string
 export const __: typeof trans
@@ -266,13 +266,13 @@ export interface TranslatorOptions { locale?: string; fallbackLocale?: string }
 
 **Config:** `app/config/i18n.ts` default-exports `defineConfig({ locale, fallback_locale })`, read as `config("i18n.locale")` / `config("i18n.fallback_locale")`. Without it, the 0.5 single config file's `config.locale` / `config.fallback_locale` are read; a locale that is still unset defaults to `en`, and the fallback defaults to the default locale.
 
-**Manifest:** `AppManifest.lang` is the `lang` kind: one entry per `lang/<locale>/<file>.ts`, named `<locale>/<file>` (build.md › manifest).
+**Manifest:** `AppManifest.lang` is the `lang` kind: one entry per `lang/<locale>/<file>.ts`, named `<locale>/<file>` (build.md › manifest). The build tsconfig must include `lang/**/*`: a lang file outside the build program is left out of `dist/app.manifest.js`, and `sauf build` warns that production ships no translations (`trans()` then returns raw keys).
 
 ### Invariants
 - **Keys** are `<file>.<dotted key>` (`messages.greeting`, `validation.required`). A registered `Register.lang` makes an unknown key, a missing placeholder param and an extra param type errors. `"Hello {name}"` takes `{ name: string }`; a `{count}` placeholder and every plural take `{ count: number }`. Key typing uses the K1/Q16 module-augmentation pattern; generating it from the manifest is a follow-up. A file name or a key segment cannot contain `.`: lookup splits the key on dots, so `loadMessages()` rejects one with `I18nError`. A file root is always a container (`messages.one`, `messages.other`), never a plural leaf; a plural object below the root is a leaf.
 - **Plurals** are a leaf object whose keys are all `Intl.PluralRules` categories (`zero|one|two|few|many|other`, `other` required); `Intl.PluralRules` selects the form from `params.count`. The locale is normalized before the rules are built, so a `fr_FR` folder uses the French rules.
-- **Fallback:** requested locale → its base language (`en-US` → `en`) → `fallback_locale` → the key itself. A missing key never throws.
-- **Locale per request (D6):** `Locale` is request-scoped; `LocaleMiddleware` reads `?locale=`, then the authenticated user's `locale`, then the `Accept-Language` q-list, then leaves the app default. Only locales with a catalog (plus the default and fallback) are accepted, and `?locale=` wins. A header tag with `q=0` is an exclusion: a catalog locale it names exactly is never chosen from the header. Register the middleware after the auth middleware, or the user preference is not set yet. Outside a request, `setLocale()` changes the translator default (CLI, queued jobs).
+- **Matching and fallback:** a locale matches exactly, then by base language (`en-US` → `en`), then by another region of the same language (`en` → `en-US`); `LocaleMiddleware` and the catalog lookup use the same matching. A message is looked up in the requested locale, then in `fallback_locale` (matched the same way), then the key itself is returned. A missing key never throws.
+- **Locale per request (D6):** `Locale` is request-scoped; `LocaleMiddleware` reads `?locale=`, then the authenticated user's `locale`, then the `Accept-Language` q-list, then leaves the app default. Only locales with a catalog (plus the default and fallback) are accepted, and `?locale=` wins. A header tag with `q=0` is an exclusion: a catalog locale it names exactly is never chosen from the header. A range with a malformed `q` (empty, non-numeric, outside `0..1`, or more than three decimals) is skipped: it is neither an exclusion nor `q=1`. Register the middleware after the auth middleware, or the user preference is not set yet. Outside a request, `setLocale()` changes the translator default (CLI, queued jobs); inside a request with no request container (a route not served through `RequestKernel`) it leaves the shared default unchanged and warns once in dev, so it cannot leak into later requests.
 - **Validation messages:** `validationMessage(rule, params?, locale?)` reads the app's `validation.<rule>` (for example `lang/vi/validation.ts` exporting `{ required: "..." }`), or its built-in English default. Standard Schema issues carry no rule code, so H10 maps an issue to its rule and passes that rule name; that issue→rule map remains H10's work (Refs [#167](https://github.com/Laratypes/Laratype/issues/167)).
 - **Provider:** `I18nServiceProvider` loads the catalog once and binds `Translator`; add it to `app/config/providers.ts`.
 
@@ -284,6 +284,7 @@ export interface TranslatorOptions { locale?: string; fallbackLocale?: string }
 - `I18nError`: `[@laratype/i18n] <path>: message key "<file>.<dotted key>" contains ".": keys are <file>.<dotted key>, so a dot cannot be part of a file name or key`
 - `I18nError`: `[@laratype/i18n] <path>: message "<file>.<dotted key>" must be a string or a plural object ({ other, one, two, few, many, zero } with string templates)`
 - `LocaleMiddleware` on a route without a request container (not served through `RequestKernel`) skips, leaves the app default and prints one dev warning per process; changing the shared default there would leak into later requests.
+- `setLocale()` (and `Lang.setLocale()`) on a route without a request container skips the same way, leaving the app default and printing the same one-time dev warning, naming `setLocale()`.
 - Type errors: an unknown key, a missing placeholder param, an extra param, or a non-string placeholder value.
 
 ### Example
