@@ -2,7 +2,7 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at 1fbb95f)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at 1fbb95f; + variadic check at 762d7cd)
 last-verified: 2026-11-07
 ---
 
@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)); variadic check proposed: PR pending @ 762d7cd (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -77,7 +77,7 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). The variadic-order check and its diagnostic are added by E2's stacked PR @ 762d7cd. Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 

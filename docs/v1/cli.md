@@ -2,7 +2,7 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at a9c9871)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 762d7cd)
 last-verified: 2026-11-07
 ---
 
@@ -23,7 +23,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), stacked on #357); `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ f10c36c (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [make:* generators](#make-generators) | proposed: PR pending @ 762d7cd (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), stacked on #357); `make:command` proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ f10c36c (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 
 ---
 
@@ -42,7 +42,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 | `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry: `Route.api` entries (name, method, path, controller, middleware, scope and contract policies, a "Not enforced" column for auth and authorize until #105/#121 and headers schema validation (no tracking issue yet), domain) and 0.5 routes | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) | [http.md › Router v2](./http.md#router-v2) |
-| `sauf make:*` | Generators from stubs | proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
+| `sauf make:*` | Generators from stubs | proposed: PR pending @ 762d7cd (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
 | `sauf db:seed` | Runs the seeders | planned → #149 | [database.md › Factories and seeders](./database.md#factories-and-seeders) |
 | `sauf queue:work`, `queue:failed`, `queue:retry` | Queue worker and failed jobs | planned → #169 (Procfile: #172) | [services.md › Queue](./services.md#queue) |
@@ -108,10 +108,10 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2), stacked on F2's PR [#357](https://github.com/Laratypes/Laratype/pull/357). `make:command` is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in that PR @ f10c36c. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/resources/templates).
+proposed: PR pending @ 762d7cd (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2), stacked on F2's PR [#357](https://github.com/Laratypes/Laratype/pull/357). `make:command` is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in that PR @ f10c36c. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/762d7cdb70aecd1a813f48b701e3a1c7245ac78d/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/762d7cdb70aecd1a813f48b701e3a1c7245ac78d/packages/sauf/resources/templates).
 
 ### Public API
-[`make/index.ts` @ a9c9871](https://github.com/Laratypes/Laratype/blob/a9c98715d8812844573a94c3364705392f04d09d/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names.
+[`make/index.ts` @ 762d7cd](https://github.com/Laratypes/Laratype/blob/762d7cdb70aecd1a813f48b701e3a1c7245ac78d/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names.
 
 | Command | Writes | Stub |
 |---|---|---|
