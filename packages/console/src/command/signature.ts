@@ -39,11 +39,18 @@ const DESCRIPTION_SEPARATOR = " : ";
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const PARAMETER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 /** Commander's camelcase splits on `-`, so empty segments would crash it: one dash between name segments. */
-const OPTION_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*$/;
+const OPTION_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9][A-Za-z0-9_]*)*$/;
 
-/** `--dry-run` -> `dryRun`, the key commander uses (its own `camelcase` in commander/lib/option.js). */
+/**
+ * `--dry-run` -> `dryRun`, the key commander uses (`Option.attributeName()` / its `camelcase` in
+ * commander/lib/option.js): split on `-` and upper-case the first character of every later word. Linear on purpose:
+ * a regex here was flagged as polynomial (CodeQL js/polynomial-redos) and this is public API.
+ */
 export function optionKey(name: string): string {
-  return name.replace(/-+([A-Za-z0-9])/g, (_, char: string) => char.toUpperCase());
+  const [head, ...words] = name.split("-");
+  let key = head ?? "";
+  for (const word of words) key += word.charAt(0).toUpperCase() + word.slice(1);
+  return key;
 }
 
 /**
@@ -114,6 +121,12 @@ function parseOption(signature: string, body: string): SignatureOption {
   const name = equals === -1 ? body : body.slice(0, equals);
   if (!OPTION_NAME_PATTERN.test(name)) {
     throw new CommandSignatureError(signature, `"--${body}" is not a valid option name`);
+  }
+  if (name.startsWith("no-")) {
+    throw new CommandSignatureError(
+      signature,
+      `"--${name}" uses negation, which is not supported: declare {--${name.slice(3)}} as a flag instead`,
+    );
   }
   const value = equals === -1 ? undefined : body.slice(equals + 1);
   const key = optionKey(name);
@@ -205,7 +218,7 @@ type CamelCase<S extends string> = S extends `${infer Head}-${infer Rest}`
   : S;
 
 /** Flattens an intersection so editors show one object in hover text. */
-export type Prettify<T> = { [K in keyof T]: T[K] } & {};
+type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
 /**
  * The input object of a closure command, and what `__setInput()` gives a typed `Command`: one key per argument and

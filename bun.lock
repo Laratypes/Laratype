@@ -96,6 +96,9 @@
         "@laratype/support": "workspace:*",
         "consola": "^3.4.2",
       },
+      "devDependencies": {
+        "commander": "^14.0.1",
+      },
     },
     "packages/contract": {
       "name": "@laratype/contract",

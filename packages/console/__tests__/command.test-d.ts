@@ -1,5 +1,5 @@
 // Type tests for the typed command signature (F2 #161), run by `vitest --typecheck.only`.
-import { describe, expectTypeOf, test } from "vitest";
+import { describe, expectTypeOf, it } from "vitest";
 import Command from "../src/command/Command";
 import { command } from "../src/command/closure";
 import type {
@@ -52,14 +52,14 @@ class Widened extends Command<typeof Widened.signature> {
 }
 
 describe("signature types", () => {
-  test("the names come from the signature", () => {
+  it("the names come from the signature", () => {
     expectTypeOf<ArgumentName<"deploy {env} {tags*} {force?}">>().toEqualTypeOf<"env" | "tags" | "force">();
     expectTypeOf<OptionName<"deploy {--dry-run} {--queue=}">>().toEqualTypeOf<"dry-run" | "queue">();
     expectTypeOf<ArgumentName<string>>().toEqualTypeOf<string>();
     expectTypeOf<OptionName<string>>().toEqualTypeOf<string>();
   });
 
-  test("CommandInput maps arguments and camelCase options to their values", () => {
+  it("CommandInput maps arguments and camelCase options to their values", () => {
     expectTypeOf<CommandInput<"deploy {env=production} {tags*} {force?}">>().toEqualTypeOf<{
       env: string;
       tags: string[];
@@ -75,14 +75,22 @@ describe("signature types", () => {
       env: string;
       dryRun: boolean | undefined;
     }>();
+    // The option key mirrors commander's camelcase: every segment after a dash is upper-cased first
+    expectTypeOf<CommandInput<"deploy {--a-b-c} {--x-1y} {--a_b} {--_x} {--dryRun}">>().toEqualTypeOf<{
+      aBC: boolean | undefined;
+      x1y: boolean | undefined;
+      a_b: boolean | undefined;
+      _x: boolean | undefined;
+      dryRun: boolean | undefined;
+    }>();
     expectTypeOf<CommandInput<"deploy : the description is not a parameter">>().toEqualTypeOf<{}>();
   });
 
-  test("a non-literal signature falls back to a loose record", () => {
+  it("a non-literal signature falls back to a loose record", () => {
     expectTypeOf<CommandInput<string>>().toEqualTypeOf<Record<string, unknown>>();
   });
 
-  test("negatives", () => {
+  it("negatives", () => {
     // @ts-expect-error an unknown key is not part of the input
     const extra: CommandInput<"deploy {env}"> = { env: "production", force: true };
     // @ts-expect-error a required argument cannot be omitted
@@ -92,7 +100,7 @@ describe("signature types", () => {
 });
 
 describe("closure commands", () => {
-  test("the handler receives the typed input", () => {
+  it("the handler receives the typed input", () => {
     command("send:mail {user} {--queue=}", (input) => {
       expectTypeOf(input).toEqualTypeOf<{ user: string; queue: string | undefined }>();
     });
@@ -102,7 +110,7 @@ describe("closure commands", () => {
     });
   });
 
-  test("the registration types accept both command shapes", () => {
+  it("the registration types accept both command shapes", () => {
     const declared: ClosureCommand<"send:mail {user}"> = command("send:mail {user}", ({ user }) => user);
     expectTypeOf(declared.signature).toEqualTypeOf<"send:mail {user}">();
     expectTypeOf(SendMail).toMatchTypeOf<CommandClass>();
@@ -113,7 +121,7 @@ describe("closure commands", () => {
     expectTypeOf(fromClosure).toMatchTypeOf<AnyClosureCommand>();
   });
 
-  test("parseSignature's result", () => {
+  it("parseSignature's result", () => {
     expectTypeOf<ParsedSignature>().toMatchTypeOf<{
       name: string;
       description?: string;
@@ -122,13 +130,13 @@ describe("closure commands", () => {
     }>();
   });
 
-  test("defaults keep a bare generic usable", () => {
+  it("defaults keep a bare generic usable", () => {
     expectTypeOf<ArgumentName>().toEqualTypeOf<string>();
     expectTypeOf<OptionName>().toEqualTypeOf<string>();
     expectTypeOf<CommandInput>().toEqualTypeOf<Record<string, unknown>>();
   });
 
-  test("negatives", () => {
+  it("negatives", () => {
     // @ts-expect-error the handler cannot destructure an unknown option
     command("send:mail {user}", ({ queue }) => void queue);
   });

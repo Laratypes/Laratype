@@ -1,7 +1,17 @@
+import { Command as Commander } from "commander";
 import { describe, expect, it } from "vitest";
 import { command, isClosureCommand } from "../src/command/closure";
 import { CommandSignatureError } from "../src/command/CommandSignatureError";
 import { optionKey, parseSignature } from "../src/command/signature";
+
+/** The key a real commander `Command` stores after parsing `--name`: its `opts()` key. */
+const commanderOptionKey = (name: string): string => {
+  const command = new Commander();
+  command.exitOverride();
+  command.option(`--${name}`);
+  command.parse([`--${name}`], { from: "user" });
+  return Object.keys(command.opts())[0]!;
+};
 
 describe("parseSignature", () => {
   it("reads the command name, arguments, options and the ` : ` description", () => {
@@ -48,10 +58,12 @@ describe("parseSignature", () => {
     });
   });
 
-  it("optionKey matches commander's camelcase", () => {
-    expect(optionKey("dry-run")).toBe("dryRun");
+  it("optionKey matches the key a real commander Command stores", () => {
+    // Every option name the tests above accept, and the naming rule's edge segments (`_`, digits, a later capital)
+    for (const name of ["queue", "dry-run", "level", "tag", "a-b-c", "a_b", "_x", "x-1y", "x_1", "dryRun"]) {
+      expect(optionKey(name), `--${name}`).toBe(commanderOptionKey(name));
+    }
     expect(optionKey("a-b-c")).toBe("aBC");
-    expect(optionKey("queue")).toBe("queue");
   });
 
   it("rejects a malformed signature with the signature in the message", () => {
@@ -62,6 +74,9 @@ describe("parseSignature", () => {
       ["send:mail {--}", '"--" is not a valid option name'],
       ["send:mail {--dry--run}", '"--dry--run" is not a valid option name'],
       ["send:mail {--dry-}", '"--dry-" is not a valid option name'],
+      ["send:mail {--a-_b}", '"--a-_b" is not a valid option name'],
+      ["send:mail {--no-cache}", '"--no-cache" uses negation'],
+      ["send:mail {--no-cache=}", '"--no-cache" uses negation'],
       ["send:mail {-q}", "uses a short option"],
       ["send:mail {1user}", '"1user" is not a valid argument name'],
       ["send:mail {user} {user}", '"user" is declared twice'],

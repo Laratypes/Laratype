@@ -25,6 +25,17 @@ export const bootsApp = (command: ConsoleCommand): boolean =>
 const isClass = (command: ConsoleCommand): command is CommandClass => !isClosureCommand(command)
 
 /**
+ * Throws when `name` is already registered from `source`. Commander's `addCommand()` aborts the whole CLI on a
+ * duplicate, so the wrapper names both sources first (docs/v1/services.md › Console commands › Diagnostics).
+ */
+export const assertCommandNameFree = (name: string, registered: ReadonlyMap<string, string>, source: string): void => {
+  const previous = registered.get(name)
+  if (previous) {
+    throw new Error(`Duplicate command '${name}': ${previous} and ${source} register it; rename one`)
+  }
+}
+
+/**
  * A 0.5 command that filters the provider list itself (`db:*`, `route:list`, `auth:publish`, `make:*`). It is built
  * before the boot, so it keeps the 0.5 order; every other command is resolved by the container after `register()`.
  */

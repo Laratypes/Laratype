@@ -35,6 +35,9 @@
     "consola": "^3.4.2",
     "@laratype/support": "workspace:*"
   },
+  "devDependencies": {
+    "commander": "^14.0.1"
+  },
   "buildOptions": {
     "external": [
       "consola"

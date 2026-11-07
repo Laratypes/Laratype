@@ -1,7 +1,7 @@
-import { AppServiceProvider, ServiceProvider } from "@laratype/support";
+import type { AppServiceProvider, ServiceProvider } from "@laratype/support";
 import { Command as BaseCommand } from "@laratype/console";
 import { describe, expect, it } from "vitest";
-import Command from "../src/utils/command";
+import Command, { assertCommandNameFree } from "../src/utils/command";
 import type Transpile from "../src/utils/transplie";
 
 /** A 0.5 command that also declares a signature argument with the same name: it is registered once. */
@@ -29,5 +29,18 @@ describe("the command wrapper", () => {
     const wrapper = new Command(LegacyNames, transpiler);
     await wrapper.getCommander().parseAsync(["a", "b"], { from: "user" });
     expect(LegacyNames.seen).toEqual(["a", "b"]);
+  });
+});
+
+describe("duplicate command names", () => {
+  it("names both sources instead of commander's addCommand error", () => {
+    const registered = new Map([["route:list", "a framework command"]]);
+    expect(() => assertCommandNameFree("route:list", registered, "a command file")).toThrow(
+      "Duplicate command 'route:list': a framework command and a command file register it; rename one",
+    );
+  });
+
+  it("accepts a name no command registered yet", () => {
+    expect(() => assertCommandNameFree("route:list", new Map(), "a command file")).not.toThrow();
   });
 });
