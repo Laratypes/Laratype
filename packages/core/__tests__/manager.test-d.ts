@@ -38,7 +38,7 @@ describe('Manager types', () => {
     })
   })
 
-  it('requires the Drivers map, so no manager widens its names to string', () => {
+  it('requires the Drivers map, so a manager cannot omit it', () => {
     typeOnly(() => {
       // @ts-expect-error Manager requires its Drivers map; a manager without one would accept any name
       type Bare = Manager
