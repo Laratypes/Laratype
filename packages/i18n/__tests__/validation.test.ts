@@ -46,4 +46,10 @@ describe("validationMessage()", () => {
     );
     expect(validationMessage("nope", { attribute: "x" })).toBe("validation.nope");
   });
+
+  it("has no default for a rule named like an Object.prototype member", () => {
+    useTranslator("en");
+    expect(validationMessage("toString")).toBe("validation.toString");
+    expect(validationMessage("constructor")).toBe("validation.constructor");
+  });
 });

@@ -36,6 +36,7 @@ export const validationMessage = (rule: string, params?: MessageParams, locale?:
   const key = `validation.${rule}`;
   const translated = Translator.current().translate(key, params, locale);
   if (translated !== key) return translated;
-  const template = DEFAULT_VALIDATION_MESSAGES[rule];
-  return template === undefined ? key : interpolate(template, params);
+  // Own keys only: a rule named like an Object.prototype member (`toString`) has no default either
+  if (!Object.hasOwn(DEFAULT_VALIDATION_MESSAGES, rule)) return key;
+  return interpolate(DEFAULT_VALIDATION_MESSAGES[rule]!, params);
 };
