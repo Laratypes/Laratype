@@ -12,7 +12,7 @@ last-verified: 2026-10-09
 
 | Section | Status |
 |---|---|
-| [Typed Register](#typed-register) | proposed: PR pending @ 24b7071 → #119 |
+| [Typed Register](#typed-register) | proposed: PR pending @ 2ecef6d → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
@@ -23,10 +23,10 @@ last-verified: 2026-10-09
 ## Typed Register
 
 ### Status
-proposed: PR pending @ 24b7071 ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
+proposed: PR pending @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
-[`packages/auth/src/Register.ts` @ 24b7071](https://github.com/Laratypes/Laratype/blob/24b7071/packages/auth/src/Register.ts):
+[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts):
 
 ```ts
 // @laratype/auth
@@ -36,7 +36,7 @@ export type RegisteredUser<R = Register> = R extends { user: infer U extends Mod
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
 ```
 
-An app fills `Register` once, by module augmentation; [`packages/auth/src/support/Auth.ts` @ 24b7071](https://github.com/Laratypes/Laratype/blob/24b7071/packages/auth/src/support/Auth.ts) reads it:
+An app fills `Register` once, by module augmentation; [`packages/auth/src/support/Auth.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/support/Auth.ts) reads it:
 
 ```ts
 // @laratype/auth
