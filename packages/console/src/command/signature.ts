@@ -99,6 +99,12 @@ export function parseSignature(signature: string): ParsedSignature {
     args.push(arg);
   }
 
+  // Commander throws when a variadic argument is not last; fail at parse time with the signature instead
+  const rest = args.find((arg) => arg.kind === "rest");
+  if (rest !== undefined && args[args.length - 1] !== rest) {
+    throw new CommandSignatureError(signature, `"${rest.name}" is variadic, so it must be the last argument`);
+  }
+
   return { name, description, arguments: args, options };
 }
 
