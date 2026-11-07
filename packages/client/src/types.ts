@@ -210,9 +210,19 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
-   * Redirects are followed, so set `init.redirect = "error"` in `onRequest` if a redirect must not carry them elsewhere.
+   * The client doesn't follow redirects by default (`redirect` is `"manual"`). A cross-origin redirect can carry custom
+   * headers and cookies only under `"follow"`, when `onRequest` overrides the mode, or with a fetch that ignores it.
    */
   credentials?: RequestCredentials;
+  /**
+   * The `redirect` mode of every call, default `"manual"`: the client doesn't follow a redirect, and the call resolves
+   * with the real 3xx on Node, Bun, Deno and workerd, or a browser's `opaqueredirect` (status 0), both with `response`
+   * set (except a browser CORS request whose cross-origin 3xx fails the CORS check: `fetch` rejects, so it is the
+   * status-0 result without `response`); a per-call `init.redirect` set by `onRequest` wins. `"follow"` and `"error"` opt in, and workerd refuses
+   * `"error"` for every call, a plain 200 included (the status-0 result, or a rejection under
+   * `do_not_capture_async_api_throws`).
+   */
+  redirect?: RequestRedirect;
   /** Called before `fetch`; it may change `request.init` (headers, signal, ...). A throw rejects the call. */
   onRequest?: (request: ClientRequest) => void | Promise<void>;
   /**

@@ -39,7 +39,7 @@ const resolvesInPage = (url: string): boolean => {
  */
 type Declared = ReadonlyMap<string, ReadonlySet<number> | undefined>;
 
-/** Computes a value on first use and keeps it: a route's declared errors are built on its first non-2xx answer. */
+/** Computes a value on first use and keeps it: a route's declared errors are built on its first 4xx or 5xx answer. */
 const once = <T>(make: () => T): (() => T) => {
   let made = false;
   let value: T;
@@ -70,7 +70,7 @@ interface Success {
 
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
- * the 2xx it expects and its declared errors (computed on the first non-2xx answer).
+ * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer).
  */
 interface RouteSpec {
   readonly name: string;
@@ -181,7 +181,8 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
  * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
- * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given.
+ * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given, and
+ * `init.redirect` is set on every call, from `options.redirect`, default `"manual"`; `onRequest` can still override it.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
  * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
  * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`
@@ -194,7 +195,15 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * call, and one call never mixes old and new options.
  */
 const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const { baseUrl, fetch: injected, headers: defaults, credentials, onRequest, onResponse } = options;
+  const {
+    baseUrl,
+    fetch: injected,
+    headers: defaults,
+    credentials,
+    redirect = "manual",
+    onRequest,
+    onResponse,
+  } = options;
   const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
   const built = buildUrl(path, { params: input.params, query: input.query });
   const q = built.indexOf("?");
@@ -231,7 +240,7 @@ const createSend = (options: ClientOptions): Send => async (method, path, input 
   for (const [key, value] of Object.entries(input.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);
   }
-  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers };
+  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers, redirect };
   if (credentials !== undefined) init.credentials = credentials;
   if (body !== undefined) {
     init.body = body;
@@ -286,8 +295,10 @@ const cancelBody = (response: Response): void => {
  * any other body-less success has its body cancelled, so it doesn't hold a connection open.
  * - 2xx: the declared status (when known) or `unexpected`. Data: none without a response schema or for a body-less
  *   status; with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
- * - Otherwise the wire format is `{ code, ...body }`: a declared code (with its status, when known) is a declared
- *   error whose `error` is the body without `code`; anything else is unexpected.
+ * - Otherwise the wire format is `{ code, ...body }`: on a 4xx or 5xx, a declared code (with its status, when known)
+ *   is a declared error whose `error` is the body without `code`; anything else is unexpected. A 3xx is always
+ *   unexpected, whatever code its body carries: a contract can't declare one, and the manifest knows codes only, so
+ *   its body would match any status.
  * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
  *   `unexpected` with the HTTP status, the `response` and that error.
  */
@@ -318,7 +329,8 @@ async function toResult(response: Response, success: Success, declared: () => De
     }
     return { ok: true, status, data: body, response };
   }
-  if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+  // a 3xx is never a declared error (see the doc above): only 4xx and 5xx body codes are matched
+  if (status >= 400 && status < 600 && typeof body === "object" && body !== null && !Array.isArray(body)) {
     const { code, ...error } = body as Record<string, unknown>;
     const errors = declared();
     if (typeof code === "string" && errors.has(code)) {
@@ -332,7 +344,7 @@ async function toResult(response: Response, success: Success, declared: () => De
 /**
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
  * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
- * The declared errors are computed on the first non-2xx answer, then kept.
+ * The declared errors are computed on the first 4xx or 5xx answer, then kept.
  */
 const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
   return async (input) => {

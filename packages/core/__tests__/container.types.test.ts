@@ -60,6 +60,27 @@ describe('typed resolution', () => {
     })
   })
 
+  it('request scope: scoped() mirrors singleton(), dispose() is async, scopes are containers', () => {
+    const PORT = token<number>('port')
+    typeOnly(() => {
+      c.scoped(ConsoleLogger)
+      c.scoped(Logger, ConsoleLogger)
+      c.bind(Logger, ConsoleLogger, { scope: 'request' })
+      // @ts-expect-error factory must return a Logger
+      c.scoped(Logger, () => new Unrelated())
+      // @ts-expect-error an abstract class can't be bound to itself
+      c.scoped(Logger)
+      // @ts-expect-error a token can't be bound to itself
+      c.scoped(PORT)
+      // @ts-expect-error unknown scope
+      c.bind(Logger, ConsoleLogger, { scope: 'session' })
+      const scope = c.createRequestScope()
+      expectTypeOf(scope).toEqualTypeOf<Container>()
+      expectTypeOf(scope.dispose()).toEqualTypeOf<Promise<void>>()
+      expectTypeOf(scope.make(PORT)).toEqualTypeOf<number>()
+    })
+  })
+
   it('factories receive the container', () => {
     c.bind(Logger, (container) => {
       expectTypeOf(container).toEqualTypeOf<Container>()

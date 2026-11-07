@@ -1,9 +1,18 @@
 import type { Request } from "@laratype/http";
 import type { Model } from "@laratype/database";
-import { ModelManagement, InternalException } from "@laratype/support";
+import { Hash, ModelManagement, InternalException } from "@laratype/support";
 import JWTVerification from "../verifications/jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
 import type { GuardConfig } from "./tokens";
+
+const ALIAS = "user";
+
+/** Checked when no user matches, so an unknown user takes as long as a wrong password. */
+let unknownUserHash: string | undefined;
+
+/** A value a lookup can compare in the query: a string, a boolean, or a finite number. */
+const isLookupValue = (value: unknown): value is string | boolean | number =>
+  typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 
 export type JWTSignOptions = {
   expiresIn?: number;
@@ -86,10 +95,53 @@ export default class TokenGuard<User = any> {
     return user as User;
   }
 
-  /** The user of the guard's provider model matching `fields`, or `null`. */
+  /**
+   * The user of the guard's provider model matching `fields`, or `null`. `fields` carries the guard's
+   * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
+   * only, and the password is then checked with `Hash.check()`, since a salted hash can't be matched in the query.
+   * A hash from an older format (0.5's sha256) is replaced on a successful login.
+   */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
-    return await model.findOneBy(fields) as User | null;
+    // The model hashes its own credential column, so the guard must check the same one
+    const declared: string | undefined = (model as { passwordField?: string }).passwordField;
+    const passwordField: string = this.config.options?.passwordField ?? declared ?? "password";
+    if (typeof declared === "string" && declared !== passwordField) {
+      throw new Error(
+        `[@laratype/auth] ${model.name} hashes "${declared}", not the guard's passwordField "${passwordField}": set static passwordField on the model, or use the same name in options.`,
+      );
+    }
+    const { [passwordField]: password, ...where } = fields;
+    // An object, an array, null or a non-finite number would reach the query as a value, not a credential
+    const values = Object.values(where);
+    if (typeof password !== "string" || values.length === 0 || values.some((value) => !isLookupValue(value))) {
+      return null;
+    }
+
+    const column = model.getRepository().metadata.findColumnWithPropertyName(passwordField);
+    if (!column) throw new Error(`[@laratype/auth] ${model.name} has no "${passwordField}" column (the guard's passwordField)`);
+    // addSelect: the password column is usually { select: false }
+    const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
+    if (!user) {
+      Hash.check(password, unknownUserHash ??= Hash.make(""));
+      return null;
+    }
+
+    const hashed = user[passwordField];
+    // The returned user has the shape a plain lookup gives: no hidden password column
+    if (!column.isSelect) delete user[passwordField];
+    if (!Hash.check(password, hashed)) return null;
+    if (Hash.needsRehash(hashed)) {
+      // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
+      try {
+        const rehashed = Hash.make(password);
+        await model.getRepository().update(model.getId(user), { [passwordField]: rehashed });
+        if (column.isSelect) user[passwordField] = rehashed;
+      } catch {
+        // swallowed on purpose
+      }
+    }
+    return user;
   }
 
   /** Signs a token for `user`, and stores it when the app has a PersonalAccessToken model. */
