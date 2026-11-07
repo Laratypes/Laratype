@@ -58,7 +58,8 @@ export const routeRow = (route: Record<string, any>) => ({
   // on @laratype/http, so the fallback stays here rather than in the package's `middlewareName`.
   Middleware: route.middleware?.length
     ? route.middleware
-      .map((middleware: { name?: string; handle?: { name?: string } }) => middleware.name || middleware.handle?.name || 'middleware')
+      .map((middleware: { name?: string; handle?: { name?: string } }) =>
+        middleware.name || middleware.handle?.name || 'middleware')
       .join(', ')
     : '-',
   Policies: Array.isArray(route.policies)
