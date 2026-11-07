@@ -21,9 +21,10 @@ updates:
     commit-message:
       prefix: "build(deps)"
 
-  # Most actions are pinned by SHA with a `# vX.Y.Z` comment, and Dependabot bumps both together. Some still use a
-  # tag (actions/checkout@v4 in three workflows) until B14 #189 pins them; Dependabot bumps the tag. The composite action in
-  # .github/setup-bun is not under .github/workflows, so it is listed as its own directory.
+  # Most actions are pinned by SHA with a `# vX.Y.Z` comment, and Dependabot bumps both together. Some still use
+  # a tag until B14 #189 pins them (actions/checkout@v4 in three workflows, actions/dependency-review-action@v4);
+  # Dependabot bumps the tag. The composite action in .github/setup-bun is not under .github/workflows, so it is
+  # listed as its own directory.
   - package-ecosystem: "github-actions"
     directories:
       - "/"
