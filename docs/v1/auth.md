@@ -12,7 +12,7 @@ last-verified: 2026-10-09
 
 | Section | Status |
 |---|---|
-| [Typed Register](#typed-register) | proposed: PR pending @ 2ecef6d → #119 |
+| [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
@@ -23,7 +23,7 @@ last-verified: 2026-10-09
 ## Typed Register
 
 ### Status
-proposed: PR pending @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
+proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
 [`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts):
