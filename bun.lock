@@ -124,6 +124,7 @@
       "name": "@laratype/database",
       "version": "0.5.4",
       "dependencies": {
+        "@laratype/core": "workspace:*",
         "@laratype/log": "workspace:*",
         "@laratype/support": "workspace:*",
         "reflect-metadata": "^0.2.2",
