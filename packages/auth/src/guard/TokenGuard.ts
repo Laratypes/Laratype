@@ -106,12 +106,14 @@ export default class TokenGuard<User = any> {
     }
 
     const provider: typeof Model = this.config.provider;
-    // A token names the provider model it was signed for: another model's token never authenticates this guard (A6 #335)
-    if (decoded.payload?.type !== provider.name) {
-      return false;
-    }
+    // A token names the model it was signed for (A6 #335): the provider itself without a token record, the record's
+    // own model with one, so another model's token never authenticates this guard
+    const type = decoded.payload?.type;
 
     if (!verifyRecord) {
+      if (type !== provider.name) {
+        return false;
+      }
       // Without a token record nothing can revoke the token, so its user is loaded by the id it carries
       const primaryKey = primaryKeyOf(provider);
       // issueToken() signs the primary key's value under `payload.id`, whatever the column is called
@@ -125,8 +127,9 @@ export default class TokenGuard<User = any> {
 
     // The record names the model the token was issued for, so its own primary key loads the user, not always `id`
     const modelResource = ModelManagement.getModelByName(verifyRecord.tokenable_type);
-    // A record of another model would load a different identity than the guard's provider (A6 #335)
-    if (!modelResource || !isProviderModel(modelResource, provider)) {
+    // A record of another model would load a different identity than the guard's provider, and the signed model must be
+    // the record's (A6 #335)
+    if (!modelResource || !isProviderModel(modelResource, provider) || type !== verifyRecord.tokenable_type) {
       return false;
     }
     const user = await modelResource.findOneBy({
@@ -195,8 +198,11 @@ export default class TokenGuard<User = any> {
   /** Signs a token for `user`, and stores it when the app has a PersonalAccessToken model. */
   async issueToken(user: User, options: JWTSignOptions): Promise<string> {
     const provider: typeof Model = this.config.provider;
-    // The token only ever loads the guard's provider model, so another model is refused where it is signed (A6 #335)
-    if (!(user instanceof provider)) {
+    // Another model is refused where the token is signed (A6 #335). Without a token record, verify() loads the
+    // provider's row by the signed id, so only the provider itself is accepted: a subclass with its own table would
+    // load a different row. A token record names the user's own model, so a subclass of the provider is accepted there.
+    const accepted = this.tokenModel ? user instanceof provider : (user as object | null)?.constructor === provider;
+    if (!accepted) {
       const modelName = (user as { constructor?: { name?: string } } | null | undefined)?.constructor?.name ?? String(user);
       throw new InternalException(
         `[@laratype/auth] Guard "${this.name}" issues tokens for ${provider.name}, not ${modelName}.`,
@@ -208,8 +214,8 @@ export default class TokenGuard<User = any> {
     }
     const payload = {
       id: (user as any)[fieldIdName],
-      // verify() compares it with the guard's provider, so a token never loads another model's row (A6 #335)
-      type: provider.name,
+      // verify() compares it with the provider (no token record) or the record's tokenable_type (A6 #335)
+      type: (user as object).constructor.name,
     };
     const expiresIn = options.expiresIn || 3600;
     const verificationMode = this.config.verification;

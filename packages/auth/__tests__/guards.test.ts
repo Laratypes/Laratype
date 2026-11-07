@@ -360,6 +360,40 @@ describe('TokenGuard', () => {
     // The record keeps the real model; the model it names is a subclass of the provider
     expect(PersonalAccessToken.rows[0]).toMatchObject({ tokenable_type: 'SuperAdmin', tokenable_id: 9 })
     await expect(guard.verify(token)).resolves.toMatchObject({ id: 9, email: 'root@example.com' })
+    // The token names the user's own model, which the record names too
+    expect((jsonwebtoken.decode(token) as any).payload.type).toBe('SuperAdmin')
+  })
+
+  it('refuses a subclass of the provider without a token record', async () => {
+    // Its own table: verify() would load Admin#9 by the signed id, a different row than SuperAdmin#9
+    class SuperAdmin extends Admin {
+      static override rows: SuperAdmin[] = []
+    }
+    const guard = new TokenGuard('admin', authConfig.guards.admin)
+    const token = guard.issueToken(make(SuperAdmin, 9, 'root@example.com'), { name: 'Default Token', abilities: '*' })
+    await expect(token).rejects.toBeInstanceOf(InternalException)
+    await expect(token).rejects.toThrow('[@laratype/auth] Guard "admin" issues tokens for Admin, not SuperAdmin.')
+  })
+
+  it('refuses a token record whose model is not the model the token was signed for', async () => {
+    class SuperAdmin extends Admin {
+      static override rows: SuperAdmin[] = []
+    }
+    ;(globalThis.__laratype_db.models as any).SuperAdmin = SuperAdmin
+    make(SuperAdmin, 9, 'root@example.com')
+    // Signed for Admin#9, stored as SuperAdmin#9: the record would load a different identity than the token names
+    const token = jsonwebtoken.sign({ guard: 'admin', payload: { id: 9, type: 'Admin' } }, KEY)
+    PersonalAccessToken.rows.push({
+      token,
+      expires_at: new Date(Date.now() + 60_000),
+      verification_type: 'jwt',
+      tokenable_type: 'SuperAdmin',
+      tokenable_id: 9,
+      save: vi.fn(),
+    })
+
+    const guard = new TokenGuard('admin', authConfig.guards.admin, PersonalAccessToken as any)
+    await expect(guard.verify(token)).resolves.toBe(false)
   })
 
   it('rejects a token signed for another guard', async () => {
