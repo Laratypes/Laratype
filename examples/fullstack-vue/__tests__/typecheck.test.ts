@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { generateTypes } from "../scripts/generate-types";
+import { generateTypeOverlay } from "../scripts/generate-types";
 
 const exampleDir = fileURLToPath(new URL("../", import.meta.url));
 const basicDir = fileURLToPath(new URL("../../basic/", import.meta.url));
@@ -23,12 +23,14 @@ const run = (tsconfig: string, cwd: string, ...args: string[]) => {
 
 const typecheck = (tsconfig: string, cwd: string) => {
   const { status, lines } = run(tsconfig, cwd);
-  return { status, diagnostics: lines.filter((line) => !/^([A-Za-z]:)?[\\/]/.test(line)) };
+  return { status, diagnostics: lines.filter((line) => /error TS\d+/.test(line)) };
 };
 
 /** Every file of the program, as absolute paths (tsc's `--listFilesOnly` output). */
 const listFiles = (tsconfig: string, cwd: string): string[] =>
-  run(tsconfig, cwd, "--listFilesOnly").lines.filter((line) => /^([A-Za-z]:)?[\\/]/.test(line));
+  run(tsconfig, cwd, "--listFilesOnly").lines.filter(
+    (line) => /^([A-Za-z]:)?[\\/]/.test(line) && !/error TS\d+/.test(line),
+  );
 
 const slash = (path: string) => path.replace(/\\/g, "/");
 
@@ -41,7 +43,7 @@ const overlayDir = `${exampleDir}.laratype/overlay`;
 const overlayExample = `${overlayDir}/examples/fullstack-vue/`;
 const overlayBasic = `${overlayDir}/examples/basic/`;
 
-/** A copy of the FE with its contract tree and generated `$types.d.ts`, so a mutated contract never touches the real file. */
+/** A copy of the FE with its contracts and generated `$types.d.ts`, so a mutation never touches the real files. */
 const writeOverlay = (): string => {
   copy(`${exampleDir}src`, `${overlayExample}src`);
   copy(`${exampleDir}.laratype/basic/types`, `${overlayExample}.laratype/basic/types`);
@@ -59,7 +61,7 @@ const writeOverlay = (): string => {
 
 beforeAll(() => {
   // The `$types.d.ts` overlay the FE tsconfig's `rootDirs` points at (`bun run types`).
-  generateTypes();
+  generateTypeOverlay();
 });
 
 describe("examples/fullstack-vue FE type-check", () => {
@@ -69,7 +71,7 @@ describe("examples/fullstack-vue FE type-check", () => {
     expect(status).toBe(0);
   }, 120_000);
 
-  it("loads no server file: no hono, typeorm, @laratype/http, @laratype/support or examples/basic file outside app/api", () => {
+  it("loads no server file and no examples/basic file outside app/api", () => {
     const tsconfig = `${exampleDir}tsconfig.json`;
     const files = listFiles(tsconfig, exampleDir).map(slash);
     const root = slash(repoRoot);
@@ -86,8 +88,9 @@ describe("examples/fullstack-vue FE type-check", () => {
     // The framework's server packages and the toolchain types
     expect(files.filter((file) => file.startsWith(`${root}packages/http/src/`))).toEqual([]);
     expect(files.filter((file) => file.startsWith(`${root}packages/support/src/`))).toEqual([]);
-    expect(files.filter((file) => file.includes("/node_modules/hono/"))).toEqual([]);
-    expect(files.filter((file) => file.includes("/node_modules/typeorm/"))).toEqual([]);
+    expect(files.filter((file) => /[\\/]node_modules[\\/]hono[\\/]/.test(file))).toEqual([]);
+    expect(files.filter((file) => /[\\/]node_modules[\\/]typeorm[\\/]/.test(file))).toEqual([]);
+    expect(files.filter((file) => /[\\/]node_modules[\\/]@laratype[\\/](?:http|support)[\\/]/.test(file))).toEqual([]);
     // The FE imports contracts only: nothing of examples/basic except app/api's files
     expect(files.filter((file) => file.startsWith(basic) && !file.startsWith(`${basic}app/api/`))).toEqual([]);
   }, 120_000);
