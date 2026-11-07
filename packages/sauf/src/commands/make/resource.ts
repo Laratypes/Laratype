@@ -23,14 +23,14 @@ export default class MakeResourceCommand extends MakeCommand {
 
     return resourceNames.map(_resourceName => {
       const resourceName = _resourceName.endsWith("Resource") ? _resourceName : _resourceName + "Resource";
-      const destinationPath = "./src/http/resources/" + resourceName + ".ts";
+      const destinationPath = "./app/http/resources/" + resourceName + ".ts";
       const result = this.build(resourcePath, { ResourceName: this.getFileName(resourceName) });
       this.publish(result, destinationPath);
 
       if(options.collection) {
         const collectionPath = this.resolve("sauf", "ResourceCollection.template");
         const collectionName = resourceName.replace("Resource", "ResourceCollection");
-        const collectionDestinationPath = "./src/http/resources/" + collectionName + ".ts";
+        const collectionDestinationPath = "./app/http/resources/" + collectionName + ".ts";
         const collectionResult = this.build(collectionPath, {
           CollectionName: this.getFileName(collectionName),
           ResourceName: this.getFileName(resourceName)

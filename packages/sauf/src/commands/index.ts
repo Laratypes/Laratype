@@ -6,6 +6,7 @@ import { TypesGenerateCommand } from "./types";
 import {
   MakeModelCommand,
   MakeCommandCommand,
+  MakeContractCommand,
   MakeControllerCommand,
   MakeMiddlewareCommand,
   MakePolicyCommand,
@@ -24,6 +25,7 @@ export default [
   RouteListCommand,
   TypesGenerateCommand,
   MakeCommandCommand,
+  MakeContractCommand,
   MakeControllerCommand,
   MakeFactoryCommand,
   MakeGateCommand,

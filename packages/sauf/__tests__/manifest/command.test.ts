@@ -104,6 +104,30 @@ describe("app commands", () => {
     expect(stub).toContain('static readonly signature = "clean:cache" as const');
   }, 120_000);
 
+  it("make:command refuses a name the 0.5 layout already declares", async () => {
+    const { code, output } = await sauf("make:command", "SendMail");
+    expect(code, output).not.toBe(0);
+    expect(output).toContain(
+      'Cannot create app/console/commands/SendMail.ts: app/src/console/commands/SendMail.ts already declares the command "send:mail"',
+    );
+    expect(existsSync(join(project, "app/console/commands/SendMail.ts"))).toBe(false);
+  }, 120_000);
+
+  it("make:command refuses a .mts file of the same name in the v1 folder", async () => {
+    const existing = "app/console/commands/Draft.mts";
+    write(existing, "export default class Draft {}\n");
+    try {
+      const { code, output } = await sauf("make:command", "Draft");
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(
+        'Cannot create app/console/commands/Draft.ts: app/console/commands/Draft.mts already declares the command "draft"',
+      );
+      expect(existsSync(join(project, "app/console/commands/Draft.ts"))).toBe(false);
+    } finally {
+      rmSync(join(project, existing), { force: true });
+    }
+  }, 120_000);
+
   it("names both sources when a command reuses a framework command name", async () => {
     const duplicate = "app/console/commands/RouteList.ts";
     write(duplicate, `

@@ -1,5 +1,6 @@
 export { default as MakeModelCommand } from "./model";
 export { default as MakeCommandCommand } from "./command";
+export { default as MakeContractCommand } from "./contract";
 export { default as MakeControllerCommand } from "./controller";
 export { default as MakeMiddlewareCommand } from "./middleware";
 export { default as MakePolicyCommand } from "./policy";

@@ -17,7 +17,7 @@ export default class MakeRequestCommand extends MakeCommand {
     const resourcePath = this.resolve("sauf", "Request.template");
 
     return requestNames.map(requestName => {
-      const destinationPath = "./src/http/requests/" + requestName + ".ts";
+      const destinationPath = "./app/http/requests/" + requestName + ".ts";
       const result = this.build(resourcePath, { RequestName: this.getFileName(requestName) });
       this.publish(result, destinationPath);
       return destinationPath;

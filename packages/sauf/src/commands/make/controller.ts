@@ -17,7 +17,7 @@ export default class MakeControllerCommand extends MakeCommand {
     const resourcePath = this.resolve("sauf", "Controller.template");
 
     return controllerNames.map(controllerName => {
-      const destinationPath = "./src/http/controllers/" + controllerName + ".ts";
+      const destinationPath = "./app/http/controllers/" + controllerName + ".ts";
       const result = this.build(resourcePath, { ControllerName: this.getFileName(controllerName) });
       this.publish(result, destinationPath);
       return destinationPath;
