@@ -6,7 +6,7 @@ import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { generateTypeOverlay } from "../scripts/generate-types";
 
 const exampleDir = fileURLToPath(new URL("../", import.meta.url));
@@ -64,6 +64,10 @@ beforeAll(() => {
   generateTypeOverlay();
 });
 
+afterAll(() => {
+  rmSync(overlayDir, { recursive: true, force: true });
+});
+
 describe("examples/fullstack-vue FE type-check", () => {
   it("type-checks with its own tsconfig and no diagnostics", () => {
     const { status, diagnostics } = typecheck(`${exampleDir}tsconfig.json`, exampleDir);
@@ -85,12 +89,21 @@ describe("examples/fullstack-vue FE type-check", () => {
     expect(files.some((file) => file.startsWith(`${root}packages/client/src/`))).toBe(true);
     expect(files.some((file) => file.startsWith(`${root}packages/contract/src/`))).toBe(true);
 
-    // The framework's server packages and the toolchain types
+    // The framework's server packages and anything else from the workspace: only client and contract are FE-safe
     expect(files.filter((file) => file.startsWith(`${root}packages/http/src/`))).toEqual([]);
     expect(files.filter((file) => file.startsWith(`${root}packages/support/src/`))).toEqual([]);
+    const workspace = files.filter(
+      (file) =>
+        file.startsWith(`${root}packages/`) &&
+        !file.startsWith(`${root}packages/client/src/`) &&
+        !file.startsWith(`${root}packages/contract/src/`),
+    );
+    expect(workspace).toEqual([]);
     expect(files.filter((file) => /[\\/]node_modules[\\/]hono[\\/]/.test(file))).toEqual([]);
     expect(files.filter((file) => /[\\/]node_modules[\\/]typeorm[\\/]/.test(file))).toEqual([]);
-    expect(files.filter((file) => /[\\/]node_modules[\\/]@laratype[\\/](?:http|support)[\\/]/.test(file))).toEqual([]);
+    expect(
+      files.filter((file) => /[\\/]node_modules[\\/](?:@laratype[\\/]|laratype[\\/]|sauf[\\/])/.test(file)),
+    ).toEqual([]);
     // The FE imports contracts only: nothing of examples/basic except app/api's files
     expect(files.filter((file) => file.startsWith(basic) && !file.startsWith(`${basic}app/api/`))).toEqual([]);
   }, 120_000);
@@ -103,7 +116,7 @@ describe("examples/fullstack-vue FE type-check", () => {
 
     const users = `${overlayBasic}app/api/users.ts`;
     const source = readFileSync(users, "utf-8");
-    const mutated = source.replace("  email: z.string(),", "  emailAddress: z.string(),");
+    const mutated = source.replace("email: z.string(),", "emailAddress: z.string(),");
     // The contract field this test is about moved: fail loudly rather than pass on a stale expect
     expect(mutated).not.toBe(source);
     writeFileSync(users, mutated);

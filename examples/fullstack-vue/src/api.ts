@@ -4,7 +4,6 @@
 import { createClient } from "@laratype/client";
 import { defineApi } from "@laratype/contract";
 import type { ApiTypes } from "@laratype/contract";
-import posts from "../../basic/app/api/posts";
 import users from "../../basic/app/api/users";
 
 /**
@@ -12,7 +11,6 @@ import users from "../../basic/app/api/users";
  * on the contract files: the generated module lives outside `app/api`, which the FE boundary check excludes.
  */
 export const appApi = defineApi({
-  posts: { contract: posts, path: "/api/posts", scopes: [] },
   users: { contract: users, path: "/api/users", scopes: [] },
 });
 

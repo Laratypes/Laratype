@@ -14,9 +14,10 @@ const OVERLAY = `${DEFAULT_OUT}/basic/types`;
 
 /**
  * Writes the `$types.d.ts` overlay of examples/basic's contract tree into this example's `.laratype/basic/types`.
- * The FE program must not load an examples/basic file outside `app/api` (E4 #136), so its tsconfig `rootDirs` points
- * at this copy instead of `examples/basic/.laratype/types`. Only the type overlay is needed: `src/api.ts` builds
- * `appApi` with `defineApi` from the contract files, so the generated `$api` module is not imported.
+ * The scan uses sauf's defaults (`app/api`, `/api`), which is what examples/basic's config uses (docs/v1/contract.md ›
+ * Contract folder tree › Root). The FE program must not load an examples/basic file outside `app/api` (E4 #136), so its
+ * tsconfig `rootDirs` points at this copy instead of `examples/basic/.laratype/types`. Only the type overlay is needed:
+ * `src/api.ts` builds `appApi` with `defineApi` from the contract file, so the generated `$api` module is not imported.
  * Returns the written paths relative to this example.
  */
 export function generateTypeOverlay(): string[] {
