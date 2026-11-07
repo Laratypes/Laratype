@@ -16,7 +16,7 @@ export class Lang extends Facade {
     return Translator.current().getLocale();
   }
 
-  /** Switches the locale of the current request (or the app default outside one). */
+  /** Switches the locale of the current request, or the app default outside one (a container-less request keeps it). */
   static setLocale(locale: string): void {
     Translator.current().setLocale(locale);
   }

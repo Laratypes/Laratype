@@ -4,30 +4,10 @@ import { ContextApi } from "@laratype/support";
 import { setLocale } from "./functions";
 import { matchLocale, normalizeLocale } from "./locale";
 import { Translator } from "./translator";
+import { warnNoRequestContainer } from "./warnings";
 
 /** The query parameter `LocaleMiddleware` reads, before the user preference and Accept-Language. */
 export const LOCALE_QUERY = "locale";
-
-/** Set once the no-request-container warning printed: per process, so a dev restart does not print it again. */
-const NO_CONTAINER_WARNED = Symbol.for("laratype.i18n.localeMiddlewareNoContainer");
-
-/**
- * One-time dev warning for a route served without `RequestKernel`: there is no request scope to hold the locale, so
- * the middleware skips instead of changing the shared default. Silent in production.
- */
-const warnNoContainer = (): void => {
-  const store = globalThis as {
-    __PROD__?: boolean;
-    process?: { env?: Record<string, string | undefined> };
-    [NO_CONTAINER_WARNED]?: true;
-  };
-  const production = store.__PROD__ ?? store.process?.env?.NODE_ENV === "production";
-  if (production || store[NO_CONTAINER_WARNED]) return;
-  store[NO_CONTAINER_WARNED] = true;
-  console.warn(
-    "[@laratype/i18n] LocaleMiddleware has no request container (the route is not served through RequestKernel), so it left the app default locale unchanged: serve the route through RequestKernel to choose a locale per request.",
-  );
-};
 
 /** An `Accept-Language` range with its quality and position: a q=0 range excludes its tag from selection. */
 interface LanguageRange {
@@ -36,23 +16,34 @@ interface LanguageRange {
   readonly index: number;
 }
 
-/** `Accept-Language` ranges by descending q-value, keeping q=0 ranges so they can exclude a tag. `*` is not expanded. */
+/** RFC 9110 §12.4.2 qvalue: `0`–`1` with at most three decimals; `undefined` for anything else (empty, non-numeric, out of range). */
+const parseQuality = (value: string): number | undefined => {
+  const trimmed = value.trim();
+  return /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(trimmed) ? Number(trimmed) : undefined;
+};
+
+/**
+ * `Accept-Language` ranges by descending q-value, keeping q=0 ranges so they can exclude a tag. `*` is not expanded.
+ * A range with a malformed q (empty, non-numeric, outside 0..1, more than three decimals) is skipped: it is neither
+ * q=0 (an exclusion) nor q=1.
+ */
 const parseAcceptLanguage = (header: string): LanguageRange[] =>
   header
     .split(",")
-    .map((part, index) => {
+    .flatMap((part, index) => {
       const [tag, ...parameters] = part.trim().split(";");
+      const trimmed = tag?.trim() ?? "";
+      if (trimmed.length === 0) return [];
       let quality = 1;
       for (const parameter of parameters) {
-        const [name, value] = parameter.trim().split("=");
-        if (name?.toLowerCase() === "q") {
-          const parsed = Number(value);
-          if (Number.isFinite(parsed)) quality = parsed;
-        }
+        const [name, ...values] = parameter.trim().split("=");
+        if (name?.toLowerCase() !== "q") continue;
+        const parsed = parseQuality(values.join("="));
+        if (parsed === undefined) return [];
+        quality = parsed;
       }
-      return { tag: tag?.trim() ?? "", quality, index };
+      return [{ tag: trimmed, quality, index }];
     })
-    .filter(({ tag, quality }) => tag.length > 0 && quality >= 0)
     .sort((a, b) => b.quality - a.quality || a.index - b.index);
 
 /**
@@ -90,7 +81,7 @@ export class LocaleMiddleware extends Middleware {
     const locale = fromQuery ?? fromUser ?? fromHeader;
     if (locale === undefined) return next(request);
     if (ContextApi.getContainer() === undefined) {
-      warnNoContainer();
+      warnNoRequestContainer("LocaleMiddleware");
       return next(request);
     }
     setLocale(locale);

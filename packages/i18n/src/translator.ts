@@ -6,6 +6,7 @@ import { configuredFallbackLocale, configuredLocale } from "./config";
 import { lookupMessage, renderMessage } from "./catalog";
 import type { LangCatalog } from "./catalog";
 import { Locale } from "./locale";
+import { warnNoRequestContainer } from "./warnings";
 
 /** The fallback translator of each facade application, so helper calls without a provider share one default locale. */
 const fallbackTranslators = new WeakMap<Container, Translator>();
@@ -54,12 +55,20 @@ export class Translator {
 
   /**
    * Sets the locale of the current request (the request-scoped `Locale`), or the translator default outside a request
-   * (CLI commands, queued jobs).
+   * (CLI commands, queued jobs). In a request with no request container (a route not served through `RequestKernel`)
+   * it leaves the shared default alone and warns once in dev, so the locale cannot leak into later requests.
    */
   setLocale(locale: string): void {
     const scoped = this.requestLocale();
-    if (scoped !== undefined) scoped.set(locale);
-    else this.locale = locale;
+    if (scoped !== undefined) {
+      scoped.set(locale);
+      return;
+    }
+    if (ContextApi.getRequestStore().getStore() !== undefined) {
+      warnNoRequestContainer("setLocale()");
+      return;
+    }
+    this.locale = locale;
   }
 
   /** The fallback locale tried after the requested one. */
