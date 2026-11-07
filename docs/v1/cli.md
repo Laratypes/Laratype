@@ -2,7 +2,7 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 56ee54c)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 7bf4347)
 last-verified: 2026-11-07
 ---
 
