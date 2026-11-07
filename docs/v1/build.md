@@ -26,7 +26,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
 | [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); planned → #189, #190 |
-| [Type-performance benchmark](#type-performance-benchmark) | proposed: PR #? @ ea2c120 |
+| [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 |
 
 ---
 
@@ -259,7 +259,7 @@ Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr
 ## Type-performance benchmark
 
 ### Status
-proposed: PR #? @ ea2c120 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)). `#?` and the head SHA are filled when the PR opens; the SHA here is the harness commit. The CI job is not in this PR: a `.github/` change needs the PM's `.github` check and the user's approval, so the draft workflow is in the PR report.
+proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)); the SHA is the harness commit. The CI job is not in this PR: a `.github/` change needs the PM's `.github` check and the user's approval, so the draft workflow is in the PR report.
 
 ### Public API
 No public API. Build tooling only, with no new dependency:
