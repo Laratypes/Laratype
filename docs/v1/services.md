@@ -21,7 +21,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 | Section | Status |
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
-| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 7bd86c1 |
+| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 064b32f |
 | [Console commands](#console-commands) | planned → #161 |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
@@ -58,10 +58,10 @@ Each service's own issue, linked in its section.
 ## Driver Manager
 
 ### Status
-proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 7bd86c1 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
+proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 064b32f ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
 
 ### Public API
-`Manager` lives in [`packages/core/src/manager.ts` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
+`Manager` lives in [`packages/core/src/manager.ts` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/064b32f/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
 
 ```ts
 // @laratype/core
