@@ -104,19 +104,23 @@ describe("app commands", () => {
     expect(stub).toContain('static readonly signature = "clean:cache" as const');
   }, 120_000);
 
-  // Last: the duplicate command file stays on disk for the rest of this file's tests otherwise
   it("names both sources when a command reuses a framework command name", async () => {
-    write("app/console/commands/RouteList.ts", `
+    const duplicate = "app/console/commands/RouteList.ts";
+    write(duplicate, `
 import { Command } from "@laratype/console";
 
 export default class RouteList extends Command<typeof RouteList.signature> {
   static readonly signature = "route:list" as const;
 }
 `);
-    const { code, output } = await sauf("route:list");
-    expect(code, output).not.toBe(0);
-    expect(output).toContain(
-      "Duplicate command 'route:list': a framework command and a command file register it; rename one",
-    );
+    try {
+      const { code, output } = await sauf("route:list");
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(
+        'Duplicate command "route:list": a framework command and a command file register it. Fix: rename one.',
+      );
+    } finally {
+      rmSync(join(project, duplicate), { force: true });
+    }
   }, 120_000);
 });

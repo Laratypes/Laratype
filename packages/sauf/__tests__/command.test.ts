@@ -36,7 +36,7 @@ describe("duplicate command names", () => {
   it("names both sources instead of commander's addCommand error", () => {
     const registered = new Map([["route:list", "a framework command"]]);
     expect(() => assertCommandNameFree("route:list", registered, "a command file")).toThrow(
-      "Duplicate command 'route:list': a framework command and a command file register it; rename one",
+      'Duplicate command "route:list": a framework command and a command file register it. Fix: rename one.',
     );
   });
 

@@ -42,11 +42,11 @@ const PARAMETER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 const OPTION_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9][A-Za-z0-9_]*)*$/;
 
 /**
- * `--dry-run` -> `dryRun`, the key commander uses (`Option.attributeName()` / its `camelcase` in
- * commander/lib/option.js): split on `-` and upper-case the first character of every later word. Linear on purpose:
- * a regex here was flagged as polynomial (CodeQL js/polynomial-redos) and this is public API.
+ * `--dry-run` -> `dryRun`, the key commander stores: split on `-` and upper-case the first character of every later
+ * word. Negated (`no-`) names are not supported; `parseSignature()` rejects them.
  */
 export function optionKey(name: string): string {
+  // Linear on purpose: a regex here was flagged as polynomial (CodeQL js/polynomial-redos) on this public helper.
   const [head, ...words] = name.split("-");
   let key = head ?? "";
   for (const word of words) key += word.charAt(0).toUpperCase() + word.slice(1);

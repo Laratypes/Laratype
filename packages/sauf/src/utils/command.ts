@@ -31,7 +31,8 @@ const isClass = (command: ConsoleCommand): command is CommandClass => !isClosure
 export const assertCommandNameFree = (name: string, registered: ReadonlyMap<string, string>, source: string): void => {
   const previous = registered.get(name)
   if (previous) {
-    throw new Error(`Duplicate command '${name}': ${previous} and ${source} register it; rename one`)
+    const sources = `${previous} and ${source} register it. Fix: rename one.`
+    throw new Error(`Duplicate command ${JSON.stringify(name)}: ${sources}`)
   }
 }
 

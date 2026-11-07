@@ -67,9 +67,9 @@ export const importRouteConsoleCommands = async (
     const registered = value.filter(isConsoleCommand);
     if (registered.length !== value.length) {
       const skipped = value.length - registered.length;
+      const reason = "not a command (a class with a static signature, or a closure from command())";
       Console.warn(
-        `Skipped ${skipped} ${skipped === 1 ? "entry" : "entries"} of ${entry.path}: not a command ` +
-          "(a class with a static signature, or a closure from command())"
+        `Skipped ${skipped} ${skipped === 1 ? "entry" : "entries"} of ${entry.path}: ${reason}`
       );
     }
     return registered;

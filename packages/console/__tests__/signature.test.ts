@@ -10,7 +10,9 @@ const commanderOptionKey = (name: string): string => {
   command.exitOverride();
   command.option(`--${name}`);
   command.parse([`--${name}`], { from: "user" });
-  return Object.keys(command.opts())[0]!;
+  const [key] = Object.keys(command.opts());
+  if (key === undefined) throw new Error(`commander stored no key for --${name}`);
+  return key;
 };
 
 describe("parseSignature", () => {
