@@ -8,11 +8,11 @@ last-verified: 2026-10-09
 
 # Auth (`@laratype/auth`), skeleton
 
-> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
+> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (proposed) and [Typed Register](#typed-register) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
 
 | Section | Status |
 |---|---|
-| [Typed Register](#typed-register) | planned → #119 |
+| [Typed Register](#typed-register) | proposed: PR pending @ 24b7071 → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
 | [Policies and gates](#policies-and-gates) | planned → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
@@ -23,16 +23,68 @@ last-verified: 2026-10-09
 ## Typed Register
 
 ### Status
-planned → [#119](https://github.com/Laratypes/Laratype/issues/119) (A1, M2).
+proposed: PR pending @ 24b7071 ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
-### Design (non-binding)
-- **Typing:** module augmentation, quoted from #119:
-  ```ts
-  declare module '@laratype/auth' { interface Register { user: User; guards: { /* ... */ } } }
-  ```
-- **Effect:** `Auth.user()` is then typed `User | null`, which removes the 0.5 `Auth.user<User>()` casts.
-- **Guard names:** `guards` is the registry that types `auth: '<guard>'` in contracts ([Authentication from the contract](#authentication-from-the-contract)).
-- **Facade:** `Auth` becomes a container facade ([#115](https://github.com/Laratypes/Laratype/issues/115)).
+### Public API
+[`packages/auth/src/Register.ts`](../../packages/auth/src/Register.ts):
+
+```ts
+// @laratype/auth
+export interface Register {}
+
+export type RegisteredUser<R = Register> = R extends { user: infer U extends Model } ? U : Model;
+export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
+```
+
+An app fills `Register` once, by module augmentation; [`packages/auth/src/support/Auth.ts`](../../packages/auth/src/support/Auth.ts) reads it:
+
+```ts
+// @laratype/auth
+export class AuthService {
+  attempt<T extends Model = RegisteredUser>(user: T): Promise<false | Authenticated<T>>;
+  user<T extends Model = RegisteredUser>(): Authenticated<T> | null;
+  login<T extends Model>(user: T): Authenticated<T>;
+  guard<T extends Model = RegisteredUser>(guardName: GuardName): Authenticate<T>;
+}
+
+export default class Auth extends Facade {
+  /* the same methods, static; attempt() stays an instance method as in 0.5 */
+}
+
+export class AuthManager {
+  guard<User = any>(name?: GuardName): TokenGuard<User>;
+}
+
+export default class AuthVerification {
+  static guard(guardName: GuardName): TokenGuard<any>;
+}
+```
+
+`Authenticate<T>` is the per-guard handle of a call (`user(): Authenticated<T> | undefined`, `attempt(fields): Promise<false | Authenticated<T>>`); `Authenticated<T>` is the unchanged wrapper (`getUser(): T`, `generateToken(options)`).
+
+### Invariants
+- **Type-only.** The registry has no runtime value: A1 changes no guard lookup, no config shape and no 0.5 call site. `Auth.user()` still returns the `Authenticated` wrapper (D8 #115), not the model, and `.getUser()` gives the user.
+- **The registered user is the default type argument.** `Auth.user()` with no type argument is `Authenticated<Register['user']> | null` (for example `Authenticated<User> | null`) once the app registers `user`; `Auth.guard(name).user()` is `Authenticated<User> | undefined`, and `Auth.guard(name).attempt(fields)` is `Promise<false | Authenticated<User>>`. An explicit type argument still wins: `Auth.user<Admin>()` is `Authenticated<Admin> | null`.
+- **Guard names.** Once `guards` is registered, `Auth.guard(name)`, `AuthService.guard(name)`, `AuthVerification.guard(name)` and `AuthManager.guard(name)` accept only `keyof Register['guards']`. The default guard (no name) is not affected. `Passport.authenticate(name)` keeps passport's `string | string[] | Strategy`: it runs any passport strategy, not only an auth guard.
+- **Before a registration.** `RegisteredUser` is `Model` and `GuardName` is `string`, so 0.5 code keeps its types: `Auth.user()` is `Authenticated<Model> | null`, `Auth.user<User>()` compiles, and every string is a guard name.
+- **Registry values are not read.** Only the keys of `Register['guards']` type the names; per-guard user types are not part of A1.
+- **Boundary with the contract.** `@laratype/contract` stays browser-pure and never imports `@laratype/auth`. It types `auth: '<guard>'` from its own `GuardRegistry` (C4b #228); until A2 #120 links the two, an app that uses both augments both registries (auth may import contract, never the reverse).
+
+### Diagnostics
+- **Wrong guard name (type-level).** `Auth.guard('nope')` (and the other guard-name APIs) fails with `Argument of type '"nope"' is not assignable to parameter of type '"web" | "api"'`, naming the registered guards. `Auth.guard('web')` compiles.
+- **Runtime.** The registry never replaces the runtime check: an unknown name that got past the types throws `[@laratype/auth] Auth guard "<name>" is not defined in app/config/auth.ts.` (`AuthManager`).
+- **Missing registration.** No type error: `Auth.user()` is `Authenticated<Model> | null` (today's 0.5 type) and `Auth.guard('anything')` compiles, as in 0.5.
+
+### Example
+[`examples/auth/proposed/typed-register.ts`](./examples/auth/proposed/typed-register.ts); the type tests are `packages/auth/__tests__/typedRegister.test-d.ts` (registered) and `packages/auth/__tests__/typedRegister.test.ts` (the unregistered fixture).
+
+### Non-goals
+- No runtime registry check and no per-guard user type.
+- No change to the contract's `GuardRegistry` or to `auth: '<guard>'`: A2 #120 links the two registries.
+- `Auth.user()` does not return the bare model: the `Authenticated` wrapper stays.
+
+### Open questions
+- [A2 #120](https://github.com/Laratypes/Laratype/issues/120): link `Register['guards']` to the contract's `GuardRegistry` (auth may import contract, never the reverse).
 
 ### Acceptance
 [#119 Done when](https://github.com/Laratypes/Laratype/issues/119)
