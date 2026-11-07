@@ -1,6 +1,5 @@
 import { HTTPException } from "hono/http-exception";
 import type { HonoRequest } from "hono/request";
-import { parseBody } from "hono/utils/body";
 import { bufferToFormData } from "hono/utils/buffer";
 import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
@@ -114,13 +113,53 @@ const textReadBodyError = (): TypeError =>
 const hasFields = (formData: FormData): boolean => formData.entries().next().done !== true;
 
 /**
- * The form fields, with this pipeline's options. Hono caches `parseBody()`'s result, and ignores the options of a later
- * call (4.9.6), so a flat `c.req.parseBody()` from a middleware would hide the dot keys of `parseBody({ dot: true })`
- * from a nested schema. Rebuild the fields from the FormData in the cache instead, with Hono's own conversion: 4.9.6
- * reads it through `c.req.formData()`, 4.13+ (4.12 has the 4.9.6 shape) from `bodyCache.formData`, and neither reads
- * the stream. Hono does not export that conversion, it exports `parseBody()`.
+ * The form fields as Hono's `parseBody({ dot: true })` builds them, from the FormData this pipeline already holds. It
+ * mirrors Hono 4.9.6's `convertFormDataToBodyData` with `{ all: false, dot: true }`: a key sent once is its value, a
+ * repeated key the last value, a `[]` key an array, and a dotted key a nested object, replacing a non-object on the
+ * way. Hono does not export that conversion, and `parseBody()` cannot read the request here: on 4.12.28 it always calls
+ * `request.arrayBuffer()`, which rebuilds a cached FormData's bytes with a new multipart boundary, so they no longer
+ * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded). Every object is built
+ * with `Object.create(null)`, so a `__proto__`, `constructor` or `prototype` segment is an own key, never a prototype
+ * one: 4.9.6 has no explicit `__proto__.` guard, and its null-prototype objects keep that key data.
  */
-const parseFormFields = (request: HonoRequest): Promise<unknown> => parseBody(request, { dot: true });
+export const toDotFields = (formData: FormData): Record<string, unknown> => {
+  const fields: Record<string, unknown> = Object.create(null);
+  formData.forEach((value, key) => {
+    if (!key.endsWith("[]")) fields[key] = value;
+    else appendArrayValue(fields, key, value);
+  });
+  for (const [key, value] of Object.entries(fields)) {
+    if (!key.includes(".")) continue;
+    setNestedValue(fields, key, value);
+    delete fields[key];
+  }
+  return fields;
+};
+
+/** Hono's `handleParsingAllValues` for a `[]` key: its first value starts the array, the later ones are appended. */
+const appendArrayValue = (fields: Record<string, unknown>, key: string, value: FormDataEntryValue): void => {
+  const current = fields[key];
+  if (current === undefined) fields[key] = [value];
+  else if (Array.isArray(current)) current.push(value);
+  else fields[key] = [current, value];
+};
+
+/** Hono's `handleParsingNestedValues`: `a.b` walks `a` and sets `b`, replacing a non-object on the way. */
+const setNestedValue = (fields: Record<string, unknown>, key: string, value: unknown): void => {
+  let nested = fields;
+  const parts = key.split(".");
+  parts.forEach((part, index) => {
+    if (index === parts.length - 1) {
+      nested[part] = value;
+      return;
+    }
+    const current = nested[part];
+    if (!current || typeof current !== "object" || Array.isArray(current) || current instanceof File) {
+      nested[part] = Object.create(null);
+    }
+    nested = nested[part] as Record<string, unknown>;
+  });
+};
 
 /**
  * Hono's own bytes-to-FormData parse (4.9.6). A cached body Hono rebuilds has no Content-Type, which a multipart
@@ -138,12 +177,12 @@ const formDataFromBytes = async (bytes: Uint8Array, contentType: string): Promis
 
 /**
  * The form fields of the raw bytes. The FormData goes back into Hono's cache before the conversion, so a later
- * `c.req.formData()`/`parseBody()` has one Hono can serve and `parseFormFields` reads the same one.
+ * `c.req.formData()`/`parseBody()` has one Hono can serve and this pipeline reads the same one.
  */
 const readFormFields = async (request: HonoRequest, bytes: Uint8Array, contentType: string): Promise<unknown> => {
   const formData = await formDataFromBytes(bytes, contentType);
   cacheFormData(bodyCacheOf(request), formData);
-  return parseFormFields(request);
+  return toDotFields(formData);
 };
 
 /** The bytes a byte reader left in Hono's cache, or the unread ones on `raw`; `undefined` is a blank body, no body. */
@@ -239,7 +278,7 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
       return {};
     }
     cacheFormData(cache, formData);
-    return hasFields(formData) ? parseFormFields(request) : {};
+    return hasFields(formData) ? toDotFields(formData) : {};
   }
   // Bytes already (this pipeline's own read, `c.req.arrayBuffer()`, or a `c.req.blob()`), else the stream left on `raw`
   const bytes = await readFormBytes(request);

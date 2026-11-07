@@ -13,7 +13,7 @@ import { HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, endpoint } from "@laratype/contract";
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from "../../src/index";
 import type { Ctx } from "../../src/index";
-import { readBody } from "../../src/request/input";
+import { readBody, toDotFields } from "../../src/request/input";
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. */
 const bootApp = (middleware: MiddlewareHandler[] = []) => {
@@ -42,12 +42,17 @@ const quiet = () => {
 
 const rules = () => z.object({ name: z.string(), user: z.object({ age: z.string() }).optional() });
 
-/** A 0.5 route whose request class validates `{ name, user? }`: what reaches the controller and `validated()`. */
-const mount = (middleware: MiddlewareHandler[], before: MiddlewareHandler[] = [], after: MiddlewareHandler[] = []) => {
+/** A 0.5 route whose request class validates `{ name, user? }` (or `schema`): what reaches the controller and `validated()`. */
+const mount = (
+  middleware: MiddlewareHandler[],
+  before: MiddlewareHandler[] = [],
+  after: MiddlewareHandler[] = [],
+  schema: () => unknown = rules,
+) => {
   let validated: unknown;
   class NameRequest extends LaratypeRequest {
     rules() {
-      return rules();
+      return schema();
     }
   }
   class Users extends Controller {
@@ -681,5 +686,82 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
     expect(response.status).toBe(201);
     expect(validated).toEqual({});
     expect(later).toEqual({});
+  });
+});
+
+// Round 5 of #345: Hono 4.12.28's parseBody() reads the bytes even when the FormData is cached, and rebuilds them with
+// a new multipart boundary, so the pipeline converts the FormData it holds instead (toDotFields).
+describe("a form body a middleware read with c.req.formData() (H43 #345 round 5)", () => {
+  const fields = () => z.object({ name: z.string(), user: z.object({ age: z.string() }), "tags[]": z.array(z.string()) });
+
+  const readFormData: MiddlewareHandler = async (c, next) => {
+    await c.req.formData();
+    await next();
+  };
+
+  const multipartFields = () => {
+    const form = new FormData();
+    form.append("name", "ada");
+    form.append("user.age", "36");
+    form.append("tags[]", "a");
+    form.append("tags[]", "b");
+    return formInit(form);
+  };
+
+  const forms: [string, () => RequestInit][] = [
+    ["multipart", multipartFields],
+    ["urlencoded", () => urlencoded("name=ada&user.age=36&tags%5B%5D=a&tags%5B%5D=b")],
+  ];
+
+  it.each(forms)("the pipeline validates the %s fields the middleware parsed", async (_label, init) => {
+    quiet();
+    // `c.req.formData()` leaves only its promise in Hono's cache. Hono 4.12.28's `parseBody()` rebuilds its bytes with
+    // a new multipart boundary (a TypeError on multipart, no fields on urlencoded); the pipeline converts the FormData
+    const { app, validated } = mount([readFormData], [], [], fields);
+    const response = await app.request("/users", init());
+    expect(response.status).toBe(201);
+    expect(validated()).toEqual({ name: "ada", user: { age: "36" }, "tags[]": ["a", "b"] });
+  });
+
+  it("a urlencoded optional field is not silently lost", async () => {
+    quiet();
+    // On 4.12.28 the urlencoded body was re-parsed from multipart bytes without an error: every field went missing, so
+    // an optional field still answered 201, with `{}`. The value the client sent has to reach the handler
+    const { app, validated } = mount([readFormData], [], [], () => z.object({ name: z.string().optional() }));
+    const response = await app.request("/users", urlencoded("name=ada"));
+    expect(response.status).toBe(201);
+    expect(validated()).toEqual({ name: "ada" });
+  });
+});
+
+describe("toDotFields (H43 #345 round 5)", () => {
+  const formOf = () => {
+    const form = new FormData();
+    form.append("name", "ada");
+    form.append("name", "grace");
+    form.append("tags[]", "a");
+    form.append("tags[]", "b");
+    form.append("user.age", "36");
+    form.append("user.address.city", "Paris");
+    form.append("__proto__.x", "polluted");
+    form.append("constructor.y", "own");
+    form.append("prototype.z", "own");
+    return form;
+  };
+
+  it("converts a FormData exactly as the installed Hono's parseBody({ dot: true }) does", async () => {
+    // The conversion is Hono's, mirrored: a bump that changes it fails here, where toDotFields is read from
+    const request = new HonoRequest(new Request("http://localhost/users", { method: "POST", body: formOf() }));
+    const hono = await request.parseBody({ dot: true });
+    const fields = toDotFields(formOf());
+    expect(fields).toEqual(hono);
+    // A `__proto__`, `constructor` or `prototype` segment is an own key of a null-prototype object: no prototype of
+    // Object.prototype is reachable, so the submitted value reaches no prototype
+    expect(Object.getPrototypeOf(fields)).toBeNull();
+    expect(Object.getPrototypeOf(fields.user)).toBeNull();
+    expect(Object.prototype).not.toHaveProperty("x");
+    expect(Object.prototype).not.toHaveProperty("y");
+    expect(Object.prototype).not.toHaveProperty("z");
+    expect(fields["__proto__"]).toEqual({ x: "polluted" });
   });
 });
