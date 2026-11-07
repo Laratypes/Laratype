@@ -241,6 +241,47 @@ describe('RequestKernel.handle: policy', () => {
   })
 })
 
+describe('UsePolicy: model-level can()', () => {
+  it('records the class at decoration and resolves it from the container per request', async () => {
+    quiet()
+    let built = 0
+    class ArticlePolicy extends Policy {
+      constructor(private readonly permissions: Permissions) { super(); built++ }
+      viewAny() { return true }
+      view() { return this.permissions.allows('view') }
+      create() { return true }
+      update() { return true }
+      delete() { return true }
+      restore() { return true }
+      forceDelete() { return true }
+    }
+    __laratype_deps(ArticlePolicy, [() => Permissions], { params: ['permissions'] })
+
+    @UsePolicy(ArticlePolicy)
+    class Article {}
+
+    // Decoration only records the class: no request, no container and no construction
+    expect(built).toBe(0)
+
+    class ArticleController extends Controller {
+      show() {
+        // The decorator adds can()/cannot() at runtime; legacy decorators leave the class type unchanged
+        const article = new Article() as Article & UsePolicy<ArticlePolicy>
+        return { allowed: article.can('view') }
+      }
+    }
+
+    const app = bootApp((container) => container.bind(Permissions, DenyAll))
+    app.get('/article', RequestKernel.handle({ method: 'get', path: '/article', controller: [ArticleController, 'show'] }))
+    expect(await json(app, '/article')).toEqual({ allowed: false })
+    expect(asked).toEqual(['deny:view'])
+    // The next request resolves a fresh policy from its own request scope, with the app binding applied again
+    expect(await json(app, '/article')).toEqual({ allowed: false })
+    expect(built).toBe(2)
+    expect(asked).toEqual(['deny:view', 'deny:view'])
+  })
+})
+
 /** A `can` step that runs without an auth middleware in front: no user, or a custom handler that doesn't allow. */
 const reached: string[] = []
 
