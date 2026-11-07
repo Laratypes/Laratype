@@ -29,7 +29,7 @@ export default class MakeResourceCommand extends MakeCommand {
 
       if(options.collection) {
         const collectionPath = this.resolve("sauf", "ResourceCollection.template");
-        const collectionName = resourceName.replace("Resource", "ResourceCollection");
+        const collectionName = resourceName + "Collection";
         const collectionDestinationPath = "./app/http/resources/" + collectionName + ".ts";
         const collectionFunction = collectionName.charAt(0).toLowerCase() + collectionName.slice(1);
         const collectionResult = this.build(collectionPath, {

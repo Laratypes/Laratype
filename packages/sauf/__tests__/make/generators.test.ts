@@ -12,10 +12,16 @@ const saufBin = fileURLToPath(new URL("../../dist/index.esm.js", import.meta.url
 const repo = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\\/g, "/");
 const example = join(repo, "examples/basic");
 
+interface Run {
+  readonly code: number | null;
+  readonly output: string;
+}
+
 let project: string;
+let runs: Record<"contract" | "escape" | "types" | "command" | "controller" | "request" | "resource", Run>;
 
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
-const sauf = (...args: string[]) => new Promise<{ code: number | null; output: string }>((resolve) => {
+const sauf = (...args: string[]) => new Promise<Run>((resolve) => {
   const child = spawn(process.execPath, [saufBin, ...args], {
     cwd: project,
     env: { ...process.env, NODE_ENV: "development", NO_COLOR: "1", FORCE_COLOR: "0" },
@@ -27,11 +33,11 @@ const sauf = (...args: string[]) => new Promise<{ code: number | null; output: s
   child.on("close", (code) => resolve({ code, output: output.replace(/\x1b\[[0-9;]*m/g, "") }));
 });
 
-const expectOk = (result: { code: number | null; output: string }) => {
+const expectOk = (result: Run) => {
   expect(result.code, result.output).toBe(0);
 };
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!existsSync(saufBin)) throw new Error(`${saufBin} not found: run \`bun run build\` before this test.`);
   // Next to examples/basic, so the copied tsconfig's `extends: ../../tsconfig.json` and `rootDir` still resolve
   project = mkdtempSync(join(repo, "examples", ".make-"));
@@ -45,39 +51,54 @@ beforeAll(() => {
   const patched = source.replace(/"\$api": \[[^\]]*\]/, `"$api": ["${api}"]`);
   expect(patched).not.toBe(source);
   writeFileSync(tsconfig, patched);
-});
+
+  // Every generator once, so each test sees a complete run and a single `-t` filter still works
+  runs = {
+    contract: await sauf("make:contract", "reports/monthly"),
+    escape: await sauf("make:contract", "../escape"),
+    types: await sauf("types:generate", "--root", "app/api", "--base", "/api"),
+    command: await sauf("make:command", "DraftCommand"),
+    controller: await sauf("make:controller", "DraftController"),
+    request: await sauf("make:request", "DraftRequest"),
+    resource: await sauf("make:resource", "Draft", "--collection"),
+  };
+}, 120_000);
 
 afterAll(() => {
   if (project) rmSync(project, { recursive: true, force: true });
 });
 
 describe("v1 make generators", () => {
-  it("make:contract writes into the contract folder tree", async () => {
-    const result = await sauf("make:contract", "reports/monthly");
-    expectOk(result);
+  it("make:contract writes into the contract folder tree", () => {
+    expectOk(runs.contract);
     const file = join(project, "app/api/reports/monthly.ts");
-    expect(existsSync(file), result.output).toBe(true);
+    expect(existsSync(file), runs.contract.output).toBe(true);
     const stub = readFileSync(file, "utf8");
     expect(stub).toContain('import { defineContract, endpoint } from "@laratype/contract";');
     expect(stub).toContain('import type { Prefix } from "./$types";');
     expect(stub).toContain("export default defineContract<Prefix>()({");
     expect(stub).toContain('index: endpoint.get("/").query(IndexQuery)');
     expect(stub).toContain("z.coerce.number()");
-  }, 120_000);
+  });
 
-  it("types:generate gives the nested folder its Prefix", async () => {
-    const result = await sauf("types:generate", "--root", "app/api", "--base", "/api");
-    expectOk(result);
+  it("make:contract rejects a path that leaves the contract tree", () => {
+    expect(runs.escape.code, runs.escape.output).not.toBe(0);
+    expect(runs.escape.output).toContain('Invalid contract name "../escape"');
+    expect(existsSync(join(project, "app/escape.ts"))).toBe(false);
+  });
+
+  it("types:generate gives the nested folder its Prefix", () => {
+    expectOk(runs.types);
     const types = join(project, ".laratype/types/app/api/reports/$types.d.ts");
-    expect(existsSync(types), result.output).toBe(true);
+    expect(existsSync(types), runs.types.output).toBe(true);
     expect(readFileSync(types, "utf8")).toContain("ContractPrefix<'/api/reports', []>");
-  }, 120_000);
+  });
 
-  it("the generated stubs type-check with examples/basic's tsconfig", async () => {
-    expectOk(await sauf("make:command", "DraftCommand"));
-    expectOk(await sauf("make:controller", "DraftController"));
-    expectOk(await sauf("make:request", "DraftRequest"));
-    expectOk(await sauf("make:resource", "Draft", "--collection"));
+  it("the generated stubs type-check with examples/basic's tsconfig", () => {
+    for (const [name, result] of Object.entries(runs)) {
+      if (name === "escape") continue;
+      expect(result.code, `${name}: ${result.output}`).toBe(0);
+    }
 
     const generated = [
       "app/api/reports/monthly.ts",

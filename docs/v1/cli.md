@@ -123,7 +123,7 @@ proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/
 
 ### Invariants
 - **Destinations** are the v1 project layout ([overview.md › Project structure](./overview.md#project-structure)): contracts under `app/api` (the default `api.root`), controllers, requests and resources under `app/http/`, commands under `app/console/commands/`. An existing file is left untouched with a `[SKIPPED]` warning.
-- **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A sub-path is kept (`users/posts` -> `app/api/users/posts.ts`); a trailing `.ts` and `\` path separators in the argument are normalized. A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only. An invalid tree name (a `.` in a file name, a root `index.ts`, a duplicate contract name) fails that scan.
+- **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A sub-path is kept (`users/posts` -> `app/api/users/posts.ts`, and `[param]` folders are allowed); a trailing `.ts` and `\` path separators in the argument are normalized. A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only. A segment outside the tree's naming rules (`.`, `..`, an absolute path) is rejected by the generator; a root `index.ts` or a duplicate contract name fails that scan.
 - **The stubs type-check** in `examples/basic`. The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
   - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
@@ -135,6 +135,7 @@ proposed: PR pending @ a9c9871 (E2 [#134](https://github.com/Laratypes/Laratype/
 
 ### Diagnostics
 - `[SKIPPED] The file <path> already exists.` (the generator leaves the file untouched).
+- `Invalid contract name "<name>": use letters, digits, "_" and "-", or a [param] folder, under app/api.` (`make:contract`, for a segment that would leave the tree).
 - `Cannot create <path>: <existing path> already uses the command name "<name>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or another `.ts`/`.mts` file already uses the name).
 
 ### Example

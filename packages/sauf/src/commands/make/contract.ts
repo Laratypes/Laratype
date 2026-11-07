@@ -1,5 +1,17 @@
 import MakeCommand from "../../utils/MakeCommand";
 
+/** One folder or file of the contract tree: a name, or a `[param]` folder (docs/v1/contract.md › Contract folder tree). */
+const CONTRACT_SEGMENT = /^(?:[A-Za-z0-9_-]+|\[[A-Za-z_][A-Za-z0-9_]*\])$/;
+
+/** The path under app/api for a command argument, or an error when a segment would leave the tree. */
+function contractPath(contractName: string): string {
+  const name = contractName.replace(/\\/g, "/").replace(/\.ts$/, "");
+  const segments = name.split("/");
+  if (!name.startsWith("/") && segments.every((segment) => CONTRACT_SEGMENT.test(segment))) return name;
+  const reason = `Invalid contract name ${JSON.stringify(contractName)}`;
+  throw new Error(`${reason}: use letters, digits, "_" and "-", or a [param] folder, under app/api.`);
+}
+
 export default class MakeContractCommand extends MakeCommand {
 
   static signature = "make:contract {names*}";
@@ -12,8 +24,7 @@ export default class MakeContractCommand extends MakeCommand {
     return contractNames.map(contractName => {
       // The contract folder tree is the source of its URL prefix and name (docs/v1/contract.md › Contract folder tree),
       // so a sub-path is kept: `users/posts` writes app/api/users/posts.ts
-      const name = contractName.replace(/\\/g, "/").replace(/\.ts$/, "");
-      const destinationPath = `./app/api/${name}.ts`;
+      const destinationPath = `./app/api/${contractPath(contractName)}.ts`;
       const result = this.build(resourcePath, {});
       this.publish(result, destinationPath);
       return destinationPath;
