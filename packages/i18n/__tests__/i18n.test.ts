@@ -70,6 +70,17 @@ describe("trans() / __()", () => {
     expect(trans("messages.apples", { count: 3 }, "vi")).toBe("3 quả táo");
   });
 
+  it("matches a base language to a catalog's sibling region, as LocaleMiddleware does", () => {
+    Lang.fake(
+      new Translator(
+        { "en-US": { messages: { greeting: "Hello {name}" } } },
+        { locale: "en", fallbackLocale: "en" },
+      ),
+    );
+    expect(trans("messages.greeting", { name: "Ada" })).toBe("Hello Ada");
+    expect(__("messages.greeting", { name: "Ada" })).toBe("Hello Ada");
+  });
+
   it("normalizes the locale before Intl.PluralRules: fr_FR count 0 uses the French one", () => {
     Lang.fake(
       new Translator(

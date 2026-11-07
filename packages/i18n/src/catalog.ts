@@ -1,7 +1,7 @@
 import { loadDefault, appManifest } from "@laratype/support";
 import type { AppManifest } from "@laratype/support";
 import type { LangTree, MessageParams, PluralCategory } from "./types";
-import { baseLocale, normalizeLocale } from "./locale";
+import { baseLocale, matchLocale, normalizeLocale } from "./locale";
 import { I18nError } from "./errors";
 
 /** Every loaded translation file, by locale and file name: `catalog.en.messages.greeting`. */
@@ -101,11 +101,12 @@ const localeChain = (locale: string): string[] => {
   return normalizeLocale(tag) === base ? [tag] : [tag, base];
 };
 
-/** The catalog's own spelling of a locale (folders are case-sensitive, lookups are not). */
-const catalogLocale = (catalog: LangCatalog, locale: string): string | undefined => {
-  const wanted = normalizeLocale(locale);
-  return Object.keys(catalog).find((key) => normalizeLocale(key) === wanted);
-};
+/**
+ * The catalog's own spelling of a locale (folders are case-sensitive, lookups are not): the same matching as
+ * `LocaleMiddleware`, so `en` finds `en-US` and a region tag finds another region of its language.
+ */
+const catalogLocale = (catalog: LangCatalog, locale: string): string | undefined =>
+  matchLocale(locale, Object.keys(catalog));
 
 /** The message at `file.dotted.key` in one locale, or `undefined` when the path is a group or missing. */
 const lookupIn = (catalog: LangCatalog, locale: string, key: string): string | Record<string, string> | undefined => {
