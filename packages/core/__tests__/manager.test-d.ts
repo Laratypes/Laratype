@@ -38,6 +38,16 @@ describe('Manager types', () => {
     })
   })
 
+  it('never types the default driver as a named one', () => {
+    typeOnly(() => {
+      // @ts-expect-error driver() resolves the default driver, so an explicit name type is refused
+      manager.driver<'memory'>()
+      const maybe = undefined as 'memory' | undefined
+      // @ts-expect-error a name that may be undefined could resolve the default driver
+      manager.driver(maybe)
+    })
+  })
+
   it('requires the Drivers map, so a manager cannot omit it', () => {
     typeOnly(() => {
       // @ts-expect-error Manager requires its Drivers map; a manager without one would accept any name

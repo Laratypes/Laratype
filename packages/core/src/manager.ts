@@ -29,16 +29,21 @@ export abstract class Manager<
   /** Builds the driver named `name` from the service config. Throw for a name the service does not support. */
   protected abstract createDriver(name: keyof Drivers & string): Drivers[keyof Drivers]
 
-  /** The driver named `name` (the default driver when omitted), built once and cached by name. */
-  driver<K extends keyof Drivers & string = Default>(name?: K): Drivers[K] {
+  /**
+   * The default driver, or the driver named `name`, built once and cached by name. Two overloads, not one optional
+   * generic parameter: `driver<'memory'>()` or a `name` that may be `undefined` would otherwise be typed as the named
+   * driver while the call resolves the default one.
+   */
+  driver(): Drivers[Default]
+  driver<K extends keyof Drivers & string>(name: K): Drivers[K]
+  driver(name?: keyof Drivers & string): Drivers[keyof Drivers] {
     const key = name ?? this.defaultDriver
     const cached = this.instances.get(key)
-    // The map is keyed by name, so `key` holds `Drivers[K]`; TypeScript cannot correlate a dynamic key with K.
-    if (cached !== undefined) return cached as Drivers[K]
+    if (cached !== undefined) return cached
     const factory = this.factories.get(key)
     const driver = factory ? factory(this) : this.createDriver(key)
     this.instances.set(key, driver)
-    return driver as Drivers[K]
+    return driver
   }
 
   /**
