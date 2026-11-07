@@ -136,7 +136,7 @@ export function warnOmitted(omitted: readonly string[]): void {
   const lang = omitted.filter((path) => path.startsWith("lang/"));
   if (lang.length) {
     Console.warn(
-      `Lang files are not in the program of tsconfig.build.json, so production ships no translations: ${lang.join(', ')} (add "lang/**/*" to the build tsconfig's "include")`,
+      `Lang files are not in the program of tsconfig.build.json, so dist/app.manifest.js leaves them out and production has no translations for them: ${lang.join(', ')} (add "lang/**/*" to the build tsconfig's "include")`,
     );
   }
   const others = omitted.filter((path) => !path.startsWith("lang/"));

@@ -120,6 +120,17 @@ describe('writeDistManifest', () => {
     expect((await load(file)).factories).toEqual([]);
   });
 
+  it('a lang file inside the build program ships in the manifest', async () => {
+    const dir = project('lang-inside', {}, { include: ['app/**/*', 'database/**/*', 'lang/**/*'] }, tmp, {
+      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+    });
+    const { file, omitted } = writeDistManifest(ts, dir);
+    expect(omitted).toEqual([]);
+    const manifest = await load(file);
+    expect(manifest.lang.map((entry) => entry.name)).toEqual(['en/messages']);
+    expect((await manifest.lang[0]!.load()).default).toEqual({ greeting: 'Hello {name}' });
+  });
+
   it('a source in the program whose output is missing is an error', () => {
     const dir = project('missing', {});
     unlinkSync(join(dir, 'dist/src/models/User.js'));
@@ -192,7 +203,7 @@ describe('warnOmitted', () => {
     try {
       warnOmitted(omitted);
       expect(warn).toHaveBeenCalledWith(
-        'Lang files are not in the program of tsconfig.build.json, so production ships no translations: lang/en/messages.ts (add "lang/**/*" to the build tsconfig\'s "include")',
+        'Lang files are not in the program of tsconfig.build.json, so dist/app.manifest.js leaves them out and production has no translations for them: lang/en/messages.ts (add "lang/**/*" to the build tsconfig\'s "include")',
       );
     } finally {
       warn.mockRestore();
@@ -210,17 +221,6 @@ describe('warnOmitted', () => {
     } finally {
       warn.mockRestore();
     }
-  });
-
-  it('a lang file inside the build program ships in the manifest', async () => {
-    const dir = project('lang-inside', {}, { include: ['app/**/*', 'database/**/*', 'lang/**/*'] }, tmp, {
-      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
-    });
-    const { file, omitted } = writeDistManifest(ts, dir);
-    expect(omitted).toEqual([]);
-    const manifest = await load(file);
-    expect(manifest.lang.map((entry) => entry.name)).toEqual(['en/messages']);
-    expect((await manifest.lang[0]!.load()).default).toEqual({ greeting: 'Hello {name}' });
   });
 });
 
@@ -321,7 +321,7 @@ describe('sauf build', () => {
       const command = new LaratypeBuildCommand();
       command.opts = () => ({ platform: 'node' });
       await expect(command.handle()).resolves.toBe(0);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('production ships no translations: lang/en/messages.ts'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('production has no translations for them: lang/en/messages.ts'));
       expect(readFileSync(join(dir, 'dist', MANIFEST_FILE), 'utf8')).toContain('  lang: [],');
     } finally {
       process.chdir(cwd);
