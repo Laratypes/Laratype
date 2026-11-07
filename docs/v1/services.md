@@ -216,7 +216,7 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ 7bd41d3 (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ df00787 (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
 ### Public API
 `packages/i18n/src/index.ts` at the Status SHA.
