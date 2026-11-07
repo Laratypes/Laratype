@@ -36,7 +36,7 @@ export type RegisteredUser<R = Register> = R extends { user: infer U extends Mod
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
 ```
 
-An app fills `Register` once, by module augmentation; [`packages/auth/src/support/Auth.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/support/Auth.ts) reads it:
+An app fills `Register` once, by module augmentation. `Auth` and `AuthService` come from [`packages/auth/src/support/Auth.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/support/Auth.ts), `AuthManager` from [`packages/auth/src/guard/AuthManager.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/guard/AuthManager.ts), and `AuthVerification` from [`packages/auth/src/verifications/AuthVerification.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/verifications/AuthVerification.ts):
 
 ```ts
 // @laratype/auth
@@ -47,7 +47,7 @@ export class AuthService {
   guard<T extends Model = RegisteredUser>(guardName: GuardName): Authenticate<T>;
 }
 
-export default class Auth extends Facade {
+export class Auth extends Facade {
   /* the same methods, static; attempt() stays an instance method as in 0.5 */
 }
 
@@ -55,7 +55,7 @@ export class AuthManager {
   guard<User = any>(name?: GuardName): TokenGuard<User>;
 }
 
-export default class AuthVerification {
+export class AuthVerification {
   static guard(guardName: GuardName): TokenGuard<any>;
 }
 ```

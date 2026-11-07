@@ -14,6 +14,8 @@ expectTypeOf<GuardName>().toEqualTypeOf<string>();
 
 typeOnly(() => {
   expectTypeOf(Auth.user()).toEqualTypeOf<Authenticated<Model> | null>();
+  // The 0.5 explicit type argument still compiles and still wins
+  expectTypeOf(Auth.user<Model>()).toEqualTypeOf<Authenticated<Model> | null>();
   expectTypeOf(Auth.guard("anything").user()).toEqualTypeOf<Authenticated<Model> | undefined>();
   expectTypeOf(new AuthService().guard("anything").user()).toEqualTypeOf<Authenticated<Model> | undefined>();
 
