@@ -3,14 +3,15 @@ import { Facade } from "@laratype/core";
 import type { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
 import { authManager } from "../guard/resolve";
+import type { GuardName, RegisteredUser } from "../Register";
 
 class Authenticate<T extends Model> {
 
-  protected guardName?: string;
+  protected guardName?: GuardName;
   protected authenticated?: Authenticated<T>;
 
   /** `guardName` is resolved by the app container's `AuthManager`; the default guard when omitted. */
-  constructor(guardName?: string) {
+  constructor(guardName?: GuardName) {
     this.guardName = guardName;
   }
 
@@ -66,11 +67,11 @@ class Authenticate<T extends Model> {
  * resolves the app container's `AuthManager` from the current request's container (A4 #151).
  */
 export class AuthService {
-  async attempt<T extends Model>(user: T) {
+  async attempt<T extends Model = RegisteredUser>(user: T) {
     return new Authenticate<T>().attempt(user);
   }
 
-  user<T extends Model>() {
+  user<T extends Model = RegisteredUser>() {
     const user = ContextApi.getUser<T>();
     if(!user) return null;
     return new Authenticate<T>().setUser(user);
@@ -92,7 +93,7 @@ export class AuthService {
     return new Authenticate<T>().login(user);
   }
 
-  guard<T extends Model>(guardName: string) {
+  guard<T extends Model = RegisteredUser>(guardName: GuardName) {
     const authenticated = new Authenticate<T>(guardName);
     const user = ContextApi.getUser<T>();
     if(user) authenticated.setUser(user);
@@ -107,11 +108,11 @@ export class AuthService {
 export default class Auth extends Facade {
   static override readonly accessor = AuthService;
 
-  async attempt<T extends Model>(user: T) {
+  async attempt<T extends Model = RegisteredUser>(user: T) {
     return Auth.root().attempt(user);
   }
 
-  static user<T extends Model>() {
+  static user<T extends Model = RegisteredUser>() {
     return Auth.root().user<T>();
   }
 
@@ -131,7 +132,7 @@ export default class Auth extends Facade {
     return Auth.root().login(user);
   }
 
-  static guard<T extends Model>(guardName: string) {
+  static guard<T extends Model = RegisteredUser>(guardName: GuardName) {
     return Auth.root().guard<T>(guardName);
   }
 

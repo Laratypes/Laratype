@@ -7,7 +7,7 @@ import { Auth } from "@laratype/auth";
 export default class AdminHomeController extends Controller {
 
   async me() {
-    const user = Auth.user<Admin>();
+    const user = Auth.user();
     return user;
   }
 
