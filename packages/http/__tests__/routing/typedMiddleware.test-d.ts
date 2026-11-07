@@ -37,16 +37,23 @@ describe('defineMiddleware', () => {
 
   test('next() takes the declared keys, and checks them', () => {
     defineMiddleware<{ user: User }>((request, next) => next({ user: new User() }))
-    // a declared key the middleware does not pass is not an error: `next()` may also short-circuit
+    // @ts-expect-error a required key makes the extension required: pass it, or do not call next() (short-circuit)
     defineMiddleware<{ user: User }>((request, next) => next())
     // @ts-expect-error `user` must be a User
     defineMiddleware<{ user: User }>((request, next) => next({ user: 'ada' }))
     // @ts-expect-error `user` is not a key this middleware adds
     defineMiddleware<{ user: User }>((request, next) => next({ admin: true }))
+    // every key optional, or `{}`: next() stays optional
+    defineMiddleware<{ user?: User }>((request, next) => next())
+    defineMiddleware<{ user?: User }>((request, next) => next({ user: new User() }))
+    defineMiddleware((request, next) => next())
+    defineMiddleware<{}>((request, next) => next())
   })
 
   test('the exported handler types describe the middleware and the keys it adds', () => {
-    expectTypeOf<Parameters<TypedMiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext?: { user: User }) => Promise<unknown>>()
+    expectTypeOf<Parameters<TypedMiddlewareHandler<{ user: User }>>[1]>().toEqualTypeOf<(ext: { user: User }) => Promise<unknown>>()
+    expectTypeOf<Parameters<TypedMiddlewareHandler<{ user?: User }>>[1]>().toEqualTypeOf<(ext?: { user?: User }) => Promise<unknown>>()
+    expectTypeOf<Parameters<TypedMiddlewareHandler>[1]>().toEqualTypeOf<(ext?: {}) => Promise<unknown>>()
     expectTypeOf<AnyTypedMiddleware>().toEqualTypeOf<TypedMiddleware<any>>()
   })
 
@@ -149,7 +156,7 @@ describe('the handler sees the accumulated context', () => {
   })
 
   test('a middleware that declares a key `never` gets the same diagnosis', () => {
-    const neverTag = defineMiddleware<{ tag: never }>((request, next) => next())
+    const neverTag = defineMiddleware<{ tag: never }>((request, next) => next({ tag: undefined as never }))
     expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof neverTag]>>>().toHaveProperty(
       "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
     )
@@ -211,6 +218,32 @@ describe('withoutMiddleware', () => {
     expectTypeOf<ApiRouteBuilder<typeof appApi>>().toEqualTypeOf<ApiRouteBuilder<typeof appApi, []>>()
     Route.api(appApi, (r) => [r.middleware(auth).withoutMiddleware(auth).contract(posts, Plain)])
     Route.api(appApi, (r) => [r.middleware(Audit, auth).withoutMiddleware(Audit).withoutMiddleware(auth).contract(posts, Plain)])
+  })
+
+  test('matches by type identity, not by subtype', () => {
+    class NeedsUser extends Controller {
+      index(ctx: Ctx<typeof posts.index, { user: User }>) { void ctx.user }
+      destroy() {}
+    }
+    // `auth` is assignable to `audit`'s `TypedMiddleware<{}>`, so a subtype match would drop the extension `auth` adds
+    Route.api(appApi, (r) => [r.middleware(auth, audit).withoutMiddleware(audit).contract(posts, NeedsUser)])
+  })
+
+  test('drops a 0.5 class by identity', () => {
+    Route.api(appApi, (r) => {
+      const withoutAudit = r.middleware(Audit, auth).withoutMiddleware(Audit)
+      expectTypeOf(withoutAudit).toEqualTypeOf<ApiRouteBuilder<typeof appApi, [typeof auth]>>()
+      return [withoutAudit.contract(posts, Plain)]
+    })
+  })
+
+  test('two middleware of structurally identical types are one type, so both are dropped', () => {
+    const auditToo = defineMiddleware((request, next) => next())
+    Route.api(appApi, (r) => {
+      const withoutAudit = r.middleware(audit, auditToo).withoutMiddleware(audit)
+      expectTypeOf(withoutAudit).toEqualTypeOf<ApiRouteBuilder<typeof appApi, []>>()
+      return [withoutAudit.contract(posts, Plain)]
+    })
   })
 
   test('the requirement it drops is reported at r.contract()', () => {

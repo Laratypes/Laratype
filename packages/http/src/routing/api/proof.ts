@@ -3,6 +3,7 @@ import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
 import type Controller from "../../controller/Controller";
+import type { Matches } from "./equal";
 
 /**
  * Controller typing (docs/v1/http.md › Controller typing: Ctx and ControllerOf) and the route proof that
@@ -113,11 +114,6 @@ type NeverKeys<O, Seen = never> = {
           : `${K}.${NeverKeys<Exclude<O[K], undefined>, Seen | Exclude<O[K], undefined>>}`
         : never;
 }[keyof O & string];
-
-/** `true` when `X` is one of the types of `S`; `never` otherwise (so `S = never` gives `never`). */
-type Matches<X, S> = S extends unknown ? (Equal<X, S> extends true ? true : never) : never;
-
-type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 
 /** The path and the diagnosis of a key whose extension type is `never`. */
 type ConflictLabel<N extends string, K extends string> =

@@ -2,6 +2,7 @@ import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRout
 import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
+import type { Equal, Matches } from "./equal";
 import type { EndpointKey, VerifyController } from "./proof";
 
 /**
@@ -30,12 +31,16 @@ type ExtOfTuple<M extends readonly MiddlewareItem[], X extends object = {}> = M 
   ? ExtOfTuple<R, X & (H extends TypedMiddleware<infer Ext extends object> ? Ext : {})>
   : X;
 
-/** The middleware tuple `M` without every item of `W` (the same value, or a structurally identical one). */
+/**
+ * The middleware tuple `M` without every item of `W` (the same value, or a structurally identical one). Matched by type
+ * identity, not assignability: a `TypedMiddleware<{ user: User }>` stays when `W` holds a `TypedMiddleware<{}>`, which
+ * its type is also assignable to.
+ */
 type WithoutMiddleware<M extends readonly MiddlewareItem[], W extends readonly MiddlewareItem[]> = M extends readonly [
   infer H extends MiddlewareItem,
   ...infer R extends readonly MiddlewareItem[],
 ]
-  ? H extends W[number]
+  ? true extends Matches<H, W[number]>
     ? WithoutMiddleware<R, W>
     : [H, ...WithoutMiddleware<R, W>]
   : [];
@@ -129,8 +134,6 @@ export interface ScopeRouteOptions {
 }
 
 // ---- reading the API tree ---------------------------------------------------
-
-type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 
 type NodeEntry<N> = N extends { readonly [API_NODE]: ApiNodeInfo<infer Name, infer En> }
   ? En extends ApiEntry<infer C, infer Path, infer S> ? { name: Name; contract: C; path: Path; scopes: S; node: N } : never
