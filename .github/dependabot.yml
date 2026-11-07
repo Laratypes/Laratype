@@ -9,7 +9,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    # Never propose a release younger than two weeks, the same rule as the SHA and version pins
+    # Never propose an updated package younger than two weeks, the same rule as the SHA and version pins. The
+    # cooldown does not cover transitive versions that bun resolves anew; the bun.lock review checks their age.
     cooldown:
       default-days: 14
     open-pull-requests-limit: 5
@@ -20,7 +21,8 @@ updates:
     commit-message:
       prefix: "build(deps)"
 
-  # Actions are pinned by SHA with a `# vX.Y.Z` comment; Dependabot bumps both together. The composite action in
+  # Most actions are pinned by SHA with a `# vX.Y.Z` comment, and Dependabot bumps both together. Some still use a
+  # tag (actions/checkout@v4 in three workflows) until B14 #189 pins them; Dependabot bumps the tag. The composite action in
   # .github/setup-bun is not under .github/workflows, so it is listed as its own directory.
   - package-ecosystem: "github-actions"
     directories:
