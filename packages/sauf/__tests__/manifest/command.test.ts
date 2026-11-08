@@ -151,7 +151,7 @@ describe("app commands", () => {
     expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
   }, 120_000);
 
-  it("make:command rejects a name that is not a file name and class, before writing any stub", async () => {
+  it("make:command applies the segment and identifier rules before writing any stub", async () => {
     const cases = [
       {
         name: "Clean:Cache",
