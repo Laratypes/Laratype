@@ -80,7 +80,10 @@ class RawController extends Controller {
 /** The scope tests mount the contract from the root builder: only the folder param is bound at runtime. */
 class ScopeController extends Controller {
   index() { return {} }
-  show(ctx: { params: { user: User; post: string } }) { return { user: ctx.params.user.id, post: ctx.params.post } }
+  show(ctx: { params: Record<string, unknown> }) {
+    const { user, post } = ctx.params as { user: User; post: string }
+    return { user: user.id, post }
+  }
   latest() { return {} }
 }
 
@@ -88,7 +91,8 @@ class ScopeController extends Controller {
 class OtherPost {
   declare readonly slug: string
   static readonly primaryKey = 'id'
-  static async findByRouteKey(key: string): Promise<OtherPost | null> {
+  static readonly routeKeyName = 'slug'
+  static async findByRouteKey(key: string): Promise<Post | undefined> {
     lookups.push(`other:${key}`)
     return new OtherPost()
   }
@@ -261,10 +265,15 @@ describe('scope bindings', () => {
 })
 
 describe('r.bind() validation at Route.api', () => {
+  class UnboundController extends Controller {
+    index() { return {} }
+    show() { return {} }
+    latest() { return {} }
+  }
   const mountWith = (bindings: Record<string, unknown>) =>
     Route.api(appApi, (r) => {
       r.bind(bindings as never)
-      return [r.contract(posts, BoundController)]
+      return [r.contract(posts, UnboundController)]
     })
 
   it('needs a function', () => {

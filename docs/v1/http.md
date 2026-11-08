@@ -124,15 +124,16 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
   contract<C extends Contract, K extends ControllerClass>(contract: C, controller: K & VerifyController<C, InstanceType<K>, X, B>): void;
 }
 // runtime merged (E10, H2a #105): contract(contract, controller, { policy?, endpoints? }), see Router v2
-// Provided<E, X, B> = Ctx<E, X & { params: BoundParams<E, B> }>
+// the merged Provided (below) puts the bound params over the extensions' params
 ```
 
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)):
 
 ```ts
 // What the runtime passes (H3 #106): BaseCtx with every path param of the full path, X, and the bound params
+type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;   // a binding wins a key X.params also adds
 type Provided<E, Path extends string, X extends object = {}, B = {}> =
-  Merge<BaseCtx<E, FullParams>, X & { params: BoundParams<FullParams, B> }>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
+  Merge<BaseCtx<E, FullParams>, WithBindings<X, FullParams, B>>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
 // Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 feeds X, H7 #118 feeds B
 type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}>;
 type RouteProof<A, C, I, O, X extends object = {}, B = {}>;   // VerifyController for the tree entry r.contract() mounts, with the builder's X and B
@@ -147,7 +148,7 @@ interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends
 ```
 
 ### Invariants
-- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of the extensions of the route builder's `r.middleware()` calls, in order (typed middleware, [Typed middleware](#typed-middleware)), and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
+- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, WithBindings<MiddlewareExt, FullParams, Bound>>`, where `WithBindings` merges the bound params over the extensions' `params` (a binding wins a key both add). Here `MiddlewareExt` is the intersection of the extensions of the route builder's `r.middleware()` calls, in order (typed middleware, [Typed middleware](#typed-middleware)), and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide. A provided key typed `never` (two middleware add it with incompatible types, or one middleware declares it `never`) fails first with the extension diagnosis ([Typed middleware](#typed-middleware) › Diagnostics).
 - **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
@@ -785,7 +786,7 @@ Tests: [`packages/http/__tests__/routing/modelBinding.test.ts`](../../packages/h
 
 ### Open questions
 - Resolved: an optional path param with `.bind()` is `Model | undefined` when absent; a present one with no match is a 404 ([#118](https://github.com/Laratypes/Laratype/issues/118)).
-- Resolved: a route key the model cannot convert is its own miss; the router passes the raw string, so the model returns `null` / `undefined` for a 404, and a throw is the server's error ([#118](https://github.com/Laratypes/Laratype/issues/118), [database.md › BindableModel](./database.md#bindablemodel)).
+- Resolved: a route key the model cannot convert is its own miss; the router passes the raw string, so the model returns `null` / `undefined` for a 404, and a throw is the server's error (a thrown `ContractError` keeps its status, any other error is a 500) ([#118](https://github.com/Laratypes/Laratype/issues/118), [database.md › BindableModel](./database.md#bindablemodel)).
 
 ### Acceptance
 [#118 Done when](https://github.com/Laratypes/Laratype/issues/118) · [#163 Done when](https://github.com/Laratypes/Laratype/issues/163)
