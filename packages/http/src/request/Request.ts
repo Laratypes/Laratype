@@ -4,7 +4,7 @@ import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import Middleware from "../middleware/Middleware";
 import { Container, depsRegistry } from "@laratype/core";
@@ -117,13 +117,14 @@ export default class Request extends AppServiceProvider {
   public static explicitModelBinding(request: RequestSupport) {
     const res: Record<string, any> = {};
     const params = request.param();
+    const registry = ModelBindingRegistry.current();
     
     for (const paramName in params) {
-      let model = globalThis.__laratype_route_model_bindings[paramName];
+      let model = registry.bindings[paramName];
       if (!model) {
-        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        const modelName = registry.paramModelMap?.[paramName];
         if(modelName) {
-          model = globalThis.__laratype_db?.models?.[modelName];
+          model = registry.models?.[modelName];
         }
       }
 
@@ -270,9 +271,10 @@ export default class Request extends AppServiceProvider {
 
               let modelPolicy = policyHandler.modelPolicy;
               if(typeof modelPolicy === 'string') {
-                const modelName = globalThis.__laratype_param_model_map?.[modelPolicy];
+                const registry = ModelBindingRegistry.current();
+                const modelName = registry.paramModelMap?.[modelPolicy];
                 if(modelName) {
-                  modelPolicy = globalThis.__laratype_db.models?.[modelName];
+                  modelPolicy = registry.models?.[modelName];
                 }
               }
               
@@ -397,8 +399,17 @@ export default class Request extends AppServiceProvider {
   /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
   protected readonly disposals = new Set<Promise<void>>();
 
+  /**
+   * Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app. Cleared in
+   * `register()`, which runs before the app providers' (bootstrap lists RequestKernel first), so a `Route.bind()` from
+   * an app provider's `register()` or `boot()` is kept. Only the bindings are cleared: the models and the param map
+   * `DatabaseServiceProvider` fills stay.
+   */
+  public register(): void {
+    this.app.make(ModelBindingRegistry).bindings = {};
+  }
+
   public boot(): void {
-    globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
