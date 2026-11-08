@@ -1,7 +1,7 @@
 // H3 #106 / H26 #287: the request pipeline parses the body by media type, validates a contract route's query and
 // body, answers 422 with the error bag and builds the handler ctx
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { validator } from 'hono/validator'
@@ -25,10 +25,6 @@ const bootApp = (...middleware: MiddlewareHandler[]) => {
   new ResponseKernel(container).boot()
   return app
 }
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 afterEach(() => {
   vi.restoreAllMocks()
