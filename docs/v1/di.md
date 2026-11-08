@@ -27,7 +27,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries planned → #114; facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -336,7 +336,7 @@ export enum ServiceProviderType {
   APP_PROVIDER = "app_provider",
   ROUTE_PROVIDER = "route_provider",
 }
-export const HTTP_APP: InjectionToken<Hono>;              // TEMPORARY: kept on globalThis until #188 (B13)
+export const HTTP_APP: InjectionToken<Hono>;              // bound by Serve.getContainer(), before any provider runs
 export class ServiceProvider {
   static type: ServiceProviderType;                        // ServiceProviderType.CORE_PROVIDER
   readonly app: Container;
@@ -365,8 +365,8 @@ export { bootProviders } from "@laratype/support";
 - **Two phases:** `bootProviders` instantiates every provider with the container, awaits `register()` on all of them in order, then awaits `boot()` on all of them in order. It returns the `down()` cleanups in **reverse** order.
 - Providers receive the **container**, not the Hono app. Code that needs the app resolves `HTTP_APP` (`AppServiceProvider.apps` does this in its constructor).
 - `Serve.getContainer()` lazily creates one container per process, `new Container({ deps: depsRegistry })` ([#102](https://github.com/Laratypes/Laratype/issues/102)), and binds `HTTP_APP` to `Serve.getInstance()`. `Serve.down()` resets both. Both the HTTP kernel and `sauf` commands boot providers through `bootProviders`.
-- `HTTP_APP` is stored on `globalThis.__laratype_http_app_token`. The code marks this as temporary: it was needed while every package dist inlined its own copy of `@laratype/support`, which B13 [#188](https://github.com/Laratypes/Laratype/issues/188) fixed.
-- `RouteAppServiceProvider.boot()` still writes `globalThis.__laratype_routes`, which is replaced in [#114](https://github.com/Laratypes/Laratype/issues/114). `AppServiceProvider.bindings` is an unused 0.5 leftover.
+- `HTTP_APP` is a plain module-level `token<Hono>("http.app")`: the `@laratype` packages are externals of the package builds, so every bundle gets the same token (B13 [#188](https://github.com/Laratypes/Laratype/issues/188)).
+- `AppServiceProvider` binds `ModelBindingRegistry` in the app container, `RouteAppServiceProvider.boot()` binds `RouteRegistry` with the routes `routes()` returns, and `RequestKernel.register()` (before the app providers register) clears that registry's route bindings while keeping the models `DatabaseServiceProvider` put there (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)). `AppServiceProvider.bindings` is an unused 0.5 leftover.
 
 ### Diagnostics
 None of its own. Errors thrown in `register()` or `boot()` propagate and abort the boot.
@@ -602,15 +602,16 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ## Container-backed registries and facades
 
 ### Status
-- Registries: planned → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
+- Registries: proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
 - Facades: merged @ a6fb351 (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
 - `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e.
 
 ### Design (non-binding)
-- **D7:** replace `globalThis.__laratype_routes`, `__laratype_route_model_bindings`, `__laratype_param_model_map` and `__laratype_db` with the container bindings `RouteRegistry`, `ModelBindingRegistry` and `DataSource`.
+- **D7:** `RouteRegistry`, `ModelBindingRegistry` and `DataSource` replace the 0.5 registries. `RouteRegistry` holds the route entries `RouteAppServiceProvider.boot()` binds. `ModelBindingRegistry` holds the 0.5 `Route.model` / `Route.bind` entries, the camelCase param → model name map and the app's model classes by name; `AppServiceProvider` binds it and `DatabaseServiceProvider` fills the models and the map when it loads the manifest's models. `DataSource` is the initialized TypeORM connection `DatabaseServiceProvider.boot()` binds; the 0.5 `DS` proxy reads it from the facade application (deprecated import). `RouteRegistry.current()` resolves the registry from the facade application, and `ModelBindingRegistry.current()` from the current request's container first; either binds an empty one there when it is missing (a bare Hono app, or a command booted without route providers and a database). `Route.model()` / `Route.bind()` throw when the container they would write has no `HTTP_APP` binding.
+- Still on `globalThis`: `__laratype_config` and `__laratype_configs` (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)), `__laratype_manifest` (the build manifest, [build.md](./build.md)) and `__laratype_env_file` (`EnvLoadServiceProvider`).
 
 ### Public API
-[`facade.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e](https://github.com/Laratypes/Laratype/blob/74b7e8245a6f86832f6d048bb6a62ed79a33011e/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330)
+[`facade.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e](https://github.com/Laratypes/Laratype/blob/74b7e8245a6f86832f6d048bb6a62ed79a33011e/packages/support/src/security/Hash.ts) (PR #346) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330) · [`RouteRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/RouteRegistry.ts) · [`ModelBindingRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/ModelBindingRegistry.ts)
 
 ```ts
 // @laratype/core
@@ -618,6 +619,7 @@ export interface FacadeClass<T> { readonly accessor: Token<T> }
 export abstract class Facade {
   static readonly accessor: Token<object>;                          // set by each facade
   static setFacadeApplication(app: Container | undefined): void;
+  static hasFacadeApplication(): boolean;                           // false while facades use the fallback container
   static getFacadeApplication(): Container;
   static fake<T>(this: FacadeClass<T>, fake: NoInfer<T>): () => void;
   protected static root<T>(this: FacadeClass<T>): T;
@@ -635,6 +637,18 @@ export class Hasher {
   isHashed(value: string): boolean;                                  // a hash make() wrote, stored as is by Model
 }
 export class Hash extends Facade { static readonly accessor: typeof Hasher; /* the same methods, static */ }
+export class RouteRegistry {
+  constructor(routes?: Array<Record<string, any>>);
+  routes: Array<Record<string, any>>;                               // bound by RouteAppServiceProvider.boot()
+  static current(): RouteRegistry;
+}
+export class ModelBindingRegistry {
+  bindings: Record<string, any>;                                    // param → model class or (value) => model
+  paramModelMap: Record<string, string>;                            // camelCase param → model name
+  models: Record<string, any>;                                      // model name → the app's model classes
+  static current(): ModelBindingRegistry;
+  static container(): Container;                                    // current()'s container: the request's, else the facade application
+}
 
 // @laratype/log
 export class LogManager {
@@ -669,7 +683,8 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ### Invariants
 - A facade's static method resolves `accessor` from the facade application **on every call** and forwards to it. Facades cache nothing, so a binding change or a swap applies to the next call.
 - `Hash`, `Log` and `Auth` call `<Facade>.root()`, not `this.root()`, so a detached call (`values.map(Hash.make)`) works as in 0.5.
-- The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree.
+- The facade application is the container set by `setFacadeApplication()`. `Serve.getContainer()` sets the app container, and `Serve.down()` unsets it when it is still the facade application. Without one, facades share one autowire-only container (`new Container({ deps: depsRegistry })`), which every `setFacadeApplication()` call drops. The state sits on `globalThis` under `Symbol.for('laratype.di.facade')`, so two copies of `@laratype/core` agree. `Facade.hasFacadeApplication()` reports whether one is set.
+- **Booted app for the registries:** `bootProviders()` makes its container the facade application when none is set, so a bare boot's `Route.model()` / `Route.bind()` writes the registry the request path reads; an existing facade application (`Serve.getContainer()`) is kept, and a successful boot does not restore it (a failed boot unsets it when `bootProviders()` set it). `Route.model()` / `Route.bind()` throw when the container `ModelBindingRegistry.current()` resolves from has no `HTTP_APP` binding, so a binder is never silently dropped for the implicit primary-key lookup; registry reads stay lenient (`route:list` reads the routes `RouteAppServiceProvider` bound, and a bare Hono app gets an empty `RouteRegistry`).
 - The accessors of `Hash`, `Log` and `Auth` are concrete classes, so they autowire when unbound and the 0.5 call sites (`Hash.make()`, `Log.error()`, `Auth.user()`, `Auth.guard()`) keep their signatures: `AuthService` keeps the 0.5 methods and delegates `attempt()` to the guard, while `Hash.make()` returns a salted scrypt hash instead of 0.5's sha256 string (see the invariant below). `LogManager` keeps the 0.5 static logger cache, so the log file transport is created once per process, whatever the container.
 - A provider replaces an implementation with `app.bind(Hasher, Impl)` (or `LogManager`, `AuthService`).
 - A custom `Hasher` (another format) must override `make()`, `check()`, `needsRehash()` and `isHashed()` together: the last three only understand the scrypt format `make()` writes, so overriding `make()` alone breaks every login.
@@ -682,6 +697,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ### Diagnostics
 - Resolving an unbound token accessor throws the container's `No binding for InjectionToken(<name>).` ([Container](#container)).
 - `DiError`: `Facade <C> has no accessor.` when a facade class does not set `accessor`.
+- `InternalException`: `[@laratype/http] Route.bind() ran before an app was booted: the model binding registry resolves from a container without an HTTP_APP binding, so the binding would be lost. Fix: call Route.bind() from a provider boot() of a booted app (Serve.getContainer() / bootProviders()).` — `Route.model()` throws it with its own method name.
 - Type-only (`facade.test-d.ts`): a fake that does not match the accessor type, calling `root()` from outside the facade, a `swap()` value that does not match the token.
 
 ### Example
@@ -690,7 +706,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ### Non-goals
 - No `__callStatic`-style proxy: each facade forwards its methods explicitly, so their types (generics included) stay as written.
 - No fake classes with assertions (Laravel's `Mail::fake()`): `fake()` takes the fake instance.
-- No registries: D7 [#114](https://github.com/Laratypes/Laratype/issues/114).
+- No registry accessors on the facades: the registries are container bindings (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)), not `Hash`/`Log`-style facades.
 
 ### Open questions
 - The `Mail` facade → [#170](https://github.com/Laratypes/Laratype/issues/170)

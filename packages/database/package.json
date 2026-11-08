@@ -28,6 +28,7 @@
     "./*": "./*"
   },
   "dependencies": {
+    "@laratype/core": "workspace:*",
     "@laratype/log": "workspace:*",
     "@laratype/support": "workspace:*",
     "reflect-metadata": "^0.2.2"
