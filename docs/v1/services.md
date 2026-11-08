@@ -106,6 +106,7 @@ class Command<S extends string = string> {
 function command<S extends string>(signature: S, handler: (input: CommandInput<S>) => unknown): ClosureCommand<S>;
 
 function parseSignature(signature: string): ParsedSignature;
+function assertArgumentOrder(signature: string, args: readonly ArgumentOrder[]): void;
 function optionKey(name: string): string;
 function isClosureCommand(value: unknown): value is AnyClosureCommand;
 function isConsoleCommand(value: unknown): value is ConsoleCommand;
@@ -118,7 +119,7 @@ interface ClosureCommand<S extends string = string> {
 }
 ```
 
-`ArgumentName`, `OptionName`, `ArgumentValue`, `OptionValue`, `CommandInput`, `ClosureHandler`, `ParsedSignature`, `SignatureArgument`, `SignatureOption`, `AnyClosureCommand`, `ConsoleCommand` and `CommandClass` are the supporting types. `CommandSignatureError` is the parse error (see Diagnostics).
+`ArgumentName`, `OptionName`, `ArgumentValue`, `OptionValue`, `CommandInput`, `ClosureHandler`, `ParsedSignature`, `SignatureArgument`, `SignatureOption`, `ArgumentOrder`, `AnyClosureCommand`, `ConsoleCommand` and `CommandClass` are the supporting types. `CommandSignatureError` is the parse error (see Diagnostics).
 
 The signature grammar:
 
@@ -138,7 +139,7 @@ The signature grammar:
 An argument name or option flag starts with a letter or `_`, then letters, digits, `_` or `-`. An option keeps one dash between its segments (no leading, trailing or doubled dash), because commander camelCases it: `{--dry-run}` is the input key `dryRun`, while `this.option("dry-run")` takes the flag as written. Every segment after a dash starts with a letter or digit, and a flag name cannot start with `no-`: commander treats `--no-cache` as the negation of `cache` and stores the value under `cache`, so declare `{--cache}` and let the handler decide what absence means.
 
 ### Invariants
-- **One source.** The signature declares the command name, arguments and options. `sauf` parses it once, at registration. A 0.5 command's `static options` / `static arguments` are registered first for compatibility; a signature token with the same name is not registered twice. New commands use only the signature.
+- **One source.** The signature declares the command name, arguments and options. `sauf` parses it once, at registration. A 0.5 command's `static options` / `static arguments` are registered first for compatibility; a signature token with the same name is not registered twice, and a variadic argument must be last in the merged list. New commands use only the signature.
 - **Types come from the signature.** `ArgumentName`, `OptionName` and `CommandInput` are template-literal types over `S` (`packages/console/src/command/signature.ts`), the technique of the contract's path params. The class must pass its own signature type: `class SendMail extends Command<typeof SendMail.signature>` with `static readonly signature = "..." as const`. When `S` is plain `string` (every 0.5 command, or no `as const` / `readonly`), `argument()` returns `string`, `option()` returns `string | boolean | undefined`, and `CommandInput` falls back to `Record<string, unknown>` instead of the literal signature's keys.
 - **Container resolution.** A command that does not override `providers()` is resolved with `Serve.getContainer().make(Class)` after `register()` and the provider boot, so constructor DI works without decorators ([di.md › Dependency metadata](./di.md#dependency-metadata)). A command that overrides `providers()` keeps the 0.5 order: it is constructed with `new` before the boot so it can filter the provider list itself. `overridesProviders()` tells the two apart across copies of `@laratype/console`, with a shared symbol on the base method.
 - **`bootsApp`.** `static bootsApp = false` skips `register()`, the provider boot and the command's own `providers()` filtering (`types:generate`, `make:*`). A closure command always boots the app. The container is still loaded for a DI command with `bootsApp = false`, so its plain class dependencies autowire.
@@ -148,7 +149,7 @@ An argument name or option flag starts with a letter or `_`, then letters, digit
 - **No coercion.** Commander hands every argument and option value as a string (or `true` for a flag, an array for a variadic one); the signature types do not parse numbers, booleans or dates.
 
 ### Diagnostics
-- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"--<name>" uses negation, which is not supported: declare {--<flag>} as a flag instead`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, `"<name>" is variadic, so it must be the last argument`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
+- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"--<name>" uses negation, which is not supported: declare {--<flag>} as a flag instead`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, `"<name>" is variadic, so it must be the last argument`, and `"<key>" is declared twice`. `sauf`'s wrapper runs the same variadic check on the merged, de-duplicated 0.5 and signature arguments before Commander registers them, so a 0.5 variadic argument that precedes a distinct signature argument also fails with the command's signature. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
 - A command file whose default export is not a command class: `Skipped <files>: the default export is not a command class (a class with a static signature)`.
 - A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A defined default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
 - Constructor DI in a production `dist/cli.js` fails with `Cannot autowire <Class>: its constructor takes N param(s) but no dependency metadata was found.` The DI transform runs in `sauf dev` only ([build.md › Plugin chain](./build.md#plugin-chain)).
