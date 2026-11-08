@@ -206,7 +206,7 @@ class Post {}
 /** `before()` is the shared hook: a constructor dependency it reads must be the resolved policy's (H21 #269). */
 class BeforePolicy extends Policy {
   constructor(private readonly permissions: Permissions) { super() }
-  before(_actor: any, ability: string) { return this.permissions.allows(`before:${ability}`) }
+  before(_actor: unknown, ability: string) { return this.permissions.allows(`before:${ability}`) }
   viewAny() { return true }
   view() { return true }
   create() { return true }
