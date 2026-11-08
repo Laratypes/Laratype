@@ -1,1 +1,3 @@
 .laratype
+# @laratype/log writes here at runtime (tests included): logs are not source
+storage/logs

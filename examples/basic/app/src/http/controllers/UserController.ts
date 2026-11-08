@@ -1,10 +1,8 @@
-import { Controller, Request, UseStatusCode } from "@laratype/http";
-import { Auth, GateGuard } from "@laratype/auth";
+import { Controller } from "@laratype/http";
+import { Auth } from "@laratype/auth";
 import CreateUserRequest from "../requests/CreateUserRequest";
 import UserCollection from "../resources/UserCollection";
 import User from "../../models/User";
-import UpdateUserGate from "../../gates/UpdateUserGate";
-import UpdateUserRequest from "../requests/UpdateUserRequest";
 import UnauthorizedException from "../../exceptions/UnauthorizedException";
 
 
@@ -28,45 +26,5 @@ export default class UserController extends Controller {
     const user = Auth.user<User>();
     if(!user) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     return user.getUser();
-  }
-  
-  async view(request: Request, model: { user: User }) {
-    const user = model.user;
-    return user;
-  }
-
-  async destroy(request: Request) {
-    const authenticated = Auth.user<User>();
-    if(!authenticated) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
-    const actor = authenticated.getUser();
-    const userId = request.param('id');
-
-    const user = await User.findOneOrFail({
-      where: {
-        id: userId,
-      }
-    });    
-
-    if(actor.cannot('delete', user)) {
-      throw new UnauthorizedException();
-    }
-
-    return await user.remove();
-
-  }
-
-  async update(request: UpdateUserRequest, model: { user: User }) {
-    const authenticated = Auth.user<User>();
-    if(!authenticated) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
-    const actor = authenticated.getUser();
-    const updatedData = request.validated();
-    const { user } = model;
-
-    if(GateGuard.allows(new UpdateUserGate(), actor, user)) {
-      // Update user logic here
-      return await User.updateFor(user, updatedData);
-    }
-
-    throw new UnauthorizedException();
   }
 }
