@@ -7,7 +7,7 @@ import { ContextApi, HTTP_APP } from '@laratype/support'
 import { AuthManager, Policy, UsePolicy, can } from '@laratype/auth'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route, defineRouteGroup } from '../../src/index'
-import type { PolicyFactory, Request } from '../../src/index'
+import type { MiddlewareClass, PolicyFactory, Request } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 const users = defineContract()({ index: endpoint.get('/').response(anything), show: endpoint.get('/:id').response(anything) })
@@ -203,7 +203,7 @@ __laratype_deps(PostPolicy, [() => Permissions], { params: ['permissions'] })
 @UsePolicy(PostPolicy)
 class Post {}
 
-/** `before()` is the shared hook: a constructor dependency it reads must be the one the resolved policy got (H21 #269). */
+/** `before()` is the shared hook: a constructor dependency it reads must be the resolved policy's (H21 #269). */
 class BeforePolicy extends Policy {
   constructor(private readonly permissions: Permissions) { super() }
   before(_actor: any, ability: string) { return this.permissions.allows(`before:${ability}`) }
@@ -325,15 +325,16 @@ describe('UsePolicy: model-level can()', () => {
     class NoteController extends Controller {
       show() {
         const note = new Note() as Note & UsePolicy<BeforePolicy>
-        return { allowed: note.can('view') }
+        return { allowed: note.can('view'), refused: note.cannot('view') }
       }
     }
 
     const app = bootApp((container) => container.bind(Permissions, DenyAll))
     app.get('/note', RequestKernel.handle({ method: 'get', path: '/note', controller: [NoteController, 'show'] }))
-    // before() read the injected dependency and its false decided; a detached receiver would answer 500
-    expect(await json(app, '/note')).toEqual({ allowed: false })
-    expect(asked).toEqual(['deny:before:view'])
+    // before() read the injected dependency and its false decided for can() and cannot(); a detached receiver
+    // would answer 500
+    expect(await json(app, '/note')).toEqual({ allowed: false, refused: true })
+    expect(asked).toEqual(['deny:before:view', 'deny:before:view'])
   })
 })
 
@@ -346,7 +347,7 @@ class Recorded extends Controller {
 
 describe('RequestKernel.handle: policy without an authenticated user', () => {
   /** `can` is the only auth step of the route: the middleware list is empty unless the test adds one. */
-  const serveGuarded = (can: PolicyFactory[], middleware: Array<typeof Middleware> = []) => {
+  const serveGuarded = (can: PolicyFactory[], middleware: MiddlewareClass[] = []) => {
     const app = bootApp()
     app.get('/guarded/:post', RequestKernel.handle({
       method: 'get',

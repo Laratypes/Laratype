@@ -3,9 +3,9 @@ import Policy, { type Ability } from "./Policy";
 
 export default class PolicyHandler {
 
-  /** `policy` is the receiver: a `before()` override that reads `this.<dep>` gets the container's instance (H21 #269). */
-  static before (target: any, ability: Ability, policy: Policy) {
-    return policy.before(target, ability);
+  /** `policy` is the receiver: a `before()` override reading `this.<dep>` gets the container's instance (H21 #269). */
+  static before (actor: unknown, ability: Ability, policy: Policy) {
+    return policy.before(actor, ability);
   }
 
   public static can<P extends Policy, U extends Ability>(actor: any, policy: P, ability: U, ...args: ExcludeFirstParameter<P[U]>) {
