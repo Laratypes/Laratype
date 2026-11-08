@@ -3,27 +3,18 @@ import type ResponseInterface from "../contracts/Response"
 import { GeneralTypesEnum } from "@laratype/support";
 import JsonResource from "../resource/json/JsonResource";
 
-// export default class Response {
-
-//   public response(ctx: Context, payload: unknown, httpStatusCode: StatusCode) {
-//     if(payload === undefined || payload === null) return ctx.html(GeneralTypesEnum.NOTHING)
-//     if(payload.constructor === Array || payload.constructor === Object) {
-//       return ctx.json(payload)
-//     }
-//     if(payload.constructor === String) return ctx.html(payload, httpStatusCode)
-//     return ctx.html(JSON.stringify(payload), httpStatusCode)
-//   }
-
-//   public responseSuccess(ctx: Context, payload: unknown, httpStatusCode: StatusCode = 200) {
-//     return this.response(ctx, payload, httpStatusCode)
-//   }
-
-//   public responseError(ctx: Context, payload: unknown, httpStatusCode: StatusCode = 500) {
-//     return this.response(ctx, payload, httpStatusCode);
-//   }
-  
-// }
-
+/**
+ * A value with a JSON shape: an array (a subclass too), or an object whose prototype is `Object.prototype` or `null`
+ * (the groups a form body's dot keys build, `parseBody({ dot: true })`). Read with `Object.getPrototypeOf`, never
+ * with `value.constructor`: an own `constructor` key of the value is data, not its type (H45 #342). es-toolkit's
+ * `isPlainObject` is wider (it takes an object whose prototype has none), so the check is written here
+ */
+const isJsonShape = (value: unknown): boolean => {
+  if (Array.isArray(value)) return true;
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
 
 export default class Response implements ResponseInterface {
   
@@ -97,14 +88,27 @@ export default class Response implements ResponseInterface {
     return this.redirectStatusCode;
   }
 
+  /**
+   * The class of the content when it is a 0.5 model (its `dataSource`), else `undefined`. No content (a middleware's
+   * `new Response(null, 401)`) is not a model. The class is read from the prototype chain: an own `constructor` key of
+   * the value is data, not the class it is an instance of (H45 #342)
+   */
   isModel() {
-    // No content (a middleware's `new Response(null, 401)`) is not a model
-    return this.content?.constructor?.dataSource;
+    if (this.content === null || typeof this.content !== "object") return undefined;
+    return Object.getPrototypeOf(this.content)?.constructor?.dataSource;
   }
 
-  public shouldBeJson() {
-    
-    return this.isModel() || this.content instanceof JsonResource || this.content?.constructor === Array || this.content?.constructor === Object;
+  /**
+   * Whether the 0.5 response sends the content as JSON. A string is the HTML body, and how a string return is sent is
+   * #336; every other value is JSON: a model, a `JsonResource`, and the shapes detected by prototype — an array (a
+   * subclass too), an object whose prototype is `Object.prototype` or `null`, a form body's groups — as well as a value
+   * of another prototype (a Date, a class instance), whose JSON text must never go out as text/html. The value's
+   * `constructor` property is never read: it is data (H45 #342). The non-string rule is the widest, so it is the one
+   * that decides; the shape, model and `JsonResource` clauses before it are what make each kind a JSON body on its own
+   */
+  public shouldBeJson(): boolean {
+    const jsonShape = this.isModel() || this.content instanceof JsonResource || isJsonShape(this.content);
+    return Boolean(jsonShape || ResponseSerialization.isJsonBody(this.content));
   }
   
 }
@@ -115,9 +119,20 @@ export class ResponseSerialization {
     return JsonResource.toJson(data) as {};
   }
 
-  public static htmlSerialize(data?: any): string {
-    if(data === undefined || data === null) return GeneralTypesEnum.NOTHING
+  /**
+   * Whether the content is a JSON body: a 0.5 response sends a string as the HTML body (#336 decides string returns)
+   * and every other value as JSON (H45 #342)
+   */
+  public static isJsonBody(data: unknown): boolean {
+    return data !== undefined && data !== null && typeof data !== "string";
+  }
+
+  /**
+   * The HTML body: the string itself, or an empty one. A value with JSON text is sent as `application/json` by
+   * `resolveResponse`, so `JSON.stringify` output is never labelled `text/html` (H45 #342)
+   */
+  public static htmlSerialize(data?: unknown): string {
     if(typeof data === "string") return data
-    return JSON.stringify(data)
+    return GeneralTypesEnum.NOTHING
   }
 }
