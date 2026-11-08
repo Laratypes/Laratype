@@ -203,6 +203,23 @@ __laratype_deps(PostPolicy, [() => Permissions], { params: ['permissions'] })
 @UsePolicy(PostPolicy)
 class Post {}
 
+/** `before()` is the shared hook: a constructor dependency it reads must be the one the resolved policy got (H21 #269). */
+class BeforePolicy extends Policy {
+  constructor(private readonly permissions: Permissions) { super() }
+  before(_actor: any, ability: string) { return this.permissions.allows(`before:${ability}`) }
+  viewAny() { return true }
+  view() { return true }
+  create() { return true }
+  update() { return true }
+  delete() { return true }
+  restore() { return true }
+  forceDelete() { return true }
+}
+__laratype_deps(BeforePolicy, [() => Permissions], { params: ['permissions'] })
+
+@UsePolicy(BeforePolicy)
+class Note {}
+
 class SignIn extends Middleware {
   async handle(request: Request, res: Response, next: (request: Request) => unknown) {
     ContextApi.setUser({ id: 1 })
@@ -238,6 +255,28 @@ describe('RequestKernel.handle: policy', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ one: true })
     expect(asked).toEqual(['base:view'])
+  })
+
+  it('runs before() on the resolved policy as its receiver, through a route policy', async () => {
+    quiet()
+    /** `before()` returns the injected dependency's decision: a detached call would throw and answer 500. */
+    const serveNotes = (bind?: (container: Container) => void) => {
+      const app = bootApp(bind)
+      app.get('/notes/:post', RequestKernel.handle({
+        method: 'get',
+        path: '/notes/:post',
+        controller: [UserController, 'show'],
+        middleware: [SignIn],
+        can: [can('view', Note as never)],
+      }))
+      return app
+    }
+    // Deny: before() ran with the bound dependency and refused the request
+    expect((await serveNotes((container) => container.bind(Permissions, DenyAll)).request('/notes/1')).status).toBe(401)
+    expect(asked).toEqual(['deny:before:view'])
+    // Allow: the same receiver decided in favor, and the controller ran
+    expect((await serveNotes().request('/notes/1')).status).toBe(200)
+    expect(asked).toEqual(['deny:before:view', 'base:before:view'])
   })
 })
 
@@ -279,6 +318,22 @@ describe('UsePolicy: model-level can()', () => {
     expect(await json(app, '/article')).toEqual({ allowed: false })
     expect(built).toBe(2)
     expect(asked).toEqual(['deny:view', 'deny:view'])
+  })
+
+  it('runs before() on the resolved policy as its receiver, through model.can()', async () => {
+    quiet()
+    class NoteController extends Controller {
+      show() {
+        const note = new Note() as Note & UsePolicy<BeforePolicy>
+        return { allowed: note.can('view') }
+      }
+    }
+
+    const app = bootApp((container) => container.bind(Permissions, DenyAll))
+    app.get('/note', RequestKernel.handle({ method: 'get', path: '/note', controller: [NoteController, 'show'] }))
+    // before() read the injected dependency and its false decided; a detached receiver would answer 500
+    expect(await json(app, '/note')).toEqual({ allowed: false })
+    expect(asked).toEqual(['deny:before:view'])
   })
 })
 
