@@ -13,6 +13,8 @@ export type {
 } from './container'
 export { Facade } from './facade'
 export type { FacadeClass } from './facade'
+export { Manager } from './manager'
+export type { DriverMap } from './manager'
 export { Inject, Injectable } from './decorators'
 export type { InjectableOptions } from './decorators'
 export { InjectionToken, token } from './token'
