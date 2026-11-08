@@ -43,7 +43,7 @@ describe("duplicate command names", () => {
   it("rejects a duplicate even when the first registration has an empty source label", () => {
     const registered = new Map([["route:list", ""]]);
     expect(() => assertCommandNameFree("route:list", registered, "a command file")).toThrow(
-      'Duplicate command "route:list": ',
+      'Duplicate command "route:list": an unnamed source and a command file register it. Fix: rename one.',
     );
   });
 

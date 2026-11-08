@@ -2,14 +2,15 @@ import { CommandSignatureError, parseSignature } from "@laratype/console";
 import MakeCommand from "../../utils/MakeCommand";
 
 /**
- * `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. An underscore or space
- * separates words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all give
- * `clean:cache`: the generated signature never starts or ends with `:` and has no empty segment.
+ * `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. A colon, underscore or
+ * space separates words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_`, `Clean__Cache`,
+ * `Clean:Cache` and `Clean::Cache` all give `clean:cache`: the generated signature never starts or ends with `:` and has
+ * no empty segment.
  */
 export function commandSignature(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, "$1:$2")
-    .split(/[_\s]+/)
+    .split(/[:_\s]+/)
     .filter(Boolean)
     .join(":")
     .toLowerCase();
