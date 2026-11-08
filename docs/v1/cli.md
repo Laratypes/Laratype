@@ -123,6 +123,9 @@ planned → [#134](https://github.com/Laratypes/Laratype/issues/134) (E2, M2). D
   - contract and request stubs write `z.coerce.number<number>()`, because zod 4's `z.coerce.number()` has input type `unknown`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 
+### Diagnostics
+- `make:command` joins the derived words with one `:` and drops empty segments, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all write `clean:cache`: a signature never starts or ends with `:` and never has `::`. A name whose derived signature registration would reject is refused before the stub is written: `make:command: "<name>" does not give a valid signature: Invalid command signature "<signature>": <reason>`.
+
 ### Open questions
 - Resolved: each remaining 0.5 generator and each service generator ships with its area's issue, listed above ([#134](https://github.com/Laratypes/Laratype/issues/134)).
 
