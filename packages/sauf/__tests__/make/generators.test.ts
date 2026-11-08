@@ -25,6 +25,7 @@ type RunName =
   | "escape"
   | "contractIndex"
   | "contractIndexUpper"
+  | "paramIndex"
   | "types"
   | "command"
   | "controller"
@@ -52,6 +53,7 @@ const failingRuns = new Set<RunName>([
   "escape",
   "contractIndex",
   "contractIndexUpper",
+  "paramIndex",
   "escapeController",
   "escapeRequest",
   "escapeResource",
@@ -111,6 +113,7 @@ beforeAll(async () => {
     escape: await sauf("make:contract", "../escape"),
     contractIndex: await sauf("make:contract", "index"),
     contractIndexUpper: await sauf("make:contract", "INDEX.TS"),
+    paramIndex: await sauf("make:contract", "[id]/index"),
     types: await sauf("types:generate", "--root", "app/api", "--base", "/api"),
     command: await sauf("make:command", "DraftCommand"),
     controller: await sauf("make:controller", "DraftController"),
@@ -168,20 +171,22 @@ describe("make generators", () => {
     expect(existsSync(join(project, "app/escape.ts"))).toBe(false);
   });
 
-  it("make:contract rejects a root index, which the next scan would fail", () => {
+  it("make:contract rejects an index with no named folder, which the next scan would fail", () => {
     const message = (name: string) => [
-      `Invalid contract name "${name}": a root index has no contract name under app/api.`,
-      "Fix: name the file after its contract (users.ts), or use a folder index (users/index.ts).",
+      `Invalid contract name "${name}": an index needs a named folder under app/api.`,
+      "Fix: name the file after its contract (users.ts), or use a named folder (users/index.ts).",
     ].join(" ");
     for (const [run, name] of [
       [runs.contractIndex, "index"],
       [runs.contractIndexUpper, "INDEX"],
+      [runs.paramIndex, "[id]/index"],
     ] as const) {
       expect(run.code, run.output).not.toBe(0);
       expect(run.output).toContain(message(name));
     }
     expect(existsSync(join(project, "app/api/index.ts"))).toBe(false);
     expect(existsSync(join(project, "app/api/INDEX.ts"))).toBe(false);
+    expect(existsSync(join(project, "app/api/[id]/index.ts"))).toBe(false);
   });
 
   it("make:controller, make:request and make:resource reject a path that leaves their folder", () => {

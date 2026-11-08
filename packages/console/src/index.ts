@@ -15,12 +15,12 @@ export {
 export { CommandSignatureError } from './command/CommandSignatureError'
 export {
   type ArgumentName,
-  type ArgumentOrder,
   type ArgumentValue,
   type CommandInput,
   type OptionName,
   type OptionValue,
   type ParsedSignature,
+  type PositionalArgument,
   assertArgumentOrder,
   parseSignature,
   optionKey,
