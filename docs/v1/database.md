@@ -14,7 +14,7 @@ last-verified: 2026-10-10
 
 | Section | Status |
 |---|---|
-| [BindableModel](#bindablemodel) | merged @ 1f35b7b (spec only, PR [#347](https://github.com/Laratypes/Laratype/pull/347), S5 #88 step 1); code → #118, #163 |
+| [BindableModel](#bindablemodel) | proposed: PR <leader fills> @ da08867 (H7 #118); spec merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347), S5 #88 step 1); H14 #163 reuses it |
 | [Model](#model) | planned → #145 |
 | [Fillable and hidden](#fillable-and-hidden) | planned → #146 |
 | [Relations and with()](#relations-and-with) | planned → #147 |
@@ -27,12 +27,10 @@ last-verified: 2026-10-10
 ## BindableModel
 
 ### Status
-merged @ 1f35b7b
-
-Spec only, from PR [#347](https://github.com/Laratypes/Laratype/pull/347); no code yet. The code lands with [#118](https://github.com/Laratypes/Laratype/issues/118) (H7), and [#163](https://github.com/Laratypes/Laratype/issues/163) (H14) uses it. The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM). H14 binds models through the same interface; S5 step 2 keeps TypeORM ([S5 decision](./overview.md#decision-log)), so H14 no longer waits for it.
+proposed: PR <leader fills> @ da08867 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118)). The spec was merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347)); the type-only export lands with H7, and [#163](https://github.com/Laratypes/Laratype/issues/163) (H14) uses it. The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM). H14 binds models through the same interface; S5 step 2 keeps TypeORM ([S5 decision](./overview.md#decision-log)), so H14 no longer waits for it.
 
 ### Public API
-Type-only, exported by `@laratype/database`. It describes the **static side** of a model class, because `.bind({ user: User })` passes the class.
+Type-only, exported by `@laratype/database` ([`packages/database/src/eloquent/BindableModel.ts`](https://github.com/Laratypes/Laratype/blob/da08867/packages/database/src/eloquent/BindableModel.ts)). It describes the **static side** of a model class, because `.bind({ user: User })` passes the class.
 
 ```ts
 interface BindableModel<M extends object = object> {
@@ -49,13 +47,13 @@ interface BindableModel<M extends object = object> {
 - **Static side, not instance side.** Every member is a static of the model class: `.bind({ user: User })` passes the class, and the lookup is `User.findByRouteKey(...)`. The interface constrains no instance member, so the bound value keeps the class's own instance type (`InstanceType<C>` in the binder types), with its columns and methods unchanged. `class User implements BindableModel` does not apply, since `implements` checks the instance side; the class is checked where `.bind()` takes it.
 - **The lookup.** `findByRouteKey(key)` returns the instance whose route key property equals `key`, or `null` / `undefined` on a miss. H7 turns both into a 404.
 - **Route key.** `routeKeyName` defaults to `primaryKey`. Both are model property names (the names the lookup filters on), not database column names. H14 reads the same static for the implicit lookup property ([http.md › Model binding](./http.md#model-binding)).
-- **Key conversion.** The router passes the raw path param string, and the model converts it to the type of its route key property (a numeric id, a UUID) inside `findByRouteKey`: the router never parses a route key, since it does not know the property's type.
+- **Key conversion.** The router passes the raw path param string, and the model converts it to the type of its route key property (a numeric id, a UUID) inside `findByRouteKey`: the router never parses a route key, since it does not know the property's type. A key the model cannot convert is its own miss: return `null` / `undefined` and the route answers 404. A throw is the server's error (the generic 500), not a 422.
 - **Bound value types.** A class binder constrains the class with `BindableModel` (its default `M = object`) and gives `InstanceType<C>` of the class it is passed, not the return type of `findByRouteKey`: a `findByRouteKey` inherited from a base class returns the base type, so a `BindableModel<InstanceType<C>>` constraint would refuse every subclass (TS2345). A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404; an optional path param (`:post?`) gives `Post | undefined` when absent, while a present one with no match is a 404 ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)).
 - **No ORM.** The interface has no query builder, repository, entity manager or connection member, so it is satisfied without picking the ORM. On TypeORM, the statics go on the base `Model` (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)): `primaryKey` reads `getRepository().metadata.primaryColumns[0].propertyName` (what `ModelManagement.getPrimaryKeyFromModel` does today), and `findByRouteKey` converts `key` to the route key property's type (the Key conversion rule above), then runs `this.findOne({ where: { [this.routeKeyName ?? this.primaryKey]: converted } })`.
 - **Structural.** Any class with those three statics fits, with no `implements` clause and no import of `BindableModel`.
 
 ### Diagnostics
-None yet: the code lands with H7, which defines the 404 body and the compile-time message for a class that does not satisfy the interface ([http.md › Model binding](./http.md#model-binding)).
+The type has no runtime check of its own: `.bind()` checks the static side when a class is passed, and the miss becomes the route's 404 ([http.md › Model binding](./http.md#model-binding) › Diagnostics). A class that does not fit is reported at `r.bind()`: `Type 'typeof Plain' is missing the following properties from type 'BindableModelClass<object>': primaryKey, findByRouteKey` (the `@laratype/http` structural copy of this interface).
 
 ### Example
 Planned shape (illustrative, not compiled): the statics on the TypeORM base `Model` make every model bindable.
@@ -87,7 +85,7 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 - No composite primary key: `primaryKey` is one property and the default route key, so a model with a composite key sets `routeKeyName` to the one property to look up by.
 
 ### Open questions
-- A route key that cannot convert to the primary key type (a non-numeric value for a numeric id): a miss (404) or a malformed request (422)? → [#118](https://github.com/Laratypes/Laratype/issues/118)
+- Resolved: a route key that cannot convert to the primary key type (a non-numeric value for a numeric id) is a miss (404), not a 422: the router passes the raw string, and `findByRouteKey` returns `null` / `undefined` ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - Resolved: how a non-TypeORM model reaches its database handle from the static `findByRouteKey` is moot, since S5 step 2 keeps TypeORM ([#88](https://github.com/Laratypes/Laratype/issues/88)).
 
 ### Acceptance
