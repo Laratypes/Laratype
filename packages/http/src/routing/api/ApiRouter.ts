@@ -22,7 +22,9 @@ import type {
   ScopeRouteOptions,
   UnenforcedCap,
 } from "./types";
+import type { Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
+import { checkBinder, pathParamNames } from "./bindings";
 import { throttled } from "./throttle";
 
 const fail = (message: string): never => {
@@ -37,22 +39,30 @@ const checkMiddleware = (middleware: unknown): void => {
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 
-/** Runtime `r`; its types come from `ApiRouteBuilder<A, M>`. */
+/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
   constructor(
     readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
+    readonly bindings: Readonly<Record<string, Binder>> = {},
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
     middleware.forEach(checkMiddleware);
-    return new RouteBuilder([...this.stack, ...middleware], this.entries);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings);
   }
 
   /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
   withoutMiddleware(...middleware: MiddlewareItem[]) {
-    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries);
+    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings);
+  }
+
+  /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
+  bind(bindings: Record<string, Binder>) {
+    for (const [key, binder] of Object.entries(bindings)) checkBinder(key, binder);
+    // A spread, not an assignment: an own `__proto__` key stays a key, as frozenCopy keeps it for the options
+    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -62,13 +72,13 @@ class RouteBuilder {
     const { copy, issue } = copyOptions(options);
     const names = mountedEntries(this.entries, contract).map((e) => e.name);
     if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
-    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copy });
+    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, bindings: this.bindings, options: copy });
     return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
-    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack });
+    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack, bindings: this.bindings });
   }
 
   get(path: string, handler: MountedRoute["handler"]) { return this.route("get", path, handler); }
@@ -226,7 +236,9 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      const stored = pinned !== undefined ? item : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, options });
+      const stored = pinned !== undefined
+        ? item
+        : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, bindings: item.bindings ?? {}, options });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -267,12 +279,23 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointMiddleware])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
+      bindings: routeBindings(scopeItems, mounted, route.path),
       unenforced: unenforcedCaps(route),
       domain: undefined,
     });
   });
   checkAdHocPaths(routes, adHoc);
   return { routes, adHoc };
+};
+
+/**
+ * The bindings of one route: its scopes' (outer to inner), then its contract's, a later key winning. Restricted to the
+ * params of the route's full path: a contract may bind a key only some of its endpoints declare.
+ */
+const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): Readonly<Record<string, Binder>> => {
+  const names = pathParamNames(path);
+  const entries = [...scopes.flatMap((scope) => Object.entries(scope.bindings ?? {})), ...Object.entries(mounted.bindings ?? {})];
+  return Object.freeze(Object.fromEntries(entries.filter(([key]) => names.has(key))));
 };
 
 /**
@@ -489,6 +512,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     endpoint: route.endpoint,
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...route.middleware],
+    bindings: route.bindings,
   };
 };
 

@@ -3,7 +3,7 @@ import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
 import type { Equal, Matches } from "./equal";
-import type { EndpointKey, VerifyController } from "./proof";
+import type { Binder, EndpointKey, VerifyController } from "./proof";
 
 /**
  * Type side of `Route.api` (docs/v1/http.md › Router v2). It reads the API tree built by `defineApi`
@@ -93,6 +93,8 @@ export interface MountedContract<C extends object = AnyContract> {
   readonly contract: C;
   readonly controller: ControllerClass;
   readonly middleware: readonly MiddlewareItem[];
+  /** The `r.bind()` bindings of the builder: resolved before the handler, later keys winning over a scope's. */
+  readonly bindings: Readonly<Record<string, Binder>>;
   readonly options: ContractRouteOptions<C> | undefined;
 }
 
@@ -103,6 +105,8 @@ export interface MountedScope<D extends string = string> {
   readonly policy: PolicyClass;
   /** Runs before the middleware of every contract under the folder. */
   readonly middleware: readonly MiddlewareItem[];
+  /** The `r.bind()` bindings for the contracts under the folder (a contract's builder bindings win). */
+  readonly bindings: Readonly<Record<string, Binder>>;
 }
 
 /** The methods of an ad-hoc route: `r.get()`, `r.post()`, `r.put()`, `r.patch()`, `r.delete()`. */
@@ -235,17 +239,17 @@ export type CheckApiRoutes<A, M extends readonly unknown[]> =
 
 /**
  * The route proof of `r.contract(contract, controller, options)` (docs/v1/http.md › Route proof at r.contract()), run
- * with the tree name and path of the mounted contract and the middleware extensions `X` its builder accumulated
- * (H6 #117). A contract that names several tree contracts (twins) is reported by `CheckApiRoutes`, so it is not proven
- * here.
+ * with the tree name and path of the mounted contract, the middleware extensions `X` its builder accumulated
+ * (H6 #117) and its `r.bind()` bindings `B` (H7 #118). A contract that names several tree contracts (twins) is reported
+ * by `CheckApiRoutes`, so it is not proven here.
  */
-export type RouteProof<A, C, I, O, X extends object = {}> = MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
+export type RouteProof<A, C, I, O, X extends object = {}, B = {}> = MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
   ? [Hit] extends [never]
     ? unknown
     : IsUnion<Hit> extends true
       ? unknown
       : Hit extends { name: infer N extends string; contract: infer EC; path: infer P extends string }
-        ? VerifyController<N, EC, P, I, X, {}, O>
+        ? VerifyController<N, EC, P, I, X, B, O>
         : unknown
   : unknown;
 
@@ -254,19 +258,31 @@ type MountedEntry<En, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer Na
   ? Extract<En, { name: Name }>
   : En extends { contract: infer EC } ? (Equal<EC, C> extends true ? En : never) : never;
 
-/** The `r` of `Route.api(appApi, (r) => [...])`: its `M` is the middleware it accumulated, for the route proof. */
-export interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
+/**
+ * The bindings after a later `r.bind()`: a key it binds again is replaced, not intersected, since the runtime keeps the
+ * later binding.
+ */
+type MergedBindings<B, NB> = Omit<B, keyof NB> & NB;
+
+/** The `r` of `Route.api(appApi, (r) => [...])`: its `M` is the middleware and `B` the bindings it accumulated. */
+export interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {}> {
   /** Middleware for the contracts or scope mounted from the returned builder: 0.5 classes or `defineMiddleware()`. */
-  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W]>;
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W], B>;
   /** Drops middleware the builder accumulated (the same value, or a structurally identical one): the opt-out. */
-  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>>;
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>, B>;
+  /**
+   * Binds path params for the contracts or scope mounted from the returned builder (docs/v1/http.md › Model binding):
+   * a model class (its instance) or a resolver from the raw param. A key is checked against every path param of the
+   * contract at `r.contract()`; a later call wins a key it binds again.
+   */
+  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>>;
   /**
    * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
    * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
    */
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
     contract: C,
-    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
+    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
     options?: ContractRouteOptions<NoInfer<C>, P>,
   ): MountedContract<C>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
@@ -289,6 +305,8 @@ export interface RouteEntry extends ApiRoute {
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
   readonly policy: PolicyClass | undefined;
+  /** The resolved `r.bind()` bindings of this route: its scopes' then its contract's, its path params only. */
+  readonly bindings: Readonly<Record<string, Binder>>;
   /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */

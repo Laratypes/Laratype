@@ -67,16 +67,31 @@ export type ControllerOf<C> = {
 
 // ---- what the route provides ------------------------------------------------
 
-type ModelClass = abstract new (...args: any) => any;
+type AnyConstructor = abstract new (...args: any) => any;
 type Resolver = (value: string) => unknown;
 
+/**
+ * The static side of a model class `r.bind()` takes (docs/v1/database.md › BindableModel), structural and type-only:
+ * `@laratype/http` does not import `@laratype/database`. `findByRouteKey` returns `null` / `undefined` on a miss, which
+ * is the contract's derived 404; `routeKeyName` defaults to `primaryKey`.
+ */
+export interface BindableModelClass<M extends object = object> {
+  new (...args: any[]): M;
+  readonly primaryKey: string;
+  readonly routeKeyName?: string;
+  findByRouteKey(key: string): Promise<M | null | undefined>;
+}
+
 /** A `.bind()` value: a model class, or a resolver from the raw param (H7 #118). */
-export type Binder = ModelClass | Resolver;
+export type Binder = BindableModelClass | Resolver;
 
 /** A resolver's miss is a 404, so the handler sees the value without `null` / `undefined`. */
-type Bound<B> = B extends ModelClass ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
+export type Bound<B> = B extends AnyConstructor ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
 
-type BoundParams<P, B> = { [K in keyof B & keyof P]: Bound<B[K]> };
+/** The bound params of endpoint params `P`: an optional param (`:post?`) is `undefined` when the request has none. */
+export type BoundParams<P, B> = {
+  [K in keyof B & keyof P]: Bound<B[K]> | (undefined extends P[K] ? undefined : never);
+};
 
 /** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];

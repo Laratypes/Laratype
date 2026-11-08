@@ -14,6 +14,8 @@ import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { resolveBindings } from "../routing/api/bindings";
+import type { Binder } from "../routing/api/proof";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -52,6 +54,9 @@ type PipeLineType = {
 } | {
   type: 'typed-middleware',
   handler: AnyTypedMiddleware,
+} | {
+  type: 'bindings',
+  bindings: Readonly<Record<string, Binder>>,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -192,12 +197,20 @@ export default class Request extends AppServiceProvider {
 
   /**
    * The handler context of a contract route (docs/v1/http.md › Controller typing: Ctx and ControllerOf): the raw path
-   * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
-   * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
+   * params (with the `r.bind()` models in place of their strings), and the query and body validated by the endpoint's
+   * schemas (their output). `endpoint` is a read-only, non-enumerable own field, so spreading or logging the ctx
+   * doesn't copy the endpoint definition.
    */
-  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }, extensions: readonly object[] = []) {
+  public static async contractContext(
+    { endpoint, input }: { endpoint: AnyEndpoint, input: RawInput },
+    extensions: readonly object[] = [],
+    bound: Record<string, unknown> = {},
+  ) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = this.applyExtensions({ params: input.params, query, body }, extensions);
+    // Bindings merge last: a typed middleware extension adding the same param key must not replace the model the
+    // route proof promises the handler (docs/v1/http.md › Model binding)
+    const merged = Object.keys(bound).length ? [...extensions, { params: bound }] : extensions;
+    const ctx = this.applyExtensions({ params: input.params, query, body }, merged);
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
   }
 
@@ -228,6 +241,8 @@ export default class Request extends AppServiceProvider {
         let error: any;
         // What the handler gets: the 0.5 request, or the ctx of a contract route
         let handlerArg: unknown = requestInstance;
+        // The `r.bind()` models, resolved once by the bindings step and merged into the ctx params (H7 #118)
+        let bound: Record<string, unknown> = {};
         // What typed middleware passed to next(ext), merged into the handler argument once the request step runs
         const extensions: object[] = [];
         const next = async (arg?: any) => {
@@ -238,9 +253,13 @@ export default class Request extends AppServiceProvider {
           }
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
+            if(currentPipelineType === 'bindings') {
+              bound = await resolveBindings(currentPipeline.bindings, requestInstance.param());
+              return await next(arg);
+            }
             if(currentPipelineType === 'request') {
               handlerArg = currentPipeline.contract
-                ? await this.contractContext(currentPipeline.contract, extensions)
+                ? await this.contractContext(currentPipeline.contract, extensions, bound)
                 : this.applyExtensions(await this.processValidation(requestInstance, routeOption), extensions);
               return await next(arg);
             }
@@ -371,6 +390,10 @@ export default class Request extends AppServiceProvider {
           pipelines.push(...routeOption.middleware.map(m => isTypedMiddleware(m)
             ? { type: 'typed-middleware' as const, handler: m }
             : { type: 'middleware' as const, handler: m }));
+        }
+        // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
+        if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
+          pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
