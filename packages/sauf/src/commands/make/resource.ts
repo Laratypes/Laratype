@@ -22,12 +22,14 @@ export default class MakeResourceCommand extends MakeCommand {
     const options = this.opts();
     const resourcePath = this.resolve("sauf", "Resource.template");
     const names = resourceNames.map(resourceName => {
-      const name = generatorPath(resourceName, "resource");
+      const name = generatorPath(resourceName, "resource", { identifier: true });
       // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
       const resource = name.endsWith("Resource") ? name : `${name}Resource`;
       return {
         resource,
-        collection: options.collection ? generatorPath(`${resource}Collection`, "resource") : undefined,
+        collection: options.collection
+          ? generatorPath(`${resource}Collection`, "resource", { identifier: true })
+          : undefined,
       };
     });
 

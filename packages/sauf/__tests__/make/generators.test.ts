@@ -13,7 +13,25 @@ const repo = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\\
 const example = join(repo, "examples/basic");
 
 /** The runs that are expected to fail, so the type-check test does not demand their files. */
-const failingRuns = new Set(["escape", "escapeController", "escapeRequest", "escapeResource"]);
+const failingRuns = new Set([
+  "escape",
+  "contractIndex",
+  "contractIndexUpper",
+  "escapeController",
+  "escapeRequest",
+  "escapeResource",
+  "escapeGate",
+  "escapeMiddleware",
+  "escapeModel",
+  "escapePolicy",
+  "identifierController",
+  "identifierRequest",
+  "identifierResource",
+  "identifierMiddleware",
+  "identifierModel",
+  "identifierPolicy",
+  "identifierGate",
+]);
 
 interface Run {
   readonly code: number | null;
@@ -23,7 +41,10 @@ interface Run {
 let project: string;
 let runs: Record<
   | "contract"
+  | "nestedIndex"
   | "escape"
+  | "contractIndex"
+  | "contractIndexUpper"
   | "types"
   | "command"
   | "controller"
@@ -32,7 +53,18 @@ let runs: Record<
   | "nestedResource"
   | "escapeController"
   | "escapeRequest"
-  | "escapeResource",
+  | "escapeResource"
+  | "escapeGate"
+  | "escapeMiddleware"
+  | "escapeModel"
+  | "escapePolicy"
+  | "identifierController"
+  | "identifierRequest"
+  | "identifierResource"
+  | "identifierMiddleware"
+  | "identifierModel"
+  | "identifierPolicy"
+  | "identifierGate",
   Run
 >;
 
@@ -71,7 +103,10 @@ beforeAll(async () => {
   // Every generator once, so each test sees a complete run and a single `-t` filter still works
   runs = {
     contract: await sauf("make:contract", "reports/monthly"),
+    nestedIndex: await sauf("make:contract", "reports/index"),
     escape: await sauf("make:contract", "../escape"),
+    contractIndex: await sauf("make:contract", "index"),
+    contractIndexUpper: await sauf("make:contract", "INDEX.TS"),
     types: await sauf("types:generate", "--root", "app/api", "--base", "/api"),
     command: await sauf("make:command", "DraftCommand"),
     controller: await sauf("make:controller", "DraftController"),
@@ -81,8 +116,19 @@ beforeAll(async () => {
     escapeController: await sauf("make:controller", "../x"),
     escapeRequest: await sauf("make:request", "../x"),
     escapeResource: await sauf("make:resource", "../x", "--collection"),
+    escapeGate: await sauf("make:gate", "../x"),
+    escapeMiddleware: await sauf("make:middleware", "../x"),
+    escapeModel: await sauf("make:model", "../x"),
+    escapePolicy: await sauf("make:policy", "../x"),
+    identifierController: await sauf("make:controller", "my-note"),
+    identifierRequest: await sauf("make:request", "my-note"),
+    identifierResource: await sauf("make:resource", "my-note", "--collection"),
+    identifierMiddleware: await sauf("make:middleware", "my-note"),
+    identifierModel: await sauf("make:model", "my-note"),
+    identifierPolicy: await sauf("make:policy", "my-note"),
+    identifierGate: await sauf("make:gate", "my-note"),
   };
-}, 120_000);
+}, 240_000);
 
 afterAll(() => {
   if (project) rmSync(project, { recursive: true, force: true });
@@ -101,10 +147,30 @@ describe("v1 make generators", () => {
     expect(stub).toContain("z.coerce.number()");
   });
 
+  it("make:contract keeps a nested index, which names its folder (docs/v1/contract.md › Contract folder tree)", () => {
+    expectOk(runs.nestedIndex);
+    expect(existsSync(join(project, "app/api/reports/index.ts")), runs.nestedIndex.output).toBe(true);
+  });
+
   it("make:contract rejects a path that leaves the contract tree", () => {
     expect(runs.escape.code, runs.escape.output).not.toBe(0);
     expect(runs.escape.output).toContain('Invalid contract name "../escape"');
     expect(existsSync(join(project, "app/escape.ts"))).toBe(false);
+  });
+
+  it("make:contract rejects a root index, which the next scan would fail", () => {
+    const message = (name: string) =>
+      `Invalid contract name "${name}": a root index has no contract name under app/api. ` +
+      `Fix: name the file after its contract (users.ts), or use a folder index (users/index.ts).`;
+    for (const [run, name] of [
+      [runs.contractIndex, "index"],
+      [runs.contractIndexUpper, "INDEX"],
+    ] as const) {
+      expect(run.code, run.output).not.toBe(0);
+      expect(run.output).toContain(message(name));
+    }
+    expect(existsSync(join(project, "app/api/index.ts"))).toBe(false);
+    expect(existsSync(join(project, "app/api/INDEX.ts"))).toBe(false);
   });
 
   it("make:controller, make:request and make:resource reject a path that leaves their folder", () => {
@@ -140,6 +206,75 @@ describe("v1 make generators", () => {
     for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
   });
 
+  it("make:gate, make:middleware, make:model and make:policy reject a path that leaves their folder", () => {
+    const escapes = [
+      {
+        run: runs.escapeGate,
+        message: 'Invalid gate name "../x": use letters, digits, "_" and "-", in folders under src/gates.',
+      },
+      {
+        run: runs.escapeMiddleware,
+        message:
+          'Invalid middleware name "../x": use letters, digits, "_" and "-", in folders under src/http/middleware.',
+      },
+      {
+        run: runs.escapeModel,
+        message: 'Invalid model name "../x": use letters, digits, "_" and "-", in folders under src/models.',
+      },
+      {
+        run: runs.escapePolicy,
+        message: 'Invalid policy name "../x": use letters, digits, "_" and "-", in folders under src/policies.',
+      },
+    ];
+    for (const { run, message } of escapes) {
+      expect(run.code, run.output).not.toBe(0);
+      expect(run.output).toContain(message);
+    }
+    // `../x` from each folder, its destination folder, the project root and the folder outside the project
+    const files = [
+      "src/x.ts",
+      "src/http/x.ts",
+      "src/gates/x.ts",
+      "src/http/middleware/x.ts",
+      "src/models/x.ts",
+      "src/policies/x.ts",
+      "x.ts",
+    ];
+    for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+    expect(existsSync(join(project, "..", "x.ts"))).toBe(false);
+  });
+
+  it("every generator that names a class or function after the file rejects a non-identifier name", () => {
+    const message = (generator: string, folder: string) =>
+      `Invalid ${generator} name "my-note": the last segment names the exported class or function, ` +
+      `so it must be a valid identifier (letters, digits and "_", not starting with a digit), under ${folder}.`;
+    const cases = [
+      { run: runs.identifierController, message: message("controller", "app/http/controllers") },
+      { run: runs.identifierRequest, message: message("request", "app/http/requests") },
+      { run: runs.identifierResource, message: message("resource", "app/http/resources") },
+      { run: runs.identifierMiddleware, message: message("middleware", "src/http/middleware") },
+      { run: runs.identifierModel, message: message("model", "src/models") },
+      { run: runs.identifierPolicy, message: message("policy", "src/policies") },
+      { run: runs.identifierGate, message: message("gate", "src/gates") },
+    ];
+    for (const { run, message } of cases) {
+      expect(run.code, run.output).not.toBe(0);
+      expect(run.output).toContain(message);
+    }
+    // The folder may keep `-`; only the file name is the identifier (a successful case is covered by nestedResource)
+    const files = [
+      "app/http/controllers/my-note.ts",
+      "app/http/requests/my-note.ts",
+      "app/http/resources/my-noteResource.ts",
+      "app/http/resources/my-noteResourceCollection.ts",
+      "src/http/middleware/my-note.ts",
+      "src/models/my-note.ts",
+      "src/policies/my-note.ts",
+      "src/gates/my-note.ts",
+    ];
+    for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+  });
+
   it("types:generate gives the nested folder its Prefix", () => {
     expectOk(runs.types);
     const types = join(project, ".laratype/types/app/api/reports/$types.d.ts");
@@ -155,6 +290,7 @@ describe("v1 make generators", () => {
 
     const generated = [
       "app/api/reports/monthly.ts",
+      "app/api/reports/index.ts",
       "app/console/commands/DraftCommand.ts",
       "app/http/controllers/DraftController.ts",
       "app/http/requests/DraftRequest.ts",

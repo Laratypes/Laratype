@@ -1,5 +1,6 @@
 import { camelize } from "@laratype/support";
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 export default class MakePolicyCommand extends MakeCommand {
 
@@ -21,14 +22,15 @@ export default class MakePolicyCommand extends MakeCommand {
   async make(policyName: string) {
     const options = this.opts();
     const resourcePath = this.resolve("sauf", "Policy.template");
+    const name = generatorPath(policyName, "policy", { identifier: true });
 
-    const destinationPath = "./src/policies/" + policyName + ".ts";
+    const destinationPath = `./${GENERATOR_FOLDERS.policy}/${name}.ts`;
     const data: {
       PolicyName: string;
       ModelName?: string;
       ParamName?: string;
     } = {
-      PolicyName: this.getFileName(policyName),
+      PolicyName: this.getFileName(name),
     }
 
     if(options.m) {

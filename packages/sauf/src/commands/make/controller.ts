@@ -17,7 +17,9 @@ export default class MakeControllerCommand extends MakeCommand {
   async make(controllerNames: string[]) {
     const resourcePath = this.resolve("sauf", "Controller.template");
     // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
-    const names = controllerNames.map(controllerName => generatorPath(controllerName, "controller"));
+    const names = controllerNames.map(controllerName =>
+      generatorPath(controllerName, "controller", { identifier: true }),
+    );
 
     return names.map(name => {
       const destinationPath = `./${GENERATOR_FOLDERS.controller}/${name}.ts`;

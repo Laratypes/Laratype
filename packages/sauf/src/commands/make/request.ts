@@ -17,7 +17,9 @@ export default class MakeRequestCommand extends MakeCommand {
   async make(requestNames: string[]) {
     const resourcePath = this.resolve("sauf", "Request.template");
     // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
-    const names = requestNames.map(requestName => generatorPath(requestName, "request"));
+    const names = requestNames.map(requestName =>
+      generatorPath(requestName, "request", { identifier: true }),
+    );
 
     return names.map(name => {
       const destinationPath = `./${GENERATOR_FOLDERS.request}/${name}.ts`;
