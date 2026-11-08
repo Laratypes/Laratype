@@ -2,7 +2,7 @@ import type { Ability, Policy } from "@laratype/auth";
 import type { AnyEndpoint } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
-import Middleware from "../middleware/Middleware"
+import type { MiddlewareClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
 
@@ -17,8 +17,8 @@ export type PolicyFactory = {
 }
 
 export type RouteOptions = ({
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   children: Array<RouteOptions>,
   method?: METHOD,
   controller?: [typeof Controller, string],
@@ -28,8 +28,8 @@ export type RouteOptions = ({
   controller: [typeof Controller, string],
 }) & {
   path: string,
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   request?: typeof Request,
   can?: PolicyFactory,
   name?: string,
@@ -47,8 +47,8 @@ export type RouteParams = {
   can?: PolicyFactory[],
   /** Any class the container can construct: `app.make()` injects its constructor params (H2 #105). */
   controller: [Newable<object>, string]
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,
 }

@@ -6,7 +6,7 @@ import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
-import Middleware from "../middleware/Middleware";
+import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
@@ -44,7 +44,7 @@ const createFallbackContainer = () => {
 
 type PipeLineType = {
   type: 'middleware',
-  handler: typeof Middleware,
+  handler: MiddlewareClass,
 } | {
   type: 'request',
   handler: RequestSupport,
