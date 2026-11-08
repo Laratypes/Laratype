@@ -2,12 +2,12 @@ import { existsSync } from "node:fs";
 import { CommandSignatureError, parseSignature } from "@laratype/console";
 import { KIND_EXTENSIONS, MANIFEST_DIRS } from "../../manifest/scan";
 import MakeCommand from "../../utils/MakeCommand";
-import { generatorPath } from "./path";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 /**
- * `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. An underscore separates
- * words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all give
- * `clean:cache`: the generated signature never starts or ends with `:` and has no empty segment.
+ * `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. A colon, underscore or
+ * space separates words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all
+ * give `clean:cache`: the generated signature never starts or ends with `:` and has no empty segment.
  */
 export function commandSignature(name: string): string {
   return name
@@ -63,7 +63,8 @@ export default class MakeCommandCommand extends MakeCommand {
   async make(commandNames: string[]) {
     const resourcePath = this.resolve("sauf", "Command.template");
 
-    // Every name and signature is checked before the first stub is written: a bad name fails this run, not the next CLI start.
+    // Every name and signature is checked before the first stub is written: a bad name fails this run,
+    // not the next CLI start.
     const commands = commandNames.map(commandName => {
       const fileName = generatorPath(this.getFileName(commandName).replace(/\.ts$/, ""), "command", {
         identifier: true,
@@ -75,7 +76,7 @@ export default class MakeCommandCommand extends MakeCommand {
 
     return commands.map(({ fileName, signature }) => {
       // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
-      const destinationPath = `./app/console/commands/${fileName}.ts`;
+      const destinationPath = `./${GENERATOR_FOLDERS.command}/${fileName}.ts`;
       const target = destinationPath.slice(2);
       // An existing file at the destination is the usual skip; a second file of the same name would fail the manifest
       const existing = commandFiles(fileName).find((path) => path !== target);

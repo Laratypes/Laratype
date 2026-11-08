@@ -157,14 +157,18 @@ describe("app commands", () => {
         name: "Clean:Cache",
         // On Windows/NTFS the old destination would be an alternate data stream on `Clean`
         files: ["app/console/commands/Clean:Cache.ts", "app/console/commands/Clean"],
-        message:
-          'Invalid command name "Clean:Cache": use letters, digits, "_" and "-", in folders under app/console/commands.',
+        message: [
+          'Invalid command name "Clean:Cache": use letters, digits, "_" and "-",',
+          "in folders under app/console/commands.",
+        ].join(" "),
       },
       {
         name: "Clean Cache",
         files: ["app/console/commands/Clean Cache.ts"],
-        message:
-          'Invalid command name "Clean Cache": use letters, digits, "_" and "-", in folders under app/console/commands.',
+        message: [
+          'Invalid command name "Clean Cache": use letters, digits, "_" and "-",',
+          "in folders under app/console/commands.",
+        ].join(" "),
       },
       {
         name: "Clean-Cache",
