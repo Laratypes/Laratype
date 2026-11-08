@@ -2,8 +2,8 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at 1fbb95f)
-last-verified: 2026-11-07
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at fc9b54d)
+last-verified: 2026-11-08
 ---
 
 # Services
@@ -22,7 +22,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
 | [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -77,13 +77,13 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ 1fbb95f ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 
 ### Public API
 
-The types live in [`signature.ts` @ 1fbb95f](https://github.com/Laratypes/Laratype/blob/1fbb95f7416d7909454fca4446813950fbc6495b/packages/console/src/command/signature.ts), [`Command.ts` @ 1fbb95f](https://github.com/Laratypes/Laratype/blob/1fbb95f7416d7909454fca4446813950fbc6495b/packages/console/src/command/Command.ts), [`closure.ts` @ 1fbb95f](https://github.com/Laratypes/Laratype/blob/1fbb95f7416d7909454fca4446813950fbc6495b/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ 1fbb95f](https://github.com/Laratypes/Laratype/blob/1fbb95f7416d7909454fca4446813950fbc6495b/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ 1fbb95f](https://github.com/Laratypes/Laratype/blob/1fbb95f7416d7909454fca4446813950fbc6495b/packages/sauf/src/utils/command.ts).
+The types live in [`signature.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/signature.ts), [`Command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/Command.ts), [`closure.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/sauf/src/utils/command.ts).
 
 ```ts
 // @laratype/console
