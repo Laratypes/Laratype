@@ -41,6 +41,7 @@ interface Run {
 let project: string;
 let runs: Record<
   | "contract"
+  | "contractHyphen"
   | "nestedIndex"
   | "escape"
   | "contractIndex"
@@ -48,6 +49,7 @@ let runs: Record<
   | "types"
   | "command"
   | "controller"
+  | "hyphenFolder"
   | "request"
   | "resource"
   | "nestedResource"
@@ -103,6 +105,7 @@ beforeAll(async () => {
   // Every generator once, so each test sees a complete run and a single `-t` filter still works
   runs = {
     contract: await sauf("make:contract", "reports/monthly"),
+    contractHyphen: await sauf("make:contract", "my-note"),
     nestedIndex: await sauf("make:contract", "reports/index"),
     escape: await sauf("make:contract", "../escape"),
     contractIndex: await sauf("make:contract", "index"),
@@ -110,6 +113,7 @@ beforeAll(async () => {
     types: await sauf("types:generate", "--root", "app/api", "--base", "/api"),
     command: await sauf("make:command", "DraftCommand"),
     controller: await sauf("make:controller", "DraftController"),
+    hyphenFolder: await sauf("make:controller", "my-team/PostController"),
     request: await sauf("make:request", "DraftRequest"),
     resource: await sauf("make:resource", "Draft", "--collection"),
     nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
@@ -145,6 +149,11 @@ describe("v1 make generators", () => {
     expect(stub).toContain("export default defineContract<Prefix>()({");
     expect(stub).toContain('index: endpoint.get("/").query(IndexQuery)');
     expect(stub).toContain("z.coerce.number()");
+  });
+
+  it("make:contract keeps its folder rules for a dashed file name", () => {
+    expectOk(runs.contractHyphen);
+    expect(existsSync(join(project, "app/api/my-note.ts")), runs.contractHyphen.output).toBe(true);
   });
 
   it("make:contract keeps a nested index, which names its folder (docs/v1/contract.md › Contract folder tree)", () => {
@@ -261,7 +270,9 @@ describe("v1 make generators", () => {
       expect(run.code, run.output).not.toBe(0);
       expect(run.output).toContain(message);
     }
-    // The folder may keep `-`; only the file name is the identifier (a successful case is covered by nestedResource)
+    // The folder may keep `-`; only the file name is the identifier
+    expect(existsSync(join(project, "app/http/controllers/my-team/PostController.ts")), runs.hyphenFolder.output)
+      .toBe(true);
     const files = [
       "app/http/controllers/my-note.ts",
       "app/http/requests/my-note.ts",
@@ -289,10 +300,12 @@ describe("v1 make generators", () => {
     }
 
     const generated = [
+      "app/api/my-note.ts",
       "app/api/reports/monthly.ts",
       "app/api/reports/index.ts",
       "app/console/commands/DraftCommand.ts",
       "app/http/controllers/DraftController.ts",
+      "app/http/controllers/my-team/PostController.ts",
       "app/http/requests/DraftRequest.ts",
       "app/http/resources/DraftResource.ts",
       "app/http/resources/DraftResourceCollection.ts",

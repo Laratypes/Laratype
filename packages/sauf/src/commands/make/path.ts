@@ -46,8 +46,8 @@ export function generatorPath(name: string, generator: Generator, options: Gener
     (options.params === true && index < segments.length - 1 && PARAM_FOLDER.test(segment)),
   );
   if (!valid) throw new Error(invalidNameMessage(name, generator, options.params === true));
-  const last = segments[segments.length - 1]!;
-  if (options.identifier === true && !IDENTIFIER.test(last)) {
+  const file = segments.pop() ?? "";
+  if (options.identifier === true && !IDENTIFIER.test(file)) {
     throw new Error(invalidIdentifierMessage(name, generator));
   }
   return path;

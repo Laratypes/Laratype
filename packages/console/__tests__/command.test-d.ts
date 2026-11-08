@@ -4,6 +4,7 @@ import Command from "../src/command/Command";
 import { command } from "../src/command/closure";
 import type {
   ArgumentName,
+  ArgumentOrder,
   CommandInput,
   OptionName,
   ParsedSignature,
@@ -84,6 +85,10 @@ describe("signature types", () => {
       dryRun: boolean | undefined;
     }>();
     expectTypeOf<CommandInput<"deploy : the description is not a parameter">>().toEqualTypeOf<{}>();
+  });
+
+  it("ArgumentOrder is one positional argument in registration order", () => {
+    expectTypeOf<ArgumentOrder>().toEqualTypeOf<{ readonly name: string; readonly variadic: boolean }>();
   });
 
   it("a non-literal signature falls back to a loose record", () => {
