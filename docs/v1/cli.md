@@ -148,6 +148,7 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 52bbf95 (E
 - `Invalid <generator> name "<name>": the last segment names the exported class or function, so use a valid identifier (letters, digits and "_", not starting with a digit), under <folder>.` (`make:controller`, `make:request`, `make:resource`, `make:gate`, `make:middleware`, `make:model` and `make:policy`, for a file name that is not a TypeScript identifier; a folder segment keeps `-`).
 - `Invalid contract name "<name>": an index needs a named folder under app/api. Fix: name the file after its contract (users.ts), or use a named folder (users/index.ts).` (`make:contract`, for a root `index` in any case and with or without `.ts`, or an `index` under only `[param]` folders; a named folder's `index` is allowed).
 - `Cannot create <path>: <existing path> already uses the command name "<name>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or another `.ts`/`.mts` file already uses the name).
+- `make:command` joins the derived words with one `:` and drops empty segments, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all write `clean:cache`: a signature never starts or ends with `:` and never has `::`. A name whose derived signature registration would reject is refused before the stub is written: `make:command: "<name>" does not give a valid signature: Invalid command signature "<signature>": <reason>`.
 
 ### Example
 ```ts

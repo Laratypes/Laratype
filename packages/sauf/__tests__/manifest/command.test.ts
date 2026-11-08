@@ -143,6 +143,14 @@ describe("app commands", () => {
     }
   }, 120_000);
 
+  it("make:command rejects a bad name before writing any stub", async () => {
+    const { code, output } = await sauf("make:command", "ValidCommand", "Bad.Name");
+    expect(code, output).not.toBe(0);
+    expect(output).toContain('make:command: "Bad.Name" does not give a valid signature');
+    expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
+    expect(existsSync(join(project, "app/console/commands/Bad.Name.ts"))).toBe(false);
+  }, 120_000);
+
   it("names both sources when a command reuses a framework command name", async () => {
     const duplicate = "app/console/commands/RouteList.ts";
     write(duplicate, `
