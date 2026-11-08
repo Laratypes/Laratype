@@ -1,5 +1,6 @@
 /** The destination folder of each make generator, named in its diagnostic (docs/v1/cli.md › make:* generators). */
 export const GENERATOR_FOLDERS = {
+  command: "app/console/commands",
   contract: "app/api",
   controller: "app/http/controllers",
   request: "app/http/requests",

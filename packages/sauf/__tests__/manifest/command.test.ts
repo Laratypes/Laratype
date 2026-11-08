@@ -143,12 +143,47 @@ describe("app commands", () => {
     }
   }, 120_000);
 
-  it("make:command rejects a bad name before writing any stub", async () => {
-    const { code, output } = await sauf("make:command", "ValidCommand", "Bad.Name");
+  it("make:command rejects a bad signature before writing any stub", async () => {
+    // `_` is a valid identifier but its derived signature is empty, which registration rejects
+    const { code, output } = await sauf("make:command", "ValidCommand", "_");
     expect(code, output).not.toBe(0);
-    expect(output).toContain('make:command: "Bad.Name" does not give a valid signature');
+    expect(output).toContain('make:command: "_" does not give a valid signature');
     expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
-    expect(existsSync(join(project, "app/console/commands/Bad.Name.ts"))).toBe(false);
+  }, 120_000);
+
+  it("make:command rejects a name that is not a file name and class, before writing any stub", async () => {
+    const cases = [
+      {
+        name: "Clean:Cache",
+        // On Windows/NTFS the old destination would be an alternate data stream on `Clean`
+        files: ["app/console/commands/Clean:Cache.ts", "app/console/commands/Clean"],
+        message:
+          'Invalid command name "Clean:Cache": use letters, digits, "_" and "-", in folders under app/console/commands.',
+      },
+      {
+        name: "Clean Cache",
+        files: ["app/console/commands/Clean Cache.ts"],
+        message:
+          'Invalid command name "Clean Cache": use letters, digits, "_" and "-", in folders under app/console/commands.',
+      },
+      {
+        name: "Clean-Cache",
+        files: ["app/console/commands/Clean-Cache.ts"],
+        message: [
+          'Invalid command name "Clean-Cache": the last segment names the exported class or function,',
+          'so use a valid identifier (letters, digits and "_", not starting with a digit),',
+          "under app/console/commands.",
+        ].join(" "),
+      },
+    ];
+    for (const { name, files, message } of cases) {
+      // The valid name is first, so the whole list must be checked before the first write
+      const { code, output } = await sauf("make:command", "ValidCommand", name);
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(message);
+      for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+      expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
+    }
   }, 120_000);
 
   it("names both sources when a command reuses a framework command name", async () => {
