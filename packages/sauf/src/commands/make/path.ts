@@ -1,4 +1,4 @@
-/** The destination folder of each v1 generator, named in its diagnostic (docs/v1/cli.md › make:* generators). */
+/** The destination folder of each make generator, named in its diagnostic (docs/v1/cli.md › make:* generators). */
 export const GENERATOR_FOLDERS = {
   contract: "app/api",
   controller: "app/http/controllers",
@@ -10,7 +10,7 @@ export const GENERATOR_FOLDERS = {
   policy: "src/policies",
 } as const;
 
-/** A v1 generator: its key selects the destination folder and the diagnostic's name. */
+/** A make generator: its key selects the destination folder and the diagnostic's name. */
 type Generator = keyof typeof GENERATOR_FOLDERS;
 
 /**
@@ -63,9 +63,10 @@ function invalidNameMessage(name: string, generator: Generator, params: boolean)
 
 /** The diagnostic of a file name that would not be a TypeScript identifier (docs/v1/cli.md › Diagnostics). */
 function invalidIdentifierMessage(name: string, generator: Generator): string {
-  return (
-    `Invalid ${generator} name ${JSON.stringify(name)}: the last segment names the exported class or function, ` +
-    'so it must be a valid identifier (letters, digits and "_", not starting with a digit), ' +
-    `under ${GENERATOR_FOLDERS[generator]}.`
-  );
+  return [
+    `Invalid ${generator} name ${JSON.stringify(name)}: the last segment names the exported class or function,`,
+    "so use a valid identifier",
+    '(letters, digits and "_", not starting with a digit),',
+    `under ${GENERATOR_FOLDERS[generator]}.`,
+  ].join(" ");
 }

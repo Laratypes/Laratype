@@ -5,41 +5,20 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// E2 #134: the v1 generators write the v1 app layout, and the generated files type-check in examples/basic. Runs the
-// BUILT sauf (packages/sauf/dist), like devSsr.test.ts: run `bun run build` first.
+// E2 #134: the v1 generators write the v1 app layout, and the generated files type-check in examples/basic. The kept
+// 0.5 generators (gate, middleware, model, policy) are covered by their name checks here too. Runs the BUILT sauf
+// (packages/sauf/dist), like devSsr.test.ts: run `bun run build` first.
 
 const saufBin = fileURLToPath(new URL("../../dist/index.esm.js", import.meta.url));
 const repo = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\\/g, "/");
 const example = join(repo, "examples/basic");
-
-/** The runs that are expected to fail, so the type-check test does not demand their files. */
-const failingRuns = new Set([
-  "escape",
-  "contractIndex",
-  "contractIndexUpper",
-  "escapeController",
-  "escapeRequest",
-  "escapeResource",
-  "escapeGate",
-  "escapeMiddleware",
-  "escapeModel",
-  "escapePolicy",
-  "identifierController",
-  "identifierRequest",
-  "identifierResource",
-  "identifierMiddleware",
-  "identifierModel",
-  "identifierPolicy",
-  "identifierGate",
-]);
 
 interface Run {
   readonly code: number | null;
   readonly output: string;
 }
 
-let project: string;
-let runs: Record<
+type RunName =
   | "contract"
   | "contractHyphen"
   | "nestedIndex"
@@ -66,9 +45,31 @@ let runs: Record<
   | "identifierMiddleware"
   | "identifierModel"
   | "identifierPolicy"
-  | "identifierGate",
-  Run
->;
+  | "identifierGate";
+
+/** The runs that are expected to fail, so the type-check test does not demand their files. */
+const failingRuns = new Set<RunName>([
+  "escape",
+  "contractIndex",
+  "contractIndexUpper",
+  "escapeController",
+  "escapeRequest",
+  "escapeResource",
+  "escapeGate",
+  "escapeMiddleware",
+  "escapeModel",
+  "escapePolicy",
+  "identifierController",
+  "identifierRequest",
+  "identifierResource",
+  "identifierMiddleware",
+  "identifierModel",
+  "identifierPolicy",
+  "identifierGate",
+]);
+
+let project: string;
+let runs: Record<RunName, Run>;
 
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
 const sauf = (...args: string[]) => new Promise<Run>((resolve) => {
@@ -138,7 +139,7 @@ afterAll(() => {
   if (project) rmSync(project, { recursive: true, force: true });
 });
 
-describe("v1 make generators", () => {
+describe("make generators", () => {
   it("make:contract writes into the contract folder tree", () => {
     expectOk(runs.contract);
     const file = join(project, "app/api/reports/monthly.ts");
@@ -168,9 +169,10 @@ describe("v1 make generators", () => {
   });
 
   it("make:contract rejects a root index, which the next scan would fail", () => {
-    const message = (name: string) =>
-      `Invalid contract name "${name}": a root index has no contract name under app/api. ` +
-      `Fix: name the file after its contract (users.ts), or use a folder index (users/index.ts).`;
+    const message = (name: string) => [
+      `Invalid contract name "${name}": a root index has no contract name under app/api.`,
+      "Fix: name the file after its contract (users.ts), or use a folder index (users/index.ts).",
+    ].join(" ");
     for (const [run, name] of [
       [runs.contractIndex, "index"],
       [runs.contractIndexUpper, "INDEX"],
@@ -254,9 +256,11 @@ describe("v1 make generators", () => {
   });
 
   it("every generator that names a class or function after the file rejects a non-identifier name", () => {
-    const message = (generator: string, folder: string) =>
-      `Invalid ${generator} name "my-note": the last segment names the exported class or function, ` +
-      `so it must be a valid identifier (letters, digits and "_", not starting with a digit), under ${folder}.`;
+    const message = (generator: string, folder: string) => [
+      `Invalid ${generator} name "my-note": the last segment names the exported class or function,`,
+      'so use a valid identifier (letters, digits and "_", not starting with a digit),',
+      `under ${folder}.`,
+    ].join(" ");
     const cases = [
       { run: runs.identifierController, message: message("controller", "app/http/controllers") },
       { run: runs.identifierRequest, message: message("request", "app/http/requests") },
@@ -294,8 +298,9 @@ describe("v1 make generators", () => {
   });
 
   it("the generated stubs type-check with examples/basic's tsconfig", () => {
-    for (const [name, result] of Object.entries(runs)) {
+    for (const name of Object.keys(runs) as RunName[]) {
       if (failingRuns.has(name)) continue;
+      const result = runs[name];
       expect(result.code, `${name}: ${result.output}`).toBe(0);
     }
 

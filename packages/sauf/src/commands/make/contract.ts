@@ -17,11 +17,11 @@ export default class MakeContractCommand extends MakeCommand {
     const names = contractNames.map(contractName => {
       const name = generatorPath(contractName, "contract", { params: true, backslashes: true });
       if (!name.includes("/") && ROOT_INDEX.test(name)) {
-        throw new Error(
-          `Invalid contract name ${JSON.stringify(name)}: a root index has no contract name ` +
-          `under ${GENERATOR_FOLDERS.contract}. Fix: name the file after its contract (users.ts), ` +
-          `or use a folder index (users/index.ts).`,
-        );
+        throw new Error([
+          `Invalid contract name ${JSON.stringify(name)}: a root index has no contract name`,
+          `under ${GENERATOR_FOLDERS.contract}.`,
+          "Fix: name the file after its contract (users.ts), or use a folder index (users/index.ts).",
+        ].join(" "));
       }
       return name;
     });
