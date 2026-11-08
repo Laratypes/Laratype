@@ -263,7 +263,7 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
-  readonly bindings: Readonly<Record<string, Binder>>;   // r.bind() resolved per this route's path params (H7)
+  readonly bindings: Bindings;                   // r.bind() resolved per this route's path params (H7)
   readonly unenforced: readonly ("auth" | "authorize" | "validation")[];   // what the router does not enforce yet
   readonly domain: string | undefined;
 }
@@ -700,6 +700,8 @@ interface BindableModelClass<M extends object = object> {
   findByRouteKey(key: string): Promise<M | null | undefined>;
 }
 type Binder = BindableModelClass | ((raw: string) => unknown);
+type Bindings = Readonly<Record<string, Binder>>;
+// internal to the proof (not exported): how a binder's value is typed
 type Bound<B>;                       // a model class: InstanceType<B>; a resolver: NonNullable<Awaited<ReturnType<B>>>
 type BoundParams<P, B>;              // keyof B & keyof P, plus `| undefined` for an optional path param
 type MergedBindings<B, NB>;          // Omit<B, keyof NB> & NB: a later bind replaces the key it binds again
@@ -711,10 +713,10 @@ interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends
     options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;
 }
 interface MountedContract<C extends object = AnyContract> {
-  readonly bindings: Readonly<Record<string, Binder>>;   // the r.bind() map of the builder
+  readonly bindings: Bindings;   // the r.bind() map of the builder
 }
 interface MountedScope<D extends string = string> {
-  readonly bindings: Readonly<Record<string, Binder>>;   // the bindings for the contracts under the folder
+  readonly bindings: Bindings;   // the bindings for the contracts under the folder
 }
 
 // @laratype/database, type-only
@@ -732,7 +734,7 @@ interface BindableModel<M extends object = object> {
 - **Bound value types.** A model class binds `InstanceType<C>`, not the return type of `findByRouteKey` (a subclass inherits a base-typed lookup, [database.md › BindableModel](./database.md#bindablemodel)). A resolver binds `NonNullable<Awaited<ReturnType<R>>>`, because a miss is a 404. An optional path param (`:post?`) binds `Model | undefined` when the request has none; a present one with no match is still a 404.
 - **Resolution.** A route gets its scopes' bindings (outer to inner), then its contract's, a later key winning, restricted to the path params of that route's full path: a contract may bind a key only some of its endpoints declare. Each bound model is resolved once per request, in map order, after the route middleware and before the policies and the input validation, so a 404 precedes a 403 and a 422. A miss stops the lookups after it.
 - **Miss.** `null` / `undefined` from `findByRouteKey` or a resolver is the 404 of the contract's derived path-param error: `{ code: "NOT_FOUND", message: "Not Found." }` ([Exceptions](#exceptions), [contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). It is an expected answer, so it is not logged. An optional param the request does not carry binds `undefined` without a lookup.
-- **Context.** A binding contributes `{ params: { user: User } }` to the provided context (`Provided` / `Ctx`), merged over the raw path params. A typed middleware extension that also adds the key to `params` does not replace the bound model: the binding wins, since the route proof promises the bound type. The handler's second argument stays the raw path params object (strings).
+- **Context.** A binding contributes `{ params: { user: User } }` to the provided context (`Provided` / `Ctx`), merged over the raw path params. A typed middleware extension that also adds the key to `params` does not replace the bound model, at runtime or in the proof: the proof drops the bound keys from the extension's `params` before it merges (the binding wins, since the proof promises the bound type). The handler's second argument stays the raw path params object (strings).
 - **Scopes.** `r.bind({...}).scope('<folder>', { policy })` records the bindings on the mounted scope: at runtime every contract under that folder gets them. The type-level level is the builder, as for H6 scope middleware: mount the contract from the same bound builder to prove it against the bindings. A contract mounted from another builder is not proven against the scope's bindings (and its handlers therefore cannot require them).
 - **No ORM dependency.** `@laratype/http` types the binder against its own structural shape and does not import `@laratype/database`. `@laratype/database` exports `BindableModel` type-only; any class with the three statics fits it without an `implements` clause.
 - **0.5 routes unchanged.** `Route.model`, `Route.bind`, `explicitModelBinding` and `__laratype_param_model_map` keep their 0.5 behavior; a `Route.api` route still takes no 0.5 model binding (`RouteParams.modelBinding: false`).
@@ -747,7 +749,7 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `, and thrown by `Route.
 
 Type-level:
 - `` .bind(): `<key>` is not a path param of any endpoint in <contract> `` at `r.contract()` ([Route proof](#route-proof-at-rcontract) › Diagnostics).
-- A class that does not satisfy the static side, at `r.bind()`: `Argument of type '{ user: typeof Plain }' is not assignable to parameter of type 'Record<string, Binder>'.` with `Type 'typeof Plain' is missing the following properties from type 'BindableModelClass<object>': primaryKey, findByRouteKey`.
+- A class that does not satisfy the static side, at `r.bind()`: `Type 'typeof Plain' is not assignable to type 'Binder'.` with `Type 'typeof Plain' is missing the following properties from type 'BindableModelClass<object>': primaryKey, findByRouteKey` (an object argument reports it at the value's key).
 - A handler that requires a model the route does not bind keeps the proof's diagnosis: `` <c>.<e>: `params.user` provided by the route does not match the handler (missing .bind()?) ``.
 
 ### Example
@@ -772,11 +774,12 @@ Route.api(appApi, (r) => [
   r.bind({ user: (raw: string) => User.findByRouteKey(raw), post: Post }).contract(posts, PostController),
 ])
 ```
-Tests: [`packages/http/__tests__/routing/modelBinding.test.ts`](../../packages/http/__tests__/routing/modelBinding.test.ts) (requests through `app.request()`: folder and endpoint params, the raw second argument, a class miss and a resolver miss as 404, the optional param, one lookup per request, a binding over a middleware `params` extension, scope bindings and a contract binding winning) and [`modelBinding.test-d.ts`](../../packages/http/__tests__/routing/modelBinding.test-d.ts) (the binder types, a wrong key, a class outside `BindableModel`, the optional param, the scope builder).
+Tests: [`packages/http/__tests__/routing/modelBinding.test.ts`](../../packages/http/__tests__/routing/modelBinding.test.ts) (requests through `app.request()`: folder and endpoint params, a regex param pattern, the raw second argument, a class miss and a resolver miss as 404, the optional param (a name that is an `Object.prototype` member included), one lookup per request, the frozen copy, a binding over a middleware `params` extension, 404 before 422, scope bindings and a contract binding winning, ad-hoc routes) and [`modelBinding.test-d.ts`](../../packages/http/__tests__/routing/modelBinding.test-d.ts) (the binder types, a later bind winning, a binding over a middleware `params` key, a wrong key, a class outside `BindableModel`, the optional param, the scope builder).
 
 ### Non-goals
 - **No implicit binding:** H14 [#163](https://github.com/Laratypes/Laratype/issues/163) is planned. Path params that match a key of `Register['models']` bind automatically; the manifest generates that map, keyed by the camelCase model name. An explicit `.bind()` takes precedence, `.withoutImplicitBinding()` opts out, `static routeKeyName` picks the lookup property, `.scopeBindings()` handles nested params, and `globalThis.__laratype_param_model_map` goes away. Implicit binding and `.scopeBindings()` use the same folder params as `.bind()`.
 - No per-endpoint binding in the `endpoints` callbacks of `r.contract()`: the callbacks are checked before the options argument, so their bindings cannot join the proof (the same limitation as typed middleware there).
+- No binding for ad-hoc routes: `r.get()`, `r.post()` and the others have no contract and no typed params, so a bound builder's bindings are ignored and the handler gets the raw params.
 - No binding of query or body values, and no custom miss behavior: a miss is always the 404.
 - No removal of the 0.5 `Route.model` / `Route.bind` paths in this task.
 

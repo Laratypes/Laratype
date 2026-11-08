@@ -57,5 +57,5 @@ class Plain {
   declare readonly id: number
 }
 // A class without the BindableModel statics fails at r.bind()
-// @ts-expect-error Type 'typeof Plain' is not assignable to 'Binder': missing primaryKey and findByRouteKey from BindableModelClass
+// @ts-expect-error Type 'typeof Plain' is not assignable to type 'Binder' (missing primaryKey and findByRouteKey from BindableModelClass)
 export const notBindable = Route.api(appApi, (r) => [r.bind({ user: Plain }).contract(posts, PostController)])

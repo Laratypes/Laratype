@@ -3,7 +3,7 @@ import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
 import type { Equal, Matches } from "./equal";
-import type { Binder, EndpointKey, VerifyController } from "./proof";
+import type { Bindings, Binder, EndpointKey, VerifyController } from "./proof";
 
 /**
  * Type side of `Route.api` (docs/v1/http.md › Router v2). It reads the API tree built by `defineApi`
@@ -94,7 +94,7 @@ export interface MountedContract<C extends object = AnyContract> {
   readonly controller: ControllerClass;
   readonly middleware: readonly MiddlewareItem[];
   /** The `r.bind()` bindings of the builder: resolved before the handler, later keys winning over a scope's. */
-  readonly bindings: Readonly<Record<string, Binder>>;
+  readonly bindings: Bindings;
   readonly options: ContractRouteOptions<C> | undefined;
 }
 
@@ -106,7 +106,7 @@ export interface MountedScope<D extends string = string> {
   /** Runs before the middleware of every contract under the folder. */
   readonly middleware: readonly MiddlewareItem[];
   /** The `r.bind()` bindings for the contracts under the folder (a contract's builder bindings win). */
-  readonly bindings: Readonly<Record<string, Binder>>;
+  readonly bindings: Bindings;
 }
 
 /** The methods of an ad-hoc route: `r.get()`, `r.post()`, `r.put()`, `r.patch()`, `r.delete()`. */
@@ -306,7 +306,7 @@ export interface RouteEntry extends ApiRoute {
   /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
   readonly policy: PolicyClass | undefined;
   /** The resolved `r.bind()` bindings of this route: its scopes' then its contract's, its path params only. */
-  readonly bindings: Readonly<Record<string, Binder>>;
+  readonly bindings: Bindings;
   /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */

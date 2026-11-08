@@ -85,23 +85,29 @@ export interface BindableModelClass<M extends object = object> {
 /** A `.bind()` value: a model class, or a resolver from the raw param (H7 #118). */
 export type Binder = BindableModelClass | Resolver;
 
+/** A `.bind()` map: one value per path param key. */
+export type Bindings = Readonly<Record<string, Binder>>;
+
 /** A resolver's miss is a 404, so the handler sees the value without `null` / `undefined`. */
-export type Bound<B> = B extends AnyConstructor ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
+type Bound<B> = B extends AnyConstructor ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
 
 /** The bound params of endpoint params `P`: an optional param (`:post?`) is `undefined` when the request has none. */
-export type BoundParams<P, B> = {
+type BoundParams<P, B> = {
   [K in keyof B & keyof P]: Bound<B[K]> | (undefined extends P[K] ? undefined : never);
 };
 
 /** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
 
+/** The middleware extensions with the bound params in place of their strings: a binding wins a param key both add. */
+type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;
+
 /**
  * What the route passes to the handler of endpoint `E` under `Path`: `BaseCtx` with every path param of the full
  * path (folder params included), the middleware extensions `X` and the bound params `B` in place of their strings.
  */
 export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}> =
-  Merge<BaseCtx<E, FullParams<E, Path>>, X & { params: BoundParams<FullParams<E, Path>, B> }>;
+  Merge<BaseCtx<E, FullParams<E, Path>>, WithBindings<X, FullParams<E, Path>, B>>;
 
 // ---- the check --------------------------------------------------------------
 

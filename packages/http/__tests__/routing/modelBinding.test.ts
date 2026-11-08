@@ -3,6 +3,7 @@
 import 'reflect-metadata'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
@@ -83,6 +84,16 @@ class ScopeController extends Controller {
   latest() { return {} }
 }
 
+/** A post model the tests never bind: the frozen copy must keep `Post`. */
+class OtherPost {
+  declare readonly slug: string
+  static readonly primaryKey = 'id'
+  static async findByRouteKey(key: string): Promise<OtherPost | null> {
+    lookups.push(`other:${key}`)
+    return new OtherPost()
+  }
+}
+
 class PostPolicy {}
 
 const mount = (routes: ReturnType<typeof Route.api>) => {
@@ -160,6 +171,67 @@ describe('r.bind()', () => {
     const stale = defineMiddleware<{ params: { post: string } }>((_request, next) => next({ params: { post: 'stale' } }))
     const winning = mount(Route.api(appApi, (r) => [r.middleware(stale).bind({ user: User, post: Post }).contract(posts, BoundController)]))
     expect(await (await winning.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
+  })
+
+  it('is a frozen copy: mutating the object after Route.api changes no route', async () => {
+    const bindings = { user: User, post: Post }
+    const frozen = mount(Route.api(appApi, (r) => [r.bind(bindings).contract(posts, BoundController)]))
+    bindings.post = OtherPost
+    expect(await (await frozen.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
+    expect(lookups).toEqual(['user:7', 'post:hello'])
+  })
+
+  it('binds through a regex param pattern', async () => {
+    const patterned = defineContract()({ show: endpoint.get('/:post{[a-z]+}').response(anything) })
+    const patternedApi = defineApi({ patterns: { contract: patterned, path: '/patterns', scopes: [] } })
+    class PatternController extends Controller {
+      show(ctx: Ctx<typeof patterned.show, { params: { post: Post } }>) { return { post: ctx.params.post.slug } }
+    }
+    const patterns = mount(Route.api(patternedApi, (r) => [r.bind({ post: Post }).contract(patterned, PatternController)]))
+    expect(await (await patterns.request('/patterns/hello')).json()).toEqual({ post: 'hello' })
+    // The pattern itself still rejects a value with no match, before any binding
+    expect((await patterns.request('/patterns/123')).status).toBe(404)
+    expect(lookups).toEqual(['post:hello'])
+  })
+
+  it('an absent optional param does not read a member of Object.prototype', async () => {
+    // `:constructor?` is absent: `params['constructor']` would be Object's constructor without the own-key check
+    const named = defineContract()({ maybe: endpoint.get('/:constructor?').response(anything) })
+    const namedApi = defineApi({ named: { contract: named, path: '/named', scopes: [] } })
+    class NamedController extends Controller {
+      maybe(ctx: { params: { constructor?: User } }) { return { bound: ctx.params.constructor === undefined } }
+    }
+    const routes = mount(Route.api(namedApi, (r) => [r.bind({ constructor: User }).contract(named, NamedController)]))
+    expect(await (await routes.request('/named')).json()).toEqual({ bound: true })
+    expect(lookups).toEqual([])
+  })
+
+  it('a 404 from the binding precedes the 422 of an invalid body', async () => {
+    const forms = defineContract()({ store: endpoint.post('/:post').body(z.object({ name: z.string() })).response(anything) })
+    const formsApi = defineApi({ forms: { contract: forms, path: '/forms', scopes: [] } })
+    class FormsController extends Controller {
+      store(ctx: Ctx<typeof forms.store, { params: { post: Post } }>) { return { post: ctx.params.post.slug } }
+    }
+    const strict = mount(Route.api(formsApi, (r) => [r.bind({ post: Post }).contract(forms, FormsController)]))
+    const res = await strict.request('/forms/missing', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ code: 'NOT_FOUND', message: 'Not Found.' })
+    expect(lookups).toEqual(['post:missing'])
+  })
+
+  it('an ad-hoc route of a bound builder takes no binding', async () => {
+    class NoBindings extends Controller {
+      index() { return {} }
+      show() { return {} }
+      latest() { return {} }
+    }
+    const routes = mount(Route.api(appApi, (r) => [
+      r.contract(posts, NoBindings),
+      r.bind({ user: User, post: Post }).get('/adhoc/:user', (_request, params) => params.user),
+    ]))
+    const res = await routes.request('/adhoc/7')
+    expect(await res.text()).toBe('7')
+    expect(lookups).toEqual([])
   })
 })
 

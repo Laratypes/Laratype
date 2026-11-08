@@ -1,5 +1,6 @@
 import { errors } from "@laratype/contract";
-import type { BindableModelClass, Binder } from "./proof";
+import type { BindableModelClass, Binder, Bindings } from "./proof";
+import { fail } from "./fail";
 
 /**
  * The runtime of `r.bind()` (docs/v1/http.md › Model binding, H7 #118). A binder is a model class (looked up through
@@ -7,10 +8,6 @@ import type { BindableModelClass, Binder } from "./proof";
  * `undefined` lookup is the contract's derived 404 (`NOT_FOUND`), and an optional param the request does not carry is
  * `undefined` without a lookup.
  */
-
-const fail = (message: string): never => {
-  throw new Error(`[@laratype/http] Route.api: ${message}`);
-};
 
 /** A class source (`class X {}`), not an arrow or a method shorthand: such a value without `findByRouteKey` is a model class mistake. */
 const isClass = (value: Function): boolean => /^class[\s{]/.test(Function.prototype.toString.call(value));
@@ -71,13 +68,14 @@ export const pathParamNames = (path: string): ReadonlySet<string> => {
  * no match (`null` / `undefined`) is the 404.
  */
 export const resolveBindings = async (
-  bindings: Readonly<Record<string, Binder>>,
+  bindings: Bindings,
   params: Record<string, string>,
 ): Promise<Record<string, unknown>> => {
   const resolved: [string, unknown][] = [];
   // In order: a miss stops the lookups after it, so a 404 never waits on (or runs) the rest of the bindings
   for (const [key, binder] of Object.entries(bindings)) {
-    const raw = params[key];
+    // Own key: an absent optional param must not read a member of Object.prototype (`:constructor?`, `:__proto__?`)
+    const raw = Object.hasOwn(params, key) ? params[key] : undefined;
     if (raw === undefined) {
       resolved.push([key, undefined]);
       continue;

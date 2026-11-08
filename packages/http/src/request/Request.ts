@@ -15,7 +15,7 @@ import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
 import { resolveBindings } from "../routing/api/bindings";
-import type { Binder } from "../routing/api/proof";
+import type { Bindings } from "../routing/api/proof";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -56,7 +56,7 @@ type PipeLineType = {
   handler: AnyTypedMiddleware,
 } | {
   type: 'bindings',
-  bindings: Readonly<Record<string, Binder>>,
+  bindings: Bindings,
 } | {
   type: 'request',
   handler: RequestSupport,

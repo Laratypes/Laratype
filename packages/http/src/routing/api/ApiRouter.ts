@@ -22,14 +22,11 @@ import type {
   ScopeRouteOptions,
   UnenforcedCap,
 } from "./types";
-import type { Binder } from "./proof";
+import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
 import { checkBinder, pathParamNames } from "./bindings";
+import { fail } from "./fail";
 import { throttled } from "./throttle";
-
-const fail = (message: string): never => {
-  throw new Error(`[@laratype/http] Route.api: ${message}`);
-};
 
 /** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
 const checkMiddleware = (middleware: unknown): void => {
@@ -45,7 +42,7 @@ class RouteBuilder {
   constructor(
     readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
-    readonly bindings: Readonly<Record<string, Binder>> = {},
+    readonly bindings: Bindings = {},
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
@@ -292,7 +289,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
  * The bindings of one route: its scopes' (outer to inner), then its contract's, a later key winning. Restricted to the
  * params of the route's full path: a contract may bind a key only some of its endpoints declare.
  */
-const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): Readonly<Record<string, Binder>> => {
+const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): Bindings => {
   const names = pathParamNames(path);
   const entries = [...scopes.flatMap((scope) => Object.entries(scope.bindings ?? {})), ...Object.entries(mounted.bindings ?? {})];
   return Object.freeze(Object.fromEntries(entries.filter(([key]) => names.has(key))));

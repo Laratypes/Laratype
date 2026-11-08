@@ -6,7 +6,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, Route } from '../../src/index'
+import { Controller, Route, defineMiddleware } from '../../src/index'
 import type { Ctx } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -90,6 +90,25 @@ describe('r.bind()', () => {
     Route.api(appApi, (r) => [r.bind({ user: User, post: Post }).bind({ user: Admin }).contract(posts, AdminController)])
   })
 
+  test('a binding wins a params key a typed middleware also adds, in the proof and at runtime', () => {
+    const stale = defineMiddleware<{ params: { post: string } }>((_request, next) => next({ params: { post: 'stale' } }))
+
+    class NeedsPost extends Controller {
+      index() { return {} }
+      show(ctx: Ctx<typeof posts.show, { params: { user: User; post: Post } }>) { return ctx.params.post }
+      latest() { return {} }
+    }
+    Route.api(appApi, (r) => [r.middleware(stale).bind({ user: User, post: Post }).contract(posts, NeedsPost)])
+
+    class NeedsString extends Controller {
+      index() { return {} }
+      show(ctx: Ctx<typeof posts.show, { params: { user: User; post: string } }>) { return ctx.params.post }
+      latest() { return {} }
+    }
+    // @ts-expect-error users.posts.show: `params.post` provided by the route does not match the handler (missing .bind()?)
+    Route.api(appApi, (r) => [r.middleware(stale).bind({ user: User, post: Post }).contract(posts, NeedsString)])
+  })
+
   test('a contract mounted from another builder is not proven against a scope binding (as H6 scope middleware)', () => {
     // @ts-expect-error users.posts.show: `params.user` provided by the route does not match the handler (missing .bind()?)
     Route.api(appApi, (r) => [r.bind({ user: User, post: Post }).scope('users/[user]', { policy: PostPolicy }), r.contract(posts, BoundController)])
@@ -110,7 +129,7 @@ describe('r.bind()', () => {
       latest() { return {} }
     }
     Route.api(appApi, (r) => {
-      // @ts-expect-error Type 'typeof Plain' is not assignable to 'Binder': missing primaryKey and findByRouteKey from BindableModelClass
+      // @ts-expect-error Type 'typeof Plain' is not assignable to type 'Binder' (missing primaryKey and findByRouteKey from BindableModelClass)
       r.bind({ post: Plain })
       return [r.contract(posts, PlainController)]
     })
