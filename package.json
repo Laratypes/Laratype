@@ -10,7 +10,7 @@
     ],
     "catalog": {
       "vite": "^7.1.9",
-      "hono": "^4.8.0",
+      "hono": "^4.13.14",
       "zod": "^3.25"
     }
   },
@@ -37,12 +37,12 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "@types/node": "^20.11.24",
-    "pkg-pr-new": "0.0.88",
+    "pkg-pr-new": "0.0.92",
     "publint": "^0.3.25",
-    "rollup": "^4.34.8",
-    "rollup-plugin-dts": "^6.1.1",
+    "rollup": "^4.65.0",
+    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^5.4.2",
     "vitest": "^3.2.4"
   },
