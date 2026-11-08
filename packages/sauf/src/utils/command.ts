@@ -9,6 +9,7 @@ import {
   overridesProviders,
   parseSignature,
   type ParsedSignature,
+  assertArgumentOrder,
 } from '@laratype/console'
 import Transpile from './transplie'
 import { resolveSync } from '@laratype/support'
@@ -82,10 +83,29 @@ export default class Command {
     this.transpiler = transpiler
     this.signature = command.signature
     this.parsed = parseSignature(command.signature)
+    this.__assertArgumentOrder()
     this.description = isClosureCommand(command)
       ? this.parsed.description
       : command.description || this.parsed.description
     this.__initCommander()
+  }
+
+  /**
+   * The 0.5 `static.arguments` and the signature's arguments, merged and de-duplicated in registration order. A
+   * variadic argument must stay last: Commander would reject the order without naming the command's signature.
+   */
+  protected __assertArgumentOrder() {
+    const legacy = this.commandInstance?.arguments ?? []
+    const legacyNames = new Set(legacy.map((argument) => legacyArgumentName(argument.name)))
+    assertArgumentOrder(this.signature, [
+      ...legacy.map((argument) => ({
+        name: legacyArgumentName(argument.name),
+        variadic: argument.name.includes('...'),
+      })),
+      ...this.parsed.arguments
+        .filter((argument) => !legacyNames.has(argument.name))
+        .map((argument) => ({ name: argument.name, variadic: argument.kind === 'rest' })),
+    ])
   }
 
   protected __initCommander() {

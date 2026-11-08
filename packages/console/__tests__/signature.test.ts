@@ -2,7 +2,7 @@ import { Command as Commander } from "commander";
 import { describe, expect, it } from "vitest";
 import { command, isClosureCommand } from "../src/command/closure";
 import { CommandSignatureError } from "../src/command/CommandSignatureError";
-import { optionKey, parseSignature } from "../src/command/signature";
+import { assertArgumentOrder, optionKey, parseSignature } from "../src/command/signature";
 
 /** The key a real commander `Command` stores after parsing `--name`: its `opts()` key. */
 const commanderOptionKey = (name: string): string => {
@@ -72,6 +72,21 @@ describe("parseSignature", () => {
       expect(optionKey(name), `--${name}`).toBe(commanderOptionKey(name));
     }
     expect(optionKey("a-b-c")).toBe("aBC");
+  });
+
+  it("rejects a variadic argument that is not last in a merged argument list", () => {
+    expect(() =>
+      assertArgumentOrder("deploy {tags*}", [
+        { name: "tags", variadic: true },
+        { name: "user", variadic: false },
+      ]),
+    ).toThrow('Invalid command signature "deploy {tags*}": "tags" is variadic, so it must be the last argument');
+    expect(() =>
+      assertArgumentOrder("deploy {tags*}", [
+        { name: "user", variadic: false },
+        { name: "tags", variadic: true },
+      ]),
+    ).not.toThrow();
   });
 
   it("rejects a malformed signature with the signature in the message", () => {

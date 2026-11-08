@@ -35,6 +35,13 @@ export interface ParsedSignature {
   readonly options: readonly SignatureOption[];
 }
 
+/** One positional argument in registration order: a signature argument or a 0.5 `static arguments` entry. */
+export interface ArgumentOrder {
+  readonly name: string;
+  /** Whether it is variadic (`{names*}` or `<names...>`); only the last argument may be. */
+  readonly variadic: boolean;
+}
+
 const DESCRIPTION_SEPARATOR = " : ";
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const PARAMETER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -100,12 +107,24 @@ export function parseSignature(signature: string): ParsedSignature {
   }
 
   // Commander throws when a variadic argument is not last; fail at parse time with the signature instead
-  const rest = args.find((arg) => arg.kind === "rest");
+  assertArgumentOrder(
+    signature,
+    args.map((arg) => ({ name: arg.name, variadic: arg.kind === "rest" })),
+  );
+
+  return { name, description, arguments: args, options };
+}
+
+/**
+ * Throws when a variadic argument is not last. Commander rejects that order while registering, without the command's
+ * signature; `parseSignature()` and `sauf`'s wrapper (for the 0.5 `static arguments` merged with the signature's) call
+ * this first, so the error names the signature (docs/v1/services.md › Console commands › Diagnostics).
+ */
+export function assertArgumentOrder(signature: string, args: readonly ArgumentOrder[]): void {
+  const rest = args.find((arg) => arg.variadic);
   if (rest !== undefined && args[args.length - 1] !== rest) {
     throw new CommandSignatureError(signature, `"${rest.name}" is variadic, so it must be the last argument`);
   }
-
-  return { name, description, arguments: args, options };
 }
 
 function parseArgument(signature: string, body: string): SignatureArgument {
