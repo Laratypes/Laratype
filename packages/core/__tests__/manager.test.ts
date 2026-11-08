@@ -34,10 +34,23 @@ class NoDefaultManager extends Manager<{ single: Driver }, 'single'> {
   }
 }
 
+/** Registers a replacement for the driver it is building, while `driver()` is still in `createDriver()`. */
+class SelfExtendingManager extends Manager<{ single: Driver }, 'single'> {
+  protected override get defaultDriver(): 'single' {
+    return 'single'
+  }
+
+  protected override createDriver(name: 'single'): Driver {
+    this.extend(name, () => new Driver('replacement'))
+    return new Driver(`createDriver ${name}`)
+  }
+}
+
 class DriverFacade extends Facade {
   static override readonly accessor = TestManager
   static driver(name?: Name) {
-    return DriverFacade.root().driver(name)
+    const manager = DriverFacade.root()
+    return name === undefined ? manager.driver() : manager.driver(name)
   }
 }
 
@@ -100,6 +113,24 @@ describe('Manager', () => {
     manager.extend('memory', () => new Driver('extended memory'))
     expect(manager.driver('single')).toBe(single)
     expect(manager.driver('memory')).not.toBe(memory)
+  })
+
+  it('does not cache a driver whose createDriver() registered a replacement while it ran', () => {
+    const manager = new SelfExtendingManager()
+    expect(manager.driver('single').name).toBe('createDriver single')
+    // the build still returns what it produced; only the next call uses the replacement
+    expect(manager.driver('single').name).toBe('replacement')
+  })
+
+  it('does not cache a driver whose extend() factory registered a replacement while it ran', () => {
+    const manager = new TestManager()
+    manager.extend('memory', (m) => {
+      m.extend('memory', () => new Driver('replacement'))
+      return new Driver('original factory')
+    })
+    expect(manager.driver('memory').name).toBe('original factory')
+    // the build still returns what it produced; only the next call uses the replacement
+    expect(manager.driver('memory').name).toBe('replacement')
   })
 
   it('does not cache a driver that createDriver() rejects', () => {

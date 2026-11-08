@@ -6,7 +6,8 @@ export type DriverMap = Record<string, object>
 
 /**
  * Shared base of the driver-based services (cache, queue, mail, storage, broadcast, log): `driver(name?)` resolves
- * the driver a config key names, builds it once and caches it per name, and `extend()` replaces its factory.
+ * the driver a config key names, builds it once and caches it per name (unless the build replaces its own factory
+ * through `extend()`), and `extend()` replaces its factory.
  *
  * @example
  * class LogManager extends Manager<Record<'single' | 'stack', Logger>, 'single'> {
@@ -30,9 +31,10 @@ export abstract class Manager<
   protected abstract createDriver(name: keyof Drivers & string): Drivers[keyof Drivers]
 
   /**
-   * The default driver, or the driver named `name`, built once and cached by name. Two overloads, not one optional
-   * generic parameter: `driver<'memory'>()` or a `name` that may be `undefined` would otherwise be typed as the named
-   * driver while the call resolves the default one.
+   * The default driver, or the driver named `name`, built once and cached by name unless `extend()` replaces the
+   * factory while it is built (docs/v1/services.md › Driver Manager). Two overloads, not one optional generic
+   * parameter: `driver<'memory'>()` or a `name` that may be `undefined` would otherwise be typed as the named driver
+   * while the call resolves the default one.
    */
   driver(): Drivers[Default]
   driver<K extends keyof Drivers & string>(name: K): Drivers[K]
@@ -42,7 +44,10 @@ export abstract class Manager<
     if (cached !== undefined) return cached
     const factory = this.factories.get(key)
     const driver = factory ? factory(this) : this.createDriver(key)
-    this.instances.set(key, driver)
+    // Building may call extend() for this name: its replacement wins, so the instance from the old factory is not
+    // cached (docs/v1/services.md › Driver Manager). It is still returned, and the next call builds with the
+    // replacement.
+    if (this.factories.get(key) === factory) this.instances.set(key, driver)
     return driver
   }
 
