@@ -21,7 +21,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 | Section | Status |
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
-| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 064b32f |
+| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 |
 | [Console commands](#console-commands) | planned → #161 |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
@@ -58,10 +58,10 @@ Each service's own issue, linked in its section.
 ## Driver Manager
 
 ### Status
-proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 064b32f ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
+proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
 
 ### Public API
-`Manager` lives in [`packages/core/src/manager.ts` @ 064b32f](https://github.com/Laratypes/Laratype/blob/064b32f/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
+`Manager` lives in [`packages/core/src/manager.ts` @ 635c453](https://github.com/Laratypes/Laratype/blob/635c453/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
 
 ```ts
 // @laratype/core
@@ -80,9 +80,10 @@ export abstract class Manager<
 ```
 
 ### Invariants
-- **Resolution:** `driver(name)` returns the driver a config key names, built with `extend()`'s factory when one is registered for that name, else with `createDriver()`; the instance is cached by name, so later calls return the same object. `driver()` without a name resolves `defaultDriver`, which each service reads from the `default` key of its config file (K1). A service without a default driver throws from `defaultDriver`.
+- **Resolution:** `driver(name)` returns the driver a config key names, built with `extend()`'s factory when one is registered for that name, else with `createDriver()`; the instance is cached by name, so later calls return the same object unless the build replaced its factory through `extend()` (see Construction). `driver()` without a name resolves `defaultDriver`, which each service reads from the `default` key of its config file (K1). A service without a default driver throws from `defaultDriver`.
 - **Typing:** `Drivers` maps each name the service config declares (log channels, cache stores, mail mailers, ...) to its driver type, and `Default` is the type of the config's `default` (a literal from a `defineConfig` file; for log, the `LaratypeConfig.Logging.Config["default"]` union). `driver()` is typed as the default driver, `driver(name)` as the named one (two overloads, so neither `driver<'memory'>()` nor a name that may be `undefined` types the default driver as a named one), and a name outside `Drivers` is a type error (see Diagnostics). `Drivers` is required, so a subclass cannot omit it (bare `Manager` does not compile); it bounds the names when its keys are finite, and a manager that passes `Record<string, Store>` still accepts any string.
 - **extend():** replaces the factory of a name the service config declares, for a custom driver or a test double, and drops that name's cached instance so the next `driver(name)` call builds it with the new factory. Unlike Laravel, it does not add a driver name: a custom driver is declared in the config first. Only the type checks the name: at run time `extend()` stores any name, and `driver(name)` returns that factory's driver without consulting `createDriver()`.
+- **Construction:** a driver is cached only when the factory registered for its name is unchanged after the build: if `createDriver()` or an `extend()` factory calls `extend()` for the same name while it runs, `driver(name)` returns that build's driver without caching it, and the next call builds with the replacement.
 - **Facades:** a service manager (e.g. `LogManager`) is a facade accessor, so the service facade's `fake()` (D8) — `Log.fake(manager)` — swaps it in the facade application and the next call resolves the fake, with its own cache. There is no separate driver-level fake. A provider binds a service manager as a singleton, so its per-name cache lives as long as the container; log has no provider yet, so `Log.root()` autowires a fresh `LogManager` per call and its per-name cache is per instance, while the `single` file transport stays per process (`LogManager.logger` is static).
 - **Log:** `LogManager extends Manager<ChannelDrivers, LaratypeConfig.Logging.Config["default"]>`, with `ChannelDrivers = { [C in LaratypeConfig.Logging.CHANNEL]: Logger }`. `single` builds the 0.5 winston `Logger` with its static per-process cache ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)), `stack` and `daily` throw the 0.5 `DriverNotImplement`, and `getLogger()` returns `driver()`, so `logging.default` picks the channel. `Logger` no longer holds a channel: it is the `single` channel the manager builds.
 
