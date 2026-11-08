@@ -2,24 +2,18 @@ import { dirname, resolve } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 import winston from "winston";
-import type { LaratypeConfig as Config } from "@laratype/support";
-import DriverNotImplement from "./exceptions/DriverNotImplement";
 
-type Driver = Config.Logging.CHANNEL
-
+/**
+ * The `single` log channel: a winston logger writing one file, created by `LogManager` (0.5's `Logger`, without
+ * the channel switch: F1 #160 moved the channels onto the manager).
+ */
 export default class Logger {
-  protected driver: Driver
   protected storagePath: string
   protected logStream: winston.Logger | null = null
 
-  constructor(driver: Driver, storagePath: string) {
-    this.driver = driver
+  constructor(storagePath: string) {
     this.storagePath = storagePath
     this.create()
-  }
-
-  public getDriver() {
-    return this.driver
   }
 
   public getStoragePath() {
@@ -27,12 +21,9 @@ export default class Logger {
   }
 
   public getLogFilePath() {
-    if(this.driver === "single") {
-      const path = resolve(this.storagePath);
-      this.makeDirectoryIfNotExists(path);
-      return path;
-    }
-    throw new DriverNotImplement();
+    const path = resolve(this.storagePath);
+    this.makeDirectoryIfNotExists(path);
+    return path;
   }
 
   public makeDirectoryIfNotExists(path: string){
@@ -43,16 +34,14 @@ export default class Logger {
   }
 
   public create() {
-    if(this.driver === "single") {
-      this.logStream = winston.createLogger({
-        transports: [
-          new winston.transports.File({
-            filename: this.getLogFilePath(),
-            handleExceptions: true
-          })
-        ]
-      });
-    }
+    this.logStream = winston.createLogger({
+      transports: [
+        new winston.transports.File({
+          filename: this.getLogFilePath(),
+          handleExceptions: true
+        })
+      ]
+    });
   }
 
   public log(level: string, message: string) {

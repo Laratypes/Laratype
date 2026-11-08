@@ -104,6 +104,9 @@ export default class Response extends AppServiceProvider {
       setHeader(key, headers[key])
     }
 
+    const content = responseObj.getContent()
+    // A string is the HTML body, and how a string return is sent is #336. Everything else is JSON, whose text
+    // is never sent as text/html: the shapes `shouldBeJson()` detects by prototype, and any other value (H45 #342)
     const isJson = responseObj.shouldBeJson()
     if(isJson) {
       setHeader("Content-Type", ContentTypeEnum.JSON)
@@ -122,10 +125,12 @@ export default class Response extends AppServiceProvider {
     }
 
     if(isJson) {
-      return ctx.json(ResponseSerialization.jsonSerialize(responseObj.getContent()), contentFullStatusCode)
+      // JSON is not to be read as another type (H45 #342)
+      setHeader("X-Content-Type-Options", "nosniff")
+      return ctx.json(ResponseSerialization.jsonSerialize(content), contentFullStatusCode)
     }
 
-    return ctx.html(ResponseSerialization.htmlSerialize(responseObj.getContent()), contentFullStatusCode)
+    return ctx.html(ResponseSerialization.htmlSerialize(content), contentFullStatusCode)
 
   }
 
