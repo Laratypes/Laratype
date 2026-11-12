@@ -63,19 +63,15 @@ export default class MakeCommandCommand extends MakeCommand {
   async make(commandNames: string[]) {
     const resourcePath = this.resolve("sauf", "Command.template");
 
-    // Every name and signature is checked before the first stub is written: a bad name fails this run,
-    // not the next CLI start.
+    // Every name, signature and destination is checked before the first stub is written: a bad name or a name
+    // another command file already uses fails this run, not the next CLI start, and a retry writes every stub.
     const commands = commandNames.map(commandName => {
+      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
       const fileName = generatorPath(this.getFileName(commandName).replace(/\.ts$/, ""), "command", {
         identifier: true,
       });
       const signature = commandSignature(fileName);
       assertCommandSignature(fileName, signature);
-      return { fileName, signature };
-    });
-
-    return commands.map(({ fileName, signature }) => {
-      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
       const destinationPath = `./${GENERATOR_FOLDERS.command}/${fileName}.ts`;
       const target = destinationPath.slice(2);
       // An existing file at the destination is the usual skip; a second file of the same name would fail the manifest
@@ -84,6 +80,10 @@ export default class MakeCommandCommand extends MakeCommand {
         const reason = `Cannot create ${target}: ${existing} already uses the command name ${JSON.stringify(fileName)}`;
         throw new Error(`${reason}, and the manifest reads both. Fix: rename or remove one.`);
       }
+      return { fileName, signature, destinationPath };
+    });
+
+    return commands.map(({ fileName, signature, destinationPath }) => {
       const result = this.build(resourcePath, { CommandName: fileName, signature });
       this.publish(result, destinationPath);
       return destinationPath;

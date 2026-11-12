@@ -143,6 +143,19 @@ describe("app commands", () => {
     }
   }, 120_000);
 
+  it("make:command refuses a collision before writing any stub, even after a valid name", async () => {
+    // The collision is checked in the first pass, so the valid name before it is not written either
+    const valid = "app/console/commands/PendingCommand.ts";
+    const target = "app/console/commands/SendMail.ts";
+    const existing = "app/src/console/commands/SendMail.ts";
+    const { code, output } = await sauf("make:command", "PendingCommand", "SendMail");
+    expect(code, output).not.toBe(0);
+    expect(output).toContain(`Cannot create ${target}: ${existing} already uses the command name "SendMail"`);
+    expect(output).toContain("and the manifest reads both. Fix: rename or remove one.");
+    expect(existsSync(join(project, valid))).toBe(false);
+    expect(existsSync(join(project, target))).toBe(false);
+  }, 120_000);
+
   it("make:command rejects a bad signature before writing any stub", async () => {
     // `_` is a valid identifier but its derived signature is empty, which registration rejects
     const { code, output } = await sauf("make:command", "ValidCommand", "_");
