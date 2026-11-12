@@ -140,7 +140,7 @@ beforeAll(async () => {
     identifierGate: await sauf("make:gate", "my-note"),
     // `-m` takes the model generator's rules; the policy name is valid, so only the model name is refused
     policyModel: await sauf("make:policy", "DraftPolicy", "-m", "my-note"),
-    policyModelOk: await sauf("make:policy", "UserPolicy", "-m", "User"),
+    policyModelOk: await sauf("make:policy", "PostPolicy", "-m", "Post"),
   };
 }, 240_000);
 
@@ -321,9 +321,9 @@ describe("make generators", () => {
 
   it("make:policy -m writes the model import and the camelCase parameter", () => {
     expectOk(runs.policyModelOk);
-    const stub = readFileSync(join(project, "src/policies/UserPolicy.ts"), "utf8");
-    expect(stub).toContain('import User from "../models/User";');
-    expect(stub).toContain("viewAny(actor: User, user: User)");
+    const stub = readFileSync(join(project, "src/policies/PostPolicy.ts"), "utf8");
+    expect(stub).toContain('import Post from "../models/Post";');
+    expect(stub).toContain("viewAny(actor: User, post: Post)");
   });
 
   it("types:generate gives the nested folder its Prefix", () => {
