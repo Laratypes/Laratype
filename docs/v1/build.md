@@ -26,7 +26,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
 | [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); planned → #189, #190 |
-| [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 |
+| [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 |
 
 ---
 
@@ -260,11 +260,11 @@ Partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)): pkg-pr
 ## Type-performance benchmark
 
 ### Status
-proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ ea2c120 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)); the SHA is the harness commit. CI runs it in [`.github/workflows/type-bench.yml`](../../.github/workflows/type-bench.yml) on every pull request and on push to `master`.
+proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 (S6 [#95](https://github.com/Laratypes/Laratype/issues/95)); the SHA is the harness commit. CI runs it in [`.github/workflows/type-bench.yml`](../../.github/workflows/type-bench.yml) on every pull request and on push to `master`.
 
 ### Public API
 No public API. Build tooling only, with no new dependency:
-- **`bun run bench:types`** ([`scripts/bench-types/run.mjs`](https://github.com/Laratypes/Laratype/blob/ea2c120/scripts/bench-types/run.mjs)) generates the fixture, runs `tsc --extendedDiagnostics` on each case, prints the table and exits non-zero when a threshold fails. The generator is [`scripts/bench-types/fixture.mjs`](https://github.com/Laratypes/Laratype/blob/ea2c120/scripts/bench-types/fixture.mjs).
+- **`bun run bench:types`** ([`scripts/bench-types/run.mjs`](https://github.com/Laratypes/Laratype/blob/e7cbc00/scripts/bench-types/run.mjs)) generates the fixture, runs `tsc --extendedDiagnostics` on each case, prints the table and exits non-zero when a threshold fails. The generator is [`scripts/bench-types/fixture.mjs`](https://github.com/Laratypes/Laratype/blob/e7cbc00/scripts/bench-types/fixture.mjs).
 - **`BENCH_TYPES_MAX_MS`** (default `3000`): the check-time limit, in milliseconds, for the `app` program at 500 endpoints. `BENCH_TYPES_MAX_MS=1` always fails.
 - **`BENCH_TYPES_NODE`** (default `node`): the Node binary that runs `node_modules/typescript/lib/tsc.js` (tsc runs under Node, not Bun).
 - **CI:** the `Type benchmark` workflow (`type-bench.yml`, `pull_request` and push to `master`, `contents: read`, no secrets) runs `bun run bench:types` with `BENCH_TYPES_MAX_MS=3000` under the repo's `.node-version`. `BENCH_TYPES_NODE` is never set there.
@@ -276,7 +276,8 @@ BENCH_TYPES_MAX_MS=1 bun run bench:types   # exit 1 by construction
 
 ### Invariants
 - **Real public APIs only.** Contracts use `defineContract`, `endpoint` and `ContractPrefix`; the tree uses `defineApi`; the server program uses `Route.api`, `r.contract()`, `Controller` and `Ctx`; the client program uses `createClient`. `@laratype/*` resolves through the `paths` of `tsconfig.app.json` (`packages/*/src`), not through a published dist. The fixture uses a tiny Standard Schema v1 helper instead of a schema library, so it needs no dependency and measures `@laratype/*` types.
-- **Two programs, plus the route baseline.** `app` is the FE program: contracts + `appApi` + `createClient` calls, with no server import (no Hono, no TypeORM) and `types: []` (the contract stays browser-pure). `controllers` is the server graph without the router (contracts + controllers); `routes` adds `Route.api`/`r.contract()`, so the route proof is the difference between the two. The threshold applies to `app` at 500 endpoints; the 100 and 1000 sizes and the server cases are recorded and never fail the run.
+- **Two programs, plus the route baseline.** `app` is the FE program: contracts + `appApi` + `createClient` calls, with no server import (no Hono, no TypeORM) and `types: []` (the contract stays browser-pure). `controllers` is the server graph without the router: contracts + controllers + the same `app-api-<group>` modules that `routes` imports; `routes` adds `Route.api`/`r.contract()`, so the route proof is the difference between the two and the API tree is in both. The threshold applies to `app` at 500 endpoints; the 100 and 1000 sizes and the server cases are recorded and never fail the run.
+- **Gate fallback.** The threshold is check time for `app` @ 500 only. One flake on `master` or a PR switches the gate to instantiations with a margin, in a one-line PR: `app` @ 500 records 409,156 instantiations in the table below, and instantiations are deterministic while check time is not. The `routes` program stays recorded, not gated, until the TypeORM type floor has its own perf issue.
 - **The fixture is generated, never committed.** It is written under a per-run `.bench-types/run-*` directory (gitignored), regenerated on each run and removed at the end; concurrent runs cannot delete each other's files. One contract per 10 endpoints, one controller per contract.
 - **Route modules are grouped by 50 contracts.** A single `Route.api` over 100 contracts fails with `TS2589` today; 50-contract groups type-check, and a large app splits its route modules anyway.
 - **Measured values.** `check` is the lower of two `tsc` runs (`Check time`); `total` is that run's `Total time`; `instantiations` is `Instantiations`, `memory` is `Memory used`, and `files` is `Files`. `wall` is the tsc process and is informational only. Instantiations are deterministic; check time moves with machine and CPU load.
@@ -296,17 +297,17 @@ On Windows 11, Node 24.22.0, TypeScript 5.9.2, one run on a shared machine (`che
 
 | case | endpoints | contracts | files | check | total | instantiations | memory |
 |---|---|---|---|---|---|---|---|
-| app | 100 | 10 | 87 | 0.60s | 0.92s | 138,833 | 134.0 MB |
-| app | 500 | 50 | 127 | 1.20s | 1.50s | 409,153 | 157.8 MB |
-| app | 1000 | 100 | 177 | 2.07s | 2.44s | 837,053 | 313.1 MB |
-| controllers | 50 | 5 | 1516 | 3.07s | 4.04s | 1,639,294 | 1030.3 MB |
-| controllers | 100 | 10 | 1526 | 3.45s | 4.67s | 1,647,304 | 1046.9 MB |
-| controllers | 500 | 50 | 1606 | 3.79s | 5.21s | 1,711,384 | 1064.2 MB |
-| controllers | 1000 | 100 | 1706 | 3.66s | 4.70s | 1,791,484 | 959.5 MB |
-| routes | 50 | 5 | 1517 | 3.28s | 4.32s | 1,676,080 | 923.3 MB |
-| routes | 500 | 50 | 1607 | 5.32s | 6.28s | 3,714,535 | 1230.1 MB |
+| app | 100 | 10 | 88 | 0.60s | 0.88s | 138,836 | 135.7 MB |
+| app | 500 | 50 | 128 | 1.30s | 1.65s | 409,156 | 159.3 MB |
+| app | 1000 | 100 | 178 | 2.21s | 2.64s | 837,056 | 316.9 MB |
+| controllers | 50 | 5 | 1529 | 3.34s | 4.54s | 1,642,459 | 920.4 MB |
+| controllers | 100 | 10 | 1539 | 3.73s | 4.96s | 1,651,504 | 896.4 MB |
+| controllers | 500 | 50 | 1619 | 4.36s | 5.80s | 1,727,464 | 1087.9 MB |
+| controllers | 1000 | 100 | 1720 | 3.75s | 4.82s | 1,821,433 | 1004.7 MB |
+| routes | 50 | 5 | 1529 | 3.21s | 4.14s | 1,678,253 | 924.9 MB |
+| routes | 500 | 50 | 1619 | 6.35s | 7.39s | 3,716,753 | 1202.6 MB |
 
-The app program scales linearly (about 780 instantiations per endpoint plus a 61k base). The server graph starts at about 1.64M instantiations: the controllers-only program (no `Route.api`) reports 1,639,294 at 50 and 1,711,384 at 500, because importing `@laratype/http` loads `@laratype/support`, whose `contracts/Config.ts` imports the 13 `typeorm/driver/*ConnectionOptions` types. Adding `Route.api`/`r.contract()` raises that to 1,676,080 at 50 and 3,714,535 at 500: the route proof adds ~37k at 50 endpoints and ~2.0M at 500, so it is superlinear in the number of contracts. That TypeORM floor, not the route proof, is why the `routes` cases are far above the 3 s app threshold; it is recorded here and left for a separate perf issue (S6 does not tune the library). Check times moved with machine load (the same code measured app @ 500 between 1.15 s and 3.96 s, routes @ 500 between 5.3 s and 16.8 s on a 97 %-busy box); instantiations are deterministic, which is why they sit next to the check time.
+The app program scales linearly (about 780 instantiations per endpoint plus a 61k base). The server graph starts at about 1.64M instantiations: the controllers program (contracts + controllers + the `app-api-<group>` modules, no `Route.api`) reports 1,642,459 at 50 and 1,727,464 at 500, because importing `@laratype/http` loads `@laratype/support`, whose `contracts/Config.ts` imports the 13 `typeorm/driver/*ConnectionOptions` types. Adding `Route.api`/`r.contract()` raises that to 1,678,253 at 50 and 3,716,753 at 500: the route proof adds ~36k at 50 endpoints and ~2.0M at 500, so it is superlinear in the number of contracts. The API tree both server cases load is small next to that: about 1k instantiations at 50 endpoints and 14k at 500. That TypeORM floor, not the route proof, is why the `routes` cases are far above the 3 s app threshold; it is recorded here and left for a separate perf issue (S6 does not tune the library). Check times moved with machine load (the same code measured app @ 500 between 1.15 s and 3.96 s, routes @ 500 between 5.3 s and 16.8 s on a 97 %-busy box); instantiations are deterministic, which is why they sit next to the check time.
 
 ### Non-goals
 - No change to `@laratype/contract`, `@laratype/http` or `@laratype/client` types, and no library tuning: this PR measures, it does not optimize.
@@ -315,7 +316,7 @@ The app program scales linearly (about 780 instantiations per endpoint plus a 61
 - No committed fixture and no schema library in the fixture.
 
 ### Open questions
-- The gate covers the `app` program only; the `routes` program stays recorded until the TypeORM type floor has its own perf issue. If the wall-clock gate flakes on shared runners, it moves to instantiations → [#95](https://github.com/Laratypes/Laratype/issues/95).
+- Resolved: the gate is check time for `app` @ 500; one flake on a shared runner switches it to instantiations (deterministic) in a one-line PR ([#95](https://github.com/Laratypes/Laratype/issues/95)).
 
 ### Acceptance
 [#95 Done when](https://github.com/Laratypes/Laratype/issues/95)
