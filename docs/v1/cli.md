@@ -2,7 +2,7 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 4ad539e)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 23735a9)
 last-verified: 2026-11-12
 ---
 
@@ -23,7 +23,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 4ad539e (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)); `make:command` merged in PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
+| [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 23735a9 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)); `make:command` merged in PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
 
 ---
 
@@ -42,7 +42,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 | `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry: `Route.api` entries (name, method, path, controller, middleware, scope and contract policies, a "Not enforced" column for auth and authorize until #105/#121 and headers schema validation (no tracking issue yet), domain) and 0.5 routes | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) | [http.md › Router v2](./http.md#router-v2) |
-| `sauf make:*` | Generators from stubs | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 4ad539e (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
+| `sauf make:*` | Generators from stubs | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 23735a9 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
 | `sauf db:seed` | Runs the seeders | planned → #149 | [database.md › Factories and seeders](./database.md#factories-and-seeders) |
 | `sauf queue:work`, `queue:failed`, `queue:retry` | Queue worker and failed jobs | planned → #169 (Procfile: #172) | [services.md › Queue](./services.md#queue) |
@@ -108,10 +108,10 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 4ad539e (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/4ad539ef9137b00847ecade1989fe28a55e30e97/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/4ad539ef9137b00847ecade1989fe28a55e30e97/packages/sauf/resources/templates).
+proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 23735a9 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/23735a9c367fca0f674a488a2043a60d691fb229/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/23735a9c367fca0f674a488a2043a60d691fb229/packages/sauf/resources/templates).
 
 ### Public API
-[`make/index.ts` @ 4ad539e](https://github.com/Laratypes/Laratype/blob/4ad539ef9137b00847ecade1989fe28a55e30e97/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names. The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations and stubs until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants).
+[`make/index.ts` @ 23735a9](https://github.com/Laratypes/Laratype/blob/23735a9c367fca0f674a488a2043a60d691fb229/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names. The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations and stubs until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants).
 
 | Command | Writes | Stub |
 |---|---|---|
@@ -143,7 +143,7 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 4ad539e (E
 - `Invalid resource name "<name>": use letters, digits, "_" and "-", in folders under app/http/resources.` (`make:resource`, for a segment that would leave its folder).
 - `Invalid gate name "<name>": use letters, digits, "_" and "-", in folders under src/gates.` (`make:gate`, for a segment that would leave its folder).
 - `Invalid middleware name "<name>": use letters, digits, "_" and "-", in folders under src/http/middleware.` (`make:middleware`, for a segment that would leave its folder).
-- `Invalid model name "<name>": use letters, digits, "_" and "-", in folders under src/models.` (`make:model`; `make:policy -m` validates its model with the same rules, so its messages name the model too).
+- `Invalid model name "<name>": use letters, digits, "_" and "-", in folders under src/models.` (`make:model`, for a segment that would leave its folder; `make:policy -m` validates its model with the same rules, so both model messages name the model).
 - `Invalid policy name "<name>": use letters, digits, "_" and "-", in folders under src/policies.` (`make:policy`, for a segment that would leave its folder).
 - `Invalid command name "<name>": use letters, digits, "_" and "-", in folders under app/console/commands.` (`make:command`, for a file name outside those characters after the sub-path is flattened).
 - `Invalid <generator> name "<name>": the last segment names the exported class or function, so use a valid identifier (letters, digits and "_", not starting with a digit), under <folder>.` (`make:controller`, `make:request`, `make:resource`, `make:gate`, `make:middleware`, `make:model`, `make:policy` and `make:command`, for a file name that is not a TypeScript identifier; a folder segment keeps `-`).
