@@ -12,6 +12,8 @@ import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
+import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
+import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -31,6 +33,15 @@ let fallbackContainer: Container | undefined;
 /** Set once the fallback warning printed: per process, as dev restarts and a second copy of the module create another. */
 const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
 
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** The own enumerable keys of an extension, symbol keys included: the keys `applyExtensions()` copies. */
+const extensionKeys = (ext: object): PropertyKey[] =>
+  Reflect.ownKeys(ext).filter((key) => Object.prototype.propertyIsEnumerable.call(ext, key));
+
+/** The ctx keys of a contract route an extension cannot replace: the validated input and the pinned endpoint. */
+const RESERVED_EXTENSION_KEYS: ReadonlySet<string> = new Set(["query", "body", "endpoint"]);
+
 /** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
 const createFallbackContainer = () => {
   const store = globalThis as { [FALLBACK_WARNED]?: true };
@@ -45,6 +56,9 @@ const createFallbackContainer = () => {
 type PipeLineType = {
   type: 'middleware',
   handler: MiddlewareClass,
+} | {
+  type: 'typed-middleware',
+  handler: AnyTypedMiddleware,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -190,10 +204,53 @@ export default class Request extends AppServiceProvider {
    * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
    * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
    */
-  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }) {
+  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }, extensions: readonly object[] = []) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = { params: input.params, query, body };
+    const ctx = this.applyExtensions({ params: input.params, query, body }, extensions);
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
+  }
+
+  /**
+   * Merges the context keys typed middleware passed to `next(ext)` into the handler argument (docs/v1/http.md › Typed
+   * middleware, H6 #117): a later middleware wins a key it also adds, and `params` is merged one level deep, as `Ctx`
+   * merges it, so an extension adds a key next to the path params instead of dropping them. Own enumerable string and
+   * symbol keys are copied; each is an own data property, never an assignment: an own `__proto__` key (JSON.parse,
+   * `{ ['__proto__']: ... }`) then stays a field of the ctx instead of swapping its prototype, and no inherited setter
+   * runs for another key.
+   */
+  private static applyExtensions<T extends object>(arg: T, extensions: readonly object[]): T {
+    const target = arg as Record<PropertyKey, unknown>;
+    for (const ext of extensions) {
+      for (const key of extensionKeys(ext)) {
+        const value = (ext as Record<PropertyKey, unknown>)[key];
+        const params = target.params;
+        const merged = key === "params" && isObject(value) && isObject(params) ? { ...params, ...value } : value;
+        Object.defineProperty(target, key, { value: merged, writable: true, enumerable: true, configurable: true });
+      }
+    }
+    return arg;
+  }
+
+  /**
+   * Rejects an extension key that would replace something the route owns (docs/v1/http.md › Typed middleware ›
+   * Diagnostics): `query`, `body` and `endpoint` of a contract route, whose ctx keeps the validated input and the pinned
+   * endpoint, and a request method on a route without a contract, whose extensions are applied onto the 0.5 request
+   * object (`next({ param })` would replace `request.param`).
+   */
+  private static checkExtension(ext: object, name: string, request: RequestSupport, contract: boolean): void {
+    for (const key of extensionKeys(ext)) {
+      if (contract) {
+        if (typeof key === "string" && RESERVED_EXTENSION_KEYS.has(key)) {
+          throw new TypeError(
+            `[@laratype/http] typed middleware ${name} passed ${key} to next(): \`${key}\` is reserved on a contract route (the validated query and body, and the endpoint)`,
+          );
+        }
+      } else if (typeof (request as unknown as Record<PropertyKey, unknown>)[key] === "function") {
+        throw new TypeError(
+          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a method of the request, and the extension would replace it`,
+        );
+      }
+    }
   }
 
   public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: KernelRouteParams, res: Response) {
@@ -203,6 +260,8 @@ export default class Request extends AppServiceProvider {
         let error: any;
         // What the handler gets: the 0.5 request, or the ctx of a contract route
         let handlerArg: unknown = requestInstance;
+        // What typed middleware passed to next(ext), merged into the handler argument once the request step runs
+        const extensions: object[] = [];
         const next = async (arg?: any) => {
           const currentPipeline = pipelines[index++];
           if(arg instanceof Error) {
@@ -213,8 +272,8 @@ export default class Request extends AppServiceProvider {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'request') {
               handlerArg = currentPipeline.contract
-                ? await this.contractContext(currentPipeline.contract)
-                : await this.processValidation(requestInstance, routeOption);
+                ? await this.contractContext(currentPipeline.contract, extensions)
+                : this.applyExtensions(await this.processValidation(requestInstance, routeOption), extensions);
               return await next(arg);
             }
             else if(currentPipelineType === 'controller') {
@@ -262,6 +321,27 @@ export default class Request extends AppServiceProvider {
                 throw new UnauthorizedException();
               }
               return await next(arg);
+            }
+            else if(currentPipelineType === 'typed-middleware') {
+              const middleware = currentPipeline.handler;
+              const name = middlewareName(middleware);
+              // One run of the rest of the pipeline per middleware: a second next() would advance the shared index again
+              // and run the controller a second time (H6 #117)
+              let called = false;
+              return await middleware.handle(requestInstance, async (ext): Promise<unknown> => {
+                if(called) {
+                  throw new TypeError(`[@laratype/http] typed middleware ${name} called next() more than once`);
+                }
+                called = true;
+                if(ext !== undefined) {
+                  if(!isObject(ext)) {
+                    throw new TypeError(`[@laratype/http] typed middleware ${name} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
+                  }
+                  this.checkExtension(ext, name, requestInstance, routeOption.endpoint !== undefined);
+                  extensions.push(ext);
+                }
+                return await next(arg);
+              });
             }
             else {
               // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
@@ -351,7 +431,10 @@ export default class Request extends AppServiceProvider {
 
         const pipelines: PipeLineType[] = [];
         if(routeOption.middleware?.length) {
-          pipelines.push(...routeOption.middleware.map(m => ({ type: 'middleware' as const, handler: m })));
+          // Order is the route's: a 0.5 class, or a typed middleware whose next(ext) extends the handler ctx (H6 #117)
+          pipelines.push(...routeOption.middleware.map(m => isTypedMiddleware(m)
+            ? { type: 'typed-middleware' as const, handler: m }
+            : { type: 'middleware' as const, handler: m }));
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));

@@ -5,6 +5,8 @@ import { MetaDataKey } from "@laratype/support";
 import Controller from "../../controller/Controller";
 import RequestKernel from "../../request/Request";
 import type { KernelRouteParams, RouteParams } from "../../contracts/Route";
+import { isTypedMiddleware } from "../../middleware/defineMiddleware";
+import type { MiddlewareItem } from "../../middleware/defineMiddleware";
 import type {
   AdHocMethod,
   AdHocRouteEntry,
@@ -13,7 +15,6 @@ import type {
   ApiRouteItem,
   CheckApiRoutes,
   ControllerClass,
-  MiddlewareClass,
   MountedContract,
   MountedRoute,
   MountedScope,
@@ -28,16 +29,30 @@ const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
 };
 
-/** Runtime `r`; its types come from `ApiRouteBuilder<A>`. */
+/** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
+const checkMiddleware = (middleware: unknown): void => {
+  // An arrow function has no prototype and `new` would throw: a 0.5 Middleware must be a class
+  if (typeof middleware === "function" && middleware.prototype !== undefined) return;
+  if (isTypedMiddleware(middleware)) return;
+  fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
+};
+
+/** Runtime `r`; its types come from `ApiRouteBuilder<A, M>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
   constructor(
-    readonly stack: readonly MiddlewareClass[] = [],
+    readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
   ) {}
 
-  middleware(...middleware: MiddlewareClass[]) {
+  middleware(...middleware: MiddlewareItem[]) {
+    middleware.forEach(checkMiddleware);
     return new RouteBuilder([...this.stack, ...middleware], this.entries);
+  }
+
+  /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
+  withoutMiddleware(...middleware: MiddlewareItem[]) {
+    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries);
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -348,7 +363,7 @@ const isCallback = (value: unknown) => {
 };
 
 /** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
-const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareClass[] => {
+const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareItem[] => {
   const endpoints = options?.endpoints as Record<string, (r: RouteBuilder) => unknown> | undefined;
   // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
   if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];

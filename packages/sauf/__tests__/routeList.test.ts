@@ -4,7 +4,7 @@ import { Container, Facade } from '@laratype/core';
 import { RouteRegistry } from '@laratype/support';
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract';
 import type { ContractPrefix } from '@laratype/contract';
-import { Controller, Middleware, Route } from '@laratype/http';
+import { Controller, Middleware, Route, defineMiddleware } from '@laratype/http';
 import { Console } from '@laratype/console';
 import RouteListCommand, { routeRow } from '../src/commands/route/list';
 
@@ -80,6 +80,11 @@ describe('sauf route:list', () => {
     expect(routeRow(health!)).toEqual({
       Method: 'get', path: '/health', Name: '-', Controller: 'Closure', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',
     });
+  });
+
+  it('names a typed middleware by its handle (H6 #117)', () => {
+    const trace = defineMiddleware(function traceMiddleware(): never { throw new Error('not run') });
+    expect(routeRow({ method: 'get', path: '/me', controller: [UserController, 'me'], middleware: [Audit, trace], can: [] }).Middleware).toBe('Audit, traceMiddleware');
   });
 
   it('still reads 0.5 entries', () => {
