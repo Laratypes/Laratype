@@ -5,7 +5,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route, defineMiddleware, isTypedMiddleware } from '../../src/index'
-import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, ExtOf, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
+import type { AnyTypedMiddleware, ApiRouteBuilder, ControllerOf, Ctx, ExtOf, Merge, MiddlewareClass, MiddlewareHandler, MiddlewareItem, NextHandler, RouteProof, TypedMiddleware, TypedMiddlewareHandler } from '../../src/index'
 
 const posts = defineContract()({ index: endpoint.get('/'), destroy: endpoint.delete('/:post') })
 const appApi = defineApi({ posts: { contract: posts, path: '/api/posts', scopes: [] } })
@@ -77,7 +77,7 @@ describe('defineMiddleware', () => {
   })
 
   test('`r.middleware()` takes 0.5 classes and typed middleware', () => {
-    expectTypeOf<MiddlewareItem>().toEqualTypeOf<typeof Middleware | TypedMiddleware<any>>()
+    expectTypeOf<MiddlewareItem>().toEqualTypeOf<MiddlewareClass | TypedMiddleware<any>>()
     Route.api(appApi, (r) => [r.middleware(Audit, auth, audit).contract(posts, Plain)])
     Route.api(appApi, (r) => [
       // @ts-expect-error not middleware
@@ -87,6 +87,13 @@ describe('defineMiddleware', () => {
 })
 
 describe('the handler sees the accumulated context', () => {
+  test('Merge is the last-wins merge ExtOf uses', () => {
+    expectTypeOf<Merge<{ a: string; params: { post: string } }, { a: number; params: { extra: number } }>>().toEqualTypeOf<{
+      a: number
+      params: { post: string; extra: number }
+    }>()
+  })
+
   test('route middleware extends every handler of the contract it is mounted for', () => {
     class NeedsUser extends Controller {
       index(ctx: Ctx<typeof posts.index, { user: User }>) { void ctx.user }
@@ -105,32 +112,47 @@ describe('the handler sees the accumulated context', () => {
     Route.api(appApi, (r) => [r.middleware(auth).middleware(audited).contract(posts, NeedsBoth)])
   })
 
-  test('two middleware that add the same key with incompatible types fail at r.contract()', () => {
+  test('a later middleware wins a key it also adds, as the runtime does', () => {
+    const broad = defineMiddleware<{ user: { id: string; name: string } }>((request, next) => next({ user: { id: '1', name: 'ada' } }))
+    const narrow = defineMiddleware<{ user: { id: string } }>((request, next) => next({ user: { id: '1' } }))
+    expectTypeOf<ExtOf<[typeof broad, typeof narrow]>>().toEqualTypeOf<{ user: { id: string } }>()
+    class NeedsName extends Controller {
+      index(ctx: Ctx<typeof posts.index, { user: { id: string; name: string } }>) { void ctx.user.name }
+      destroy() {}
+    }
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsName, { policy: undefined }, ExtOf<[typeof broad, typeof narrow]>>>().toHaveProperty(
+      'posts.index: `user` provided by the route does not match the handler (missing .bind()?)',
+    )
+    // @ts-expect-error posts.index: `user` provided by the route does not match the handler (missing .bind()?)
+    Route.api(appApi, (r) => [r.middleware(broad, narrow).contract(posts, NeedsName)])
+  })
+
+  test('the proof checks the type of the value the runtime keeps', () => {
     const tagString = defineMiddleware<{ tag: string }>((request, next) => next({ tag: 'x' }))
     const tagNumber = defineMiddleware<{ tag: number }>((request, next) => next({ tag: 1 }))
+    expectTypeOf<ExtOf<[typeof tagString, typeof tagNumber]>>().toEqualTypeOf<{ tag: number }>()
+    class NeedsNumber extends Controller {
+      index(ctx: Ctx<typeof posts.index, { tag: number }>) { void ctx.tag.toFixed() }
+      destroy() {}
+    }
     class NeedsString extends Controller {
       index(ctx: Ctx<typeof posts.index, { tag: string }>) { void ctx.tag.toUpperCase() }
       destroy() {}
     }
-    expectTypeOf<ExtOf<[typeof tagString, typeof tagNumber]>>().toHaveProperty('tag').toBeNever()
-    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsString, { policy: undefined }, ExtOf<[typeof tagString, typeof tagNumber]>>>().toHaveProperty(
-      "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
-    )
-    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
+    Route.api(appApi, (r) => [r.middleware(tagString, tagNumber).contract(posts, NeedsNumber)])
+    // @ts-expect-error posts.index: `tag` provided by the route does not match the handler (missing .bind()?)
     Route.api(appApi, (r) => [r.middleware(tagString, tagNumber).contract(posts, NeedsString)])
   })
 
-  test('a conflict four keys deep fails at r.contract()', () => {
+  test('a nested key is last-wins too', () => {
     const deepString = defineMiddleware<{ a: { b: { c: { d: string } } } }>((request, next) => next({ a: { b: { c: { d: 'x' } } } }))
     const deepNumber = defineMiddleware<{ a: { b: { c: { d: number } } } }>((request, next) => next({ a: { b: { c: { d: 1 } } } }))
+    expectTypeOf<ExtOf<[typeof deepString, typeof deepNumber]>>().toEqualTypeOf<{ a: { b: { c: { d: number } } } }>()
     class NeedsDeep extends Controller {
       index(ctx: Ctx<typeof posts.index, { a: { b: { c: { d: string } } } }>) { void ctx.a.b.c.d.toUpperCase() }
       destroy() {}
     }
-    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsDeep, { policy: undefined }, ExtOf<[typeof deepString, typeof deepNumber]>>>().toHaveProperty(
-      "posts.index: middleware extension 'a.b.c.d' is `never` (conflicting types, or declared `never`)",
-    )
-    // @ts-expect-error posts.index: middleware extension 'a.b.c.d' is `never` (conflicting types, or declared `never`)
+    // @ts-expect-error posts.index: `a` provided by the route does not match the handler (missing .bind()?)
     Route.api(appApi, (r) => [r.middleware(deepString, deepNumber).contract(posts, NeedsDeep)])
   })
 
@@ -144,54 +166,72 @@ describe('the handler sees the accumulated context', () => {
     Route.api(appApi, (r) => [r.middleware(tree).contract(posts, ReadsTree)])
   })
 
-  test('a function-valued key is not compared: the intersection is an overload, not `never`', () => {
+  test('a function-valued key is compared through the later middleware value', () => {
     const fnString = defineMiddleware<{ fn: (value: string) => string }>((request, next) => next({ fn: (value) => value }))
     const fnNumber = defineMiddleware<{ fn: (value: number) => number }>((request, next) => next({ fn: (value) => value }))
+    expectTypeOf<ExtOf<[typeof fnString, typeof fnNumber]>>().toEqualTypeOf<{ fn: (value: number) => number }>()
     class NeedsFn extends Controller {
-      index(ctx: Ctx<typeof posts.index, { fn: (value: string) => string }>) { void ctx.fn('x').toUpperCase() }
+      index(ctx: Ctx<typeof posts.index, { fn: (value: number) => number }>) { void ctx.fn(1).toFixed() }
       destroy() {}
     }
-    // Unchecked, so it compiles: the runtime would keep `fnNumber`'s function here (docs/v1/http.md › Typed middleware › Invariants)
     Route.api(appApi, (r) => [r.middleware(fnString, fnNumber).contract(posts, NeedsFn)])
   })
 
-  test('a middleware that declares a key `never` gets the same diagnosis', () => {
+  test('a middleware that declares a key `never` gets the diagnosis', () => {
     const neverTag = defineMiddleware<{ tag: never }>((request, next) => next({ tag: undefined as never }))
     expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof neverTag]>>>().toHaveProperty(
-      "posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)",
+      "posts.index: middleware extension 'tag' is `never` (declared `never`)",
     )
-    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
+    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (declared `never`)
     Route.api(appApi, (r) => [r.middleware(neverTag).contract(posts, Plain)])
   })
 
-  test('a conflicting `params` key fails at r.contract()', () => {
+  test('a nested `never` is named by its path', () => {
+    const neverUser = defineMiddleware<{ user: { id: never } }>((request, next) => next({ user: { id: undefined as never } }))
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof neverUser]>>>().toHaveProperty(
+      "posts.index: middleware extension 'user.id' is `never` (declared `never`)",
+    )
+  })
+
+  test('a key typed only `undefined` is not a conflict', () => {
+    const slot = defineMiddleware<{ previousUser: undefined }>((request, next) => next({ previousUser: undefined }))
+    class ReadsSlot extends Controller {
+      index(ctx: Ctx<typeof posts.index, { previousUser: undefined }>) { void ctx.previousUser }
+      destroy() {}
+    }
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, ReadsSlot, { policy: undefined }, ExtOf<[typeof slot]>>>().toEqualTypeOf<unknown>()
+    Route.api(appApi, (r) => [r.middleware(slot).contract(posts, ReadsSlot)])
+  })
+
+  test('`params` is merged one level deep, as the runtime merges it', () => {
     const postString = defineMiddleware<{ params: { post: string } }>((request, next) => next({ params: { post: 'x' } }))
+    const extra = defineMiddleware<{ params: { extra: number } }>((request, next) => next({ params: { extra: 1 } }))
+    expectTypeOf<ExtOf<[typeof postString, typeof extra]>>().toEqualTypeOf<{ params: { post: string; extra: number } }>()
     const postNumber = defineMiddleware<{ params: { post: number } }>((request, next) => next({ params: { post: 1 } }))
+    expectTypeOf<ExtOf<[typeof postString, typeof postNumber]>>().toEqualTypeOf<{ params: { post: number } }>()
     class NeedsPost extends Controller {
       index() {}
       destroy(ctx: Ctx<typeof posts.destroy, { params: { post: string } }>) { void ctx.params.post.toUpperCase() }
     }
-    // @ts-expect-error posts.destroy: middleware extension 'params.post' is `never` (conflicting types, or declared `never`)
+    // @ts-expect-error posts.destroy: `params.post` provided by the route does not match the handler (missing .bind()?)
     Route.api(appApi, (r) => [r.middleware(postString, postNumber).contract(posts, NeedsPost)])
   })
 
-  test('an optional key and a nested key are conflicts too', () => {
-    const optionalString = defineMiddleware<{ tag?: string }>((request, next) => next())
-    const optionalNumber = defineMiddleware<{ tag?: number }>((request, next) => next())
-    const userString = defineMiddleware<{ user: { id: string } }>((request, next) => next({ user: { id: 'x' } }))
-    const userNumber = defineMiddleware<{ user: { id: number } }>((request, next) => next({ user: { id: 1 } }))
-    class NeedsTag extends Controller {
-      index(ctx: Ctx<typeof posts.index, { tag?: string }>) { void ctx.tag?.toUpperCase() }
-      destroy() {}
-    }
-    class NeedsUser extends Controller {
-      index(ctx: Ctx<typeof posts.index, { user: { id: string } }>) { void ctx.user.id.toUpperCase() }
-      destroy() {}
-    }
-    // @ts-expect-error posts.index: middleware extension 'tag' is `never` (conflicting types, or declared `never`)
-    Route.api(appApi, (r) => [r.middleware(optionalString, optionalNumber).contract(posts, NeedsTag)])
-    // @ts-expect-error posts.index: middleware extension 'user.id' is `never` (conflicting types, or declared `never`)
-    Route.api(appApi, (r) => [r.middleware(userString, userNumber).contract(posts, NeedsUser)])
+  test('a middleware extension cannot replace a key the contract route keeps', () => {
+    const queryOverride = defineMiddleware<{ query: { page: string } }>((request, next) => next({ query: { page: '1' } }))
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof queryOverride]>>>().toHaveProperty(
+      "posts.index: middleware extension 'query' is reserved on a contract route (the validated query and body, and the endpoint)",
+    )
+    // @ts-expect-error posts.index: middleware extension 'query' is reserved
+    Route.api(appApi, (r) => [r.middleware(queryOverride).contract(posts, Plain)])
+    const bodyOverride = defineMiddleware<{ body: null }>((request, next) => next({ body: null }))
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof bodyOverride]>>>().toHaveProperty(
+      "posts.index: middleware extension 'body' is reserved on a contract route (the validated query and body, and the endpoint)",
+    )
+    const endpointOverride = defineMiddleware<{ endpoint: null }>((request, next) => next({ endpoint: null }))
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof endpointOverride]>>>().toHaveProperty(
+      "posts.index: middleware extension 'endpoint' is reserved on a contract route (the validated query and body, and the endpoint)",
+    )
   })
 
   test('two middleware that add the same key with the same type still pass', () => {
@@ -227,6 +267,16 @@ describe('withoutMiddleware', () => {
     }
     // `auth` is assignable to `audit`'s `TypedMiddleware<{}>`, so a subtype match would drop the extension `auth` adds
     Route.api(appApi, (r) => [r.middleware(auth, audit).withoutMiddleware(audit).contract(posts, NeedsUser)])
+  })
+
+  test('a different typed middleware stays, so its extension stays in the proof', () => {
+    const queryOverride = defineMiddleware<{ query: { page: string } }>((request, next) => next({ query: { page: '1' } }))
+    Route.api(appApi, (r) => {
+      // The empty extension `audit` is not `queryOverride`: dropping it must not drop the reserved key either
+      const withoutAudit = r.middleware(queryOverride).withoutMiddleware(audit)
+      expectTypeOf(withoutAudit).toEqualTypeOf<ApiRouteBuilder<typeof appApi, [typeof queryOverride]>>()
+      return [r.contract(posts, Plain)]
+    })
   })
 
   test('still drops a 0.5 class', () => {

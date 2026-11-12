@@ -1,6 +1,5 @@
 import { Auth, AuthVerification } from "@laratype/auth";
 import { Controller, Request, UseStatusCode } from "@laratype/http";
-import User from "../../models/User";
 import LoginRequest from "../requests/LoginRequest";
 import UnauthorizedException from "../../exceptions/UnauthorizedException";
 
@@ -13,7 +12,7 @@ export default class LoginController extends Controller {
   }
   
   public async login(req: Request) {
-    const authenticated = Auth.user<User>()
+    const authenticated = Auth.user()
     // The auth middleware runs before this handler; no user means the request is not signed in
     if(!authenticated) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     const jwtToken = await authenticated.generateToken({
@@ -33,7 +32,7 @@ export default class LoginController extends Controller {
   public async manualLogin(req: LoginRequest) {
     const data = req.validated();
 
-    const attempt = await Auth.guard<User>('web').attempt(data)
+    const attempt = await Auth.guard('web').attempt(data)
 
     if(!attempt) {
       return new UnauthorizedException({

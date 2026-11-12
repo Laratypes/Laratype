@@ -7,5 +7,13 @@
     "packages/*/__tests__",
     "rollup.config.js",
     "./scripts",
+  ],
+  // A child exclude replaces the one of tsconfig.app.json, so it repeats it. The unregistered fixture is compiled on its
+  // own by packages/auth/__tests__/typedRegister.test.ts: in this program it would see the registered auth types.
+  "exclude": [
+    "node_modules",
+    "<node_internals>/**",
+    "./dist/**/*",
+    "packages/auth/__tests__/fixtures/typed-register/unregistered.ts",
   ]
 }
