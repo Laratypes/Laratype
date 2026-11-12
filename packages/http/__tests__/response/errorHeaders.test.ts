@@ -2,7 +2,7 @@
 // the headers the error path sets on purpose
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -24,10 +24,6 @@ const bootApp = () => {
 const GENERIC = { message: 'Server Error' }
 
 let errors: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 const quiet = () => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
