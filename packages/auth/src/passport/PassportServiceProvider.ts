@@ -2,12 +2,13 @@ import passport from "passport";
 import type { Model } from "@laratype/database";
 //@ts-ignore
 // import authenticate from "passport/lib/middleware/authenticate";
-import { ServiceProvider, type LaratypeConfig as Config, ContextApi, type RedirectStatusCode, manifestEntry, loadDefault, loadEnv } from "@laratype/support";
+import { ServiceProvider, type LaratypeConfig as Config, type RedirectStatusCode, manifestEntry, loadDefault, loadEnv } from "@laratype/support";
 import { randomUUID } from "crypto";
 import { type NextHandler, redirect, type Request, type Response } from "@laratype/http";
 import AuthManager from "../guard/AuthManager";
 import PassportGuard from "../guard/PassportGuard";
 import { AUTH_CONFIG } from "../guard/tokens";
+import { setAuthenticatedUser } from "../support/guardContext";
 
 class StoreManagement {
   public store(req: Request, ctx: any, appState: any, meta: any, cb: (err: any, id: string) => void) {
@@ -30,9 +31,8 @@ const authenticate = (
   return (req: Request, res: Response, next: NextHandler) => {
     return new Promise((resolve) => {
       const strategy = passport._strategy(name);
-      const login = (user: unknown) => {
-        ContextApi.setUser(user);
-      }
+      // Auth.user()/login() then sign for the guard that succeeded, not the default one (A6 #335)
+      const login = (user: unknown) => setAuthenticatedUser(user, typeof name === 'string' ? name : undefined);
 
       strategy.success = function (user: any, info: any) {
         login(user);

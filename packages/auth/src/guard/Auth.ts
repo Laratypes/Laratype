@@ -1,6 +1,6 @@
 import { Middleware, type NextHandler, type Request } from "@laratype/http";
-import { ContextApi } from "@laratype/support";
 import UnauthorizedException from "../exceptions/UnauthorizedException";
+import { setAuthenticatedUser } from "../support/guardContext";
 import { authManager } from "./resolve";
 
 /** Authenticates the request with the default guard of the app container's `AuthManager` (A4 #151). */
@@ -17,13 +17,15 @@ export default class AuthGuard extends Middleware {
         message: "Token is missing or invalid.",
       }));
     }
-    const user = await authManager().guard().verify(token);
+    const guard = authManager().guard();
+    const user = await guard.verify(token);
     if (!user) {
       return Promise.reject(new UnauthorizedException({
         message: "Token is invalid or expired.",
       }));
     }
-    ContextApi.setUser(user);
+    // Auth.user()/login() then sign for this guard, not the default one (A6 #335)
+    setAuthenticatedUser(user, guard.name);
     return next(request);
   }
 }
