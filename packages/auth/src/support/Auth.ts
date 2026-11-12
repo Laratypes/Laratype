@@ -3,15 +3,16 @@ import { Facade } from "@laratype/core";
 import type { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
 import { authManager } from "../guard/resolve";
+import type { GuardName, RegisteredUser } from "../Register";
 import { authenticatedGuard } from "./guardContext";
 
 class Authenticate<T extends Model> {
 
-  protected guardName?: string;
+  protected guardName?: GuardName;
   protected authenticated?: Authenticated<T>;
 
   /** `guardName` is resolved by the app container's `AuthManager`; the default guard when omitted. */
-  constructor(guardName?: string) {
+  constructor(guardName?: GuardName) {
     this.guardName = guardName;
   }
 
@@ -71,7 +72,7 @@ export class AuthService {
     return new Authenticate<T>().attempt(user);
   }
 
-  user<T extends Model>() {
+  user<T extends Model = RegisteredUser>() {
     const user = ContextApi.getUser<T>();
     if(!user) return null;
     // The guard that authenticated the request, so its token is signed for that guard (A6 #335)
@@ -95,7 +96,7 @@ export class AuthService {
     return new Authenticate<T>(authenticatedGuard()).login(user);
   }
 
-  guard<T extends Model>(guardName: string) {
+  guard<T extends Model = RegisteredUser>(guardName: GuardName) {
     const authenticated = new Authenticate<T>(guardName);
     const user = ContextApi.getUser<T>();
     if(user) authenticated.setUser(user);
@@ -114,7 +115,7 @@ export default class Auth extends Facade {
     return Auth.root().attempt(user);
   }
 
-  static user<T extends Model>() {
+  static user<T extends Model = RegisteredUser>() {
     return Auth.root().user<T>();
   }
 
@@ -134,7 +135,7 @@ export default class Auth extends Facade {
     return Auth.root().login(user);
   }
 
-  static guard<T extends Model>(guardName: string) {
+  static guard<T extends Model = RegisteredUser>(guardName: GuardName) {
     return Auth.root().guard<T>(guardName);
   }
 

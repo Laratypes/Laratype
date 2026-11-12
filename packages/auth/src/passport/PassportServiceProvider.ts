@@ -8,6 +8,7 @@ import { type NextHandler, redirect, type Request, type Response } from "@laraty
 import AuthManager from "../guard/AuthManager";
 import PassportGuard from "../guard/PassportGuard";
 import { AUTH_CONFIG } from "../guard/tokens";
+import type { GuardName } from "../Register";
 import { setAuthenticatedUser } from "../support/guardContext";
 
 class StoreManagement {
@@ -101,7 +102,8 @@ export default class PassportServiceProvider extends ServiceProvider {
     const auth = this.app.make(AuthManager);
 
     for (const guardName in auth.config.guards) {
-      const guard = auth.guard(guardName);
+      // The guard names come from the same app/config/auth.ts the app registers in `Register['guards']`
+      const guard = auth.guard(guardName as GuardName);
       if(guard instanceof PassportGuard) {
         guard.register(passport, storeManagement);
       }
