@@ -2,7 +2,7 @@ import { Middleware } from "@laratype/http";
 import type { Request } from "@laratype/http";
 import { ContextApi } from "@laratype/support";
 import { setLocale } from "./functions";
-import { matchLocale, normalizeLocale } from "./locale";
+import { matchLocale, matchLocales, normalizeLocale } from "./locale";
 import { Translator } from "./translator";
 import { warnNoRequestContainer } from "./warnings";
 
@@ -76,10 +76,12 @@ export class LocaleMiddleware extends Middleware {
     const excluded = new Set(
       ranges.filter(({ quality }) => quality === 0).map(({ tag }) => normalizeLocale(tag)),
     );
+    // Every catalog match of a range is tried before the next range: an excluded match (`en-GB;q=0`) must not discard
+    // the range's other matches (`en-US`) and fall through to a lower-quality range.
     const fromHeader = ranges
       .filter(({ quality }) => quality > 0)
-      .map(({ tag }) => matchLocale(tag, available))
-      .find((locale) => locale !== undefined && !excluded.has(normalizeLocale(locale)));
+      .map(({ tag }) => matchLocales(tag, available).find((locale) => !excluded.has(normalizeLocale(locale))))
+      .find((locale) => locale !== undefined);
 
     const locale = fromQuery ?? fromUser ?? fromHeader;
     if (locale === undefined) return next(request);

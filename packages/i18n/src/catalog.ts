@@ -1,7 +1,7 @@
 import { loadDefault, appManifest } from "@laratype/support";
 import type { AppManifest } from "@laratype/support";
 import type { LangTree, MessageParams, PluralCategory } from "./types";
-import { baseLocale, matchLocale, normalizeLocale } from "./locale";
+import { matchLocales, normalizeLocale } from "./locale";
 import { I18nError } from "./errors";
 
 /** Every loaded translation file, by locale and file name: `catalog.en.messages.greeting`. */
@@ -87,47 +87,37 @@ export const loadMessages = async (manifest: AppManifest = appManifest()): Promi
       );
     }
     validateTree(tree, file, entry.path);
-    const files = catalog[locale] ?? (catalog[locale] = {});
+    // A null prototype keeps a file named "__proto__" an ordinary own key instead of the dictionary's prototype.
+    const files = catalog[locale] ?? (catalog[locale] = Object.create(null) as Record<string, LangTree>);
     files[file] = tree as LangTree;
   }
   return catalog;
 };
 
-/** The locale and its base language, without duplicates: `en-US` → `["en-US", "en"]`. */
-const localeChain = (locale: string): string[] => {
-  const tag = locale.trim().replace(/_/g, "-");
-  if (!tag) return [];
-  const base = baseLocale(tag);
-  return normalizeLocale(tag) === base ? [tag] : [tag, base];
-};
+/** The catalog's own spellings of every locale that matches `locale`, in lookup order (see `matchLocales`). */
+const catalogChain = (catalog: LangCatalog, locale: string): string[] =>
+  matchLocales(locale, Object.keys(catalog));
 
-/**
- * The catalog's own spelling of a locale (folders are case-sensitive, lookups are not): the same matching as
- * `LocaleMiddleware`, so `en` finds `en-US` and a region tag finds another region of its language.
- */
-const catalogLocale = (catalog: LangCatalog, locale: string): string | undefined =>
-  matchLocale(locale, Object.keys(catalog));
-
-/** The message at `file.dotted.key` in one locale, or `undefined` when the path is a group or missing. */
-const lookupIn = (catalog: LangCatalog, locale: string, key: string): string | Record<string, string> | undefined => {
-  const actual = catalogLocale(catalog, locale);
-  if (actual === undefined) return undefined;
+/** The message at `file.dotted.key` in the catalog locale `actual`, or `undefined` when the path is a group or missing. */
+const lookupIn = (catalog: LangCatalog, actual: string, key: string): string | Record<string, string> | undefined => {
+  if (!Object.hasOwn(catalog, actual)) return undefined;
   const dot = key.indexOf(".");
   const file = dot === -1 ? key : key.slice(0, dot);
   const path = dot === -1 ? [] : key.slice(dot + 1).split(".");
-  let node: unknown = catalog[actual]![file];
-  if (node === undefined || path.length === 0) return undefined;
+  const files = catalog[actual]!;
+  if (path.length === 0 || !Object.hasOwn(files, file)) return undefined;
+  let node: unknown = files[file];
   for (const segment of path) {
-    if (!isRecord(node)) return undefined;
+    // Own properties only: a "__proto__" or "constructor" segment must not read the file's prototype chain.
+    if (!isRecord(node) || !Object.hasOwn(node, segment)) return undefined;
     node = node[segment];
-    if (node === undefined) return undefined;
   }
   return typeof node === "string" || isPluralForms(node) ? node : undefined;
 };
 
 /**
- * The message at `key` for `locale`, trying its base language and then `fallback`. Returns `undefined` when no locale
- * has it, so `trans()` can return the key.
+ * The message at `key` for `locale`, trying every catalog match of the tag (exact, base language, then sibling regions)
+ * and then the same matches for `fallback`. Returns `undefined` when no locale has it, so `trans()` can return the key.
  */
 export const lookupMessage = (
   catalog: LangCatalog,
@@ -135,14 +125,14 @@ export const lookupMessage = (
   locale: string,
   fallback?: string,
 ): { message: string | Record<string, string>; locale: string } | undefined => {
-  const candidates = [...localeChain(locale), ...(fallback ? localeChain(fallback) : [])];
+  const candidates = [...catalogChain(catalog, locale), ...(fallback ? catalogChain(catalog, fallback) : [])];
   const seen = new Set<string>();
   for (const candidate of candidates) {
     const normalized = normalizeLocale(candidate);
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     const message = lookupIn(catalog, candidate, key);
-    if (message !== undefined) return { message, locale: catalogLocale(catalog, candidate) ?? candidate };
+    if (message !== undefined) return { message, locale: candidate };
   }
   return undefined;
 };

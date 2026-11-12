@@ -50,6 +50,26 @@ describe("loadMessages", () => {
     expect(catalog.vi!.messages).toEqual({ greeting: "Xin chào {name}" });
   });
 
+  it("reads only own file names and key segments, so a __proto__ file cannot inject one", async () => {
+    setAppManifest(
+      manifest([
+        entry("en/__proto__", { greeting: { text: "from the prototype" } }),
+        entry("en/messages", { greeting: "Hello {name}" }),
+      ]),
+    );
+    const catalog = await loadMessages();
+    const translator = new Translator(catalog, { locale: "en", fallbackLocale: "en" });
+
+    // The __proto__ file is an own file, not the file dictionary's prototype: its keys are not files of their own.
+    expect(translator.has("greeting.text")).toBe(false);
+    expect(translator.translate("greeting.text")).toBe("greeting.text");
+    // Own properties only: an Object.prototype member never answers a lookup.
+    expect(translator.has("messages.constructor")).toBe(false);
+    expect(translator.has("messages.toString")).toBe(false);
+    expect(translator.has("messages.__proto__")).toBe(false);
+    expect(translator.has("messages.greeting")).toBe(true);
+  });
+
   it("rejects an entry that is not in a locale folder, or does not default-export an object", async () => {
     setAppManifest(manifest([entry("messages", { greeting: "Hello" })]));
     await expect(loadMessages()).rejects.toThrow(

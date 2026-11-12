@@ -81,6 +81,21 @@ describe("trans() / __()", () => {
     expect(__("messages.greeting", { name: "Ada" })).toBe("Hello Ada");
   });
 
+  it("tries every catalog match of the requested tag before the fallback locale", () => {
+    Lang.fake(
+      new Translator(
+        {
+          "en-US": { messages: { color: "Color", greeting: "Hello {name}" } },
+          en: { messages: { greeting: "Hello {name}" } },
+        },
+        { locale: "en-GB", fallbackLocale: "en" },
+      ),
+    );
+    // en-GB matches en (base) and en-US (sibling region): a key only en-US has must not fall to the fallback.
+    expect(trans("messages.color")).toBe("Color");
+    expect(Lang.has("messages.color")).toBe(true);
+  });
+
   it("normalizes the locale before Intl.PluralRules: fr_FR count 0 uses the French one", () => {
     Lang.fake(
       new Translator(

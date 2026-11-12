@@ -163,6 +163,26 @@ describe("LocaleMiddleware", () => {
     });
   });
 
+  it("tries a range's other matches before a lower-quality range when one match is excluded", async () => {
+    const app = setup(
+      {
+        "en-GB": { messages: { greeting: "Hello {name}" } },
+        "en-US": { messages: { greeting: "Howdy {name}" } },
+        fr: { messages: { greeting: "Bonjour {name}" } },
+      },
+      { locale: "fr", fallbackLocale: "fr" },
+    );
+    await inScope(app, undefined, async () => {
+      await new LocaleMiddleware().handle(
+        request({}, { "accept-language": "en-GB;q=0,en;q=1,fr;q=0.5" }),
+        {} as Response,
+        next,
+      );
+      // en-GB is excluded, but the same `en` range still matches en-US before fr (q=0.5) is considered.
+      expect(getLocale()).toBe("en-US");
+    });
+  });
+
   it("leaves the shared default unchanged when the request has no container", async () => {
     setup();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
