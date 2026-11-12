@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 342]
+issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 341, 342]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -22,6 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; interceptors planned → #138 |
+| [Default body limit](#default-body-limit) | proposed: PR #<leader fills> @ eeb5c9e (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -464,11 +465,11 @@ No new export. The parsing and validation steps run inside `RequestKernel.handle
 
 ### Invariants
 - **Parsing and validation (H3):** the body by media type, the query and params, the order (the body is read at the start of `RequestKernel.handle`, before the route middleware; validation runs after middleware and policies, before the handler), the 400 and 422 bodies, an empty body as `{}` on every method, and the typed ctx are specified once, in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422).
-- **Only a malformed body or a failed body read is a 400.** The pipeline rethrows what is neither, so a `bodyLimit` mounted with `app.use()` before the routes keeps its own 413 (a route's `bodyLimit` runs too late: the body is read first), and a body an earlier middleware read through Hono's readers is served from its cache, the route's own status still applying, as is a later `c.req.parseBody()`/`c.req.formData()` of a form body or `c.req.text()`/`c.req.json()` of a JSON body after the pipeline read it (the exceptions: an empty or whitespace-only JSON body is `{}` to the pipeline, while a later `c.req.json()` parses the cached original bytes and rejects, there being no JSON text; and on Hono 4.12.28 a later `c.req.parseBody()` of a FormData-only cache rejects, because it re-reads the FormData as bytes with a new boundary — validation.md has the detail); a body read off `c.req.raw` directly, and a multipart body a `c.req.text()` consumed, end as the generic 500 ([validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1)).
+- **Only a malformed body or a failed body read is a 400.** The pipeline rethrows what is neither, so a `bodyLimit` mounted with `app.use()` before the routes keeps its own 413 (a route's `bodyLimit` runs too late: the body is read first; the default body limit runs at the start of the read — [Default body limit](#default-body-limit)), and a body an earlier middleware read through Hono's readers is served from its cache, the route's own status still applying, as is a later `c.req.parseBody()`/`c.req.formData()` of a form body or `c.req.text()`/`c.req.json()` of a JSON body after the pipeline read it (the exceptions: an empty or whitespace-only JSON body is `{}` to the pipeline, while a later `c.req.json()` parses the cached original bytes and rejects, there being no JSON text; and on Hono 4.12.28 a later `c.req.parseBody()` of a FormData-only cache rejects, because it re-reads the FormData as bytes with a new boundary — validation.md has the detail); a body read off `c.req.raw` directly, and a multipart body a `c.req.text()` consumed, end as the generic 500 ([validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1)).
 - **Still the 0.5 kernel:** the steps run inside `RequestKernel.handle`; 0.5 routes keep `processValidation`.
 
 ### Diagnostics
-The 400 and 422 bodies, an empty body as `{}`, the **413** of a `bodyLimit` mounted with `app.use()` before the kernel (the pipeline rethrows its `BodyLimitError`), the **400** of a body read that fails (a client abort or a truncated stream), the **500** of a body an earlier middleware read off `c.req.raw` directly or of a multipart body it read with `c.req.text()`, and the `TypeError` for a contract route with a request class: [validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1).
+The 400 and 422 bodies, an empty body as `{}`, the **413** of the [default body limit](#default-body-limit) and of a `bodyLimit` mounted with `app.use()` before the kernel (the pipeline rethrows its `BodyLimitError`), the **400** of a body read that fails (a client abort or a truncated stream), the **500** of a body an earlier middleware read off `c.req.raw` directly or of a multipart body it read with `c.req.text()`, and the `TypeError` for a contract route with a request class: [validation.md › Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1).
 
 ### Design (non-binding)
 Fixed order, combining Nest and Laravel:
@@ -486,6 +487,55 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 
 ### Acceptance
 [#106 Done when](https://github.com/Laratypes/Laratype/issues/106) · [#138 Done when](https://github.com/Laratypes/Laratype/issues/138)
+
+---
+
+## Default body limit
+
+### Status
+proposed: PR #<leader fills> @ eeb5c9e (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)).
+
+### Public API
+No new export. The caps live in `app/config/http.ts`, a config file like any other (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)):
+
+```ts
+// app/config/http.ts
+import { defineConfig } from '@laratype/core'
+
+export default defineConfig({
+  bodyLimit: {
+    json: 1_048_576,       // 1 MiB: application/json and application/*+json
+    form: 1_048_576,       // 1 MiB: application/x-www-form-urlencoded
+    multipart: 10_485_760, // 10 MiB: multipart/form-data
+  },
+})
+```
+
+A cap is a byte count or `false` (no cap for that media type); `bodyLimit: false` turns all three off. The file is optional: without it, the values above are the built-in defaults. A value that is not a finite number of 0 or more is ignored and the default stays, so a typo never removes a cap. The caps are read at the start of each body read, so a dev restart picks up a change. `examples/basic` has the file with the defaults.
+
+### Invariants
+- **Scope:** JSON (`application/json` and `application/*+json`, as [Pipeline validation](./validation.md#pipeline-validation-and-422) reads them), urlencoded (`application/x-www-form-urlencoded`) and multipart (`multipart/form-data`) bodies are capped. Any other media type is not read by the pipeline (`{}`), so it has no default cap; an app that reads one mounts its own `bodyLimit`.
+- **Enforced at the start of the body read.** `readBody` checks the cap before any reader touches the body, so an over-limit body is the 413 before parsing or validation. It is not a second Hono `bodyLimit` middleware: on Hono 4.9.6 two stacked `bodyLimit`s lose bytes of a multi-chunk body and the outer one answers its own 413 over the inner one's. The counter here composes with an app's single `bodyLimit` (the Hono version is re-checked in B28 [#369](https://github.com/Laratypes/Laratype/issues/369)).
+- **Content-Length:** a declared length over the cap is refused without reading the stream. A missing or smaller Content-Length is not trusted: the stream is counted and the read fails on the chunk that crosses the cap, so nothing past that chunk is buffered.
+- **Cached bodies:** a body an earlier middleware read through Hono's readers is measured from Hono's cache when the cache holds its bytes (`text()`, `arrayBuffer()`, `blob()`). A `parseBody()` FormData or parsed fields are already parsed and are not measured again. A middleware that reads the **raw stream itself** (`c.req.raw`) before the pipeline is not covered by the default: it must mount its own Hono `bodyLimit` before it reads, because the bytes are gone and cannot be capped or rebuilt.
+- **Override:** the default is a ceiling. `app/config/http.ts` raises, lowers or disables it. A route or app `bodyLimit` that runs before the pipeline's read (an `app.use()` one, or one in the route's Hono chain) keeps its own 413 when it is smaller; its larger cap cannot raise the default, which still applies at the read. A 0.5 route's `middleware` option and a `Route.api` middleware class run inside the pipeline, after the body read, so a `bodyLimit` there is too late (mount it with `app.use()` or in the Hono route chain).
+- **413:** Hono `bodyLimit`'s own answer, status **413** with `Payload Too Large` as `text/plain`, on 0.5 and `Route.api` routes alike; the exception filter sends it as it is. A smaller route or app `bodyLimit` with a custom `onError` keeps its own body.
+- **Buffering:** the cap bounds the bytes on the wire. A form or multipart body is still buffered about twice when parsed (the bytes, then the `FormData`), so peak memory is about 2× the cap; a large form route relies on the default or mounts its own `bodyLimit`.
+- **Breaking change:** a JSON or form body over 1 MiB, or a multipart body over 10 MiB, now answers 413 even when the app mounts no `bodyLimit`. Raise or disable it in `app/config/http.ts` (`bodyLimit`). An app that mounts its own Hono `bodyLimit` with a larger cap must raise or disable the config too: the default still applies at the read.
+
+### Diagnostics
+- The 413 is the one in [Pipeline validation and 422 › Diagnostics](./validation.md#diagnostics-1): no new message, body or header shape.
+- Runtime, invalid caps: no error. A value that is not a finite number of 0 or more is ignored and the built-in default stays; `false` disables only its own media type, `bodyLimit: false` all three.
+
+### Example
+Runtime tests: [`packages/http/__tests__/request/defaultBodyLimit.test.ts`](../../packages/http/__tests__/request/defaultBodyLimit.test.ts) (each media type over and under, the chunked and lying-Content-Length counters, a cached body, an app and a route `bodyLimit`, the config raise and `false`, 0.5 and `Route.api` routes).
+
+### Non-goals
+- No per-route raise above the default: a route that needs a larger body raises the app config; a per-route raise through `r.contract()` options is a possible follow-up.
+- No cap for a media type the pipeline does not read, and no parsing of human sizes (`'1mb'`): bytes only.
+
+### Acceptance
+[#341 Done when](https://github.com/Laratypes/Laratype/issues/341)
 
 ---
 
