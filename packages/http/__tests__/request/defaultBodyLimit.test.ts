@@ -1,6 +1,6 @@
 // H44 #341: the default request body limit. JSON and urlencoded bodies over 1 MiB, and multipart bodies over 10 MiB,
 // answer 413 without an app `bodyLimit`; the caps live in `app/config/http.ts` (`bodyLimit`), and a route or app
-// `bodyLimit` mounted after the kernel can only tighten them (docs/v1/http.md › Default body limit).
+// `bodyLimit` mounted before the pipeline's read can only tighten them (docs/v1/http.md › Default body limit).
 import "reflect-metadata";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -11,6 +11,7 @@ import { HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, endpoint } from "@laratype/contract";
 import { BODY_LIMIT_DEFAULTS } from "../../src/request/bodyLimit";
 import { Controller, RequestKernel, ResponseKernel, Route } from "../../src/index";
+import type { Ctx } from "../../src/index";
 
 const MIB = 1_048_576;
 
@@ -59,8 +60,9 @@ const mount = (app: Hono, kind: "0.5" | "Route.api"): void => {
     store: endpoint.post("/").body(z.object({ name: z.string() })).response(z.unknown(), 201),
   });
   class Users {
-    store() {
-      return { ok: true };
+    store(ctx: Ctx<typeof users.store>) {
+      // Echo the parsed body, so a test can see it arrived intact under a limit
+      return { name: ctx.body.name };
     }
   }
   Route.api(defineApi({ users: { contract: users, path: "/users", scopes: [] } }), (r) => [r.contract(users, Users)]).mount(app);
@@ -78,7 +80,7 @@ const form = (body: string) => ({
   body,
 });
 
-/** The same, with a Content-Length: Hono's bodyLimit then compares the header and answers 413 without reading. */
+/** The same, with a Content-Length: the default limit then compares the header and answers 413 without reading. */
 const sized = (init: { method: string; headers: Record<string, string>; body: string }) => ({
   ...init,
   headers: { ...init.headers, "Content-Length": String(init.body.length) },
@@ -91,9 +93,15 @@ const expect413 = async (response: Response): Promise<void> => {
   expect(await response.text()).toBe("Payload Too Large");
 };
 
-/** A multipart body of one field, `bytes` bytes of `a`: `Content-Length` makes Hono reject it without reading. */
+/** A multipart body of one field, `bytes` bytes of `a`, with the framing and boundary counted in the raw size. */
 const multipart = (bytes: number) =>
   `--x\r\nContent-Disposition: form-data; name="data"\r\n\r\n${"a".repeat(bytes)}\r\n--x--\r\n`;
+
+/** Both kernels the default covers: a 0.5 route and a `Route.api` contract route. */
+const KINDS = [
+  ["0.5", "0.5"],
+  ["Route.api", "Route.api"],
+] as const;
 
 describe("the default body limit (H44 #341)", () => {
   it("applies the built-in defaults when the app has no config store at all", async () => {
@@ -104,30 +112,21 @@ describe("the default body limit (H44 #341)", () => {
     await expect413(await app.request("/users", sized(json({ name: "a".repeat(MIB) }))));
   });
 
-  it.each([
-    ["0.5", "0.5"],
-    ["Route.api", "Route.api"],
-  ] as const)("answers a JSON body over 1 MiB with 413 on a %s route", async (_label, kind) => {
+  it.each(KINDS)("answers a JSON body over 1 MiB with 413 on a %s route", async (_label, kind) => {
     quiet();
     const app = bootApp();
     mount(app, kind);
     await expect413(await app.request("/users", sized(json({ name: "a".repeat(MIB) }))));
   });
 
-  it.each([
-    ["0.5", "0.5"],
-    ["Route.api", "Route.api"],
-  ] as const)("answers a urlencoded body over 1 MiB with 413 on a %s route", async (_label, kind) => {
+  it.each(KINDS)("answers a urlencoded body over 1 MiB with 413 on a %s route", async (_label, kind) => {
     quiet();
     const app = bootApp();
     mount(app, kind);
     await expect413(await app.request("/users", sized(form(`name=${"a".repeat(MIB)}`))));
   });
 
-  it.each([
-    ["0.5", "0.5"],
-    ["Route.api", "Route.api"],
-  ] as const)("answers a multipart body over 10 MiB with 413 on a %s route", async (_label, kind) => {
+  it.each(KINDS)("answers a multipart body over 10 MiB with 413 on a %s route", async (_label, kind) => {
     quiet();
     const app = bootApp();
     mount(app, kind);
@@ -272,6 +271,17 @@ describe("a body an earlier middleware already read (H44 #341)", () => {
     const app = cachedApp(1_024);
     expect((await app.request("/users", json({ name: "ada" }))).status).toBe(201);
   });
+
+  it("measures cached bytes as well as cached text", async () => {
+    quiet();
+    const app = bootApp({ bodyLimit: { json: 1_024 } });
+    app.use(async (c, next) => {
+      await c.req.arrayBuffer();
+      await next();
+    });
+    mount(app, "0.5");
+    await expect413(await app.request("/users", json({ d: "a".repeat(2_048) })));
+  });
 });
 
 describe("multipart raw bytes (H44 #341)", () => {
@@ -287,15 +297,17 @@ describe("multipart raw bytes (H44 #341)", () => {
 });
 
 describe("an app or route bodyLimit over the default (H44 #341)", () => {
-  it("an app bodyLimit mounted after the kernel tightens the default, with its own 413", async () => {
+  it("an app bodyLimit mounted before the read tightens the default, with its own 413", async () => {
     quiet();
     const app = bootApp();
-    // Mounted after RequestKernel.boot(), as an app provider's boot() is: the kernel default runs first, passes this
-    // under-1-MiB body, and this bodyLimit answers its own 413
+    // An app middleware, as a provider's boot() mounts it: it runs before the pipeline's read, so its smaller cap
+    // sees the stream first and answers its own 413; the default would have let this under-1-MiB body through
     app.use(bodyLimit({ maxSize: 256, onError: () => new Response("app limit", { status: 413 }) }));
-    mount(app, "0.5");
+    mount(app, "Route.api");
     // Under the app's own cap the body reaches the handler intact
-    expect((await app.request("/users", json({ name: "ada" }))).status).toBe(201);
+    const under = await app.request("/users", json({ name: "ada" }));
+    expect(under.status).toBe(201);
+    expect(await under.json()).toEqual({ name: "ada" });
     const response = await app.request("/users", json({ name: "a".repeat(512) }));
     expect(response.status).toBe(413);
     expect(await response.text()).toBe("app limit");
@@ -324,7 +336,7 @@ describe("an app or route bodyLimit over the default (H44 #341)", () => {
     const app = bootApp();
     app.use(bodyLimit({ maxSize: 2 * MIB }));
     mount(app, "0.5");
-    // Over the default and under the app's own cap: the kernel default still answers 413
+    // Over the default and under the app's own cap: the default still answers 413
     await expect413(await app.request("/users", json({ name: "a".repeat(MIB) })));
   });
 });

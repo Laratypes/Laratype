@@ -3,6 +3,8 @@ import type { HonoRequest } from "hono/request";
 import { bufferToFormData } from "hono/utils/buffer";
 import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
+import { bodyCacheOf } from "./bodyCache";
+import type { BodyCache } from "./bodyCache";
 import { enforceBodyLimit, isFormMediaType, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
 
 /**
@@ -27,25 +29,10 @@ const isBlankBody = (bytes: Uint8Array): boolean => {
 
 /**
  * Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. The
- * default limit's own 413 (`PayloadTooLarge`) is the same answer and is rethrown here too (H44 #341).
+ * default limit's own 413 is the same answer and is rethrown here too (H44 #341).
  */
 const isBodyLimitError = (error: unknown): boolean =>
   (error instanceof Error && error.name === "BodyLimitError") || isPayloadTooLarge(error);
-
-/**
- * Hono's request body cache at runtime (Hono 4.9.6): its types say the plain value, but `text()`, `arrayBuffer()` and
- * `blob()` cache the promise the raw request answered, while `parseBody()` and `validator('form')` cache plain values.
- * This is the only place the pipeline reads those internals.
- */
-interface BodyCache {
-  text?: Promise<string>;
-  arrayBuffer?: Promise<ArrayBuffer>;
-  blob?: Promise<Blob>;
-  formData?: Promise<FormData> | FormData;
-  parsedBody?: unknown;
-}
-
-const bodyCacheOf = (request: HonoRequest): BodyCache => request.bodyCache as unknown as BodyCache;
 
 /**
  * The FormData this pipeline parsed, back in Hono's cache. A promise, even though the value is here: Hono chains every

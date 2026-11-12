@@ -1,6 +1,8 @@
 import { HTTPException } from "hono/http-exception";
 import type { HonoRequest } from "hono/request";
 import { config } from "@laratype/core";
+import { bodyCacheOf } from "./bodyCache";
+import type { BodyCache } from "./bodyCache";
 
 /**
  * The default request body limit (docs/v1/http.md › Default body limit): JSON, urlencoded and multipart bodies are
@@ -8,8 +10,8 @@ import { config } from "@laratype/core";
  *
  * Enforced at the start of `readBody`, before any reader touches the stream. Not with a second Hono `bodyLimit`
  * mounted by the kernel: on Hono 4.9.6 two stacked `bodyLimit`s lose bytes of a multi-chunk body, and the outer one
- * answers its own 413 over the inner one's (H44 #341, #369). An app's own `bodyLimit` stays the one limiter in front
- * of the pipeline, and the caps here can only tighten it: an app that needs a larger body raises `http.bodyLimit`.
+ * answers its own 413 over the inner one's (H44 #341). An app's own `bodyLimit` stays the one limiter in front of the
+ * pipeline, and the caps here can only tighten it: an app that needs a larger body raises `http.bodyLimit`.
  */
 
 /** The built-in caps in bytes: Fastify's JSON default, and a higher multipart cap for uploads. */
@@ -19,15 +21,7 @@ export const BODY_LIMIT_DEFAULTS = {
   multipart: 10_485_760,
 } as const;
 
-/** One cap: a byte count, or `false` to read that media type unbounded. */
-export type BodyLimit = number | false;
-
-/** `app/config/http.ts`'s `bodyLimit`: a cap per media type the pipeline reads (`false` disables one). */
-export interface BodyLimitConfig {
-  readonly json?: BodyLimit;
-  readonly form?: BodyLimit;
-  readonly multipart?: BodyLimit;
-}
+type MediaType = keyof typeof BODY_LIMIT_DEFAULTS;
 
 /** The media types Hono's `validator('json')` reads as JSON, with any parameters, the OWS RFC 9110 §8.3.1 allows
  * before the `;` included, and in any case: media types are case-insensitive (RFC 9110 §8.3.1). Hono's regex, which it
@@ -38,26 +32,29 @@ const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
-/** A multipart form body, the type Hono's `parseBody()` reads as fields and `File`s. */
-export const isMultipartMediaType = (contentType: string | undefined): boolean =>
-  contentType !== undefined && contentType.startsWith("multipart/form-data");
-
-/** A urlencoded form body, text by definition: Hono's `parseBody()` reads its fields. */
-export const isUrlencodedMediaType = (contentType: string | undefined): boolean =>
-  contentType !== undefined && contentType.startsWith("application/x-www-form-urlencoded");
+/** The media type whose cap applies to a request, or `undefined` when the pipeline never reads its body. */
+const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
+  if (isJsonMediaType(contentType)) return "json";
+  if (contentType?.startsWith("multipart/form-data")) return "multipart";
+  if (contentType?.startsWith("application/x-www-form-urlencoded")) return "form";
+  return undefined;
+};
 
 /** The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. */
-export const isFormMediaType = (contentType: string | undefined): boolean =>
-  isMultipartMediaType(contentType) || isUrlencodedMediaType(contentType);
+export const isFormMediaType = (contentType: string | undefined): boolean => {
+  const type = mediaTypeOf(contentType);
+  return type === "form" || type === "multipart";
+};
 
-type Limits = { json?: number; form?: number; multipart?: number };
+/** The caps in force: the configured value, else the built-in default, per media type; `undefined` is no cap. */
+type Limits = Partial<Record<MediaType, number>>;
 
 /**
- * A configured cap: a finite byte count of 0 or more. Any other value (a string, a negative number, `NaN`) is ignored
- * and the built-in default stays, so a typo never removes the cap.
+ * A configured cap: a finite byte count of 0 or more, `false` for no cap. Any other value (a string, a negative
+ * number, `NaN`) is ignored and the built-in default stays, so a typo never removes the cap.
  */
-const capOf = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+const capOf = (value: unknown, fallback: number): number | undefined =>
+  value === false ? undefined : (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback);
 
 /**
  * `config()` types its path against the app's `Register` config interface. The framework reads an optional key no app
@@ -80,51 +77,30 @@ const configuredLimits = (): unknown => {
 /** The caps in force: the configured value, else the built-in default, per media type. */
 const resolveLimits = (): Limits => {
   const configured = configuredLimits();
-  // `bodyLimit: false` disables all three caps; a malformed value leaves every default in place
+  // `bodyLimit: false` disables all three caps; a value that is not an object leaves every default in place
   if (configured === false) return {};
   const values = configured !== null && typeof configured === "object" ? (configured as Record<string, unknown>) : {};
   return {
-    json: values.json === false ? undefined : (capOf(values.json) ?? BODY_LIMIT_DEFAULTS.json),
-    form: values.form === false ? undefined : (capOf(values.form) ?? BODY_LIMIT_DEFAULTS.form),
-    multipart: values.multipart === false ? undefined : (capOf(values.multipart) ?? BODY_LIMIT_DEFAULTS.multipart),
+    json: capOf(values.json, BODY_LIMIT_DEFAULTS.json),
+    form: capOf(values.form, BODY_LIMIT_DEFAULTS.form),
+    multipart: capOf(values.multipart, BODY_LIMIT_DEFAULTS.multipart),
   };
 };
 
-/** The cap in force for a request, or `undefined` when its media type is not read by the pipeline or its cap is off. */
-const capFor = (request: HonoRequest): number | undefined => {
-  const contentType = request.header("Content-Type");
-  const type = isJsonMediaType(contentType)
-    ? "json"
-    : isMultipartMediaType(contentType)
-      ? "multipart"
-      : isUrlencodedMediaType(contentType)
-        ? "form"
-        : undefined;
-  return type === undefined ? undefined : resolveLimits()[type];
-};
+const PAYLOAD_TOO_LARGE = Symbol.for("laratype.http.payloadTooLarge");
 
 /**
  * The 413, byte for byte Hono `bodyLimit`'s default answer: `Payload Too Large` as `text/plain`, which the exception
- * filter sends as it is. A subclass, so a read turns it into this 413 and never the malformed-body 400.
+ * filter sends as it is. Branded, so a read turns it into this 413 and never the malformed-body 400, and another copy
+ * of this module still recognizes it.
  */
-class PayloadTooLarge extends HTTPException {
-  constructor() {
-    super(413, { res: new Response("Payload Too Large", { status: 413 }) });
-  }
-}
+const payloadTooLarge = (): HTTPException => {
+  const error = new HTTPException(413, { res: new Response("Payload Too Large", { status: 413 }) });
+  return Object.assign(error, { [PAYLOAD_TOO_LARGE]: true });
+};
 
-export const isPayloadTooLarge = (error: unknown): boolean => error instanceof PayloadTooLarge;
-
-const payloadTooLarge = (): PayloadTooLarge => new PayloadTooLarge();
-
-/** Hono's request body cache at runtime (Hono 4.9.6); see `input.ts` for the full shape. */
-interface BodyCache {
-  text?: Promise<string>;
-  arrayBuffer?: Promise<ArrayBuffer>;
-  blob?: Promise<Blob>;
-  formData?: Promise<FormData> | FormData;
-  parsedBody?: unknown;
-}
+export const isPayloadTooLarge = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as Record<symbol, unknown>)[PAYLOAD_TOO_LARGE] === true;
 
 /**
  * The size of a body an earlier middleware already read through Hono's cache. A rejection is left to the read itself:
@@ -151,12 +127,13 @@ const cachedBytes = async (cache: BodyCache): Promise<number | undefined> => {
 /**
  * Caps the body before the pipeline reads it. A declared Content-Length over the cap is refused without reading the
  * stream. Otherwise the stream is counted: a missing or smaller Content-Length is not trusted, and the read errors on
- * the chunk that crosses the cap, so at most one chunk past it is pulled and nothing else is buffered.
+ * the chunk that crosses the cap, so the source is not pulled further (the streams' own read-ahead aside).
  */
 export const enforceBodyLimit = async (request: HonoRequest): Promise<void> => {
-  const cap = capFor(request);
+  const type = mediaTypeOf(request.header("Content-Type"));
+  const cap = type === undefined ? undefined : resolveLimits()[type];
   if (cap === undefined) return;
-  const cache = request.bodyCache as unknown as BodyCache;
+  const cache = bodyCacheOf(request);
   if (cache.arrayBuffer !== undefined || cache.blob !== undefined || cache.text !== undefined) {
     const bytes = await cachedBytes(cache);
     if (bytes !== undefined && bytes > cap) throw payloadTooLarge();
