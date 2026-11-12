@@ -64,7 +64,7 @@ export default class MakeCommandCommand extends MakeCommand {
     const resourcePath = this.resolve("sauf", "Command.template");
 
     // Every name, signature and destination is checked before the first stub is written: a bad name or a name
-    // another command file already uses fails this run, not the next CLI start, and a retry writes every stub.
+    // another command file already uses fails this run, not the next CLI start, and leaves no stub behind.
     const commands = commandNames.map(commandName => {
       // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
       const fileName = generatorPath(this.getFileName(commandName).replace(/\.ts$/, ""), "command", {

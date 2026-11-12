@@ -18,6 +18,13 @@ const write = (file: string, content: string) => {
   writeFileSync(join(project, file), content);
 };
 
+/** The exact diagnostic of a make:command name another command file already uses. */
+const collisionMessage = (target: string, existing: string, name: string) =>
+  [
+    `Cannot create ${target}: ${existing} already uses the command name ${JSON.stringify(name)},`,
+    "and the manifest reads both. Fix: rename or remove one.",
+  ].join(" ");
+
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
 const sauf = (...args: string[]) => new Promise<{ code: number | null; output: string }>((resolve) => {
   const child = spawn(process.execPath, [saufBin, ...args], {
@@ -109,8 +116,7 @@ describe("app commands", () => {
     const existing = "app/src/console/commands/SendMail.ts";
     const { code, output } = await sauf("make:command", "SendMail");
     expect(code, output).not.toBe(0);
-    expect(output).toContain(`Cannot create ${target}: ${existing} already uses the command name "SendMail"`);
-    expect(output).toContain("and the manifest reads both. Fix: rename or remove one.");
+    expect(output).toContain(collisionMessage(target, existing, "SendMail"));
     expect(existsSync(join(project, target))).toBe(false);
   }, 120_000);
 
@@ -120,9 +126,7 @@ describe("app commands", () => {
     try {
       const { code, output } = await sauf("make:command", "Draft");
       expect(code, output).not.toBe(0);
-      expect(output).toContain(
-        `Cannot create app/console/commands/Draft.ts: ${existing} already uses the command name "Draft"`,
-      );
+      expect(output).toContain(collisionMessage("app/console/commands/Draft.ts", existing, "Draft"));
       expect(existsSync(join(project, "app/console/commands/Draft.ts"))).toBe(false);
     } finally {
       rmSync(join(project, existing), { force: true });
@@ -135,9 +139,7 @@ describe("app commands", () => {
     try {
       const { code, output } = await sauf("make:command", "Clash");
       expect(code, output).not.toBe(0);
-      expect(output).toContain(
-        `Cannot create ${files[0]}: ${files[1]} already uses the command name "Clash"`,
-      );
+      expect(output).toContain(collisionMessage(files[0], files[1], "Clash"));
     } finally {
       for (const file of files) rmSync(join(project, file), { force: true });
     }
@@ -150,11 +152,23 @@ describe("app commands", () => {
     const existing = "app/src/console/commands/SendMail.ts";
     const { code, output } = await sauf("make:command", "PendingCommand", "SendMail");
     expect(code, output).not.toBe(0);
-    expect(output).toContain(
-      `Cannot create ${target}: ${existing} already uses the command name "SendMail", and the manifest reads both. Fix: rename or remove one.`,
-    );
+    expect(output).toContain(collisionMessage(target, existing, "SendMail"));
     expect(existsSync(join(project, valid))).toBe(false);
     expect(existsSync(join(project, target))).toBe(false);
+  }, 120_000);
+
+  it("make:command leaves an existing destination untouched with [SKIPPED]", async () => {
+    const destination = "app/console/commands/ExistingCommand.ts";
+    const content = "export default class ExistingCommand {}\n";
+    write(destination, content);
+    try {
+      const { code, output } = await sauf("make:command", "ExistingCommand");
+      expect(code, output).toBe(0);
+      expect(output).toContain(`[SKIPPED] The file ./${destination} already exists.`);
+      expect(readFileSync(join(project, destination), "utf8")).toBe(content);
+    } finally {
+      rmSync(join(project, destination), { force: true });
+    }
   }, 120_000);
 
   it("make:command rejects a bad signature before writing any stub", async () => {

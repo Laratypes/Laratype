@@ -47,7 +47,8 @@ type RunName =
   | "identifierModel"
   | "identifierPolicy"
   | "identifierGate"
-  | "policyModel";
+  | "policyModel"
+  | "policyModelOk";
 
 /** The runs that are expected to fail, so the type-check test does not demand their files. */
 const failingRuns = new Set<RunName>([
@@ -139,6 +140,7 @@ beforeAll(async () => {
     identifierGate: await sauf("make:gate", "my-note"),
     // `-m` takes the model generator's rules; the policy name is valid, so only the model name is refused
     policyModel: await sauf("make:policy", "DraftPolicy", "-m", "my-note"),
+    policyModelOk: await sauf("make:policy", "UserPolicy", "-m", "User"),
   };
 }, 240_000);
 
@@ -308,7 +310,7 @@ describe("make generators", () => {
     ].join(" "));
     expect(existsSync(join(project, "src/policies/DraftPolicy.ts"))).toBe(false);
 
-    // A sub-path used to be flattened into the policy folder: `../x` is refused before the stub is written
+    // The last segment used to come from `../x` silently: the model rules refuse it before the stub is written
     const escape = await sauf("make:policy", "EscapedPolicy", "-m", "../x");
     expect(escape.code, escape.output).not.toBe(0);
     expect(escape.output).toContain(
@@ -316,6 +318,13 @@ describe("make generators", () => {
     );
     expect(existsSync(join(project, "src/policies/EscapedPolicy.ts"))).toBe(false);
   }, 120_000);
+
+  it("make:policy -m writes the model import and the camelCase parameter", () => {
+    expectOk(runs.policyModelOk);
+    const stub = readFileSync(join(project, "src/policies/UserPolicy.ts"), "utf8");
+    expect(stub).toContain('import User from "../models/User";');
+    expect(stub).toContain("viewAny(actor: User, user: User)");
+  });
 
   it("types:generate gives the nested folder its Prefix", () => {
     expectOk(runs.types);
