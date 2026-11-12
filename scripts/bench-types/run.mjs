@@ -48,7 +48,8 @@ const COMPILER_OPTIONS = {
   target: 'ES2022',
   module: 'ES2022',
   moduleResolution: 'node',
-  lib: ['ES2022', 'DOM'],
+  // tsconfig.app.json sets no lib, so it gets the ES2022 default, DOM.Iterable included (FormData.entries())
+  lib: ['ES2022', 'DOM', 'DOM.Iterable'],
   strict: true,
   skipLibCheck: true,
   noEmit: true,
