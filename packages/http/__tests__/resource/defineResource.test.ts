@@ -1,6 +1,6 @@
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, JsonResource, ResourceCollection, Route, defineResource, when } from '../../src/index'
@@ -153,11 +153,6 @@ describe('a resource through Route.api', () => {
     legacy() { return new JsonResource({ id: 1 }) }
     legacyCollection() { return new ResourceCollection([{ id: 1 }]) }
   }
-
-  beforeAll(() => {
-    // RequestKernel.boot() sets this in an app; the router runs the 0.5 kernel until H2/H3
-    globalThis.__laratype_route_model_bindings = {}
-  })
 
   const app = new Hono()
   Route.api(appApi, (r) => [r.contract(users, UserController)]).mount(app)

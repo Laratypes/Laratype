@@ -1,4 +1,4 @@
-import { type Command as CommandInstance } from "@laratype/console";
+import type { ConsoleCommand } from "@laratype/console";
 import { program } from "commander"
 import { resolveModule, type AppManifest } from "@laratype/support";
 import { resolve } from "node:path";
@@ -9,7 +9,7 @@ import { RollupPluginSwc } from "../utils/plugin";
 import { laratypeDi } from "../di/plugin";
 import { laratypeApi } from "../typegen/plugin";
 import { laratypeManifest, useAppManifest } from "../manifest";
-import Command from "../utils/command";
+import Command, { assertCommandNameFree } from "../utils/command";
 import "../utils/banner"
 
 if(globalThis.__PROD__ === undefined) {
@@ -20,8 +20,14 @@ if(globalThis.__PROD__ === undefined) {
 export class CommandManager {
   protected commands: Array<Command> = [];
 
-  public registerCommand(command: typeof CommandInstance, transpiler: Transpile) {
+  /** The source per command name: the duplicate check names both sources in its error. */
+  protected registered = new Map<string, string>();
+
+  public registerCommand(command: ConsoleCommand, transpiler: Transpile, source: string) {
     const commandWrapper = new Command(command, transpiler);
+    const name = commandWrapper.getCommander().name();
+    assertCommandNameFree(name, this.registered, source);
+    this.registered.set(name, source);
     this.commands.push(commandWrapper);
   }
 
@@ -29,9 +35,9 @@ export class CommandManager {
     const { default: frameworkCommands } = await import("../commands");
     const projectCommands = await importRootCommands(manifest, load);
     const routeCommands = await importRouteConsoleCommands(manifest, load);
-    frameworkCommands.forEach(command => this.registerCommand(command, transpiler));
-    projectCommands.forEach(command => this.registerCommand(command, transpiler));
-    routeCommands.forEach(command => this.registerCommand(command, transpiler));
+    frameworkCommands.forEach(command => this.registerCommand(command, transpiler, "a framework command"));
+    projectCommands.forEach(command => this.registerCommand(command, transpiler, "a command file"));
+    routeCommands.forEach(command => this.registerCommand(command, transpiler, "app/routes/console.ts"));
   }
 
   public async boot() {

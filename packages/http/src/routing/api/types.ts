@@ -1,4 +1,5 @@
 import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, PathParams } from "@laratype/contract";
+import type { Newable } from "@laratype/core";
 import type Middleware from "../../middleware/Middleware";
 import type Request from "../../supports/Request";
 import type { EndpointKey, VerifyController } from "./proof";
@@ -14,7 +15,8 @@ export type ControllerClass = new (...args: any[]) => object;
 /** A policy class. Mounted policies are recorded on the registry; running them is A3 #121. */
 export type PolicyClass = abstract new (...args: any[]) => object;
 
-export type MiddlewareClass = typeof Middleware;
+/** A middleware class: its constructor params are injected from the request's container (H21 #269). */
+export type MiddlewareClass = Newable<Middleware>;
 
 /** The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. Typed middleware is H6 #117. */
 export interface EndpointRouteBuilder {

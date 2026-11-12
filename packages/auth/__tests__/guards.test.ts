@@ -7,8 +7,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { Hono } from 'hono'
 import jsonwebtoken from 'jsonwebtoken'
 import LocalStrategy from 'passport-local'
-import { config, Container, depsRegistry } from '@laratype/core'
-import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, InternalException, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
+import { config, Container, depsRegistry, Facade } from '@laratype/core'
+import { bootProviders, ConfigLoadServiceProvider, ContextApi, EnvLoadServiceProvider, HTTP_APP, Hash, InternalException, ModelBindingRegistry, ServiceProvider, setAppManifest, type AppManifest, type LaratypeConfig } from '@laratype/support'
 import { Controller, Middleware, RequestKernel, ResponseKernel, type Request } from '@laratype/http'
 import { AUTH_CONFIG, Auth, AuthGuard, AuthManager, AuthVerification, Passport, PassportGuard, PassportServiceProvider, PassportStrategy, TokenGuard } from '../src'
 
@@ -143,6 +143,10 @@ const boot = async (withTokenModel = true) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   container.instance(HTTP_APP, app)
+  // The TypeORM entities `DatabaseServiceProvider` registers, for TokenGuard's tokenable_type lookup (D7 #114)
+  const registry = new ModelBindingRegistry()
+  registry.models = { User, Admin, PersonalAccessToken }
+  container.instance(ModelBindingRegistry, registry)
   await bootProviders(container, [RequestKernel, PassportServiceProvider, ResponseKernel])
   app.post('/login', RequestKernel.handle({ method: 'post', path: '/login', controller: [LoginController, 'login'], middleware: [LocalAuthentication] }))
   app.post('/login/manual', RequestKernel.handle({ method: 'post', path: '/login/manual', controller: [LoginController, 'manualLogin'] }))
@@ -160,8 +164,6 @@ const me = (app: Hono, token: string) => app.request('/me', { headers: { Authori
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
   globalThis.__laratype_config = { key: KEY }
-  globalThis.__laratype_route_model_bindings = {}
-  globalThis.__laratype_db = { models: { User, Admin, PersonalAccessToken } } as any
   User.rows = []
   Admin.rows = []
   PersonalAccessToken.rows = []
@@ -169,13 +171,14 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  // bootProviders() makes its container the facade application when none is set: don't leak it into the next test
+  Facade.setFacadeApplication(undefined)
 })
 
 afterAll(() => {
   delete (globalThis as any).__laratype_manifest
   delete (globalThis as any).__laratype_config
   delete (globalThis as any).__laratype_configs
-  delete (globalThis as any).__laratype_db
 })
 
 describe('PassportServiceProvider', () => {
@@ -296,6 +299,17 @@ describe('AuthManager', () => {
 
 describe('TokenGuard', () => {
   const guard = new TokenGuard('api', authConfig.guards.api)
+  // A token record's tokenable_type resolves through ModelBindingRegistry (D7 #114): these tests build the guard
+  // outside boot(), so they get a facade application holding the models (the top-level afterEach clears it)
+  let models: Record<string, unknown>
+  beforeEach(() => {
+    const container = new Container({ deps: depsRegistry })
+    const registry = new ModelBindingRegistry()
+    registry.models = { User, Admin, PersonalAccessToken }
+    container.instance(ModelBindingRegistry, registry)
+    Facade.setFacadeApplication(container)
+    models = registry.models
+  })
 
   it('reads the token through request.bearerToken() only', () => {
     expect(guard.token({ bearerToken: () => 'valid.token' } as unknown as Request)).toBe('valid.token')
@@ -352,7 +366,7 @@ describe('TokenGuard', () => {
     class SuperAdmin extends Admin {
       static override rows: SuperAdmin[] = []
     }
-    ;(globalThis.__laratype_db.models as any).SuperAdmin = SuperAdmin
+    models.SuperAdmin = SuperAdmin
 
     const guard = new TokenGuard('admin', authConfig.guards.admin, PersonalAccessToken as any)
     const superAdmin = make(SuperAdmin, 9, 'root@example.com')
@@ -379,7 +393,7 @@ describe('TokenGuard', () => {
     class SuperAdmin extends Admin {
       static override rows: SuperAdmin[] = []
     }
-    ;(globalThis.__laratype_db.models as any).SuperAdmin = SuperAdmin
+    models.SuperAdmin = SuperAdmin
     make(SuperAdmin, 9, 'root@example.com')
     // Signed for Admin#9, stored as SuperAdmin#9: the record would load a different identity than the token names
     const token = jsonwebtoken.sign({ guard: 'admin', payload: { id: 9, type: 'Admin' } }, KEY)
@@ -446,7 +460,7 @@ describe('TokenGuard', () => {
         Object.entries(fields).every(([key, value]) => (row as any)[key] === value) ? Object.assign(new Account(), row) : null)
     }
     // issueToken() resolves the model by the instance's constructor name
-    ;(globalThis.__laratype_db.models as any).Account = Account
+    models.Account = Account
 
     const guard = new TokenGuard('api', { provider: Account, verification: 'jwt' } as any)
     const token = await guard.issueToken(Object.assign(new Account(), row) as any, { name: 'Default Token', abilities: '*' })
@@ -463,7 +477,7 @@ describe('TokenGuard', () => {
       static findOneBy = vi.fn(async (fields: Record<string, unknown>) =>
         Object.entries(fields).every(([key, value]) => (row as any)[key] === value) ? Object.assign(new Account(), row) : null)
     }
-    ;(globalThis.__laratype_db.models as any).Account = Account
+    models.Account = Account
 
     const record: any = {
       token: 'stored.token',
