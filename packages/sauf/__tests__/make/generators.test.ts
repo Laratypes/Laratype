@@ -46,7 +46,8 @@ type RunName =
   | "identifierMiddleware"
   | "identifierModel"
   | "identifierPolicy"
-  | "identifierGate";
+  | "identifierGate"
+  | "policyModel";
 
 /** The runs that are expected to fail, so the type-check test does not demand their files. */
 const failingRuns = new Set<RunName>([
@@ -68,6 +69,7 @@ const failingRuns = new Set<RunName>([
   "identifierModel",
   "identifierPolicy",
   "identifierGate",
+  "policyModel",
 ]);
 
 let project: string;
@@ -135,6 +137,8 @@ beforeAll(async () => {
     identifierModel: await sauf("make:model", "my-note"),
     identifierPolicy: await sauf("make:policy", "my-note"),
     identifierGate: await sauf("make:gate", "my-note"),
+    // `-m` takes the model generator's rules; the policy name is valid, so only the model name is refused
+    policyModel: await sauf("make:policy", "DraftPolicy", "-m", "my-note"),
   };
 }, 240_000);
 
@@ -293,6 +297,16 @@ describe("make generators", () => {
       "src/gates/my-note.ts",
     ];
     for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+  });
+
+  it("make:policy checks its -m model name with the make:model rules", () => {
+    expect(runs.policyModel.code, runs.policyModel.output).not.toBe(0);
+    expect(runs.policyModel.output).toContain([
+      'Invalid model name "my-note": the last segment names the exported class or function,',
+      'so use a valid identifier (letters, digits and "_", not starting with a digit),',
+      "under src/models.",
+    ].join(" "));
+    expect(existsSync(join(project, "src/policies/DraftPolicy.ts"))).toBe(false);
   });
 
   it("types:generate gives the nested folder its Prefix", () => {
