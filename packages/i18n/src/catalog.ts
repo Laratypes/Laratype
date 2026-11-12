@@ -94,11 +94,9 @@ export const loadMessages = async (manifest: AppManifest = appManifest()): Promi
   return catalog;
 };
 
-/** The catalog's own spellings of every locale that matches `locale`, in lookup order (see `matchLocales`). */
-const catalogChain = (catalog: LangCatalog, locale: string): string[] =>
-  matchLocales(locale, Object.keys(catalog));
-
-/** The message at `file.dotted.key` in the catalog locale `actual`, or `undefined` when the path is a group or missing. */
+/**
+ * The message at `file.dotted.key` in the catalog locale `actual`, or `undefined` when the path is a group or missing.
+ */
 const lookupIn = (catalog: LangCatalog, actual: string, key: string): string | Record<string, string> | undefined => {
   if (!Object.hasOwn(catalog, actual)) return undefined;
   const dot = key.indexOf(".");
@@ -125,7 +123,10 @@ export const lookupMessage = (
   locale: string,
   fallback?: string,
 ): { message: string | Record<string, string>; locale: string } | undefined => {
-  const candidates = [...catalogChain(catalog, locale), ...(fallback ? catalogChain(catalog, fallback) : [])];
+  const candidates = [
+    ...matchLocales(locale, Object.keys(catalog)),
+    ...(fallback ? matchLocales(fallback, Object.keys(catalog)) : []),
+  ];
   const seen = new Set<string>();
   for (const candidate of candidates) {
     const normalized = normalizeLocale(candidate);

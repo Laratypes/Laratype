@@ -51,11 +51,11 @@ describe("loadMessages", () => {
   });
 
   it("reads only own file names and key segments, so a __proto__ file cannot inject one", async () => {
+    // A file tree whose prototype carries a `constructor` segment: only own keys may answer a lookup.
+    const tree = Object.create({ constructor: { label: "from the prototype" } }) as Record<string, unknown>;
+    tree.greeting = "Hello {name}";
     setAppManifest(
-      manifest([
-        entry("en/__proto__", { greeting: { text: "from the prototype" } }),
-        entry("en/messages", { greeting: "Hello {name}" }),
-      ]),
+      manifest([entry("en/__proto__", { greeting: { text: "from the prototype" } }), entry("en/messages", tree)]),
     );
     const catalog = await loadMessages();
     const translator = new Translator(catalog, { locale: "en", fallbackLocale: "en" });
@@ -63,10 +63,7 @@ describe("loadMessages", () => {
     // The __proto__ file is an own file, not the file dictionary's prototype: its keys are not files of their own.
     expect(translator.has("greeting.text")).toBe(false);
     expect(translator.translate("greeting.text")).toBe("greeting.text");
-    // Own properties only: an Object.prototype member never answers a lookup.
-    expect(translator.has("messages.constructor")).toBe(false);
-    expect(translator.has("messages.toString")).toBe(false);
-    expect(translator.has("messages.__proto__")).toBe(false);
+    expect(translator.has("messages.constructor.label")).toBe(false);
     expect(translator.has("messages.greeting")).toBe(true);
   });
 

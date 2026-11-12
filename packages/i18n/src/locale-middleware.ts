@@ -80,8 +80,8 @@ export class LocaleMiddleware extends Middleware {
     // the range's other matches (`en-US`) and fall through to a lower-quality range.
     const fromHeader = ranges
       .filter(({ quality }) => quality > 0)
-      .map(({ tag }) => matchLocales(tag, available).find((locale) => !excluded.has(normalizeLocale(locale))))
-      .find((locale) => locale !== undefined);
+      .flatMap(({ tag }) => matchLocales(tag, available))
+      .find((locale) => !excluded.has(normalizeLocale(locale)));
 
     const locale = fromQuery ?? fromUser ?? fromHeader;
     if (locale === undefined) return next(request);

@@ -7,16 +7,22 @@ export const normalizeLocale = (locale: string): string => locale.trim().replace
 export const baseLocale = (locale: string): string => normalizeLocale(locale).split("-")[0]!;
 
 /**
- * Every supported locale for `tag`, in matching order and without duplicates: the exact tag, then its base language
- * (`en-US` → `en`), then the other regions of that language, case-insensitively. Empty when the tag is empty or `*`.
+ * Every supported locale for `tag`, in matching order and without duplicates (by normalized tag): the exact tag, then
+ * its base language (`en-US` → `en`), then the other regions of that language, case-insensitively. Empty when the tag
+ * is empty or `*`.
  */
-export const matchLocales = (tag: string, available: readonly string[]): string[] => {
+export const matchLocales = (tag: string, available: readonly string[]): readonly string[] => {
   const wanted = normalizeLocale(tag);
   if (wanted.length === 0 || wanted === "*") return [];
   const base = baseLocale(wanted);
   const matches: string[] = [];
+  const seen = new Set<string>();
   const add = (locale: string | undefined): void => {
-    if (locale !== undefined && !matches.includes(locale)) matches.push(locale);
+    if (locale === undefined) return;
+    const normalized = normalizeLocale(locale);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    matches.push(locale);
   };
   add(available.find((locale) => normalizeLocale(locale) === wanted));
   add(available.find((locale) => normalizeLocale(locale) === base));
@@ -31,7 +37,7 @@ export const matchLocales = (tag: string, available: readonly string[]): string[
  * nothing.
  */
 export const matchLocale = (tag: string, available: readonly string[]): string | undefined =>
-  matchLocales(tag, available)[0];
+  matchLocales(tag, available).at(0);
 
 /**
  * The locale of one request (D6 #112): request-scoped, so `LocaleMiddleware` and the controller read the same value.
