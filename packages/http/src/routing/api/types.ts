@@ -4,7 +4,7 @@ import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
 import type { Equal, Matches } from "./equal";
-import type { EndpointKey, VerifyController } from "./proof";
+import type { EndpointKey, Merge, VerifyController } from "./proof";
 
 /**
  * Type side of `Route.api` (docs/v1/http.md › Router v2). It reads the API tree built by `defineApi`
@@ -21,8 +21,9 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 export type MiddlewareClass = Newable<Middleware>;
 
 /**
- * The extensions of the middleware tuple `M`, intersected in order: a key two middleware add with incompatible types
- * becomes `never`, and the route proof rejects it (`middleware extension '<key>' is \`never\``, H6 #117).
+ * The extensions of the middleware tuple `M`, merged in order as `applyExtensions()` merges them at runtime (H6 #117):
+ * a later middleware's key replaces an earlier one's, and `params` is merged one level deep. The route proof checks
+ * each handler against this merged shape, not an intersection, so a handler sees the value the runtime keeps.
  */
 export type ExtOf<M extends readonly MiddlewareItem[]> = ExtOfTuple<M>;
 
@@ -30,7 +31,7 @@ type ExtOfTuple<M extends readonly MiddlewareItem[], X extends object = {}> = M 
   infer H extends MiddlewareItem,
   ...infer R extends readonly MiddlewareItem[],
 ]
-  ? ExtOfTuple<R, X & (H extends TypedMiddleware<infer Ext extends object> ? Ext : {})>
+  ? ExtOfTuple<R, Merge<X, H extends TypedMiddleware<infer Ext extends object> ? Ext : {}>>
   : X;
 
 /**

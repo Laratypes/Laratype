@@ -105,6 +105,99 @@ describe('the context extension', () => {
     expect(await json(app, '/api/posts')).toEqual({ tag: 'second' })
   })
 
+  it.each(['query', 'body', 'endpoint'] as const)('a contract route refuses an extension key it keeps: %s', async (key) => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let handled = 0
+    const bad = defineMiddleware(function badMiddleware(_request, next) {
+      return next({ [key]: { replaced: true } })
+    })
+    class Reads extends Controller {
+      index() { handled++; return { ok: true } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(bad).contract(posts, Reads)]))
+    const res = await app.request('/api/posts')
+    expect(res.status).toBe(500)
+    expect(handled).toBe(0)
+    expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
+      `[@laratype/http] typed middleware badMiddleware passed ${key} to next(): \`${key}\` is reserved on a contract route`,
+    )
+    logged.mockRestore()
+  })
+
+  it('copies an own enumerable symbol key into the ctx', async () => {
+    const traced = Symbol('traced')
+    const extended = { [traced]: 'yes' }
+    const mark = defineMiddleware((_request, next) => next(extended))
+    class Reads extends Controller {
+      index(ctx: Ctx<typeof posts.index>) { return { traced: (ctx as unknown as { [traced]: string })[traced] } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(mark).contract(posts, Reads)]))
+    expect(await json(app, '/api/posts')).toEqual({ traced: 'yes' })
+  })
+
+  it('a second next() rejects instead of running the rest of the pipeline twice', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let handled = 0
+    const twice = defineMiddleware(function twice(_request, next) {
+      return next().then(() => next())
+    })
+    class Reads extends Controller {
+      index() { handled++; return { ok: true } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(twice).contract(posts, Reads)]))
+    const res = await app.request('/api/posts')
+    expect(res.status).toBe(500)
+    expect(handled).toBe(1)
+    expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
+      `[@laratype/http] typed middleware ${twice.handle.name} called next() more than once`,
+    )
+    logged.mockRestore()
+  })
+
+  it('a concurrent second next() rejects too', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let handled = 0
+    const twice = defineMiddleware(function concurrent(_request, next) {
+      return Promise.all([next(), next()])
+    })
+    class Reads extends Controller {
+      index() { handled++; return { ok: true } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(twice).contract(posts, Reads)]))
+    const res = await app.request('/api/posts')
+    expect(res.status).toBe(500)
+    expect(handled).toBe(1)
+    expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
+      `[@laratype/http] typed middleware ${twice.handle.name} called next() more than once`,
+    )
+    logged.mockRestore()
+  })
+
+  it('an ad-hoc route refuses an extension that would replace a request method', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let handled = 0
+    const bad = defineMiddleware(function badMiddleware(_request, next) {
+      return next({ param: 'x' })
+    })
+    const routes = Route.api(appApi, (r) => [
+      r.middleware(bad).get('/shadow', () => { handled++; return { ok: true } }),
+      r.contract(posts, Plain),
+    ])
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request('/shadow')
+    expect(res.status).toBe(500)
+    expect(handled).toBe(0)
+    expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
+      '[@laratype/http] typed middleware badMiddleware passed param to next(): it is a method of the request, and the extension would replace it',
+    )
+    logged.mockRestore()
+  })
+
   it('an own __proto__ key becomes an own ctx field, it does not swap the prototype', async () => {
     // JSON.parse creates an own enumerable `__proto__` data property, as a parsed payload would
     const spread = JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>

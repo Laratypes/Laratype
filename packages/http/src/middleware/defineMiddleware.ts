@@ -1,3 +1,4 @@
+import type { Newable } from "@laratype/core";
 import type Middleware from "./Middleware";
 import type Request from "../supports/Request";
 
@@ -32,8 +33,11 @@ export interface TypedMiddleware<Ext extends object = {}> {
 /** Any typed middleware, whatever it extends, as the runtime sees it. */
 export type AnyTypedMiddleware = TypedMiddleware<any>;
 
-/** What `r.middleware()` takes: a 0.5 `Middleware` class, or a `defineMiddleware()` value. */
-export type MiddlewareItem = typeof Middleware | AnyTypedMiddleware;
+/**
+ * What `r.middleware()` takes: a 0.5 `Middleware` class (its constructor params injected, H21 #269), or a
+ * `defineMiddleware()` value.
+ */
+export type MiddlewareItem = Newable<Middleware> | AnyTypedMiddleware;
 
 /**
  * Declares the context keys a middleware adds: `defineMiddleware<{ user: User }>((request, next) => next({ user }))`.
