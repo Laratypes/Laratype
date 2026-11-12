@@ -253,11 +253,6 @@ export function generateFixture(endpoints) {
     files.set(`contracts/resource-${i}.ts`, contractFile(i, perContract[i]))
     files.set(`controllers/resource-${i}.ts`, controllerFile(i, perContract[i]))
   }
-  files.set(
-    'controllers.ts',
-    Array.from({ length: contractCount }, (_, i) => `export { Resource${i}Controller } from './controllers/resource-${i}'`).join('\n') + '\n',
-  )
-
   const allIndices = Array.from({ length: contractCount }, (_, i) => i)
   files.set('app-api.ts', apiFile(allIndices, 'appApi'))
   const groups = []
@@ -267,6 +262,15 @@ export function generateFixture(endpoints) {
   for (const [group, range] of groups.entries()) {
     files.set(`app-api-${group}.ts`, apiFile(allIndices.slice(range.start, range.end), `appApi${group}`))
   }
+
+  // `routes.ts` imports these same modules, so `routes - controllers` measures only Route.api/r.contract().
+  files.set(
+    'controllers.ts',
+    [
+      ...groups.map((_, group) => `export { appApi${group} } from './app-api-${group}'`),
+      ...Array.from({ length: contractCount }, (_, i) => `export { Resource${i}Controller } from './controllers/resource-${i}'`),
+    ].join('\n') + '\n',
+  )
 
   const routeLines = [
     "import { Route } from '@laratype/http'",

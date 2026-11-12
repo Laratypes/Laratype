@@ -26,9 +26,9 @@ const tscLabel = path.relative(root, tscPath).replaceAll('\\', '/')
 
 /**
  * The cases of the table. `app` is the FE program (contracts + `createClient` usage), which must not load
- * server modules; `controllers` is the server graph without the router (contracts + controllers); `routes`
- * adds `Route.api`/`r.contract()`, so the route proof is the difference between the two. Sizes 100 / 500 /
- * 1000 are recorded; the route proof is also measured at 50.
+ * server modules; `controllers` is the server graph without the router (contracts + controllers + the
+ * `app-api-<group>` modules); `routes` adds `Route.api`/`r.contract()`, so the route proof is the difference
+ * between the two. Sizes 100 / 500 / 1000 are recorded; the route proof is also measured at 50.
  */
 const CASES = [
   { scenario: 'app', endpoints: 100, entry: 'client.ts', globals: false },
@@ -196,7 +196,7 @@ const main = () => {
   const runRoot = mkdtempSync(path.join(cacheRoot, 'run-'))
   try {
     console.log(`Laratype type-performance benchmark (S6 #95) · tsc ${tscVersion}`)
-    console.log('case app: contracts + createClient (FE) · controllers: contracts + controllers (server) · routes: controllers + Route.api/r.contract() (server)')
+    console.log('case app: contracts + createClient (FE) · controllers: contracts + controllers + app-api (server) · routes: controllers + Route.api/r.contract() (server)')
     console.log(`fixture: ${path.relative(root, runRoot).replaceAll('\\', '/')}/<case> · ${CASES.length} cases · ${RUNS} runs each, check = lower\n`)
 
     /** @type {{ scenario: string, endpoints: number, contracts: number, files?: number, checkMs: number, totalMs?: number, instantiations?: number, memoryKb?: number, wallMs: number }[]} */
