@@ -14,7 +14,7 @@ last-verified: 2026-10-10
 
 | Section | Status |
 |---|---|
-| [BindableModel](#bindablemodel) | proposed: PR <leader fills> @ 4009b12 (H7 #118); spec merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347), S5 #88 step 1); H14 #163 reuses it |
+| [BindableModel](#bindablemodel) | proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 4009b12 (H7 #118); spec merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347), S5 #88 step 1); H14 #163 reuses it |
 | [Model](#model) | planned → #145 |
 | [Fillable and hidden](#fillable-and-hidden) | planned → #146 |
 | [Relations and with()](#relations-and-with) | planned → #147 |
@@ -27,7 +27,7 @@ last-verified: 2026-10-10
 ## BindableModel
 
 ### Status
-proposed: PR <leader fills> @ 4009b12 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118)). The spec was merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347)); the type-only export lands with H7, and [#163](https://github.com/Laratypes/Laratype/issues/163) (H14) uses it. The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM). H14 binds models through the same interface; S5 step 2 keeps TypeORM ([S5 decision](./overview.md#decision-log)), so H14 no longer waits for it.
+proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 4009b12 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118)). The spec was merged @ 1f35b7b (PR [#347](https://github.com/Laratypes/Laratype/pull/347)); the type-only export lands with H7, and [#163](https://github.com/Laratypes/Laratype/issues/163) (H14) uses it. The interface is agreed in S5 [#88](https://github.com/Laratypes/Laratype/issues/88) step 1 (the user's 2026-10-10 two-step decision on the ORM). H14 binds models through the same interface; S5 step 2 keeps TypeORM ([S5 decision](./overview.md#decision-log)), so H14 no longer waits for it.
 
 ### Public API
 Type-only, exported by `@laratype/database` ([`packages/database/src/eloquent/BindableModel.ts`](https://github.com/Laratypes/Laratype/blob/4009b12/packages/database/src/eloquent/BindableModel.ts)). It describes the **static side** of a model class, because `.bind({ user: User })` passes the class.
