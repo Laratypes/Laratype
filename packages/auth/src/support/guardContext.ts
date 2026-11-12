@@ -1,4 +1,5 @@
 import { ContextApi } from "@laratype/support";
+import type { GuardName } from "../Register";
 
 /**
  * The guard that authenticated the current request, per request store (A6 #335): `ContextApi` keeps the user only,
@@ -19,8 +20,11 @@ export const setAuthenticatedUser = (user: unknown, guardName?: string): void =>
   }
 };
 
-/** The guard that authenticated the current request, or `undefined` when none did (or outside a request). */
-export const authenticatedGuard = (): string | undefined => {
+/**
+ * The guard that authenticated the current request, or `undefined` when none did (or outside a request). Only a guard
+ * of the app config authenticates, and `Register['guards']` is that config, so the name is a `GuardName` (A1 #119).
+ */
+export const authenticatedGuard = (): GuardName | undefined => {
   const store = ContextApi.getRequestStore().getStore();
-  return store ? authenticatedGuards.get(store) : undefined;
+  return store ? (authenticatedGuards.get(store) as GuardName | undefined) : undefined;
 };
