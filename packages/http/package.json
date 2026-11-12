@@ -33,7 +33,7 @@
     "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",
     "@laratype/validation": "workspace:*",
-    "es-toolkit": "^1.31.0"
+    "es-toolkit": "^1.53.0"
   },
   "devDependencies": {
     "zod": "catalog:",
