@@ -43,9 +43,18 @@ export const assertCommandNameFree = (name: string, registered: ReadonlyMap<stri
  */
 const filtersProviders = (command: CommandClass): boolean => overridesProviders(command)
 
+/** `<names...>` -> `names...`: the name Commander reads, without the `<>`/`[]` wrapper. */
+const bareArgumentName = (name: string) => name.replace(/^<|^\[/, '').replace(/>$|\]$/, '')
+
 /** `--class <class>` / `<names...>` -> `class` / `names`, so a signature never registers the same one twice. */
 const legacyArgumentName = (name: string) =>
-  name.replace(/^<|^\[/, '').replace(/>$|\]$/, '').replace(/\.\.\.$/, '').replace(/\?$/, '')
+  bareArgumentName(name).replace(/\.\.\.$/, '').replace(/\?$/, '')
+
+/**
+ * Commander's `Argument` marks a name variadic only when the bracket-stripped name ends with `...`, so
+ * `<release...notes>` is not variadic; matching that rule keeps the order check from rejecting what it registers.
+ */
+const legacyVariadic = (name: string) => bareArgumentName(name).endsWith('...')
 
 /** The camelCase key of a legacy `static.options` flags string (`'-p, --port <port>'` -> `port`). */
 const legacyOptionKey = (flags: string): string | undefined => {
@@ -100,7 +109,7 @@ export default class Command {
     assertArgumentOrder(this.signature, [
       ...legacy.map((argument) => ({
         name: legacyArgumentName(argument.name),
-        variadic: argument.name.includes('...'),
+        variadic: legacyVariadic(argument.name),
       })),
       ...this.parsed.arguments
         .filter((argument) => !legacyNames.has(argument.name))

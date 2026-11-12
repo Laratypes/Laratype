@@ -41,6 +41,24 @@ class LegacyOrder extends BaseCommand {
   static bootsApp = false;
 }
 
+/** `...` inside the name, not at its end: Commander registers it as a plain argument, so the order is valid. */
+class LegacyEllipsisInside extends BaseCommand {
+  static readonly signature = "legacy:ellipsis" as const;
+
+  static arguments = [{ name: "<release...notes>" }, { name: "<user>" }];
+
+  static bootsApp = false;
+}
+
+/** A trailing `...` makes the argument variadic, so the argument after it is the order failure. */
+class LegacyVariadicFirst extends BaseCommand {
+  static readonly signature = "legacy:variadic" as const;
+
+  static arguments = [{ name: "<notes...>" }, { name: "<user>" }];
+
+  static bootsApp = false;
+}
+
 describe("the command wrapper", () => {
   it("maps a signature argument deduplicated against a 0.5 static argument to the same positional value", async () => {
     const transpiler = { close: async () => {} } as unknown as Transpile;
@@ -62,6 +80,18 @@ describe("the command wrapper", () => {
 
     // The same failure between two 0.5 declarations, before Commander registers either
     expect(() => new Command(LegacyOrder, transpiler)).toThrow(message("legacy:order"));
+  });
+
+  it("reads a 0.5 variadic the way Commander does, by a trailing ... after the brackets", () => {
+    const transpiler = { close: async () => {} } as unknown as Transpile;
+
+    // `<release...notes>` keeps `...` inside its name, so Commander registers it and the following argument is fine
+    expect(() => new Command(LegacyEllipsisInside, transpiler)).not.toThrow();
+
+    // `<notes...>` is variadic, so a following argument still fails with the variadic reason
+    expect(() => new Command(LegacyVariadicFirst, transpiler)).toThrow(
+      'Invalid command signature "legacy:variadic": "notes" is variadic, so it must be the last argument',
+    );
   });
 });
 
