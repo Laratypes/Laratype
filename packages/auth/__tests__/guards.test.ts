@@ -90,7 +90,7 @@ const entry = (name: string, value: unknown) => ({ name, path: `app/${name}.ts`,
 const manifest = (withTokenModel = true): AppManifest => ({
   configs: [entry('auth', authConfig)],
   models: withTokenModel ? [entry('PersonalAccessToken', PersonalAccessToken)] : [],
-  routes: [], commands: [], migrations: [], seeders: [], factories: [], modules: [],
+  routes: [], commands: [], migrations: [], seeders: [], factories: [], modules: [], lang: [],
 })
 
 class LocalAuthentication extends Middleware {

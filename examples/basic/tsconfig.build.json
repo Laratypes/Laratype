@@ -33,6 +33,8 @@
     ".laratype/api/**/*",
     // The v1 layout keeps database/ at the project root (docs/v1/overview.md › Project structure)
     "database/**/*",
+    // Translations ship in dist/app.manifest.js (docs/v1/services.md › Localization); sauf build warns without this
+    "lang/**/*",
   ],
   "exclude": ["node_modules", "<node_internals>/**", "./dist/**/*"],
 }

@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Console } from '@laratype/console';
 import { getAppPath, setAppManifest, type AppManifest } from '@laratype/support';
-import LaratypeBuildCommand, { loadBuildTypeScript, writeDistManifest } from '../../src/commands/build';
+import LaratypeBuildCommand, { loadBuildTypeScript, warnOmitted, writeDistManifest } from '../../src/commands/build';
 import { MANIFEST_FILE, useAppManifest } from '../../src/manifest';
 
 /**
@@ -21,13 +21,14 @@ const write = (dir: string, file: string, content = 'export default {};\n') => {
 };
 
 /** A project with `tsconfig.build.json` = `compilerOptions` + `extra`, compiled with tsc (the build's first step). */
-const project = (name: string, compilerOptions: Record<string, unknown>, extra: Record<string, unknown> = {}, root = tmp) => {
+const project = (name: string, compilerOptions: Record<string, unknown>, extra: Record<string, unknown> = {}, root = tmp, files: Record<string, string> = {}) => {
   const dir = join(root, name);
   write(dir, 'app/config/config.ts', 'export default { name: "demo" };\n');
   write(dir, 'app/config/providers.ts', 'export default [];\n');
   write(dir, 'app/src/models/User.ts', 'export default class User {};\n');
   write(dir, 'app/database/factories/UserFactory.ts', 'export default class UserFactory {};\n');
   write(dir, 'database/seeders/DatabaseSeeder.ts', 'export default class DatabaseSeeder { layout = "v1" };\n');
+  for (const [file, content] of Object.entries(files)) write(dir, file, content);
   write(dir, 'tsconfig.build.json', JSON.stringify({
     compilerOptions: { target: 'ES2022', module: 'ES2022', moduleResolution: 'node', skipLibCheck: true, types: [], outDir: './dist', ...compilerOptions },
     include: ['app/**/*'],
@@ -119,6 +120,17 @@ describe('writeDistManifest', () => {
     expect((await load(file)).factories).toEqual([]);
   });
 
+  it('a lang file inside the build program ships in the manifest', async () => {
+    const dir = project('lang-inside', {}, { include: ['app/**/*', 'database/**/*', 'lang/**/*'] }, tmp, {
+      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+    });
+    const { file, omitted } = writeDistManifest(ts, dir);
+    expect(omitted).toEqual([]);
+    const manifest = await load(file);
+    expect(manifest.lang.map((entry) => entry.name)).toEqual(['en/messages']);
+    expect((await manifest.lang[0]!.load()).default).toEqual({ greeting: 'Hello {name}' });
+  });
+
   it('a source in the program whose output is missing is an error', () => {
     const dir = project('missing', {});
     unlinkSync(join(dir, 'dist/src/models/User.js'));
@@ -178,9 +190,43 @@ describe('writeDistManifest', () => {
   });
 });
 
+describe('warnOmitted', () => {
+  const langFixture = (name: string) =>
+    project(name, {}, {}, tmp, {
+      'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+    });
+
+  it('warns that a lang file outside the build program is not shipped', async () => {
+    const { omitted } = writeDistManifest(ts, langFixture('lang-outside'));
+    expect(omitted).toContain('lang/en/messages.ts');
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      warnOmitted(omitted);
+      expect(warn).toHaveBeenCalledWith(
+        'Lang files are not in the program of tsconfig.build.json, so dist/app.manifest.js leaves them out and production has no translations for them: lang/en/messages.ts (add "lang/**/*" to the build tsconfig\'s "include")',
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps the generic warning for the other kinds left out of the program', async () => {
+    const { omitted } = writeDistManifest(ts, langFixture('lang-outside-generic'));
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      warnOmitted(omitted);
+      expect(warn).toHaveBeenCalledWith(
+        'Not in the program of tsconfig.build.json, so left out of dist/app.manifest.js: database/seeders/DatabaseSeeder.ts (add their folder to "include" to ship them)',
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 describe('getAppPath (deprecated) in production', () => {
   const previous = { prod: globalThis.__APP_PROD__, cwd: process.cwd(), manifest: (globalThis as { __laratype_manifest?: AppManifest }).__laratype_manifest };
-  const base = { configs: [], routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [] } satisfies AppManifest;
+  const base = { configs: [], routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [], lang: [] } satisfies AppManifest;
   let dir: string;
 
   beforeAll(() => {
@@ -255,6 +301,34 @@ describe('sauf build', () => {
       process.chdir(cwd);
       info.mockRestore();
       start.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('warns without failing when a lang file is outside the build program', async () => {
+    const cwd = process.cwd();
+    const root = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), '.cli-lang-'));
+    const start = vi.spyOn(Console, 'start').mockImplementation(() => {});
+    const info = vi.spyOn(Console, 'info').mockImplementation(() => {});
+    const success = vi.spyOn(Console, 'success').mockImplementation(() => {});
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const dir = project('app', {}, {}, root, {
+        'lang/en/messages.ts': 'export default { greeting: "Hello {name}" };\n',
+      });
+      write(dir, 'package.json', '{ "name": "build-lang-fixture", "version": "0.0.0" }');
+      process.chdir(dir);
+      const command = new LaratypeBuildCommand();
+      command.opts = () => ({ platform: 'node' });
+      await expect(command.handle()).resolves.toBe(0);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('production has no translations for them: lang/en/messages.ts'));
+      expect(readFileSync(join(dir, 'dist', MANIFEST_FILE), 'utf8')).toContain('  lang: [],');
+    } finally {
+      process.chdir(cwd);
+      start.mockRestore();
+      info.mockRestore();
+      success.mockRestore();
+      warn.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });
