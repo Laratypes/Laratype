@@ -17,7 +17,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | Section | Status |
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions planned → #117, `r.bind()` planned → #118 |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458); `r.bind()` planned → #118 |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7) |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
@@ -25,7 +25,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
-| [Typed middleware](#typed-middleware) | planned → #117 |
+| [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
@@ -113,7 +113,7 @@ Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../pack
 ## Route proof at r.contract()
 
 ### Status
-Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params, and `Route.api` runs it with neither until the builder provides them: typed middleware → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6), `r.bind()` → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7). Until then a handler that requires either fails the proof.
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458) and with no bindings until `r.bind()` lands ([#118](https://github.com/Laratypes/Laratype/issues/118), H7). Until then a handler that requires a bound param fails the proof.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -135,22 +135,25 @@ Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routi
 // What the runtime passes (H3 #106): BaseCtx with every path param of the full path, X, and the bound params
 type Provided<E, Path extends string, X extends object = {}, B = {}> =
   Merge<BaseCtx<E, FullParams>, X & { params: BoundParams<FullParams, B> }>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
-// Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 and H7 #118 feed X and B
+// Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 feeds X, H7 #118 feeds B
 type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}>;
-type RouteProof<A, C, I, O>;          // VerifyController for the tree entry r.contract() mounts, with X = B = {}
+type RouteProof<A, C, I, O, X extends object = {}>;   // VerifyController for the tree entry r.contract() mounts, with B = {}
+type Merge<Base, Extra>;              // Base with Extra on top, params merged one level deep: the runtime's own merge rule (also what ExtOf merges a middleware tuple with)
 type Binder;                          // a model class or a resolver (raw: string) => value, for r.bind() (H7)
 
-interface ApiRouteBuilder<A> {
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
-    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
     options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;
 }
 ```
 
+`Merge<Base, Extra>` is exported too: `Ctx` and `Provided` build on it, and `ExtOf` merges a middleware tuple with it (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
+
 ### Invariants
-- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the intersection of every middleware's extension in order, and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
+- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the extensions of the route builder's `r.middleware()` calls, merged in order as the runtime merges them (a later middleware wins a key, `params` one level deep; typed middleware, [Typed middleware](#typed-middleware)), and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
 - **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
-- **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide.
+- **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide. A provided key typed `never` (a middleware declares it `never`) fails first with the extension diagnosis ([Typed middleware](#typed-middleware) › Diagnostics).
 - **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
 - **Second parameter:** the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
 - **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
@@ -159,11 +162,12 @@ interface ApiRouteBuilder<A> {
   - `.bind()` keys that are not a path param of any endpoint (a type today; `r.bind()` is H7 [#118](https://github.com/Laratypes/Laratype/issues/118));
   - a handler typed for a different endpoint (told by `ctx.endpoint`: two endpoints with identical types can't be told apart);
   - a base `Controller` member (`exposed`) is not a handler, as at runtime. The types also reject an own override of it in a subclass, and an `exposed()` method of a plain class (not a `Controller` subclass), though the runtime accepts both;
+  - a middleware extension that names `query`, `body` or `endpoint` of a contract route: the route keeps them, so the proof refuses the key ([Typed middleware](#typed-middleware) › Invariants);
   - an endpoint with its own `.authorize()` needs the `policy` of `r.contract()`, with a method named after the endpoint or a `before` method (a property that is not a function doesn't count). A specific policy class that may be `undefined` is no policy; a policy typed `any` or only as `PolicyClass` (options typed `ContractRouteOptions<C>`) is not checked. For `.authorize(flag)` with a `boolean` flag, the types want a policy whatever the flag (stricter on purpose), while `Route.api`'s mount check, which wants a policy class as it does for a scope with `authorize`, fires only when the flag is `true` at runtime. Running the policy is [#121](https://github.com/Laratypes/Laratype/issues/121).
 - **Handlers:** any callable property passes the type check (so `action()` can come later), but the runtime still requires class methods ([Router v2](#router-v2)).
 - **Options:** `r.contract(c, Ctrl, { policy, endpoints: {...} })`, merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105), see [Router v2](#router-v2)).
   - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It is recorded, not run: running it is planned → [#121](https://github.com/Laratypes/Laratype/issues/121). The compile check that an `.authorize()` endpoint has one is merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
-  - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(audit()) }`. Their extensions count for that endpoint only (typed middleware is planned → [#117](https://github.com/Laratypes/Laratype/issues/117)). Endpoint names can't collide with option keys.
+  - `endpoints` holds per-endpoint middleware as callbacks keyed by endpoint name, for example `{ destroy: (r) => r.middleware(Audit) }`, with 0.5 `Middleware` classes: a `defineMiddleware()` value there is not proven (the callback type rejects it); the runtime still merges its extension into the ctx ([Typed middleware](#typed-middleware) › Non-goals). Endpoint names can't collide with option keys.
   - `options` and `endpoints` have `Object.prototype` or `null` as their prototype, with no inherited enumerable key: `r.contract()` throws otherwise (for example on a class instance or an `Object.create(base)` object), since a callback under an inherited key would be dropped (H22 [#271](https://github.com/Laratypes/Laratype/issues/271)). When its builder has no tree entry for the contract, `r.contract()` cannot name it, so `Route.api` throws when the item is mounted, with the same message. `r.contract()` copies every own key of both, non-enumerable ones included (so those are checked as unknown options or endpoint names too), into frozen objects with a `null` prototype: mutating the originals afterward changes no route, and nothing inherited is read.
 - **Return check, errors:** errors are thrown, so the return check covers the response schema only.
 - **Readable errors:** when the controller is valid, the controller parameter's type is `K & unknown`. Otherwise it is an object type whose **property names are the diagnosis**, because tsc prints missing property names in full but truncates property types.
@@ -198,7 +202,7 @@ Route.api(appApi, (r) => [
 - No runtime re-check of what the types already prove.
 
 ### Open questions
-- Resolved: middleware for a single endpoint of a contract goes in a callback map keyed by endpoint name, under `endpoints` in the options of `r.contract()` ([#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)).
+- Resolved: middleware for a single endpoint of a contract goes in a callback map keyed by endpoint name, under `endpoints` in the options of `r.contract()` ([#105](https://github.com/Laratypes/Laratype/issues/105), [#117](https://github.com/Laratypes/Laratype/issues/117)). The callbacks take 0.5 `Middleware` classes; a typed middleware there is a non-goal of the [#117](https://github.com/Laratypes/Laratype/issues/117) PR ([Typed middleware](#typed-middleware) › Non-goals).
 - Resolved: an optional path param with `.bind()` is typed `Model | undefined`. An absent param gives `undefined`; a present param with no match gives 404 ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - Type performance of `VerifyController` with 50+ endpoints → [#95](https://github.com/Laratypes/Laratype/issues/95) (S6)
 
@@ -221,10 +225,11 @@ class Route {
     appApi: A, routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>): ApiRoutes;
 }
 
-interface ApiRouteBuilder<A> {
-  middleware(...middleware: MiddlewareClass[]): ApiRouteBuilder<A>;                       // 0.5 Middleware classes
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W]>;   // 0.5 classes or defineMiddleware values
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>>;
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
-    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }>,
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
     options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;               // a contract or its tree node; Route proof
   scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
   get: AdHocRouteMethod<"get">;                                                         // ad-hoc routes, see Ad-hoc routes
@@ -247,7 +252,8 @@ type EndpointCallback<K> = K extends keyof Object       // not exported; a key n
 // not return the builder) is a mount error, not a compile error
 
 interface EndpointRouteBuilder {
-  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;                   // 0.5 classes (H6 #117)
+  withoutMiddleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
 }
 
 class ApiRoutes {                                // exported as a type: only Route.api() builds one
@@ -259,7 +265,7 @@ class ApiRoutes {                                // exported as a type: only Rou
 
 interface RouteEntry extends ApiRoute {          // name, method, path, endpoint, contract, scopes + resolved capabilities
   readonly controller: readonly [ControllerClass, string];
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
   readonly unenforced: readonly ("auth" | "authorize" | "validation")[];   // what the router does not enforce yet
@@ -291,7 +297,7 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(ctx, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
 - **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner), and the `policy` of `r.contract()` on each route of the contract (`RouteEntry.policy`). Running them is planned → [#121](https://github.com/Laratypes/Laratype/issues/121): a scope policy's `before` needs the signed-in user ([#120](https://github.com/Laratypes/Laratype/issues/120)) and the bound models ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - **Auth and headers validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` is enforced by `mount()` ([Rate limiting](#rate-limiting)). The query and body schemas are validated (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155); a headers schema is not, so a route whose endpoint has one is listed with `validation`. `RouteEntry.unenforced` records which of `auth`, `authorize` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
-- **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. Typed middleware is H6 [#117](https://github.com/Laratypes/Laratype/issues/117).
+- **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. `r.middleware()` takes 0.5 `Middleware` classes and typed middleware ([Typed middleware](#typed-middleware)); `r.withoutMiddleware(...)` drops what the builder accumulated. The `endpoints` callbacks take 0.5 classes only.
 - **Domain.** `.domain('api.example.com')` serves the routes on that hostname only. The hostname is made of non-empty labels of letters, digits and inner hyphens. `.domain()` re-labels the routes `Route.api` already checked. The match reads the `Host` header only (the request URL's host when there is none, as with an in-process `app.request()`), never `X-Forwarded-Host`: behind a proxy, the proxy must preserve the `Host` header. It ignores case, the request port (dev Host headers carry `:3000`) and one trailing dot (`api.example.com.`). A request for another host falls through to the next matching route, or gets a 404. `.domain()` is name-based virtual hosting, not an access-control boundary: any client can send any `Host` header, so no guard or policy may key on the domain alone.
 - **Registry.** `mount()` returns one `RouteEntry` per contract route, then one `AdHocRouteEntry` per ad-hoc route ([Ad-hoc routes](#ad-hoc-routes)). `RouteAppServiceProvider.boot()` binds what `routes()` returns as a `RouteRegistry` in the app container (D7 [#114](https://github.com/Laratypes/Laratype/issues/114)), and `sauf route:list` reads `RouteRegistry.current().routes`, both v2 and 0.5 entries.
 - **Tree source.** In dev, the `laratype:api` plugin runs G1's scan and emit (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, with no TS checker and no `api.ts`) with config `api.root` / `api.base` from `app/config/config.ts`, then resolves `$api` to `.laratype/api/index.gen.ts`. The config is read outside the app's module graph: the project's `.env` is loaded first (`loadEnv`, as `EnvLoadServiceProvider` does), then the file is imported by an isolated jiti instance with no module cache, so the app's own later import evaluates it fresh with env loaded, and a config importing a module still loading up the app's import chain cannot deadlock the scan. That import evaluates the config's whole import graph, so the plugin runs it again only when the content of `app/config/config.ts` changed: a rescan for a contract added or deleted reuses the last value, and a failed read is not kept.
@@ -480,7 +486,11 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 → serialize (Resource / response schema) → exception filter
 ```
 
-- **From the contract:** the auth guard, the rate limit and the policies are applied from the contract's capabilities, so API routes need no auth or throttle middleware ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
+- **From the contract:** the auth guard, the rate limit and the policies are applied from the contract's capabilities
+  ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). The rate limit runs
+  today (`mount()`); the auth guard and the policies are planned → [#105](https://github.com/Laratypes/Laratype/issues/105),
+  [#121](https://github.com/Laratypes/Laratype/issues/121): until they run, a route needs its own authentication
+  middleware or guard.
 - **Parsing and validation (H3):** see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422). The pipeline builds the typed handler context.
 - **Replaces:** `RequestKernel.pipeline` and `processValidation`. H3 [#106](https://github.com/Laratypes/Laratype/issues/106) runs the contract validation as their `request` step, so 0.5 routes keep `processValidation`; the fixed order above replaces both with the guard and interceptor steps ([#105](https://github.com/Laratypes/Laratype/issues/105), [#138](https://github.com/Laratypes/Laratype/issues/138)).
 
@@ -626,15 +636,182 @@ Runtime tests in `packages/http/__tests__/response/`: [`exceptionFilter.test.ts`
 ## Typed middleware
 
 ### Status
-planned → [#117](https://github.com/Laratypes/Laratype/issues/117) (H6).
+proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117), M2). The 0.5 `Middleware` class
+stays for 0.5 routes; `Route.api` builders take both it and the typed middleware. `MiddlewareHandler` stays the 0.5
+`(request, res, next)` type; the typed handler is `TypedMiddlewareHandler`, so the two names don't shadow each other.
 
-### Design (non-binding)
-- **Definition:** `defineMiddleware<Ext>((ctx, next) => next(ext))` declares the context keys it adds (#117). The S1 spike has the same shape in `router.ts`.
-- **Not for API auth:** authentication and rate limits come from the contract's `auth` and `throttle` ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). Examples use other middleware, such as `audit()`.
-- **Per endpoint:** middleware for one endpoint goes in `r.contract(c, Ctrl, { endpoints: {...} })` ([Route proof](#route-proof-at-rcontract)).
-- **Accumulation:** the route builder accumulates `Ext` across global, group and route middleware, so the handler sees the combined context. A missing middleware is reported at `r.contract()` (see [Route proof](#route-proof-at-rcontract)).
-- **Opt-out:** `withoutMiddleware`.
-- **Port:** replaces `packages/http/src/middleware/Middleware.ts`.
+### Public API
+[`packages/http/src/middleware/defineMiddleware.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/middleware/defineMiddleware.ts) ·
+[`routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/types.ts)
+
+```ts
+function defineMiddleware<Ext extends object = {}>(handle: TypedMiddlewareHandler<Ext>): TypedMiddleware<Ext>;
+type TypedMiddlewareHandler<Ext extends object = {}> = (
+  request: Request,                                  // the 0.5 request class: headers, params, body
+  // `ext` is required when Ext has a required key; optional when every key is optional (or Ext is `{}`)
+  next: (...args: {} extends Ext ? [ext?: Ext] : [ext: Ext]) => Promise<unknown>,
+) => unknown | Promise<unknown>;
+interface TypedMiddleware<Ext extends object = {}> {
+  readonly __ext?: Ext;                               // phantom: the context keys it adds
+  readonly handle: TypedMiddlewareHandler<Ext>;
+}
+function isTypedMiddleware(value: unknown): value is TypedMiddleware<any>;
+type MiddlewareItem = MiddlewareClass | TypedMiddleware<any>;   // what r.middleware() takes
+
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W]>;
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>>;
+  // RouteProof runs with ExtOf<M>, the extensions M adds merged in order (last wins; params one level deep)
+  contract<C, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
+    contract: C,
+    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;
+}
+
+interface EndpointRouteBuilder {                       // the r of an endpoints callback: 0.5 classes only
+  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+  withoutMiddleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+}
+```
+
+`ExtOf<M>` is exported too: it is the extensions of `M` merged in order, as the runtime merges them (Invariants).
+
+### Invariants
+- **Definition:** `defineMiddleware<Ext>((request, next) => next(ext))` declares the context keys it adds. It runs after
+  the 0.5 request body is parsed, but before contract input is validated and the handler ctx is built: `request` is the
+  0.5 request object (a contract route's has `endpoint`), and `next(ext)` merges `ext` into the handler ctx and
+  continues the pipeline. `next` takes `ext` as a required argument when `Ext` has a required key, and as an optional one
+  when every key is optional or `Ext` is `{}`; a call without it adds nothing at runtime. A middleware that does not
+  call `next()` short-circuits: its value is the handler's value (a 0.5 `response()` keeps its status, see
+  [Response from the contract](#response-from-the-contract)). A second `next()` (or a concurrent one) rejects with the
+  message under Diagnostics, naming the middleware: each middleware runs the rest of the pipeline at most once.
+- **The merge:** own enumerable keys of `ext`, string and symbol keys alike, in middleware order, so a later middleware
+  wins a key it also adds. Each key is defined as an own enumerable data property, so an own `__proto__` key is a ctx
+  field and never swaps the ctx prototype. A `params` key is merged one level deep, as `Ctx` merges it, so an extension
+  adds a param next to the path params instead of replacing them. The ctx's `endpoint` field is pinned after the merge:
+  it is still the route's endpoint, non-writable and non-enumerable ([Controller typing](#controller-typing-ctx-and-controllerof)).
+  An extension is an object of context keys, applied as written: a function (or any other non-object) is rejected on
+  purpose. A `next(ext)` whose `ext` is not an object fails the request with the message under Diagnostics, naming the
+  middleware.
+- **Reserved keys:** a contract route's ctx keeps the endpoint's validated `query` and `body` and its `endpoint`, so an
+  extension under one of those keys fails the request before the handler, with the message under Diagnostics naming the
+  middleware and the key. `params` is an allowed extension key (merged one level deep). A `TypedMiddleware` whose `Ext`
+  has a reserved key fails the route proof at `r.contract()` the same way, whatever its handlers declare.
+- **On a route without a contract** (an ad-hoc route), the extensions are applied onto the 0.5 request object the handler
+  gets, so a key that names a method of the request (own or inherited: `param`, `input`, ...) fails the request before the
+  handler the same way: it would replace the method. A contract route's ctx is a new object, so its extension keys only
+  clash with the reserved ones above.
+- **Accumulation:** `r.middleware(...)` returns a new builder, so the extensions accumulate on that builder in call
+  order, and the contract it mounts gets all of them: `r.middleware(auth).middleware(audit).contract(posts, PostController)`
+  extends every handler of `posts`. A builder mounted at two levels carries its extensions to both, as
+  [Router v2](#router-v2) says for the 0.5 `web` builder, so `const web = r.middleware(auth); [web.scope('<folder>', ...),
+  web.contract(posts, PostController)]` proves `posts` against `auth`'s extensions. A scope's middleware is merged into
+  its routes at runtime, but it is not a type-level level: a contract mounted by another builder is not proven against
+  it (mount that contract from the shared builder too). `ExtOf<M>` (exported) merges the extensions of `M` in order, as
+  the runtime merges them: a later middleware's key replaces an earlier one's type, and `params` merges one level deep,
+  so the proof checks each handler against the value the runtime keeps. A key a middleware declares `never` fails
+  `r.contract()` with
+  `` <c>.<e>: middleware extension '<key>' is `never` (declared `never`) ``, even when no handler declares the key: no
+  value can be given, and a handler would read it as any type. A nested key is named by its path (`user.id`,
+  `params.post`). The walk follows nested objects without a fixed depth cap (TypeScript's own instantiation limit still
+  applies); it stops at a type it already saw on the same path, so a self-referencing extension type (`{ node: Node }`
+  with `interface Node { next: Node }`) terminates. A key typed only `undefined` is not a conflict (an extension slot may
+  be `undefined`), and a function- or array-valued key is compared as the later value's type like any other key; the walk
+  does not descend into it. The route proof (`Provided`) checks each handler against the merged extensions: a handler that
+  requires a key no middleware adds, or a value of another type than the later middleware's, is the diagnosis of
+  [Route proof at r.contract()](#route-proof-at-rcontract).
+- **Last-wins ([#349](https://github.com/Laratypes/Laratype/issues/349)):** a later middleware that adds a key replaces
+  the earlier type, as it replaces the value; a handler that needs the earlier type fails `r.contract()` with
+  `` <c>.<e>: `<key>` provided by the route does not match the handler (missing .bind()?) ``. `params` is the one key
+  merged (one level deep) instead of replaced.
+- **0.5 middleware keeps working:** a `typeof Middleware` class and a `TypedMiddleware` value share `r.middleware(...)`
+  and run in route order, each once (duplicates removed, as [Router v2](#router-v2) says). The registry's
+  `RouteEntry.middleware` keeps both, in order. `sauf route:list` names a typed middleware by its handle's function name;
+  an anonymous handle shows as `middleware`, so name it: `defineMiddleware(function audit(...) {...})`.
+- **`withoutMiddleware`:** drops every middleware of the arguments from what the builder accumulated, by identity (the
+  0.5 semantics), and returns a new builder: `r.middleware(Audit).withoutMiddleware(Audit)`. A dropped typed
+  middleware's extension leaves the proof with it. Two distinct middleware of structurally identical types (two
+  `defineMiddleware<{}>` values) are one type, so the type side drops both: the runtime drops only the value.
+- **Endpoint callbacks take 0.5 classes.** `r.contract(c, Ctrl, { endpoints: { destroy: (r) => r.middleware(Audit) } })`
+  still mounts 0.5 middleware for one endpoint ([Router v2](#router-v2)). A `defineMiddleware()` value there is not
+  proven: the callback type rejects it. The limitation is type-only: if the types are bypassed, the runtime still merges
+  its extension into the ctx, but the route proof cannot see it (see Non-goals), so a handler could not declare the key.
+  The shape of the map is the one [#117](https://github.com/Laratypes/Laratype/issues/117) settled; only the typed
+  extension of a callback entry is left out.
+- **Not for API auth:** a contract's `auth` is recorded, not enforced yet (`sauf route:list`'s "Not enforced" column,
+  [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121)), so
+  a route needs its own authentication middleware or guard (`r.middleware(auth)`) until it is. Rate limits are enforced
+  by `mount()` ([Rate limiting](#rate-limiting)). Examples use other middleware, such as `audit()`.
+- **Ad-hoc routes:** `r.middleware(traced).get('/health', handler)` merges the extension into the 0.5 request the ad-hoc
+  handler gets ([Ad-hoc routes](#ad-hoc-routes)); a 0.5 route's own options take no typed middleware.
+
+### Diagnostics
+Runtime `Error`s, prefixed `[@laratype/http] `:
+- `Route.api: r.middleware(): <value> is not middleware (a 0.5 Middleware class or defineMiddleware(...))` (at
+  `Route.api`, for a value that is not a constructable function or a `defineMiddleware()` value; an arrow function is
+  not a class)
+- `typed middleware <name> passed <typeof> to next(): pass an object of context keys, or call next()` (a `TypeError` for
+  the request; `<name>` is the handle's function name, or `middleware`)
+- `typed middleware <name> passed <key> to next(): <key> is reserved on a contract route (the validated query and body, and the endpoint)`
+  (a `TypeError`: `query`, `body` and `endpoint` are the route's)
+- `typed middleware <name> passed <key> to next(): it is a method of the request, and the extension would replace it` (a
+  `TypeError` on a route without a contract: `param`, `input`, ... a function member of the 0.5 request)
+- `typed middleware <name> called next() more than once` (a `TypeError`: the rest of the pipeline runs at most once per
+  middleware)
+- `defineMiddleware(): expected a function (request, next), got <typeof>` (a `TypeError`)
+
+Type-level, at `r.contract()`:
+- the route proof's existing diagnosis: `` <c>.<e>: handler requires `<key>`, route does not provide it (add
+  middleware / .bind()) ``
+- `` <c>.<e>: middleware extension '<key>' is `never` (declared `never`) ``: a middleware declares the key `never`, so
+  the handler could not receive a value. `<key>` is the path of a nested object key (`params.post`, `user.id`); a key
+  typed only `undefined` is not a conflict (Invariants).
+- `` <c>.<e>: middleware extension '<key>' is reserved on a contract route (the validated query and body, and the endpoint) ``:
+  a `TypedMiddleware`'s `Ext` has `query`, `body` or `endpoint`, which the route keeps; the extension is refused at
+  runtime, whatever the handler declares.
+
+### Example
+```ts
+const audit = defineMiddleware((request, next) => {
+  console.log(request.method(), request.path())
+  return next()
+})
+const auth = defineMiddleware<{ user: User }>(async (request, next) => next({ user: await User.fromToken(request.bearerToken()) }))
+
+export class PostController extends Controller {
+  async index() { return [] }
+  async destroy({ user }: Ctx<typeof posts.destroy, { user: User }>) { void user }   // provided by auth()
+}
+
+Route.api(appApi, (r) => [
+  r.middleware(audit).scope('admin', { policy: AdminPolicy }),
+  r.middleware(auth).contract(posts, PostController),                    // both handlers see `user`
+  r.middleware(audit).withoutMiddleware(audit).contract(health, HealthController),
+])
+```
+
+Tests: [`packages/http/__tests__/routing/typedMiddleware.test.ts`](../../packages/http/__tests__/routing/typedMiddleware.test.ts)
+(requests through `app.request()`: a later middleware wins a key, a symbol key, an own `__proto__` key, the reserved
+`query`/`body`/`endpoint` keys, the request-method shadow on an ad-hoc route, and a second or concurrent `next()`) and
+[`typedMiddleware.test-d.ts`](../../packages/http/__tests__/routing/typedMiddleware.test-d.ts) (the accumulated ctx, the
+0.5 `MiddlewareHandler`, last-wins at the top level, four keys deep and in `params`, a declared `never` at the top level
+and nested, an `undefined`-only key, a self-referencing extension type, the reserved keys, and the missing middleware at
+`r.contract()`).
+
+### Non-goals
+- **No typed middleware in `endpoints` callbacks yet** (0.5 classes only). TypeScript checks the controller parameter of
+  `r.contract()` before it infers the options argument, so the extensions of the callbacks cannot join the proof: the
+  handler is checked with `{}` for that endpoint while the runtime still merges the extension. The map's shape is
+  settled; only its typed extension is left out. Route-level `r.middleware()` covers the same handlers when the
+  extension is shared by the contract.
+- No per-endpoint `withoutMiddleware` of an inherited route middleware: an endpoint callback starts from an empty stack.
+  Route middleware is removed on the builder, before `.contract()`.
+- No global middleware registry: every route mounts its middleware explicitly, and no `withoutMiddleware` names a class
+  it never had.
+- No async factory for a middleware: `defineMiddleware()` takes the handler itself.
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#117 Done when](https://github.com/Laratypes/Laratype/issues/117)
@@ -841,10 +1018,10 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321).
+proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Public API
-[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/9df674ff728a00b0add37b5c1db5ea8c9081936d/packages/http/src/routing/api/ApiRouter.ts)
+[`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/ApiRouter.ts)
 
 ```ts
 type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
@@ -858,7 +1035,7 @@ interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = s
   readonly method: M;
   readonly path: P;
   handler(req: Request, params: PathParams<P>): R | Promise<R>;
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
 }
 
 interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the registry
@@ -867,7 +1044,7 @@ interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the reg
   readonly name: undefined;                      // .name() is #162
   readonly controller: undefined;
   readonly handler: MountedRoute["handler"];
-  readonly middleware: readonly MiddlewareClass[];
+  readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
   readonly domain: string | undefined;
 }
 ```

@@ -9,6 +9,10 @@ export { defineResource, when } from "./resource/defineResource"
 export type { MissingValue, Resource, ResourceOutput, ResourcePage } from "./resource/defineResource"
 export { default as Controller } from "./controller/Controller"
 export { default as Middleware } from "./middleware/Middleware"
+export { defineMiddleware, isTypedMiddleware } from "./middleware/defineMiddleware"
+export type {
+  AnyTypedMiddleware, MiddlewareItem, TypedMiddleware, TypedMiddlewareHandler
+} from "./middleware/defineMiddleware"
 export * from "./routing/Route"
 export type { ApiRoutes } from "./routing/api/ApiRouter"
 export type * from "./routing/api/types"

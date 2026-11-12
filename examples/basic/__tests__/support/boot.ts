@@ -58,6 +58,7 @@ export const bootExample = async (): Promise<BootedExample> => {
     seeders: scan.kinds.seeders.map(entry),
     factories: scan.kinds.factories.map(entry),
     modules: scan.kinds.modules.map(entry),
+    lang: [],
   };
   setAppManifest(manifest);
 

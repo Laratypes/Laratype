@@ -10,7 +10,7 @@ describe('AuthService', () => {
   test('builds the 0.5 per-guard handles', () => {
     expectTypeOf(new AuthService().user<Model>()).toEqualTypeOf<Authenticated<Model> | null>()
     expectTypeOf(new AuthService().guard<Model>('web').attempt({})).toEqualTypeOf<Promise<false | Authenticated<Model>>>()
-    expectTypeOf(new AuthService().guard('web').user()).toEqualTypeOf<Authenticated<Model> | undefined>()
+    expectTypeOf(new AuthService().guard<Model>('web').user()).toEqualTypeOf<Authenticated<Model> | undefined>()
     expectTypeOf(new AuthService().check()).toEqualTypeOf<boolean>()
   })
 })

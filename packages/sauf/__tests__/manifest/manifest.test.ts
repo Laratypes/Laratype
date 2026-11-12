@@ -52,6 +52,10 @@ const project = (name: string) => {
   write(dir, 'app/modules/billing/helpers.ts');          // a module is its index only
   write(dir, 'app/modules/notes/index.mts');
   write(dir, 'app/modules/loose.ts');                    // a module is a folder with an index
+  write(dir, 'lang/en/messages.ts', 'export default { greeting: "Hello {name}" };\n');
+  write(dir, 'lang/vi/messages.ts', 'export default { greeting: "Xin chào {name}" };\n');
+  write(dir, 'lang/en/nested/ignored.ts');                // a lang file is lang/<locale>/<file>.ts
+  write(dir, 'lang/stray.ts');                            // never read directly in lang/
   return dir;
 };
 
@@ -83,9 +87,11 @@ describe('scanManifest', () => {
       seeders: ['app/database/seeders/Admin/UserSeeder.ts', 'app/database/seeders/DatabaseSeeder.ts', 'database/seeders/PostSeeder.ts'],
       factories: [],
       modules: ['app/modules/billing/index.ts', 'app/modules/notes/index.mts'],
+      lang: ['lang/en/messages.ts', 'lang/vi/messages.ts'],
     });
     expect(scan.kinds.models.map((e) => e.name)).toEqual(['Legacy', 'User', 'Post', 'Tag']);
     expect(scan.kinds.modules.map((e) => e.name)).toEqual(['billing', 'notes']);
+    expect(scan.kinds.lang.map((e) => e.name)).toEqual(['en/messages', 'vi/messages']);
   });
 
   it('each kind reads its own extensions: a stray .js among the commands or configs is ignored, models take any', () => {
@@ -158,6 +164,9 @@ describe('scanManifest', () => {
     expect(inManifestDirs('app/src/models/Tag.ts')).toBe(true);
     expect(inManifestDirs('database\\seeders\\X.ts')).toBe(true);
     expect(inManifestDirs('database/seeders/Admin/X.ts')).toBe(true);           // seeders: any depth
+    expect(inManifestDirs('lang/en/messages.ts')).toBe(true);
+    expect(inManifestDirs('lang/en/nested/messages.ts')).toBe(false);            // lang: one locale level
+    expect(inManifestDirs('lang/messages.ts')).toBe(false);
     expect(inManifestDirs('app/models/concerns/HasSlug.ts')).toBe(false);       // models: top level only
     expect(inManifestDirs('app/modules/billing/index.mts')).toBe(true);
     expect(inManifestDirs('app/modules/billing/helpers.ts')).toBe(false);
@@ -168,7 +177,7 @@ describe('scanManifest', () => {
     expect(isManifestFile('/p', '/p/app/models/X.ts~')).toBe(false);
     expect(isManifestFile('/p', '/p/app/models/X.d.ts')).toBe(false);
     expect(isManifestFile('/p', '/other/app/models/X.ts')).toBe(false);
-    expect(Object.keys(MANIFEST_DIRS)).toEqual(['configs', 'routes', 'commands', 'models', 'migrations', 'seeders', 'factories', 'modules']);
+    expect(Object.keys(MANIFEST_DIRS)).toEqual(['configs', 'routes', 'commands', 'models', 'migrations', 'seeders', 'factories', 'modules', 'lang']);
   });
 });
 
@@ -239,6 +248,7 @@ describe('emitManifest', () => {
         seeders: [],
         factories: [],
         modules: [],
+        lang: [],
       };
       "
     `);
@@ -339,7 +349,7 @@ describe('importRootCommands', () => {
     class SendMail { static signature = 'send:mail'; }
     const entry = (path: string, mod: Record<string, unknown>) => ({ name: path, path, load: async () => mod });
     const manifest = {
-      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [], lang: [],
       commands: [entry('app/src/console/commands/SendMail.ts', { default: SendMail }), entry('app/src/console/commands/format.ts', { default: () => '' }), entry('app/src/console/commands/util.ts', {})],
     } satisfies AppManifest;
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
@@ -356,7 +366,7 @@ describe('importRootCommands', () => {
     class SendMail { static signature = 'send:mail'; }
     const entry = (path: string, load: () => Promise<Record<string, unknown>>) => ({ name: path, path, load });
     const manifest = {
-      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [], lang: [],
       commands: [
         entry('app/src/console/commands/Broken.ts', () => Promise.reject(Object.assign(new SyntaxError("Unexpected token '}'"), { stack: "SyntaxError: Unexpected token '}'\n    at Broken.ts:3:1" }))),
         entry('app/src/console/commands/SendMail.ts', async () => ({ default: SendMail })),
