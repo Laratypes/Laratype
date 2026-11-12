@@ -15,11 +15,9 @@ const load = async () => {
 const clearWarned = () => { delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED] }
 
 let warn: ReturnType<typeof vi.spyOn>
-let modelBindings: typeof globalThis.__laratype_route_model_bindings
 
 beforeEach(() => {
   clearWarned()
-  modelBindings = globalThis.__laratype_route_model_bindings
   vi.stubGlobal('__PROD__', false)
   vi.stubEnv('NODE_ENV', 'development')
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -27,7 +25,6 @@ beforeEach(() => {
 
 afterEach(() => {
   clearWarned()
-  globalThis.__laratype_route_model_bindings = modelBindings
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -71,7 +68,6 @@ describe('fallback container', () => {
 
   it('never warns for a request served through RequestKernel', async () => {
     const { Container, Controller, HTTP_APP, RequestKernel, depsRegistry } = await load()
-    globalThis.__laratype_route_model_bindings = {}
     const container = new Container({ deps: depsRegistry })
     const app = new Hono()
     container.instance(HTTP_APP, app)

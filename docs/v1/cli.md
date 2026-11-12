@@ -23,7 +23,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
 | [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
-| [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 5adefff (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), stacked on #357); `make:command` started in PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ f10c36c (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
+| [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 5adefff (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)); `make:command` merged in PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
 
 ---
 
@@ -108,7 +108,7 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 5adefff (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2), stacked on F2's PR [#357](https://github.com/Laratypes/Laratype/pull/357). `make:command` started in F2 [#161](https://github.com/Laratypes/Laratype/issues/161) at that PR's `f10c36c`; this PR adds its shared name and identifier check. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/5adefffd0f8c764d75b20de579615e79f44fbb6a/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/5adefffd0f8c764d75b20de579615e79f44fbb6a/packages/sauf/resources/templates).
+proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 5adefff (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/5adefffd0f8c764d75b20de579615e79f44fbb6a/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/5adefffd0f8c764d75b20de579615e79f44fbb6a/packages/sauf/resources/templates).
 
 ### Public API
 [`make/index.ts` @ 5adefff](https://github.com/Laratypes/Laratype/blob/5adefffd0f8c764d75b20de579615e79f44fbb6a/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names. The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations and stubs until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants).
