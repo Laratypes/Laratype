@@ -86,6 +86,8 @@ app/
     middleware/
     requests/
     resources/
+  console/
+    commands/       class commands (services.md › Console commands)
   models/
   policies/
   providers/
