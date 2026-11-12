@@ -117,6 +117,7 @@ describe('the context extension', () => {
     }
     const app = mount(Route.api(appApi, (r) => [r.middleware(bad).contract(posts, Reads)]))
     const res = await app.request('/api/posts')
+    // The extension is refused before the request step builds the ctx, so the handler never runs
     expect(res.status).toBe(500)
     expect(handled).toBe(0)
     expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
@@ -149,6 +150,7 @@ describe('the context extension', () => {
     }
     const app = mount(Route.api(appApi, (r) => [r.middleware(twice).contract(posts, Reads)]))
     const res = await app.request('/api/posts')
+    // The first next() ran the handler once; the second rejects instead of running it again
     expect(res.status).toBe(500)
     expect(handled).toBe(1)
     expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
@@ -169,6 +171,7 @@ describe('the context extension', () => {
     }
     const app = mount(Route.api(appApi, (r) => [r.middleware(twice).contract(posts, Reads)]))
     const res = await app.request('/api/posts')
+    // Two next() calls race; one wins and the other rejects, so the handler runs once
     expect(res.status).toBe(500)
     expect(handled).toBe(1)
     expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
@@ -190,6 +193,7 @@ describe('the context extension', () => {
     const app = new Hono()
     routes.mount(app)
     const res = await app.request('/shadow')
+    // `param` would replace request.param, so the extension is refused before the ad-hoc handler runs
     expect(res.status).toBe(500)
     expect(handled).toBe(0)
     expect(logged.mock.calls.flat().map(String).join(' ')).toContain(

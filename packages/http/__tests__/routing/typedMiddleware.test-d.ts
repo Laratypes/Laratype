@@ -220,13 +220,17 @@ describe('the handler sees the accumulated context', () => {
   test('a middleware extension cannot replace a key the contract route keeps', () => {
     const queryOverride = defineMiddleware<{ query: { page: string } }>((request, next) => next({ query: { page: '1' } }))
     expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof queryOverride]>>>().toHaveProperty(
-      "posts.index: middleware extension 'query' is reserved (a contract route keeps its own query, body and endpoint)",
+      "posts.index: middleware extension 'query' is reserved on a contract route (the validated query and body, and the endpoint)",
     )
     // @ts-expect-error posts.index: middleware extension 'query' is reserved
     Route.api(appApi, (r) => [r.middleware(queryOverride).contract(posts, Plain)])
+    const bodyOverride = defineMiddleware<{ body: null }>((request, next) => next({ body: null }))
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof bodyOverride]>>>().toHaveProperty(
+      "posts.index: middleware extension 'body' is reserved on a contract route (the validated query and body, and the endpoint)",
+    )
     const endpointOverride = defineMiddleware<{ endpoint: null }>((request, next) => next({ endpoint: null }))
     expectTypeOf<RouteProof<typeof appApi, typeof posts, Plain, { policy: undefined }, ExtOf<[typeof endpointOverride]>>>().toHaveProperty(
-      "posts.index: middleware extension 'endpoint' is reserved (a contract route keeps its own query, body and endpoint)",
+      "posts.index: middleware extension 'endpoint' is reserved on a contract route (the validated query and body, and the endpoint)",
     )
   })
 

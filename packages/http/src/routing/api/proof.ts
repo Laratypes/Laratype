@@ -145,7 +145,7 @@ type ReservedKey = "query" | "body" | "endpoint";
  * handler, so the proof reports it whatever the handler declares (a handler typed `any` included).
  */
 type ReservedIssues<N extends string, X> = {
-  [K in Extract<keyof X, ReservedKey> as `${N}: middleware extension '${K}' is reserved (a contract route keeps its own query, body and endpoint)`]: K;
+  [K in Extract<keyof X, ReservedKey> as `${N}: middleware extension '${K}' is reserved on a contract route (the validated query and body, and the endpoint)`]: K;
 };
 
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */
