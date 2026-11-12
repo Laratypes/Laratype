@@ -4,6 +4,7 @@ import type { Model } from "@laratype/database";
 import { Authenticated } from "../verifications/AuthVerification";
 import { authManager } from "../guard/resolve";
 import type { GuardName, RegisteredUser } from "../Register";
+import { authenticatedGuard } from "./guardContext";
 
 class Authenticate<T extends Model> {
 
@@ -74,7 +75,8 @@ export class AuthService {
   user<T extends Model = RegisteredUser>() {
     const user = ContextApi.getUser<T>();
     if(!user) return null;
-    return new Authenticate<T>().setUser(user);
+    // The guard that authenticated the request, so its token is signed for that guard (A6 #335)
+    return new Authenticate<T>(authenticatedGuard()).setUser(user);
   }
 
   id<A>(): A {
@@ -90,7 +92,8 @@ export class AuthService {
   }
 
   login<T extends Model>(user: T) {
-    return new Authenticate<T>().login(user);
+    // The guard that authenticated the request, so its token is signed for that guard (A6 #335)
+    return new Authenticate<T>(authenticatedGuard()).login(user);
   }
 
   guard<T extends Model = RegisteredUser>(guardName: GuardName) {

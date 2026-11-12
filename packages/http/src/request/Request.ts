@@ -4,9 +4,9 @@ import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
-import Middleware from "../middleware/Middleware";
+import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
@@ -44,7 +44,7 @@ const createFallbackContainer = () => {
 
 type PipeLineType = {
   type: 'middleware',
-  handler: typeof Middleware,
+  handler: MiddlewareClass,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -75,8 +75,9 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers are resolved from: the request scope of the app container `boot()` puts on each request, else one
-   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   * The container controllers, middleware and policies are resolved from: the request scope of the app container
+   * `boot()` puts on each request, else one autowire-only container (outside `RequestKernel`, they are autowired
+   * without app bindings).
    */
   public static container(): Container {
     return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
@@ -110,13 +111,14 @@ export default class Request extends AppServiceProvider {
   public static explicitModelBinding(request: RequestSupport) {
     const res: Record<string, any> = {};
     const params = request.param();
+    const registry = ModelBindingRegistry.current();
     
     for (const paramName in params) {
-      let model = globalThis.__laratype_route_model_bindings[paramName];
+      let model = registry.bindings[paramName];
       if (!model) {
-        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        const modelName = registry.paramModelMap?.[paramName];
         if(modelName) {
-          model = globalThis.__laratype_db?.models?.[modelName];
+          model = registry.models?.[modelName];
         }
       }
 
@@ -241,9 +243,10 @@ export default class Request extends AppServiceProvider {
 
               let modelPolicy = policyHandler.modelPolicy;
               if(typeof modelPolicy === 'string') {
-                const modelName = globalThis.__laratype_param_model_map?.[modelPolicy];
+                const registry = ModelBindingRegistry.current();
+                const modelName = registry.paramModelMap?.[modelPolicy];
                 if(modelName) {
-                  modelPolicy = globalThis.__laratype_db.models?.[modelName];
+                  modelPolicy = registry.models?.[modelName];
                 }
               }
               
@@ -251,13 +254,35 @@ export default class Request extends AppServiceProvider {
               if(!policy) {
                 throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
               }
-              await policyHandler.handle(policyHandler.ability, policy, ...modelArgs);
+              // Constructor DI (H21 #269): the policy comes from the request's container, as the controller does
+              const allowed = await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
+              // A policy handler allows a request explicitly: any other result, `undefined` from a custom one included,
+              // answers 401 rather than running the controller
+              if(allowed !== true) {
+                throw new UnauthorizedException();
+              }
               return await next(arg);
             }
             else {
-              const middleware = await new currentPipeline.handler();
+              // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
+              const middleware = Request.container().make(currentPipeline.handler);
+              // A subclass that redeclares the 0.5 field (`protected previousResult!: T`) gets an own property under
+              // define semantics (sauf's SWC, esbuild), which hides the request-local accessor: fail closed (H21 #269)
+              if(Object.hasOwn(middleware, "previousResult")) {
+                throw new InternalException(
+                  `[@laratype/http] ${middleware.constructor.name} declares previousResult as a class field, which hides the request-local previous result. Fix: remove the field, use \`declare\`, or type it through Middleware<T>.`
+                );
+              }
+              // The same instance can be mounted at more than one level (a container singleton at group and route
+              // level): each run restores the value it found, so an inner run leaves no result behind for the outer
+              // one to read after `next()` (H21 #269)
+              const previousResult = middleware.getPreviousResult();
               middleware.setPreviousResult(arg);
-              return await middleware.handle(requestInstance, res, next);
+              try {
+                return await middleware.handle(requestInstance, res, next);
+              } finally {
+                middleware.setPreviousResult(previousResult);
+              }
             }
           }
         };
@@ -353,8 +378,17 @@ export default class Request extends AppServiceProvider {
   /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
   protected readonly disposals = new Set<Promise<void>>();
 
+  /**
+   * Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app. Cleared in
+   * `register()`, which runs before the app providers' (bootstrap lists RequestKernel first), so a `Route.bind()` from
+   * an app provider's `register()` or `boot()` is kept. Only the bindings are cleared: the models and the param map
+   * `DatabaseServiceProvider` fills stay.
+   */
+  public register(): void {
+    this.app.make(ModelBindingRegistry).bindings = {};
+  }
+
   public boot(): void {
-    globalThis.__laratype_route_model_bindings = {};
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
