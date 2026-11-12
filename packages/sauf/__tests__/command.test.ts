@@ -82,7 +82,7 @@ describe("the command wrapper", () => {
     expect(() => new Command(LegacyOrder, transpiler)).toThrow(message("legacy:order"));
   });
 
-  it("reads a 0.5 variadic the way Commander does, by a trailing ... after the brackets", () => {
+  it("reads a 0.5 variadic the way Commander does, by a trailing ... in the bracket-stripped name", () => {
     const transpiler = { close: async () => {} } as unknown as Transpile;
 
     // `<release...notes>` keeps `...` inside its name, so Commander registers it and the following argument is fine

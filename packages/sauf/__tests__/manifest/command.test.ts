@@ -150,8 +150,9 @@ describe("app commands", () => {
     const existing = "app/src/console/commands/SendMail.ts";
     const { code, output } = await sauf("make:command", "PendingCommand", "SendMail");
     expect(code, output).not.toBe(0);
-    expect(output).toContain(`Cannot create ${target}: ${existing} already uses the command name "SendMail"`);
-    expect(output).toContain("and the manifest reads both. Fix: rename or remove one.");
+    expect(output).toContain(
+      `Cannot create ${target}: ${existing} already uses the command name "SendMail", and the manifest reads both. Fix: rename or remove one.`,
+    );
     expect(existsSync(join(project, valid))).toBe(false);
     expect(existsSync(join(project, target))).toBe(false);
   }, 120_000);

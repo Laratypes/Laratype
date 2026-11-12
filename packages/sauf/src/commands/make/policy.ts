@@ -36,9 +36,9 @@ export default class MakePolicyCommand extends MakeCommand {
     if(options.m) {
       // The model generator's rules: `-m my-note` would be an import binding and a type, and `-m ../x` would be
       // flattened silently by `getFileName()`. The last segment names the model, as before.
-      const modelPath = generatorPath(options.m, "model", { identifier: true });
-      data.ModelName = this.getFileName(modelPath);
-      data.ParamName = camelize(this.getFileName(modelPath));
+      const modelName = this.getFileName(generatorPath(options.m, "model", { identifier: true }));
+      data.ModelName = modelName;
+      data.ParamName = camelize(modelName);
     }
     const result = this.build(resourcePath, data);
 

@@ -299,7 +299,7 @@ describe("make generators", () => {
     for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
   });
 
-  it("make:policy checks its -m model name with the make:model rules", () => {
+  it("make:policy checks its -m model name with the make:model rules", async () => {
     expect(runs.policyModel.code, runs.policyModel.output).not.toBe(0);
     expect(runs.policyModel.output).toContain([
       'Invalid model name "my-note": the last segment names the exported class or function,',
@@ -307,7 +307,15 @@ describe("make generators", () => {
       "under src/models.",
     ].join(" "));
     expect(existsSync(join(project, "src/policies/DraftPolicy.ts"))).toBe(false);
-  });
+
+    // A sub-path used to be flattened into the policy folder: `../x` is refused before the stub is written
+    const escape = await sauf("make:policy", "EscapedPolicy", "-m", "../x");
+    expect(escape.code, escape.output).not.toBe(0);
+    expect(escape.output).toContain(
+      'Invalid model name "../x": use letters, digits, "_" and "-", in folders under src/models.',
+    );
+    expect(existsSync(join(project, "src/policies/EscapedPolicy.ts"))).toBe(false);
+  }, 120_000);
 
   it("types:generate gives the nested folder its Prefix", () => {
     expectOk(runs.types);

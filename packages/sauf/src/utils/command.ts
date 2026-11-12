@@ -43,7 +43,7 @@ export const assertCommandNameFree = (name: string, registered: ReadonlyMap<stri
  */
 const filtersProviders = (command: CommandClass): boolean => overridesProviders(command)
 
-/** `<names...>` -> `names...`: the name Commander reads, without the `<>`/`[]` wrapper. */
+/** `<names...>` -> `names...`: a 0.5 argument name without its `<>`/`[]` wrapper. */
 const bareArgumentName = (name: string) => name.replace(/^<|^\[/, '').replace(/>$|\]$/, '')
 
 /** `--class <class>` / `<names...>` -> `class` / `names`, so a signature never registers the same one twice. */
