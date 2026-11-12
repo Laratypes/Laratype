@@ -1,11 +1,11 @@
 import { Command } from "@laratype/console";
 
-export default class {{ CommandName }} extends Command {
+export default class {{ CommandName }} extends Command<typeof {{ CommandName }}.signature> {
 
-  // Define your command name here
-  static signature = "";
+  // The name, arguments and options of the command (docs/v1/services.md › Console commands):
+  // "{{ signature }} {user} {--queue=}"
+  static readonly signature = "{{ signature }}" as const;
 
-  // Define your command description here
   static description = "";
 
   public async handle() {

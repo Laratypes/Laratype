@@ -7,6 +7,7 @@ import { Auth } from "@laratype/auth";
 export default class AdminHomeController extends Controller {
 
   async me() {
+    // The admin guard's user is an Admin, not the app's registered User: per-guard user types are not in Register
     const user = Auth.user<Admin>();
     return user;
   }

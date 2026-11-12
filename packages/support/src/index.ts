@@ -1,4 +1,5 @@
 export * from "./ServiceProvider"
+export * from "./registries"
 export * from "./exception/"
 export * from "./enum"
 export * from "./environ"
