@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; interceptors planned → #138 |
-| [Default body limit](#default-body-limit) | proposed: PR #<leader fills> @ eeb5c9e (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
+| [Default body limit](#default-body-limit) | proposed: PR #<leader fills> @ 21b0d7b (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -493,10 +493,10 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 ## Default body limit
 
 ### Status
-proposed: PR #<leader fills> @ eeb5c9e (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)).
+proposed: PR #<leader fills> @ 21b0d7b (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)).
 
 ### Public API
-No new export. The caps live in `app/config/http.ts`, a config file like any other (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)):
+No new export. The caps live in `app/config/http.ts`, a config file like any other (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)); code: [`request/bodyLimit.ts` @ 21b0d7b](https://github.com/Laratypes/Laratype/blob/21b0d7b/packages/http/src/request/bodyLimit.ts).
 
 ```ts
 // app/config/http.ts
@@ -516,7 +516,7 @@ A cap is a byte count or `false` (no cap for that media type); `bodyLimit: false
 ### Invariants
 - **Scope:** JSON (`application/json` and `application/*+json`, as [Pipeline validation](./validation.md#pipeline-validation-and-422) reads them), urlencoded (`application/x-www-form-urlencoded`) and multipart (`multipart/form-data`) bodies are capped. Any other media type is not read by the pipeline (`{}`), so it has no default cap; an app that reads one mounts its own `bodyLimit`.
 - **Enforced at the start of the body read.** `readBody` checks the cap before any reader touches the body, so an over-limit body is the 413 before parsing or validation. It is not a second Hono `bodyLimit` middleware: on Hono 4.9.6 two stacked `bodyLimit`s lose bytes of a multi-chunk body and the outer one answers its own 413 over the inner one's. The counter here composes with an app's single `bodyLimit` (the Hono version is re-checked in B28 [#369](https://github.com/Laratypes/Laratype/issues/369)).
-- **Content-Length:** a declared length over the cap is refused without reading the stream. A missing or smaller Content-Length is not trusted: the stream is counted and the read fails on the chunk that crosses the cap, so nothing past that chunk is buffered.
+- **Content-Length:** a declared length over the cap is refused without reading the stream. A missing or smaller Content-Length is not trusted: the stream is counted, and the read fails on the chunk that crosses the cap; the streams' own read-ahead may pull a few chunks, never the whole body.
 - **Cached bodies:** a body an earlier middleware read through Hono's readers is measured from Hono's cache when the cache holds its bytes (`text()`, `arrayBuffer()`, `blob()`). A `parseBody()` FormData or parsed fields are already parsed and are not measured again. A middleware that reads the **raw stream itself** (`c.req.raw`) before the pipeline is not covered by the default: it must mount its own Hono `bodyLimit` before it reads, because the bytes are gone and cannot be capped or rebuilt.
 - **Override:** the default is a ceiling. `app/config/http.ts` raises, lowers or disables it. A route or app `bodyLimit` that runs before the pipeline's read (an `app.use()` one, or one in the route's Hono chain) keeps its own 413 when it is smaller; its larger cap cannot raise the default, which still applies at the read. A 0.5 route's `middleware` option and a `Route.api` middleware class run inside the pipeline, after the body read, so a `bodyLimit` there is too late (mount it with `app.use()` or in the Hono route chain).
 - **413:** Hono `bodyLimit`'s own answer, status **413** with `Payload Too Large` as `text/plain`, on 0.5 and `Route.api` routes alike; the exception filter sends it as it is. A smaller route or app `bodyLimit` with a custom `onError` keeps its own body.
