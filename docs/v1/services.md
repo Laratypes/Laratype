@@ -29,7 +29,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 | [Queue](#queue) | planned → #169 |
 | [Job chains and batches](#job-chains-and-batches) | planned → #175 |
 | [Mail](#mail) | planned → #170 |
-| [Localization](#localization) | proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ 3bddf36 |
+| [Localization](#localization) | proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b |
 | [Scheduler](#scheduler) | planned → #171 |
 | [Process](#process) | planned → #176 |
 | [Broadcasting server](#broadcasting-server) | planned → #177 |
@@ -360,10 +360,10 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ 3bddf36 (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
 ### Public API
-The API lives in [`index.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/index.ts), with `defineLang` in [`define-lang.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/define-lang.ts), `Locale` in [`locale.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/locale.ts), `Translator` in [`translator.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/translator.ts), `Lang` in [`lang.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/lang.ts), the helpers in [`functions.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/functions.ts), `LocaleMiddleware` in [`locale-middleware.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/locale-middleware.ts), `I18nServiceProvider` in [`i18n-service-provider.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/i18n-service-provider.ts), `I18nError` in [`errors.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/errors.ts), `validationMessage` in [`validation.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/validation.ts), `loadMessages` and `LangCatalog` in [`catalog.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/catalog.ts), and the types in [`types.ts` @ 3bddf36](https://github.com/Laratypes/Laratype/blob/3bddf3668ef783469547c8339e3d6d5b5228029f/packages/i18n/src/types.ts).
+The API lives in [`index.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/index.ts), with `defineLang` in [`define-lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/define-lang.ts), `Locale` in [`locale.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale.ts), `Translator` in [`translator.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/translator.ts), `Lang` in [`lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/lang.ts), the helpers in [`functions.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/functions.ts), `LocaleMiddleware` in [`locale-middleware.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale-middleware.ts), `I18nServiceProvider` in [`i18n-service-provider.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/i18n-service-provider.ts), `I18nError` in [`errors.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/errors.ts), `validationMessage` in [`validation.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/validation.ts), `loadMessages` and `LangCatalog` in [`catalog.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/catalog.ts), and the types in [`types.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/types.ts).
 
 ```ts
 // lang/<locale>/<file>.ts
@@ -403,7 +403,8 @@ export type LangKey = /* every "<file>.<dotted key>" of Register.lang */ string
 export type LangPaths<T, Prefix extends string = ""> = /* every dotted leaf path of T */ string
 export type TransParams<K extends string = LangKey> = /* the placeholders of K: string, count: number */ unknown
 // The arguments after the key: any params before the app registers its tree, no params when the message has no
-// placeholders (`trans(key)` or `trans(key, undefined, "vi")`), a required params object otherwise, plus an optional locale.
+// placeholders (`trans(key)` or `trans(key, undefined, "vi")`), a required params object otherwise, plus an
+// optional locale.
 export type TransArgs<K extends string = LangKey> = string extends LangKey
   ? [params?: MessageParams, locale?: string]
   : keyof TransParams<K> extends never
