@@ -2,8 +2,8 @@ import type { Ability, Policy } from "@laratype/auth";
 import type { AnyEndpoint } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
-import Middleware from "../middleware/Middleware"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
+import type { MiddlewareClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
 
@@ -13,12 +13,13 @@ export type PolicyFactory = {
   ability: Ability,
   args: any[],
   modelPolicy: any,
-  handle: (ability: Ability, policy: new () => Policy, ...args: any[]) => Promise<boolean>
+  /** The policy instance the request pipeline resolves from its container (H21 #269). */
+  handle: (ability: Ability, policy: Policy, ...args: any[]) => Promise<boolean>
 }
 
 export type RouteOptions = ({
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   children: Array<RouteOptions>,
   method?: METHOD,
   controller?: [typeof Controller, string],
@@ -28,8 +29,8 @@ export type RouteOptions = ({
   controller: [typeof Controller, string],
 }) & {
   path: string,
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   request?: typeof Request,
   can?: PolicyFactory,
   name?: string,
@@ -49,7 +50,7 @@ export type RouteParams = {
   controller: [Newable<object>, string]
   /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
   middleware?: Array<MiddlewareItem>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,
 }

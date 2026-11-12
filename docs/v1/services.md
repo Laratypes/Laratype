@@ -2,15 +2,15 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38)
-last-verified: 2026-10-10
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at fc9b54d)
+last-verified: 2026-11-08
 ---
 
 # Services
 
 The application services: the driver `Manager`, console commands, events, cache, storage, queues, mail, localization, the scheduler, processes and broadcasting.
 
-> **Planned only.** No v1 service code exists. Every section is `planned → #N` and holds a **Design (non-binding)** note built from the issue bodies. Signatures appear only where an issue states them. A name in backticks below is the name its issue uses. Its parameters and return type are not specified yet. Public API, Invariants, Diagnostics and Example are left out until code lands ([README](./README.md)).
+> **Planned, except the driver Manager and console commands.** The [Driver Manager](#driver-manager) is proposed in PR [#355](https://github.com/Laratypes/Laratype/pull/355), and [Console commands](#console-commands) is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants, Diagnostics and Example out until its code merges ([README](./README.md)).
 
 **State on master (0.5):** checked on `256a743`. The same files are unchanged on `v0.5.4`.
 - `@laratype/console` has a `Command` base class with static `signature`, `description`, `options` and `arguments` and a `handle()` method ([`Command.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/console/src/command/Command.ts#L1-L34)). sauf loads app commands from `app/src/console/commands/*.ts` and from the default export of `app/routes/console.ts` ([`sauf/src/utils/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/utils/index.ts#L10-L34)).
@@ -21,8 +21,8 @@ The application services: the driver `Manager`, console commands, events, cache,
 | Section | Status |
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
-| [Driver Manager](#driver-manager) | planned → #160 |
-| [Console commands](#console-commands) | planned → #161 |
+| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 |
+| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
@@ -46,7 +46,7 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1), [#115
 Rules every service section below follows. Per-service detail comes only from that service's issue; anything else is not settled yet.
 - **Drivers:** every driver-based service is built on the [Manager](#driver-manager): `driver(name)`, `extend()`, a default driver from config, and driver names typed by config keys ([config.md](./config.md)).
 - **Facades:** every service has a facade with `fake()` for tests ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)).
-- **Container-created classes:** listeners, jobs, mailables and commands are created by the container (`app.make()`), so constructor DI works without decorators ([di.md › Dependency metadata](./di.md#dependency-metadata)).
+- **Container-created classes:** listeners, jobs, mailables and commands are created by the container (`app.make()`), so constructor DI works without decorators ([di.md › Dependency metadata](./di.md#dependency-metadata)). A command that overrides `providers()` is the exception ([Console commands](#console-commands)).
 - **Jobs:** a job's constructor holds the payload, and `handle()` receives its dependencies by method injection ([di.md › Method injection](./di.md#method-injection)).
 - **Listener discovery:** the DI transform reads `handle(event: X)` to register a listener for event `X` automatically ([Events and listeners](#events-and-listeners)).
 
@@ -58,16 +58,53 @@ Each service's own issue, linked in its section.
 ## Driver Manager
 
 ### Status
-planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). Depends on D1 #96, D8 #115, K1 #152.
+proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
 
-### Design (non-binding)
-- **Base class:** `Manager<Drivers>` in `@laratype/core`, with `driver(name?)`, `extend(name, factory)` and an instance cache per driver name.
-- **Typing:** the default driver and the driver names are typed from config keys (K1, [config.md](./config.md)).
-- **Facades:** integrates with facade `fake()` (D8).
-- **Users:** cache, queue, mail, storage, broadcast and log follow this pattern ([#160](https://github.com/Laratypes/Laratype/issues/160) context). Log is ported onto it: its channels in `packages/log/src/Logger.ts` become manager drivers.
+### Public API
+`Manager` lives in [`packages/core/src/manager.ts` @ 635c453](https://github.com/Laratypes/Laratype/blob/635c453/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
+
+```ts
+// @laratype/core
+export type DriverMap = Record<string, object>
+
+export abstract class Manager<
+  Drivers extends DriverMap,
+  Default extends keyof Drivers & string = keyof Drivers & string,
+> {
+  protected abstract get defaultDriver(): Default
+  protected abstract createDriver(name: keyof Drivers & string): Drivers[keyof Drivers]
+  driver(): Drivers[Default]
+  driver<K extends keyof Drivers & string>(name: K): Drivers[K]
+  extend<K extends keyof Drivers & string>(name: K, factory: (manager: this) => Drivers[K]): this
+}
+```
+
+### Invariants
+- **Resolution:** `driver(name)` returns the driver a config key names, built with `extend()`'s factory when one is registered for that name, else with `createDriver()`; the instance is cached by name, so later calls return the same object unless the build replaced its factory through `extend()` (see Construction). `driver()` without a name resolves `defaultDriver`, which each service reads from the `default` key of its config file (K1). A service without a default driver throws from `defaultDriver`.
+- **Typing:** `Drivers` maps each name the service config declares (log channels, cache stores, mail mailers, ...) to its driver type, and `Default` is the type of the config's `default` (a literal from a `defineConfig` file; for log, the `LaratypeConfig.Logging.Config["default"]` union). `driver()` is typed as the default driver, `driver(name)` as the named one (two overloads, so neither `driver<'memory'>()` nor a name that may be `undefined` types the default driver as a named one), and a name outside `Drivers` is a type error (see Diagnostics). `Drivers` is required, so a subclass cannot omit it (bare `Manager` does not compile); it bounds the names when its keys are finite, and a manager that passes `Record<string, Store>` still accepts any string.
+- **extend():** replaces the factory of a name the service config declares, for a custom driver or a test double, and drops that name's cached instance so the next `driver(name)` call builds it with the new factory. Unlike Laravel, it does not add a driver name: a custom driver is declared in the config first. Only the type checks the name: at run time `extend()` stores any name, and `driver(name)` returns that factory's driver without consulting `createDriver()`.
+- **Construction:** a driver is cached only when the factory registered for its name is unchanged after the build: if `createDriver()` or an `extend()` factory replaces the factory of its own name through `extend()` while it runs, `driver(name)` returns that build's driver without caching it, and the next call builds with the replacement.
+- **Facades:** a service manager (e.g. `LogManager`) is a facade accessor, so the service facade's `fake()` (D8) — `Log.fake(manager)` — swaps it in the facade application and the next call resolves the fake, with its own cache. There is no separate driver-level fake. A provider binds a service manager as a singleton, so its per-name cache lives as long as the container; log has no provider yet, so `Log.root()` autowires a fresh `LogManager` per call and its per-name cache is per instance, while the `single` file transport stays per process (`LogManager.logger` is static).
+- **Log:** `LogManager extends Manager<ChannelDrivers, LaratypeConfig.Logging.Config["default"]>`, with `ChannelDrivers = { [C in LaratypeConfig.Logging.CHANNEL]: Logger }`. `single` builds the 0.5 winston `Logger` with its static per-process cache ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)), `stack` and `daily` throw the 0.5 `DriverNotImplement`, and `getLogger()` returns `driver()`, so `logging.default` picks the channel. `Logger` no longer holds a channel: it is the `single` channel the manager builds.
+
+### Diagnostics
+- Runtime: a service's `createDriver()` throws for a name it does not support. Log keeps 0.5's `DriverNotImplement` object (code `DRIVER_NOT_IMPLEMENT`, message `Driver not implemented`) for `stack`, `daily` and a missing `logging.default`.
+- Type-only (`core/__tests__/manager.test-d.ts`): an unknown driver name fails with TS2345, the parameter being the union of the manager's names:
+  ```
+  error TS2345: Argument of type '"nope"' is not assignable to parameter of type '"single" | "memory"'.
+  ```
+  `extend()` takes only a declared name, and its factory must return that driver's type.
+
+### Example
+[`examples/services/proposed/manager.ts`](./examples/services/proposed/manager.ts).
+
+### Non-goals
+- No driver-level fake and no `fake()` on the manager: the service facade's `fake()` (`Log.fake(manager)`) swaps the whole service manager.
+- No `forget()` or cache-reset API beyond `extend()` dropping one name.
+- No runtime check that a name is in `Drivers`: the type is the check, and a name with no factory reaches `createDriver()`.
 
 ### Open questions
-- How the config type reaches the manager's driver names → [#152](https://github.com/Laratypes/Laratype/issues/152)
+- Resolved: driver names come from the config type (Q16): the app registers its config files with `declare module '@laratype/core'` (K1), and a service manager types `Drivers` from the keys of its config, `Default` from the config's `default` (log: the 0.5 `LaratypeConfig.Logging.Config["default"]` union; the v1 services: the literal in their `app/config/*.ts` file) ([#160](https://github.com/Laratypes/Laratype/issues/160), [#222](https://github.com/Laratypes/Laratype/issues/222)).
 
 ### Acceptance
 [#160 Done when](https://github.com/Laratypes/Laratype/issues/160)
@@ -77,18 +114,125 @@ planned → [#160](https://github.com/Laratypes/Laratype/issues/160) (F1, M3). D
 ## Console commands
 
 ### Status
-planned → [#161](https://github.com/Laratypes/Laratype/issues/161) (F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
 
-### Design (non-binding)
-- **Resolution:** commands are resolved with `app.make()`, so they get constructor DI. In 0.5 they are created without DI.
-- **Typed signatures:** a signature such as `"send:mail {user} {--queue=}"` types `this.argument('user')` and `this.option('queue')`. The parser uses template literal types, the technique of the contract's path params ([contract.md › Path params](./contract.md#path-params)).
-- **Closure commands** in `routes/console.ts`.
-- **Registration** through the build manifest (B1, [build.md › Plugin chain](./build.md#plugin-chain)) instead of path discovery.
-- The scheduler, the queue worker and the other `sauf` commands rely on container-resolved commands. The CLI's own command list is in [cli.md](./cli.md).
+The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
+
+### Public API
+
+The types live in [`signature.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/signature.ts), [`Command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/Command.ts), [`closure.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/sauf/src/utils/command.ts).
+
+```ts
+// @laratype/console
+class Command<S extends string = string> {
+  static signature: string;
+  static description?: string;
+  static bootsApp?: boolean;                 // false: no register() and no provider boot
+  static options: string[][] | undefined;    // 0.5 declarations, still read
+  static arguments: ArgumentType[] | undefined;
+
+  argument<N extends ArgumentName<S>>(name: N): ArgumentValue<S, N>;
+  option<N extends OptionName<S>>(name: N): OptionValue<S, N>;
+  opts(): any;
+  boot(...args: any[]): void | Promise<void>;
+  handle(...args: any[]): unknown;
+  providers(providers: Array<typeof ServiceProvider | typeof AppServiceProvider>): Promise<Array<typeof ServiceProvider | typeof AppServiceProvider>>;
+  __setInput(input: CommandInput<S>): void;   // filled by sauf before handle()
+}
+
+function command<S extends string>(signature: S, handler: (input: CommandInput<S>) => unknown): ClosureCommand<S>;
+
+function parseSignature(signature: string): ParsedSignature;
+function optionKey(name: string): string;
+function isClosureCommand(value: unknown): value is AnyClosureCommand;
+function isConsoleCommand(value: unknown): value is ConsoleCommand;
+function overridesProviders(command: { prototype: object }): boolean;
+
+interface ClosureCommand<S extends string = string> {
+  readonly [CLOSURE_COMMAND]: true;          // Symbol.for("laratype.console.closure")
+  readonly signature: S;
+  readonly handler: (input: CommandInput<S>) => unknown;
+}
+```
+
+`ArgumentName`, `OptionName`, `ArgumentValue`, `OptionValue`, `CommandInput`, `ClosureHandler`, `ParsedSignature`, `SignatureArgument`, `SignatureOption`, `AnyClosureCommand`, `ConsoleCommand` and `CommandClass` are the supporting types. `CommandSignatureError` is the parse error (see Diagnostics).
+
+The signature grammar:
+
+| Token | Meaning |
+|---|---|
+| `name:sub` | the command name: the first word, before any `{...}` |
+| `" : description"` | the command description, after the parameters |
+| `{user}` | required argument, `string` |
+| `{user?}` | optional argument, `string \| undefined` |
+| `{user=default}` | argument with a default, `string` |
+| `{users*}` | variadic argument, `string[]` |
+| `{--force}` | boolean flag, `boolean \| undefined` |
+| `{--queue=}` | option with a required value, `string \| undefined` |
+| `{--queue=high}` | option with a default, `string` |
+| `{--tag=*}` | variadic option, `string[] \| undefined` |
+
+An argument name or option flag starts with a letter or `_`, then letters, digits, `_` or `-`. An option keeps one dash between its segments (no leading, trailing or doubled dash), because commander camelCases it: `{--dry-run}` is the input key `dryRun`, while `this.option("dry-run")` takes the flag as written. Every segment after a dash starts with a letter or digit, and a flag name cannot start with `no-`: commander treats `--no-cache` as the negation of `cache` and stores the value under `cache`, so declare `{--cache}` and let the handler decide what absence means.
+
+### Invariants
+- **One source.** The signature declares the command name, arguments and options. `sauf` parses it once, at registration. A 0.5 command's `static options` / `static arguments` are registered first for compatibility; a signature token with the same name is not registered twice. New commands use only the signature.
+- **Types come from the signature.** `ArgumentName`, `OptionName` and `CommandInput` are template-literal types over `S` (`packages/console/src/command/signature.ts`), the technique of the contract's path params. The class must pass its own signature type: `class SendMail extends Command<typeof SendMail.signature>` with `static readonly signature = "..." as const`. When `S` is plain `string` (every 0.5 command, or no `as const` / `readonly`), `argument()` returns `string`, `option()` returns `string | boolean | undefined`, and `CommandInput` falls back to `Record<string, unknown>` instead of the literal signature's keys.
+- **Container resolution.** A command that does not override `providers()` is resolved with `Serve.getContainer().make(Class)` after `register()` and the provider boot, so constructor DI works without decorators ([di.md › Dependency metadata](./di.md#dependency-metadata)). A command that overrides `providers()` keeps the 0.5 order: it is constructed with `new` before the boot so it can filter the provider list itself. `overridesProviders()` tells the two apart across copies of `@laratype/console`, with a shared symbol on the base method.
+- **`bootsApp`.** `static bootsApp = false` skips `register()`, the provider boot and the command's own `providers()` filtering (`types:generate`, `make:*`). A closure command always boots the app. The container is still loaded for a DI command with `bootsApp = false`, so its plain class dependencies autowire.
+- **One input object.** A closure command's handler receives exactly one `CommandInput<S>`; there are no positional parameters. A class command receives the same object through `__setInput()` and reads it with `argument(name)` / `option(name)`; `handle(...args)` still gets commander's positional arguments for 0.5 code.
+- **Registration.** `sauf` loads command classes through the app manifest ([build.md › Plugin chain](./build.md#plugin-chain)) from `app/src/console/commands` and `app/console/commands`, and `app/routes/console.ts` adds class and closure commands as an array. An entry that is not a command is skipped with a warning; a file that fails to load is skipped with its stack. A closure in a command file is skipped, because closure commands live in the route file.
+- **Cleanup.** The provider `down()` functions run in reverse order and the dev runner closes after the command body, so a failing `handle()` still cleans up. Every cleanup runs even when one throws; the command's own error stays the one the caller sees.
+- **No coercion.** Commander hands every argument and option value as a string (or `true` for a flag, an array for a variadic one); the signature types do not parse numbers, booleans or dates.
+
+### Diagnostics
+- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"--<name>" uses negation, which is not supported: declare {--<flag>} as a flag instead`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
+- A command file whose default export is not a command class: `Skipped <files>: the default export is not a command class (a class with a static signature)`.
+- A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A defined default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
+- Constructor DI in a production `dist/cli.js` fails with `Cannot autowire <Class>: its constructor takes N param(s) but no dependency metadata was found.` The DI transform runs in `sauf dev` only ([build.md › Plugin chain](./build.md#plugin-chain)).
+- Two commands with one name (a command file reusing `route:list`, say): `Duplicate command "<name>": <source> and <source> register it. Fix: rename one.`. A source is `a framework command`, `a command file` or `app/routes/console.ts`; the check runs before commander's own `cannot add command … as already have command …` error.
+- Unknown arguments and options are commander's own errors; the wrapper adds no message.
+
+### Example
+`examples/basic/app/src/console/commands/SendMail.ts` uses constructor DI and the typed signature:
+
+```ts
+export default class SendMail extends Command<typeof SendMail.signature> {
+  static readonly signature = "send:mail {user} {--queue=}" as const;
+
+  constructor(private readonly greeting: GreetingService) {
+    super();
+  }
+
+  async handle() {
+    const queue = this.option("queue");                 // string | undefined
+    console.log(this.greeting.greet(this.argument("user")), queue);
+  }
+}
+```
+
+`examples/basic/app/routes/console.ts` adds a closure command:
+
+```ts
+export default [
+  PublishCommand,
+  command("hello:user {user} {--shout}", ({ user, shout }) => {
+    console.log(shout ? `HELLO ${user.toUpperCase()}` : `Hello ${user}`);  // user: string, shout: boolean | undefined
+  }),
+];
+```
+
+`sauf make:command CleanCache` writes `app/console/commands/CleanCache.ts` with `static readonly signature = "clean:cache" as const` and the `Command<typeof CleanCache.signature>` shape.
+
+### Non-goals
+- No interactive prompts, progress bars or table helpers: `Console` keeps `log`, `error`, `warn`, `table` and the other 0.5 helpers.
+- No calling commands from code (`Artisan::call`), no command scheduling, no parallel execution, no output capturing.
+- No option value coercion or schemas: validation of command input is a later service concern.
+- No command discovery outside the manifest, and no DI metadata in the production build until `sauf build` runs the transform ([build.md › Plugin chain](./build.md#plugin-chain)).
+- No automatic naming from the class name: the generator derives a starting signature (`SendMail` -> `send:mail`), but the source of truth stays the string.
 
 ### Open questions
-- The form of a closure command in `routes/console.ts` → [#161](https://github.com/Laratypes/Laratype/issues/161)
-- Whether the 0.5 static `options` / `arguments` arrays stay next to the typed signature → [#161](https://github.com/Laratypes/Laratype/issues/161)
+- Resolved: a closure command is `command(signature, handler)` and its handler takes one typed input object, not positional parameters ([#161](https://github.com/Laratypes/Laratype/issues/161)).
+- Resolved: the 0.5 static `options` / `arguments` arrays are dropped as the source of the command's shape; the signature is the only source. They stay registered for existing 0.5 commands during the migration ([#161](https://github.com/Laratypes/Laratype/issues/161)).
 
 ### Acceptance
 [#161 Done when](https://github.com/Laratypes/Laratype/issues/161)
