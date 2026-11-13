@@ -5,7 +5,7 @@ import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 import { bodyCacheOf } from "./bodyCache";
 import type { BodyCache } from "./bodyCache";
-import { enforceBodyLimit, isFormMediaType, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
+import { enforceBodyLimit, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
 
 /**
  * Parsing and validation of a request's input (docs/v1/validation.md › Pipeline validation and 422): the body by its
@@ -17,6 +17,19 @@ const badRequest = (message: string) => new HTTPException(400, { res: Response.j
 
 const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
+
+/**
+ * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched
+ * as Hono 4.9.6's check is, case-sensitively: the pipeline parses exactly the bodies a later `c.req.parseBody()` would.
+ * A mixed-case form media type is therefore `{}` here. It is not parsed because the runtimes disagree on it: undici's
+ * `Response.formData()` reads a `Multipart/Form-Data` body, Bun's rejects it, so parsing it in the pipeline would hand
+ * the handler a different body per runtime. The cap does not follow this classifier: media types are case-insensitive
+ * (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case form body too, and the bytes a later
+ * `c.req.formData()` reads are bounded.
+ */
+export const isFormMediaType = (contentType: string | undefined): boolean =>
+  contentType?.startsWith("multipart/form-data") === true ||
+  contentType?.startsWith("application/x-www-form-urlencoded") === true;
 
 /** A form body of whitespace only: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
  * tells Unicode whitespace from data, so only these count. */

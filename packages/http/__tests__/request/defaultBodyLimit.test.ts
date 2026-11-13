@@ -9,8 +9,8 @@ import { z } from "zod";
 import { Container, depsRegistry, setConfigs } from "@laratype/core";
 import { HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, endpoint } from "@laratype/contract";
-import { BODY_LIMIT_DEFAULTS } from "../../src/request/bodyLimit";
-import { Controller, RequestKernel, ResponseKernel, Route } from "../../src/index";
+import { BODY_LIMIT_DEFAULTS, isPayloadTooLarge } from "../../src/request/bodyLimit";
+import { Controller, Request as RequestSupport, RequestKernel, ResponseKernel, Route } from "../../src/index";
 import type { Ctx } from "../../src/index";
 
 const MIB = 1_048_576;
@@ -74,11 +74,15 @@ const json = (body: unknown, contentType = "application/json") => ({
   body: typeof body === "string" ? body : JSON.stringify(body),
 });
 
-const form = (body: string) => ({
+const form = (body: string, contentType = "application/x-www-form-urlencoded") => ({
   method: "POST",
-  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  headers: { "Content-Type": contentType },
   body,
 });
+
+/** A mixed-case form media type: media types are case-insensitive (RFC 9110 §8.3.1). */
+const MIXED_CASE_MULTIPART = "Multipart/Form-Data; boundary=x";
+const MIXED_CASE_FORM = "Application/X-WWW-Form-Urlencoded";
 
 /** The same, with a Content-Length: the default limit then compares the header and answers 413 without reading. */
 const sized = (init: { method: string; headers: Record<string, string>; body: string }) => ({
@@ -385,5 +389,101 @@ describe("app/config/http.ts bodyLimit (H44 #341)", () => {
     const app = bootApp({ bodyLimit: { json: "2mb" } });
     mount(app, "0.5");
     await expect413(await app.request("/users", json({ name: "a".repeat(MIB) })));
+  });
+});
+
+describe("mixed-case form media types (H44 security review)", () => {
+  /** A 0.5 route that echoes its input, so a test can tell a parsed form from the pipeline's `{}`. */
+  const mountInput = (app: Hono): void => {
+    class Users extends Controller {
+      store(req: RequestSupport) {
+        return { input: req.input() };
+      }
+    }
+    app.post("/users", RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"] }));
+  };
+
+  it.each(KINDS)("answers a mixed-case multipart body over 10 MiB with 413 on a %s route", async (_label, kind) => {
+    quiet();
+    const app = bootApp();
+    mount(app, kind);
+    const body = multipart(BODY_LIMIT_DEFAULTS.multipart);
+    const init = sized({ method: "POST", headers: { "Content-Type": MIXED_CASE_MULTIPART }, body });
+    await expect413(await app.request("/users", init));
+  });
+
+  it.each(KINDS)("answers a mixed-case urlencoded body over 1 MiB with 413 on a %s route", async (_label, kind) => {
+    quiet();
+    const app = bootApp();
+    mount(app, kind);
+    await expect413(await app.request("/users", sized(form(`name=${"a".repeat(MIB)}`, MIXED_CASE_FORM))));
+  });
+
+  it("leaves a mixed-case form body under the cap unparsed, as Hono's parseBody does", async () => {
+    quiet();
+    const app = bootApp();
+    mountInput(app);
+    const response = await app.request("/users", form("name=ada", MIXED_CASE_FORM));
+    expect(response.status).toBe(201);
+    // Hono 4.9.6's parseBody() matches the form media types case-sensitively: a handler gets no fields, and the
+    // pipeline does not parse them either, so the limit and the parse stay separate classifiers
+    expect(await response.json()).toEqual({ input: {} });
+  });
+
+  it("fails the contract validation of a mixed-case form body, which no layer parsed", async () => {
+    quiet();
+    const app = bootApp();
+    mount(app, "Route.api");
+    // The route's body schema needs `name`; the mixed-case body is `{}` to the pipeline, so it is a 422, not a 201
+    expect((await app.request("/users", form("name=ada", MIXED_CASE_FORM))).status).toBe(422);
+    // The lowercase spelling of the same body is parsed and passes
+    expect((await app.request("/users", form("name=ada"))).status).toBe(201);
+  });
+
+  it("never gives a handler the bytes of a mixed-case over-cap body through c.req.formData()", async () => {
+    quiet();
+    const app = bootApp({ bodyLimit: { multipart: 2_048 } });
+    let fields: FormData | undefined;
+    let failure: unknown;
+    /** A 0.5 request class exposes the Hono reader the security probe used after the pipeline. */
+    class FormDataRequest extends RequestSupport {
+      readFormData(): Promise<FormData> {
+        return this.requestCtx.formData();
+      }
+    }
+    class Users extends Controller {
+      async store(req: FormDataRequest) {
+        try {
+          fields = await req.readFormData();
+        } catch (error) {
+          failure = error;
+        }
+        return { ok: true };
+      }
+    }
+    app.post(
+      "/users",
+      RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"], request: FormDataRequest }),
+    );
+    // No Content-Length: the pipeline does not read a mixed-case form body, so the handler's formData() is the reader
+    // and the counting stream is what must stop it
+    const text = new TextEncoder().encode(multipart(4_096));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < text.length; at += 512) controller.enqueue(text.slice(at, at + 512));
+        controller.close();
+      },
+    });
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "Content-Type": MIXED_CASE_MULTIPART },
+      body,
+      duplex: "half",
+    };
+    const response = await app.request("/users", init);
+    expect(response.status).toBe(201);
+    // The parse never resolves with the body, and what stopped it is the default limit's own 413
+    expect(fields).toBeUndefined();
+    expect(isPayloadTooLarge(failure)).toBe(true);
   });
 });

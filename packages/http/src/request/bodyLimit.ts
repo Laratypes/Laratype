@@ -32,18 +32,19 @@ const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
-/** The media type whose cap applies to a request, or `undefined` when the pipeline never reads its body. */
+/**
+ * The media type whose cap applies to a request, or `undefined` for one no reader reads. Matched on the lowercased
+ * value: media types are case-insensitive (RFC 9110 §8.3.1), so a `Multipart/Form-Data` or
+ * `Application/X-WWW-Form-Urlencoded` body must be capped exactly as its lowercase spelling is. The pipeline's form
+ * parse is a separate, case-sensitive classifier (`isFormMediaType` in `input.ts`): a mixed-case form body is `{}` to
+ * the pipeline, and the cap here still counts its bytes, so a later `c.req.formData()` cannot read an unbounded body.
+ */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";
-  if (contentType?.startsWith("multipart/form-data")) return "multipart";
-  if (contentType?.startsWith("application/x-www-form-urlencoded")) return "form";
+  const type = contentType?.toLowerCase();
+  if (type?.startsWith("multipart/form-data")) return "multipart";
+  if (type?.startsWith("application/x-www-form-urlencoded")) return "form";
   return undefined;
-};
-
-/** The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. */
-export const isFormMediaType = (contentType: string | undefined): boolean => {
-  const type = mediaTypeOf(contentType);
-  return type === "form" || type === "multipart";
 };
 
 /** The caps in force: the configured value, else the built-in default, per media type; `undefined` is no cap. */
