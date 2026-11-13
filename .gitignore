@@ -8,3 +8,5 @@ examples/laratype-test
 dist_tmp
 # Fixture projects of packages/sauf/__tests__/manifest/cli.test.ts, left by an interrupted run
 packages/sauf/__tests__/manifest/.cli-*
+# Temp copy of examples/basic used by packages/sauf/__tests__/make/generators.test.ts
+examples/.make-*

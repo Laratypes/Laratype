@@ -1,5 +1,5 @@
 import { Request } from "@laratype/http";
-import { z } from "zod";
+import * as z from "zod";
 
 export default class {{RequestName}} extends Request {
 
@@ -8,6 +8,7 @@ export default class {{RequestName}} extends Request {
     return z.object({
       email: z.string(),
       password: z.string().min(8),
+      age: z.coerce.number().int().min(1),
     })
   }
 }

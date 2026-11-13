@@ -1,13 +1,5 @@
-import { ResourceCollection } from "@laratype/http";
-import {{ResourceName}} from "./{{ResourceName}}";
+import { {{ ResourceName }} } from "./{{ ResourceName }}";
 
-export default class {{CollectionName}} extends ResourceCollection {
-
-  public resource = {{ResourceName}}
-
-  public toJson() {
-    return {
-      data: this.collection
-    }
-  }
-}
+// A v1 collection is `resource.collection(models)` (docs/v1/http.md › Resources).
+export const {{ CollectionFunction }} = (models: Parameters<typeof {{ ResourceName }}.collection>[0]) =>
+  {{ ResourceName }}.collection(models);

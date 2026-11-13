@@ -1,5 +1,6 @@
 import { camelize } from "@laratype/support";
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 export default class MakePolicyCommand extends MakeCommand {
 
@@ -21,19 +22,23 @@ export default class MakePolicyCommand extends MakeCommand {
   async make(policyName: string) {
     const options = this.opts();
     const resourcePath = this.resolve("sauf", "Policy.template");
+    const name = generatorPath(policyName, "policy", { identifier: true });
 
-    const destinationPath = "./src/policies/" + policyName + ".ts";
+    const destinationPath = `./${GENERATOR_FOLDERS.policy}/${name}.ts`;
     const data: {
       PolicyName: string;
       ModelName?: string;
       ParamName?: string;
     } = {
-      PolicyName: this.getFileName(policyName),
+      PolicyName: this.getFileName(name),
     }
 
     if(options.m) {
-      data.ModelName = this.getFileName(options.m);
-      data.ParamName = camelize(this.getFileName(options.m));
+      // `make:model`'s rules (docs/v1/cli.md › make:* generators): `-m my-note` would be an import binding and a
+      // type, and `-m ../x` would be flattened silently by `getFileName()`. The last segment names the model.
+      const modelName = this.getFileName(generatorPath(options.m, "model", { identifier: true }));
+      data.ModelName = modelName;
+      data.ParamName = camelize(modelName);
     }
     const result = this.build(resourcePath, data);
 

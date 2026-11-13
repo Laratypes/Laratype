@@ -1,11 +1,13 @@
+import { existsSync } from "node:fs";
 import { CommandSignatureError, parseSignature } from "@laratype/console";
+import { KIND_EXTENSIONS, MANIFEST_DIRS } from "../../manifest/scan";
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 /**
  * `SendMail` -> `send:mail`, `TypesGenerate` -> `types:generate`: the v1 command names use `:`. A colon, underscore or
- * space separates words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_`, `Clean__Cache`,
- * `Clean:Cache` and `Clean::Cache` all give `clean:cache`: the generated signature never starts or ends with `:` and has
- * no empty segment.
+ * space separates words too, and an empty segment adds nothing, so `_CleanCache`, `CleanCache_` and `Clean__Cache` all
+ * give `clean:cache`: the generated signature never starts or ends with `:` and has no empty segment.
  */
 export function commandSignature(name: string): string {
   return name
@@ -14,6 +16,18 @@ export function commandSignature(name: string): string {
     .filter(Boolean)
     .join(":")
     .toLowerCase();
+}
+
+/**
+ * The command files of this name in every folder and extension the manifest reads. One name twice is a scan error
+ * (docs/v1/build.md › Plugin chain), so `make:command` must not add a second file.
+ */
+function commandFiles(fileName: string): string[] {
+  return MANIFEST_DIRS.commands.flatMap((dir) =>
+    KIND_EXTENSIONS.commands
+      .map((extension) => `${dir}/${fileName}${extension}`)
+      .filter((path) => existsSync(path)),
+  );
 }
 
 /**
@@ -49,17 +63,26 @@ export default class MakeCommandCommand extends MakeCommand {
   async make(commandNames: string[]) {
     const resourcePath = this.resolve("sauf", "Command.template");
 
-    // Every signature is checked before the first stub is written: a bad name fails this run, not the next CLI start.
+    // Every name, signature and destination is checked before the first stub is written: a bad name or a name
+    // another command file already uses fails this run, not the next CLI start, and leaves no stub behind.
     const commands = commandNames.map(commandName => {
-      const fileName = this.getFileName(commandName).replace(/\.ts$/, "");
+      // The manifest reads the top level of the command folder only: the whole argument is checked first (so `../Demo`
+      // is refused like any other generator), then a sub-path is flattened to its file name
+      const fileName = this.getFileName(generatorPath(commandName, "command", { identifier: true }));
       const signature = commandSignature(fileName);
       assertCommandSignature(fileName, signature);
-      return { fileName, signature };
+      const destinationPath = `./${GENERATOR_FOLDERS.command}/${fileName}.ts`;
+      const target = destinationPath.slice(2);
+      // An existing file at the destination is the usual skip; a second file of the same name would fail the manifest
+      const existing = commandFiles(fileName).find((path) => path !== target);
+      if (existing !== undefined) {
+        const reason = `Cannot create ${target}: ${existing} already uses the command name ${JSON.stringify(fileName)}`;
+        throw new Error(`${reason}, and the manifest reads both. Fix: rename or remove one.`);
+      }
+      return { fileName, signature, destinationPath };
     });
 
-    return commands.map(({ fileName, signature }) => {
-      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
-      const destinationPath = `./app/console/commands/${fileName}.ts`;
+    return commands.map(({ fileName, signature, destinationPath }) => {
       const result = this.build(resourcePath, { CommandName: fileName, signature });
       this.publish(result, destinationPath);
       return destinationPath;

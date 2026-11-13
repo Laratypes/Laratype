@@ -1,4 +1,5 @@
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 export default class MakeControllerCommand extends MakeCommand {
 
@@ -15,10 +16,14 @@ export default class MakeControllerCommand extends MakeCommand {
 
   async make(controllerNames: string[]) {
     const resourcePath = this.resolve("sauf", "Controller.template");
+    // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
+    const names = controllerNames.map(controllerName =>
+      generatorPath(controllerName, "controller", { identifier: true }),
+    );
 
-    return controllerNames.map(controllerName => {
-      const destinationPath = "./src/http/controllers/" + controllerName + ".ts";
-      const result = this.build(resourcePath, { ControllerName: this.getFileName(controllerName) });
+    return names.map(name => {
+      const destinationPath = `./${GENERATOR_FOLDERS.controller}/${name}.ts`;
+      const result = this.build(resourcePath, { ControllerName: this.getFileName(name) });
       this.publish(result, destinationPath);
       return destinationPath;
     });
