@@ -164,6 +164,11 @@
     "packages/i18n": {
       "name": "@laratype/i18n",
       "version": "0.5.4",
+      "dependencies": {
+        "@laratype/core": "workspace:*",
+        "@laratype/http": "workspace:*",
+        "@laratype/support": "workspace:*",
+      },
     },
     "packages/laratype": {
       "name": "laratype",

@@ -10,12 +10,12 @@ last-verified: 2026-11-08
 
 The application services: the driver `Manager`, console commands, events, cache, storage, queues, mail, localization, the scheduler, processes and broadcasting.
 
-> **Planned, except the driver Manager and console commands.** The [Driver Manager](#driver-manager) is proposed in PR [#355](https://github.com/Laratypes/Laratype/pull/355), and [Console commands](#console-commands) is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants, Diagnostics and Example out until its code merges ([README](./README.md)).
+> **Planned, except the driver Manager, console commands and Localization.** The [Driver Manager](#driver-manager) is proposed in PR [#355](https://github.com/Laratypes/Laratype/pull/355), [Console commands](#console-commands) is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357), and [Localization](#localization) is proposed by I1 [#167](https://github.com/Laratypes/Laratype/issues/167) in PR [#361](https://github.com/Laratypes/Laratype/pull/361). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants, Diagnostics and Example out until its code merges ([README](./README.md)).
 
 **State on master (0.5):** checked on `256a743`. The same files are unchanged on `v0.5.4`.
 - `@laratype/console` has a `Command` base class with static `signature`, `description`, `options` and `arguments` and a `handle()` method ([`Command.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/console/src/command/Command.ts#L1-L34)). sauf loads app commands from `app/src/console/commands/*.ts` and from the default export of `app/routes/console.ts` ([`sauf/src/utils/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/utils/index.ts#L10-L34)).
 - `@laratype/log` has a `Logger` on winston. The config type allows the channels `"stack" | "single" | "daily"` ([`Config.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/contracts/Config.ts#L33-L53)), but only `single` is implemented. Any other channel throws `DriverNotImplement` ([`Logger.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/log/src/Logger.ts#L29-L36)).
-- `packages/mail`, `i18n`, `storage`, `schedule` and `broadcast` contain only `package.json`.
+- `packages/mail`, `storage`, `schedule` and `broadcast` contain only `package.json`; `packages/i18n` is the proposed I1 package.
 - There is no events, cache, queue or process package.
 
 | Section | Status |
@@ -29,7 +29,7 @@ The application services: the driver `Manager`, console commands, events, cache,
 | [Queue](#queue) | planned → #169 |
 | [Job chains and batches](#job-chains-and-batches) | planned → #175 |
 | [Mail](#mail) | planned → #170 |
-| [Localization](#localization) | planned → #167 |
+| [Localization](#localization) | proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b |
 | [Scheduler](#scheduler) | planned → #171 |
 | [Process](#process) | planned → #176 |
 | [Broadcasting server](#broadcasting-server) | planned → #177 |
@@ -360,18 +360,110 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-planned → [#167](https://github.com/Laratypes/Laratype/issues/167) (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
-### Design (non-binding)
-- **Files:** translations live in `lang/{locale}/*.ts` with typed keys, discovered by the build manifest.
-- **Lookup:** `__()` / `trans()`. The key and the placeholder params are inferred: `"Hello {name}"` → `{ name: string }`.
-- **Locale:** a locale middleware reads Accept-Language, the query or the user's preference. The locale is stored per request (D6, [di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)).
-- **Fallback** from `config.fallback_locale`; plurals through `Intl.PluralRules`. The 0.5 app config already has `locale` and `fallback_locale` ([`Config.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/support/src/contracts/Config.ts#L25-L26)).
-- **Validation messages:** default localized messages from Standard Schema issues, used by FormRequest v2 ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
-- **FE:** an optional JSON export per locale.
+### Public API
+The API lives in [`index.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/index.ts), with `defineLang` in [`define-lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/define-lang.ts), `Locale` in [`locale.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale.ts), `Translator` in [`translator.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/translator.ts), `Lang` in [`lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/lang.ts), the helpers in [`functions.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/functions.ts), `LocaleMiddleware` in [`locale-middleware.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale-middleware.ts), `I18nServiceProvider` in [`i18n-service-provider.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/i18n-service-provider.ts), `I18nError` in [`errors.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/errors.ts), `validationMessage` in [`validation.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/validation.ts), `loadMessages` and `LangCatalog` in [`catalog.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/catalog.ts), and the types in [`types.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/types.ts).
+
+```ts
+// lang/<locale>/<file>.ts
+export const defineLang: <const T extends LangTree>(messages: T) => T
+export type LangTree = { readonly [key: string]: string | PluralForms | LangTree }
+export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
+export type PluralForms = { readonly other: string } & Partial<Record<Exclude<PluralCategory, "other">, string>>
+export interface Register {} // { lang: { <file>: typeof import("../lang/en/<file>").default } }
+
+export function trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string
+export const __: typeof trans
+export class Translator {
+  constructor(catalog?: LangCatalog, options?: TranslatorOptions); // defaults outside a request
+  static current(): Translator;
+  trans<K extends LangKey>(key: K, ...args: TransArgs<K>): string;
+  translate(key: string, params?: MessageParams, locale?: string): string; // dynamic keys
+  has(key: string, locale?: string): boolean;
+  getLocale(): string;
+  setLocale(locale: string): void;
+  getFallbackLocale(): string;
+  locales(): string[];
+}
+export class Lang extends Facade { /* trans, getLocale, setLocale, getFallbackLocale, locales, has, fake() */ }
+export function getLocale(): string
+export function setLocale(locale: string): void
+export function locales(): string[]
+export class Locale {} // @Injectable({ scope: "request" }), the request's locale
+export class LocaleMiddleware extends Middleware {} // 0.5 Middleware; defineMiddleware is follow-up #352
+export class I18nServiceProvider extends ServiceProvider { register(): Promise<void> }
+export function validationMessage(rule: string, params?: MessageParams, locale?: string): string
+export function loadMessages(manifest?: AppManifest): Promise<LangCatalog>
+export class I18nError extends Error
+export const LOCALE_QUERY: "locale"
+
+export type AppLangs = /* Register.lang, or Record<string, LangTree> */
+export type LangKey = /* every "<file>.<dotted key>" of Register.lang */ string
+export type LangPaths<T, Prefix extends string = ""> = /* every dotted leaf path of T */ string
+export type TransParams<K extends string = LangKey> = /* the placeholders of K: string, count: number */ unknown
+// The arguments after the key: any params before the app registers its tree, no params when the message has no
+// placeholders (`trans(key)` or `trans(key, undefined, "vi")`), a required params object otherwise, plus an
+// optional locale.
+export type TransArgs<K extends string = LangKey> = string extends LangKey
+  ? [params?: MessageParams, locale?: string]
+  : keyof TransParams<K> extends never
+    ? [params?: undefined, locale?: string]
+    : [params: TransParams<K>, locale?: string]
+export type MessageParams = Record<string, string | number>
+export type LangCatalog = Readonly<Record<string, Readonly<Record<string, LangTree>>>>
+export interface TranslatorOptions { locale?: string; fallbackLocale?: string }
+```
+
+**Config:** `app/config/i18n.ts` default-exports `defineConfig({ locale, fallback_locale })`, read as `config("i18n.locale")` / `config("i18n.fallback_locale")`. Without it, the 0.5 single config file's `config.locale` / `config.fallback_locale` are read; a locale that is still unset defaults to `en`, and the fallback defaults to the default locale.
+
+**Manifest:** `AppManifest.lang` is the `lang` kind: one entry per `lang/<locale>/<file>.ts`, named `<locale>/<file>` (build.md › manifest). The build tsconfig must include `lang/**/*`: a lang file outside the build program is left out of `dist/app.manifest.js`, and `sauf build` warns that production has no translations for it (`trans()` then returns raw keys).
+
+### Invariants
+- **Keys** are `<file>.<dotted key>` (`messages.greeting`, `validation.required`). A registered `Register.lang` makes an unknown key, a missing placeholder param and an extra param type errors. `"Hello {name}"` takes `{ name: string }`; a `{count}` placeholder and every plural take `{ count: number }`. The extra-param check is an excess-property check, so it applies to an object literal only: a params object passed through a variable may carry extra keys and still type-check. Key typing uses the K1/Q16 module-augmentation pattern; generating it from the manifest is a follow-up. A file name or a key segment cannot contain `.`: lookup splits the key on dots, so `loadMessages()` rejects one with `I18nError`. A file root is always a container (`messages.one`, `messages.other`), never a plural leaf; a plural object below the root is a leaf.
+- **Plurals** are a leaf object whose keys are all `Intl.PluralRules` categories (`zero|one|two|few|many|other`, `other` required); `Intl.PluralRules` selects the form from `params.count`. The locale is normalized before the rules are built, so a `fr_FR` folder uses the French rules.
+- **Matching and fallback:** a locale matches exactly, then by base language (`en-US` → `en`), then by another region of the same language (`en` → `en-US`); `LocaleMiddleware` and the catalog lookup use the same matching. A message is looked up in every catalog match of the requested tag in that order (so `en-GB` tries `en`, then `en-US`), then in every match of `fallback_locale`, without repeating a locale; when no locale has it, the key itself is returned. A missing key never throws.
+- **Locale per request (D6):** `Locale` is request-scoped; `LocaleMiddleware` reads `?locale=`, then the authenticated user's `locale`, then the `Accept-Language` q-list, then leaves the app default. Only locales with a catalog (plus the default and fallback) are accepted, and `?locale=` wins. A header tag with `q=0` is an exclusion: a catalog locale it names exactly is never chosen from the header, and when the first match of a range is excluded the range's other matches are still tried before the next range. A range with a malformed `q` (empty, non-numeric, outside `0..1`, or more than three decimals) is skipped: it is neither an exclusion nor `q=1`. Register the middleware after the auth middleware, or the user preference is not set yet. Outside a request, `setLocale()` changes the translator default (CLI, queued jobs); inside a request with no request container (a route not served through `RequestKernel`) it leaves the shared default unchanged and warns once in dev, so it cannot leak into later requests.
+- **Validation messages:** `validationMessage(rule, params?, locale?)` reads the app's `validation.<rule>` (for example `lang/vi/validation.ts` exporting `{ required: "..." }`), or its built-in English default. Standard Schema issues carry no rule code, so H10 maps an issue to its rule and passes that rule name; that issue→rule map remains H10's work (Refs [#167](https://github.com/Laratypes/Laratype/issues/167)).
+- **Provider:** `I18nServiceProvider` loads the catalog once and binds `Translator`; add it to `app/config/providers.ts`.
+
+### Diagnostics
+- `I18nError`: `[@laratype/i18n] lang entry "<name>" (<path>) must be named <locale>/<file>: put each file in lang/<locale>/`
+- `I18nError`: `[@laratype/i18n] <path> must default-export an object of messages (defineLang({...}))`
+- `I18nError`: `[@laratype/i18n] <path>: lang folder "<locale>" and "<known>" are the same locale ("<normalized>"): spell a locale one way`
+- `I18nError`: `[@laratype/i18n] <path>: file name "<file>" contains ".": keys are <file>.<dotted key>, so a dot cannot be part of a file name or key`
+- `I18nError`: `[@laratype/i18n] <path>: message key "<file>.<dotted key>" contains ".": keys are <file>.<dotted key>, so a dot cannot be part of a file name or key`
+- `I18nError`: `[@laratype/i18n] <path>: message "<file>.<dotted key>" must be a string or a plural object ({ other, one, two, few, many, zero } with string templates)`
+- `LocaleMiddleware` on a route without a request container (not served through `RequestKernel`) skips, leaves the app default and prints one dev warning per process; changing the shared default there would leak into later requests.
+- `setLocale()` (and `Lang.setLocale()`) on a route without a request container skips the same way, leaving the app default and printing the same one-time dev warning, naming `setLocale()`.
+- Type errors, checked against `Register.lang` (the `trans` / `__` type test): an unknown key fails with TS2345, a missing params object with TS2554, a wrong placeholder type with TS2322 and an extra literal param with TS2353.
+  ```
+  error TS2345: Argument of type '"messages.missing"' is not assignable to parameter of type '"messages.greeting" | "messages.apples" | "messages.plain" | "messages.nested.farewell"'.
+  error TS2554: Expected 2-3 arguments, but got 1.
+  error TS2322: Type 'number' is not assignable to type 'string'.
+  error TS2353: Object literal may only specify known properties, and 'extra' does not exist in type '{ name: string; }'.
+  ```
+  The key union in the first message is the test file's registered keys; an app's message names its own. The TS2353 error is an excess-property check, so only an object literal fails it: a params object passed through a variable may carry extra keys without an error.
+
+### Example
+```ts
+// app/declare/i18n.d.ts
+import messages from "../../lang/en/messages"
+declare module "@laratype/i18n" { interface Register { lang: { messages: typeof messages } } }
+
+// controller
+import { __ } from "@laratype/i18n"
+
+__("messages.greeting", { name: "Ada" })
+```
+
+### Non-goals
+- JSON export per locale: not in this package yet; remaining in [#167](https://github.com/Laratypes/Laratype/issues/167).
+- FormRequest v2 wiring is H10 [#137](https://github.com/Laratypes/Laratype/issues/137); this package provides the lookup.
+- `defineMiddleware` typing is PR [#352](https://github.com/Laratypes/Laratype/pull/352); `LocaleMiddleware` uses the 0.5 `Middleware` class.
 
 ### Open questions
-- Resolved: `lang/` sits at the project root ([overview.md › Project structure](./overview.md#project-structure), [#167](https://github.com/Laratypes/Laratype/issues/167)).
+- The JSON export's shape and command → [#167](https://github.com/Laratypes/Laratype/issues/167).
 
 ### Acceptance
 [#167 Done when](https://github.com/Laratypes/Laratype/issues/167)

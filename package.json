@@ -19,6 +19,7 @@
     "url": "git+https://github.com/Laratypes/Laratype.git"
   },
   "scripts": {
+    "bench:types": "node scripts/bench-types/run.mjs",
     "build": "bun bun.build.js",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "check:dist": "node scripts/check-dist.mjs",

@@ -3,6 +3,7 @@ import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
 import type Controller from "../../controller/Controller";
+import type { Matches } from "./equal";
 
 /**
  * Controller typing (docs/v1/http.md › Controller typing: Ctx and ControllerOf) and the route proof that
@@ -27,8 +28,13 @@ export type BaseCtx<E extends AnyEndpoint, P = PathParams<T<E>["path"]>> = {
   body: InferOut<T<E>["body"]>;
 };
 
-/** `Base` with `Extra` on top, `params` merged one level deep (a bound param replaces its string). */
-type Merge<Base, Extra> = Flat<
+/**
+ * `Base` with `Extra` on top, as `applyExtensions()` merges an extension into the ctx at runtime: a key of `Extra`
+ * replaces the same key of `Base`, and `params` is merged one level deep (a bound param replaces its string). Shared by
+ * `Ctx` and `Provided`, and by `ExtOf`, which merges a route's middleware extensions in order with the same rule
+ * (H6 #117).
+ */
+export type Merge<Base, Extra> = Flat<
   Omit<Base, keyof Extra> &
     Omit<Extra, "params"> &
     ("params" extends keyof Extra ? { params: Flat<Omit<Sub<Base, "params">, keyof Extra["params"]> & Extra["params"]> } : {})
@@ -94,6 +100,53 @@ type Missing<Pv, Rq> = Exclude<RequiredKeys<Rq>, keyof Pv> & string;
 type Mismatched<Pv, Rq> = { [K in keyof Rq & keyof Pv]-?: [Pv[K]] extends [Rq[K]] ? never : K }[keyof Rq & keyof Pv] & string;
 type Sub<O, K extends string> = K extends keyof O ? O[K] : {};
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+
+/**
+ * The paths of `O` whose type is `never`: a key a middleware declares `never` (H6 #117) has no value to give the ctx,
+ * while a handler could read it as whatever it declares (`never` is assignable to every type, so the requirement check
+ * would pass). `ExtOf` merges the extensions last-wins, so a `never` no longer comes from two extensions intersecting;
+ * this walk still catches a declared `never`, nested ones included. A key typed only `undefined` is not a conflict, and
+ * `undefined` is dropped before the walk of an optional key. Nested objects are walked (a key is named by its path,
+ * `user.id`), arrays and functions are not walked or compared. A self-referencing extension type is walked once per
+ * path: `Matches` stops the walk at a type it already saw there, so a recursive type does not hit TypeScript's
+ * instantiation limit.
+ */
+type NeverKeys<O, Seen = never> = {
+  [K in keyof O & string]-?: [O[K]] extends [never]
+    ? K
+    : [Exclude<O[K], undefined>] extends [never]
+      ? never
+      : Exclude<O[K], undefined> extends readonly unknown[] | ((...args: any[]) => unknown)
+        ? never
+        : Exclude<O[K], undefined> extends object
+          ? true extends Matches<Exclude<O[K], undefined>, Seen>
+            ? never
+            : `${K}.${NeverKeys<Exclude<O[K], undefined>, Seen | Exclude<O[K], undefined>>}`
+          : never;
+}[keyof O & string];
+
+/** The path and the diagnosis of a key a middleware declares `never`. */
+type ConflictLabel<N extends string, K extends string> =
+  `${N}: middleware extension '${K}' is \`never\` (declared \`never\`)`;
+
+/**
+ * A `never` extension: the proof refuses the key, whatever the handler declares. The runtime cannot provide it, and the
+ * handler could read it as any type.
+ */
+type ConflictIssues<N extends string, X> = {
+  [K in NeverKeys<X> as ConflictLabel<N, K>]: { conflicting_key: K };
+};
+
+/** The extension keys a contract route keeps for itself: the validated `query` and `body`, and the pinned `endpoint`. */
+type ReservedKey = "query" | "body" | "endpoint";
+
+/**
+ * A middleware extension that names a key a contract route keeps: at runtime the extension is refused before the
+ * handler, so the proof reports it whatever the handler declares (a handler typed `any` included).
+ */
+type ReservedIssues<N extends string, X> = {
+  [K in Extract<keyof X, ReservedKey> as `${N}: middleware extension '${K}' is reserved on a contract route (the validated query and body, and the endpoint)`]: K;
+};
 
 /** Keys the handler needs that the route doesn't provide: `user`, `params.user`. */
 type MissingKeys<Pv, Rq> = Missing<Pv, Rq> | `params.${Missing<Sub<Pv, "params">, Sub<Rq, "params">>}`;
@@ -164,16 +217,20 @@ type NoBody<E extends AnyEndpoint> = T<E>["response"] extends undefined ? null :
  * Conditional types, not function assignability: methods compare bivariantly, so `{ show(ctx: Provided): any }`
  * would accept a handler that needs more than the route provides. `[Provided] extends [Param]` is one-directional.
  * Any callable property counts as a handler (class methods, and an `action()` property later); an `any` one passes.
+ * A key a middleware declared `never` is reported before the parameter check, since the handler would otherwise be
+ * proven against a value the runtime never produces.
  */
-type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw> = IsAny<H> extends true
+type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extends object> = IsAny<H> extends true
   ? {}
-  : H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
-    ? [Pv] extends [Rq]
-      ? [Awaited<R>] extends [Result<E> | NoBody<E> | ResponseEscape]
-        ? SecondIssues<N, Rest, Raw>
-        : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
-      : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
-    : { [_ in `${N}: controller has no handler for this endpoint`]: H };
+  : keyof ConflictIssues<N, X> extends never
+    ? H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
+      ? [Pv] extends [Rq]
+        ? [Awaited<R>] extends [Result<E> | NoBody<E> | ResponseEscape]
+          ? SecondIssues<N, Rest, Raw>
+          : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
+        : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
+      : { [_ in `${N}: controller has no handler for this endpoint`]: H }
+    : ConflictIssues<N, X>;
 
 /** The handler for key `K`: a member of the controller, never one of the base `Controller` (the runtime rejects those). */
 type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : undefined;
@@ -181,8 +238,8 @@ type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : und
 type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B> = UnionToIntersection<
   {
     [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
-      ? // The extensions of the endpoint's own `endpoints` middleware join `X` with typed middleware (H6 #117)
-        HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }>
+      ? HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }, X> &
+        ReservedIssues<`${N}.${K}`, X>
       : {};
   }[EndpointKey<C>]
 >;
@@ -241,11 +298,11 @@ type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
 
 /**
  * The route proof of `r.contract()` (docs/v1/http.md › Route proof at r.contract()), a low-level type: `Route.api`
- * runs it with `X = {}` and `B = {}` until typed middleware (H6 #117) and `r.bind()` (H7 #118) feed the builder.
+ * runs it with the middleware extensions its builder accumulated (H6 #117).
  *
- * For contract (or tree node) `C` named `N` under `Path`, controller instance `I`, middleware extensions `X`,
- * bindings `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose
- * property names are the diagnosis.
+ * For contract (or tree node) `C` named `N` under `Path`, controller instance `I`, middleware extensions `X`, bindings
+ * `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose property
+ * names are the diagnosis.
  */
 export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}> =
   Flat<ControllerIssues<N, C, Path, I, X, B> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O>> extends infer Errs
