@@ -94,6 +94,12 @@ export type Binder = BindableModelClass | Resolver;
 export type Bindings = Readonly<Record<string, Binder>>;
 
 /**
+ * The statics `isModelClass` reads at runtime: a callable that has them (and no construct signature) is a model, not a
+ * resolver, so its value is the lookup result. `BindableModelClass` is the constructable form of the same shape.
+ */
+type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string): unknown };
+
+/**
  * The value a binder gives the handler. A `BindableModelClass` gives its instance (the class's own type, not the
  * inherited return of `findByRouteKey`); a callable that carries the same statics is a model too at runtime
  * (`isModelClass`), so it gives its lookup result; any other resolver is called, and its miss is a 404, so the handler
@@ -103,8 +109,8 @@ export type Bindings = Readonly<Record<string, Binder>>;
  */
 type Bound<B> = B extends BindableModelClass
   ? InstanceType<B>
-  : B extends { readonly primaryKey: string; findByRouteKey(key: string): infer R }
-    ? NonNullable<Awaited<R>>
+  : B extends ModelStatics
+    ? NonNullable<Awaited<ReturnType<B["findByRouteKey"]>>>
     : B extends Resolver
       ? NonNullable<Awaited<ReturnType<B>>>
       : B extends AnyConstructor

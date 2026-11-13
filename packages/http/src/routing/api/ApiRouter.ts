@@ -335,7 +335,7 @@ const checkBindingKeys = (
     for (const key of names) forContract.add(key);
     contractParams.set(name, forContract);
     // The scopes this route's entry is under, outer to inner: a scope binding may name any of their params
-    for (const { dir } of byName.get(name)!.scopes) {
+    for (const { dir } of byName.get(name)?.scopes ?? []) {
       if (!scopes.has(dir)) continue;
       const forScope = scopeParams.get(dir) ?? new Set<string>();
       for (const key of names) forScope.add(key);
