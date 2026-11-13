@@ -1,0 +1,20 @@
+{
+  "name": "laratype-example-fullstack-vue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A Vue 3 + Vite frontend for the examples/basic users API, typed by its contracts (E4 #136).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "types": "bun ./scripts/generate-types.ts",
+    "typecheck": "bun ./scripts/generate-types.ts && vue-tsc --noEmit"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.10",
+    "vite": "catalog:",
+    "vue": "3.5.44",
+    "vue-tsc": "3.3.13"
+  }
+}
