@@ -22,7 +22,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
 | [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; interceptors planned → #138 |
-| [Default body limit](#default-body-limit) | proposed: PR #<leader fills> @ 21b0d7b (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
+| [Default body limit](#default-body-limit) | proposed: PR [#381](https://github.com/Laratypes/Laratype/pull/381) @ [21b0d7b](https://github.com/Laratypes/Laratype/commit/21b0d7b) (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
@@ -503,7 +503,7 @@ global middleware → auth guard (contract auth, 401) → throttle (429) → rou
 ## Default body limit
 
 ### Status
-proposed: PR #<leader fills> @ 21b0d7b (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)).
+proposed: PR [#381](https://github.com/Laratypes/Laratype/pull/381) @ [21b0d7b](https://github.com/Laratypes/Laratype/commit/21b0d7b) (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)).
 
 ### Public API
 No new export. The caps live in `app/config/http.ts`, a config file like any other (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)); code: [`request/bodyLimit.ts` @ 21b0d7b](https://github.com/Laratypes/Laratype/blob/21b0d7b/packages/http/src/request/bodyLimit.ts).
