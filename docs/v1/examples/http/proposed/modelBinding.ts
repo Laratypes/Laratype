@@ -44,6 +44,7 @@ class PostController extends Controller {
   }
 }
 
+// The class binding, or the resolver below: an alternative mount of the same contract, use one
 export const routes = Route.api(appApi, (r) => [r.bind({ user: User, post: Post }).contract(posts, PostController)])
 
 export const resolver = Route.api(appApi, (r) => [
