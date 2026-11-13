@@ -2,15 +2,15 @@
 area: services
 packages: ["@laratype/core", "@laratype/console", "@laratype/log", "@laratype/cache", "@laratype/storage", "@laratype/queue", "@laratype/mail", "@laratype/i18n", "@laratype/schedule", "@laratype/broadcast", "@laratype/contract", "@laratype/client"]
 issues: [115, 158, 160, 161, 165, 166, 167, 168, 169, 170, 171, 175, 176, 177, 178]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at fc9b54d)
-last-verified: 2026-11-08
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + F2 console commands at fc9b54d; + variadic check at 52bbf95)
+last-verified: 2026-11-13
 ---
 
 # Services
 
 The application services: the driver `Manager`, console commands, events, cache, storage, queues, mail, localization, the scheduler, processes and broadcasting.
 
-> **Planned, except the driver Manager, console commands and Localization.** The [Driver Manager](#driver-manager) is proposed in PR [#355](https://github.com/Laratypes/Laratype/pull/355), [Console commands](#console-commands) is proposed by F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357), and [Localization](#localization) is proposed by I1 [#167](https://github.com/Laratypes/Laratype/issues/167) in PR [#361](https://github.com/Laratypes/Laratype/pull/361). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants, Diagnostics and Example out until its code merges ([README](./README.md)).
+> **Planned, except the driver Manager, console commands and Localization.** The [Driver Manager](#driver-manager) is merged @ 2aacd07 (PR [#355](https://github.com/Laratypes/Laratype/pull/355)), [Console commands](#console-commands) was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357), and [Localization](#localization) is merged @ d1d53d9 (I1 [#167](https://github.com/Laratypes/Laratype/issues/167), PR [#361](https://github.com/Laratypes/Laratype/pull/361)). Every other section is `planned → #N`. A planned section holds a **Design (non-binding)** note built from the issue bodies, and a name in backticks is the name its issue uses; where the issue does not state a signature, it is not settled. A planned section leaves Public API, Invariants, Diagnostics and Example out until its code merges ([README](./README.md)).
 
 **State on master (0.5):** checked on `256a743`. The same files are unchanged on `v0.5.4`.
 - `@laratype/console` has a `Command` base class with static `signature`, `description`, `options` and `arguments` and a `handle()` method ([`Command.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/console/src/command/Command.ts#L1-L34)). sauf loads app commands from `app/src/console/commands/*.ts` and from the default export of `app/routes/console.ts` ([`sauf/src/utils/index.ts` @ 256a743](https://github.com/Laratypes/Laratype/blob/256a7432bb24d6812e4b0903cd1d6528b0607fdf/packages/sauf/src/utils/index.ts#L10-L34)).
@@ -21,15 +21,15 @@ The application services: the driver `Manager`, console commands, events, cache,
 | Section | Status |
 |---|---|
 | [Shared service rules](#shared-service-rules) | planned → #160, #115, #158, #165 |
-| [Driver Manager](#driver-manager) | proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 |
-| [Console commands](#console-commands) | proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)) |
+| [Driver Manager](#driver-manager) | merged @ 2aacd07; PR [#355](https://github.com/Laratypes/Laratype/pull/355) |
+| [Console commands](#console-commands) | merged @ b7167f9; PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)); variadic check proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 52bbf95 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) |
 | [Events and listeners](#events-and-listeners) | planned → #165 |
 | [Cache](#cache) | planned → #166 |
 | [Storage](#storage) | planned → #168 |
 | [Queue](#queue) | planned → #169 |
 | [Job chains and batches](#job-chains-and-batches) | planned → #175 |
 | [Mail](#mail) | planned → #170 |
-| [Localization](#localization) | proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b |
+| [Localization](#localization) | merged @ d1d53d9; PR [#361](https://github.com/Laratypes/Laratype/pull/361) |
 | [Scheduler](#scheduler) | planned → #171 |
 | [Process](#process) | planned → #176 |
 | [Broadcasting server](#broadcasting-server) | planned → #177 |
@@ -58,10 +58,10 @@ Each service's own issue, linked in its section.
 ## Driver Manager
 
 ### Status
-proposed: PR [#355](https://github.com/Laratypes/Laratype/pull/355) @ 635c453 ([#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
+merged @ 2aacd07 (PR [#355](https://github.com/Laratypes/Laratype/pull/355); [#160](https://github.com/Laratypes/Laratype/issues/160), F1, M3). Depends on D1 [#96](https://github.com/Laratypes/Laratype/issues/96), D8 [#115](https://github.com/Laratypes/Laratype/issues/115), K1 [#152](https://github.com/Laratypes/Laratype/issues/152).
 
 ### Public API
-`Manager` lives in [`packages/core/src/manager.ts` @ 635c453](https://github.com/Laratypes/Laratype/blob/635c453/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
+`Manager` lives in [`packages/core/src/manager.ts` @ 2aacd07](https://github.com/Laratypes/Laratype/blob/2aacd07/packages/core/src/manager.ts) and is exported by `@laratype/core`; the log port is [`LogManager` @ 7bd86c1](https://github.com/Laratypes/Laratype/blob/7bd86c1/packages/log/src/support/Log.ts).
 
 ```ts
 // @laratype/core
@@ -114,13 +114,13 @@ export abstract class Manager<
 ## Console commands
 
 ### Status
-proposed: PR [#357](https://github.com/Laratypes/Laratype/pull/357) @ fc9b54d ([#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). Depends on D4 #99, B1 #125, T2 #102.
+merged @ b7167f9 (PR [#357](https://github.com/Laratypes/Laratype/pull/357); [#161](https://github.com/Laratypes/Laratype/issues/161), F2, M3). The variadic-order check and its diagnostic are proposed in PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 52bbf95 (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)). Depends on D4 #99, B1 #125, T2 #102.
 
 The 0.5 static `options` / `arguments` arrays stay registered for commands that already declare them, but the signature is the only source of the typed name, arguments and options. Dropping the arrays is the breaking change recorded on [#161](https://github.com/Laratypes/Laratype/issues/161).
 
 ### Public API
 
-The types live in [`signature.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/signature.ts), [`Command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/Command.ts), [`closure.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/sauf/src/utils/command.ts).
+The types live in [`signature.ts` @ 52bbf95](https://github.com/Laratypes/Laratype/blob/52bbf9568f03d5a0d75b5d0dbecd2c12cb05120d/packages/console/src/command/signature.ts), [`Command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/Command.ts), [`closure.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/closure.ts), the parse error in [`CommandSignatureError.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/console/src/command/CommandSignatureError.ts) and the registration in [`sauf/src/utils/command.ts` @ fc9b54d](https://github.com/Laratypes/Laratype/blob/fc9b54de55522abd02fe7a917bf229adce3d4528/packages/sauf/src/utils/command.ts).
 
 ```ts
 // @laratype/console
@@ -143,6 +143,8 @@ class Command<S extends string = string> {
 function command<S extends string>(signature: S, handler: (input: CommandInput<S>) => unknown): ClosureCommand<S>;
 
 function parseSignature(signature: string): ParsedSignature;
+function assertArgumentOrder(signature: string, args: readonly PositionalArgument[]): void; // throws CommandSignatureError when a variadic argument is not last
+interface PositionalArgument { readonly name: string; readonly variadic: boolean }
 function optionKey(name: string): string;
 function isClosureCommand(value: unknown): value is AnyClosureCommand;
 function isConsoleCommand(value: unknown): value is ConsoleCommand;
@@ -185,7 +187,7 @@ An argument name or option flag starts with a letter or `_`, then letters, digit
 - **No coercion.** Commander hands every argument and option value as a string (or `true` for a flag, an array for a variadic one); the signature types do not parse numbers, booleans or dates.
 
 ### Diagnostics
-- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"--<name>" uses negation, which is not supported: declare {--<flag>} as a flag instead`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
+- `parseSignature()` throws `CommandSignatureError: Invalid command signature "<signature>": <reason>`. The reasons are: `the signature is empty`, `"<name>" is not a valid command name`, `"<token>" is neither an argument nor an option: wrap it in { }`, `"--<body>" is not a valid option name`, `"--<name>" uses negation, which is not supported: declare {--<flag>} as a flag instead`, `"<body>" is not a valid argument name`, `"<token>" uses a short option: use a long --option instead`, `"<name>" is variadic, so it must be the last argument`, and `"<key>" is declared twice`. An empty `static signature` is rejected by `sauf` before parsing, with `COMMAND_SIGNATURE_NOT_CONFIG_YET` and `Command signature not configured yet`.
 - A command file whose default export is not a command class: `Skipped <files>: the default export is not a command class (a class with a static signature)`.
 - A non-command entry in the route file: `Skipped <N> entries of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())` (`entry` when `N` is 1). A defined default export that is not an array gives `Skipped app/routes/console.ts: the default export is not an array of commands`.
 - Constructor DI in a production `dist/cli.js` fails with `Cannot autowire <Class>: its constructor takes N param(s) but no dependency metadata was found.` The DI transform runs in `sauf dev` only ([build.md › Plugin chain](./build.md#plugin-chain)).
@@ -360,10 +362,10 @@ planned → [#170](https://github.com/Laratypes/Laratype/issues/170) (ML1, M3, `
 ## Localization
 
 ### Status
-proposed: PR [#361](https://github.com/Laratypes/Laratype/pull/361) @ f2f1c7b (I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
+merged @ d1d53d9 (PR [#361](https://github.com/Laratypes/Laratype/pull/361); I1, M3, `@laratype/i18n`). Depends on K1 #152, B1 #125, D6 #112, C3 #91.
 
 ### Public API
-The API lives in [`index.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/index.ts), with `defineLang` in [`define-lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/define-lang.ts), `Locale` in [`locale.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale.ts), `Translator` in [`translator.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/translator.ts), `Lang` in [`lang.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/lang.ts), the helpers in [`functions.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/functions.ts), `LocaleMiddleware` in [`locale-middleware.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/locale-middleware.ts), `I18nServiceProvider` in [`i18n-service-provider.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/i18n-service-provider.ts), `I18nError` in [`errors.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/errors.ts), `validationMessage` in [`validation.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/validation.ts), `loadMessages` and `LangCatalog` in [`catalog.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/catalog.ts), and the types in [`types.ts` @ f2f1c7b](https://github.com/Laratypes/Laratype/blob/f2f1c7b9c9fcae42be243a66e2629c271cee1832/packages/i18n/src/types.ts).
+The API lives in [`index.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/index.ts), with `defineLang` in [`define-lang.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/define-lang.ts), `Locale` in [`locale.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/locale.ts), `Translator` in [`translator.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/translator.ts), `Lang` in [`lang.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/lang.ts), the helpers in [`functions.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/functions.ts), `LocaleMiddleware` in [`locale-middleware.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/locale-middleware.ts), `I18nServiceProvider` in [`i18n-service-provider.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/i18n-service-provider.ts), `I18nError` in [`errors.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/errors.ts), `validationMessage` in [`validation.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/validation.ts), `loadMessages` and `LangCatalog` in [`catalog.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/catalog.ts), and the types in [`types.ts` @ d1d53d9](https://github.com/Laratypes/Laratype/blob/d1d53d97a0d0f99089921f9d74833d6a108e5827/packages/i18n/src/types.ts).
 
 ```ts
 // lang/<locale>/<file>.ts

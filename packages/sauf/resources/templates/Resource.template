@@ -1,7 +1,11 @@
-import { JsonResource } from "@laratype/http";
+import { defineResource } from "@laratype/http";
 
-export default class {{ResourceName}}<T extends {}[]> extends JsonResource<T> {
-  public toJson() {
-    return this.data;
-  }
+// A resource maps a model to plain data (docs/v1/http.md › Resources). Replace the placeholder model with the app's
+// model class; a contract route checks the output against the endpoint's response schema.
+class {{ ResourceName }}Model {
+  id!: number;
 }
+
+export const {{ ResourceName }} = defineResource({{ ResourceName }}Model, (model) => ({
+  id: model.id,
+}));

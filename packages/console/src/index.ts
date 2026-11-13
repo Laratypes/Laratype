@@ -20,6 +20,8 @@ export {
   type OptionName,
   type OptionValue,
   type ParsedSignature,
+  type PositionalArgument,
+  assertArgumentOrder,
   parseSignature,
   optionKey,
   type SignatureArgument,
