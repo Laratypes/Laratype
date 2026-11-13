@@ -93,8 +93,23 @@ export type Binder = BindableModelClass | Resolver;
 /** A `.bind()` map: one value per path param key. */
 export type Bindings = Readonly<Record<string, Binder>>;
 
-/** A resolver's miss is a 404, so the handler sees the value without `null` / `undefined`. */
-type Bound<B> = B extends AnyConstructor ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
+/**
+ * The value a binder gives the handler. A `BindableModelClass` gives its instance (the class's own type, not the
+ * inherited return of `findByRouteKey`); a callable that carries the same statics is a model too at runtime
+ * (`isModelClass`), so it gives its lookup result; any other resolver is called, and its miss is a 404, so the handler
+ * sees the value without `null` / `undefined`. Constructability alone is not enough: `Date` is newable and callable,
+ * and the runtime calls it as a resolver. A constructor that is not a `Binder` keeps its instance; only a cast or the
+ * proof type reaches one, since `r.bind()` refuses it.
+ */
+type Bound<B> = B extends BindableModelClass
+  ? InstanceType<B>
+  : B extends { readonly primaryKey: string; findByRouteKey(key: string): infer R }
+    ? NonNullable<Awaited<R>>
+    : B extends Resolver
+      ? NonNullable<Awaited<ReturnType<B>>>
+      : B extends AnyConstructor
+        ? InstanceType<B>
+        : never;
 
 /** The bound params of endpoint params `P`: an optional param (`:post?`) is `undefined` when the request has none. */
 type BoundParams<P, B> = {

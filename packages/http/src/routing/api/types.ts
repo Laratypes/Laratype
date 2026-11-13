@@ -1,4 +1,4 @@
-import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, PathParams } from "@laratype/contract";
+import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, EndpointTypes, PathParams } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
@@ -91,25 +91,25 @@ export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyCl
  * `r.contract(contract, Controller)`: every endpoint of the contract, bound to the controller method of the same key.
  * `contract` is the contract, or its tree node (`appApi.users.posts`).
  */
-export interface MountedContract<C extends object = AnyContract> {
+export interface MountedContract<C extends object = AnyContract, B extends Record<string, Binder> = Bindings> {
   readonly kind: "contract";
   readonly contract: C;
   readonly controller: ControllerClass;
   readonly middleware: readonly MiddlewareItem[];
   /** The `r.bind()` bindings of the builder: resolved before the handler, later keys winning over a scope's. */
-  readonly bindings: Bindings;
+  readonly bindings: B;
   readonly options: ContractRouteOptions<C> | undefined;
 }
 
 /** `r.scope('<folder>', { policy })`: the policy for the `_scope.ts` of that folder. */
-export interface MountedScope<D extends string = string> {
+export interface MountedScope<D extends string = string, B extends Record<string, Binder> = Bindings> {
   readonly kind: "scope";
   readonly dir: D;
   readonly policy: PolicyClass;
   /** Runs before the middleware of every contract under the folder. */
   readonly middleware: readonly MiddlewareItem[];
   /** The `r.bind()` bindings for the contracts under the folder (a contract's builder bindings win). */
-  readonly bindings: Bindings;
+  readonly bindings: B;
 }
 
 /** The methods of an ad-hoc route: `r.get()`, `r.post()`, `r.put()`, `r.patch()`, `r.delete()`. */
@@ -222,6 +222,49 @@ type ScopeTwice<M extends readonly unknown[]> = Item<M> extends infer I
   ? I extends MountedScope<infer D> ? (DirCount<M, D>["length"] extends 0 | 1 ? never : D) : never
   : never;
 
+/** The path params of every endpoint of contract `C` under `Path`, folder params included (the scope-binding check). */
+type ParamKeys<C, Path extends string> = {
+  [K in EndpointKey<C>]: C[K] extends AnyEndpoint ? keyof EndpointTypes<C[K], { path: Path; scopes: []; options: {} }>["params"] : never;
+}[EndpointKey<C>];
+
+/** A mounted scope's binding keys, from the route list's items. */
+type ScopeBindingKeys<M extends readonly unknown[]> = Item<M> extends infer I
+  ? I extends MountedScope<infer D, infer B> ? ([keyof B] extends [never] ? never : { dir: D; keys: keyof B & string }) : never
+  : never;
+
+/** The binding keys of the mounted contract of tree entry `N`. */
+type MountedBindingKeys<A, M extends readonly unknown[], N> = Item<M> extends infer I
+  ? I extends MountedContract<infer C, infer B>
+    ? Equal<NamesOf<A, C>, N> extends true ? keyof B & string : never
+    : never
+  : never;
+
+/** The tree entries a scope `D` covers whose contract declares `K` but whose mounted contract does not bind it. */
+type UnboundEntries<A, M extends readonly unknown[], D extends string, K extends string> = ApiTreeEntry<A> extends infer E
+  ? E extends { name: infer N extends string; contract: infer C; path: infer P extends string; scopes: readonly (infer S)[] }
+    ? D extends (S extends { readonly dir: infer SD } ? SD : never)
+      ? K extends ParamKeys<C, P>
+        ? K extends MountedBindingKeys<A, M, N> ? never : N
+        : never
+      : never
+    : never
+  : never;
+
+/**
+ * A scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
+ * `r.contract()` call with the mounting builder's bindings only, so a contract under the folder that does not bind `K`
+ * itself would give the handler a model where its types say string.
+ */
+type ScopeBindingConflicts<A, M extends readonly unknown[]> = ScopeBindingKeys<M> extends infer S
+  ? S extends { dir: infer D extends string; keys: infer K extends string }
+    ? {
+        [Key in K]: [UnboundEntries<A, M, D, Key>] extends [never]
+          ? never
+          : { error: `Route.api: scope "${D}" binds \`${Key}\`, but contract "${UnboundEntries<A, M, D, Key> & string}" is mounted from a builder that does not bind it: mount the contract from a builder that binds \`${Key}\` too (a handler's types see only its own builder's bindings)` };
+      }[K]
+    : never
+  : never;
+
 type Err<T extends string> = { error: `Route.api: ${T}` };
 
 /** `unknown` when the routes mount the tree correctly, otherwise `{ error }` naming the problem. */
@@ -232,7 +275,9 @@ export type CheckApiRoutes<A, M extends readonly unknown[]> =
         ? [Twice<A, M>] extends [never]
           ? [NoPolicy<A, M>] extends [never]
             ? [ScopeTwice<M>] extends [never]
-              ? unknown
+              ? [ScopeBindingConflicts<A, M>] extends [never]
+                ? unknown
+                : ScopeBindingConflicts<A, M>
               : Err<`scope "${ScopeTwice<M> & string}" is mounted twice`>
             : Err<`scope "${NoPolicy<A, M> & string}" has authorize but no policy (add r.scope() with { policy })`>
           : Err<`contract "${Twice<A, M> & string}" is mounted twice`>
@@ -287,9 +332,9 @@ export interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B 
     contract: C,
     controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
     options?: ContractRouteOptions<NoInfer<C>, P>,
-  ): MountedContract<C>;
+  ): MountedContract<C, B>;
   /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
-  scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D>;
+  scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D, B>;
   /** An ad-hoc route, without a contract: `r.get('/health', () => 'ok')`. */
   get: AdHocRouteMethod<"get">;
   post: AdHocRouteMethod<"post">;

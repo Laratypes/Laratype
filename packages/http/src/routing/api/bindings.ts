@@ -1,4 +1,5 @@
 import { errors } from "@laratype/contract";
+import { getPattern, splitRoutingPath } from "hono/utils/url";
 import type { BindableModelClass, Binder, Bindings } from "./proof";
 import { fail } from "./fail";
 
@@ -38,26 +39,15 @@ export const checkBinder = (key: string, value: unknown): void => {
 
 /**
  * The param names of a route path, the keys a binding may bind: `/api/users/:user/posts/:post?` gives `user`, `post`.
- * The `?` of an optional param and a `:name{pattern}` are not part of the name; a pattern may hold a `/`.
+ * Hono's own parsing separates the segments and reads each param: a pattern may hold a `/`, nested braces
+ * (`:id{[0-9]{2,4}}`), a brace in a character class (`:prefix{[{]}`) or an escaped one. The `?` of an optional param is
+ * not part of the name; Hono registers that route without it (`checkOptionalParameter`), which `getPattern` would keep.
  */
 export const pathParamNames = (path: string): ReadonlySet<string> => {
   const names = new Set<string>();
-  let depth = 0;
-  for (let index = 0; index < path.length; index++) {
-    const char = path[index]!;
-    if (char === "{") {
-      depth++;
-      continue;
-    }
-    if (char === "}") {
-      depth = Math.max(0, depth - 1);
-      continue;
-    }
-    if (depth > 0 || char !== ":" || path[index - 1] !== "/") continue;
-    let end = index + 1;
-    while (end < path.length && !":/?{}".includes(path[end]!)) end++;
-    names.add(path.slice(index + 1, end));
-    index = end - 1;
+  for (const segment of splitRoutingPath(path)) {
+    const pattern = getPattern(segment.endsWith("?") ? segment.slice(0, -1) : segment);
+    if (pattern !== null && pattern !== "*") names.add(pattern[1]);
   }
   return names;
 };

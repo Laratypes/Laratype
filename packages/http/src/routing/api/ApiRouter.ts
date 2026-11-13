@@ -269,6 +269,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     }
     const endpointMiddleware = endpointStack(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
+    checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
@@ -281,6 +282,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       domain: undefined,
     });
   });
+  checkBindingKeys(routes, byName, contracts, scopes);
   checkAdHocPaths(routes, adHoc);
   return { routes, adHoc };
 };
@@ -293,6 +295,63 @@ const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract
   const names = pathParamNames(path);
   const entries = [...scopes.flatMap((scope) => Object.entries(scope.bindings ?? {})), ...Object.entries(mounted.bindings ?? {})];
   return Object.freeze(Object.fromEntries(entries.filter(([key]) => names.has(key))));
+};
+
+/**
+ * Rejects a scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
+ * `r.contract()` call with the mounting builder's bindings only, so a route whose contract builder does not bind the
+ * key would give the handler a model where its types say string. The first conflict in route order is reported.
+ */
+const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): void => {
+  const names = pathParamNames(path);
+  for (const scope of scopes) {
+    for (const key of Object.keys(scope.bindings ?? {})) {
+      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key)) continue;
+      fail(
+        `scope "${scope.dir}" binds \`${key}\`, but contract "${name}" is mounted from a builder that does not bind it: ` +
+          `mount the contract from a builder that binds \`${key}\` too (a handler's types see only its own builder's bindings)`,
+      );
+    }
+  }
+};
+
+/**
+ * Rejects a binding key that no endpoint the binding applies to declares: `routeBindings()` drops it, so a typo (or a
+ * path the parser cannot read) would otherwise pass silently. A key only some endpoints of a contract declare stays
+ * valid: `routeBindings()` limits it to the routes that have the param.
+ */
+const checkBindingKeys = (
+  routes: readonly RouteEntry[],
+  byName: ReadonlyMap<string, ApiEntry>,
+  contracts: ReadonlyMap<string, MountedContract<object>>,
+  scopes: ReadonlyMap<string, MountedScope>,
+): void => {
+  const contractParams = new Map<string, Set<string>>();
+  const scopeParams = new Map<string, Set<string>>();
+  for (const route of routes) {
+    const name = route.name.slice(0, route.name.lastIndexOf("."));
+    const names = pathParamNames(route.path);
+    const forContract = contractParams.get(name) ?? new Set<string>();
+    for (const key of names) forContract.add(key);
+    contractParams.set(name, forContract);
+    // The scopes this route's entry is under, outer to inner: a scope binding may name any of their params
+    for (const { dir } of byName.get(name)!.scopes) {
+      if (!scopes.has(dir)) continue;
+      const forScope = scopeParams.get(dir) ?? new Set<string>();
+      for (const key of names) forScope.add(key);
+      scopeParams.set(dir, forScope);
+    }
+  }
+  for (const [name, mounted] of contracts) {
+    for (const key of Object.keys(mounted.bindings ?? {})) {
+      if (!contractParams.get(name)?.has(key)) fail(`r.bind(): \`${key}\` is not a path param of any endpoint in ${name}`);
+    }
+  }
+  for (const [dir, mounted] of scopes) {
+    for (const key of Object.keys(mounted.bindings ?? {})) {
+      if (!scopeParams.get(dir)?.has(key)) fail(`r.bind(): \`${key}\` is not a path param of any endpoint under scope "${dir}"`);
+    }
+  }
 };
 
 /**

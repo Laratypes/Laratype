@@ -10,6 +10,7 @@ import { defineApi, defineContract, defineScope, endpoint } from '@laratype/cont
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, RequestKernel, ResponseKernel, Route, defineMiddleware } from '../../src/index'
 import type { Ctx } from '../../src/index'
+import { pathParamNames } from '../../src/routing/api/bindings'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -198,6 +199,50 @@ describe('r.bind()', () => {
     expect(lookups).toEqual(['post:hello'])
   })
 
+  it('treats a callable constructor as a resolver (Date), as the proof does', async () => {
+    class DateController extends Controller {
+      index() { return {} }
+      show(ctx: Ctx<typeof posts.show, { params: { user: User; post: string } }>) { return { post: typeof ctx.params.post } }
+      latest() { return {} }
+    }
+    const routes = mount(Route.api(appApi, (r) => [r.bind({ user: User, post: Date }).contract(posts, DateController)]))
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ post: 'string' })
+  })
+
+  it('a callable with the BindableModel statics stays a model class, as the proof types it', async () => {
+    // Object.assign keeps the call signature and adds the statics: the runtime looks it up, it never calls it
+    const callableModel = Object.assign((raw: string) => raw, {
+      primaryKey: 'id',
+      findByRouteKey: async (key: string) => (key === 'missing' ? null : new Post(key)),
+    })
+    class CallableController extends Controller {
+      index() { return {} }
+      show(ctx: Ctx<typeof posts.show, { params: { user: User; post: Post } }>) { return { post: ctx.params.post.slug } }
+      latest() { return {} }
+    }
+    const routes = mount(Route.api(appApi, (r) => [r.bind({ user: User, post: callableModel }).contract(posts, CallableController)]))
+    // the handler got a Post: the lookup ran, the callable itself did not
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ post: 'hello' })
+    expect(lookups).toEqual(['user:7'])
+  })
+
+  it('binds a param after a pattern Hono reads (a brace in a class, a nested quantifier)', async () => {
+    // `pathParamNames` reads these as Hono does; the contract's `PathParams` type still miscounts them, hence the cast
+    const braced = defineContract()({ show: endpoint.get('/:prefix{[{]}/:post').response(anything) })
+    const bracedApi = defineApi({ braced: { contract: braced, path: '/braced', scopes: [] } })
+    class BracedController extends Controller {
+      show(ctx: { params: Record<string, unknown> }) {
+        const { prefix, post } = ctx.params as { prefix: string; post: Post }
+        return { prefix, post: post.slug }
+      }
+    }
+    const routes = mount(Route.api(bracedApi, (r) => {
+      const bound = r.bind({ post: Post } as never) as unknown as typeof r
+      return [bound.contract(braced, BracedController)]
+    }))
+    expect(await (await routes.request('/braced/{/hello')).json()).toEqual({ prefix: '{', post: 'hello' })
+  })
+
   it('an absent optional param does not read a member of Object.prototype', async () => {
     // `:constructor?` is absent: `params['constructor']` would be Object's constructor without the own-key check
     const named = defineContract()({ maybe: endpoint.get('/:constructor?').response(anything) })
@@ -239,14 +284,37 @@ describe('r.bind()', () => {
   })
 })
 
+describe('pathParamNames', () => {
+  it('reads the path as Hono does: nested braces, a class brace and an escaped one do not end a param', () => {
+    expect([...pathParamNames('/api/users/:user/posts/:post?')]).toEqual(['user', 'post'])
+    // the CodeRabbit example: `{` in a character class must not swallow the rest of the path
+    expect([...pathParamNames('/pat/:prefix{[{]}/:post')]).toEqual(['prefix', 'post'])
+    expect([...pathParamNames('/esc/:prefix{\\}}/:post')]).toEqual(['prefix', 'post'])
+    expect([...pathParamNames('/nested/:id{[0-9]{2,4}}/:post')]).toEqual(['id', 'post'])
+    // a `/` inside a pattern stays in its segment
+    expect([...pathParamNames('/files/:file{.+/.+}/:post')]).toEqual(['file', 'post'])
+  })
+})
+
 describe('scope bindings', () => {
-  it('bind every contract under the folder at runtime', async () => {
-    const scoped = mount(Route.api(appApi, (r) => [
-      r.bind({ user: User }).scope('users/[user]', { policy: PostPolicy }),
-      r.contract(posts, ScopeController),
-    ]))
+  it('the same bound builder for the scope and its contracts passes', async () => {
+    const scoped = mount(Route.api(appApi, (r) => {
+      const bound = r.bind({ user: User })
+      return [bound.scope('users/[user]', { policy: PostPolicy }), bound.contract(posts, ScopeController)]
+    }))
     expect(await (await scoped.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
     expect(lookups).toEqual(['user:7'])
+  })
+
+  it('a scope binding the contract builder does not repeat is rejected at Route.api, before any request', () => {
+    // The proof typed `user` as a string (the contract's builder binds nothing): the route would pass a model
+    expect(() => Route.api(appApi, (r) => [
+      r.bind({ user: User }).scope('users/[user]', { policy: PostPolicy }),
+      r.contract(posts, ScopeController),
+    ])).toThrow(
+      '[@laratype/http] Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: ' +
+        "mount the contract from a builder that binds `user` too (a handler's types see only its own builder's bindings)",
+    )
   })
 
   it('a contract binding wins over the scope binding of the same key', async () => {
@@ -272,8 +340,9 @@ describe('r.bind() validation at Route.api', () => {
   }
   const mountWith = (bindings: Record<string, unknown>) =>
     Route.api(appApi, (r) => {
-      r.bind(bindings as never)
-      return [r.contract(posts, UnboundController)]
+      // The unchecked bindings reach the contract at runtime, while the proof keeps the unbound builder type
+      const bound = r.bind(bindings as never) as unknown as typeof r
+      return [bound.contract(posts, UnboundController)]
     })
 
   it('needs a function', () => {
@@ -295,6 +364,21 @@ describe('r.bind() validation at Route.api', () => {
     }
     expect(() => mountWith({ user: NoKey })).toThrow(
       '[@laratype/http] Route.api: r.bind(): `user` is a model class without a static primaryKey (the default route key of BindableModel)',
+    )
+  })
+
+  it('a key that is not a path param of the contract fails at mount instead of being dropped', () => {
+    expect(() => mountWith({ comment: Post })).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `comment` is not a path param of any endpoint in users.posts',
+    )
+  })
+
+  it('a scope key that is not a path param under the folder fails at mount instead of being dropped', () => {
+    expect(() => Route.api(appApi, (r) => {
+      const bound = r.bind({ comment: Post } as never) as unknown as typeof r
+      return [bound.scope('users/[user]', { policy: PostPolicy }), r.contract(posts, UnboundController)]
+    })).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `comment` is not a path param of any endpoint under scope "users/[user]"',
     )
   })
 })
