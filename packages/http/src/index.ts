@@ -15,6 +15,8 @@ export type {
 } from "./middleware/defineMiddleware"
 export * from "./routing/Route"
 export type { ApiRoutes } from "./routing/api/ApiRouter"
+export { registerContractAuth, contractAuth } from "./routing/api/contractAuth"
+export type { ContractAuthFactory } from "./routing/api/contractAuth"
 export type * from "./routing/api/types"
 export type * from "./routing/api/proof"
 export { UNENFORCED_NOTICE } from "./routing/api/types"

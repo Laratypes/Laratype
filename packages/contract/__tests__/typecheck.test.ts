@@ -28,6 +28,10 @@ describe('@laratype/contract types', () => {
     const options = { ...baseOptions(), lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'], types: [] }
     expect(diagnostics([`${pkg}src/index.ts`], options)).toEqual([])
   }, 60_000)
+
+  it('a contract-only app types its guards from GuardRegistry and has no user type', () => {
+    expect(diagnostics([`${pkg}__tests__/fixtures/contract-only/auth.ts`], baseOptions())).toEqual([])
+  }, 60_000)
 })
 
 describe('FE fixture (the appApi module is the only FE entry)', () => {

@@ -21,3 +21,20 @@ export type RegisteredUser<R = Register> = R extends { user: infer U extends Mod
  * only these names, and any string until then.
  */
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
+
+/**
+ * The user type an app registers for guard `K` (A2 #120): `{ user: Admin }` gives `Admin`, `true` or no entry the
+ * app's `RegisteredUser`. `true` (the default guard) gives the app's user; a route's resolved auth uses this too.
+ */
+export type GuardUser<A extends true | GuardName = true> =
+  A extends true
+    ? RegisteredUser
+    : A extends GuardName
+      ? Register extends { guards: infer G }
+        ? A extends keyof G
+          ? G[A] extends { user: infer U extends Model }
+            ? U
+            : RegisteredUser
+          : RegisteredUser
+        : RegisteredUser
+      : never;

@@ -3,10 +3,16 @@ import { describe, expectTypeOf, test } from "vitest";
 import { Model } from "@laratype/database";
 import { Auth, AuthManager, AuthService, AuthVerification } from "../src";
 import type { Authenticated } from "../src/verifications/AuthVerification";
-import type { GuardName, RegisteredUser } from "../src";
+import type { GuardName, GuardUser, RegisteredUser } from "../src";
+import type { GuardName as ContractGuardName, GuardUser as ContractGuardUser, AuthRegisterLink } from "@laratype/contract";
 
 class User extends Model {
   id!: number;
+}
+
+class Admin extends Model {
+  id!: number;
+  role!: "admin";
 }
 
 // The app's registration: what `declare module` in app code looks like. It applies to the whole `types` program,
@@ -17,7 +23,7 @@ declare module "@laratype/auth" {
     guards: {
       web: true;
       api: true;
-      admin: true;
+      admin: { user: Admin };
     };
   }
 }
@@ -29,6 +35,19 @@ describe("Register (A1 #119)", () => {
   test("reads the registered user and guard names", () => {
     expectTypeOf<RegisteredUser>().toEqualTypeOf<User>();
     expectTypeOf<GuardName>().toEqualTypeOf<"web" | "api" | "admin">();
+  });
+
+  test("the per-guard user type comes from the guard's registry value (A2 #120)", () => {
+    expectTypeOf<GuardUser<true>>().toEqualTypeOf<User>();
+    expectTypeOf<GuardUser<"web">>().toEqualTypeOf<User>();
+    expectTypeOf<GuardUser<"admin">>().toEqualTypeOf<Admin>();
+    // The contract reads the same link, without importing auth
+    expectTypeOf<ContractGuardName>().toEqualTypeOf<"web" | "api" | "admin">();
+    expectTypeOf<ContractGuardUser<true>>().toEqualTypeOf<User>();
+    expectTypeOf<ContractGuardUser<"admin">>().toEqualTypeOf<Admin>();
+    // The augmentation @laratype/auth writes on import
+    expectTypeOf<AuthRegisterLink>().toHaveProperty("user");
+    expectTypeOf<AuthRegisterLink["guards"]>().toEqualTypeOf<{ web: User; api: User; admin: Admin }>();
   });
 
   test("before a registration the 0.5 types stay", () => {

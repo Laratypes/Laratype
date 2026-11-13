@@ -31,6 +31,7 @@
   "license": "MIT",
   "dependencies": {
     "@laratype/core": "workspace:*",
+    "@laratype/contract": "workspace:*",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
     "passport": "^0.7.0",

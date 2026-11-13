@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { UNENFORCED_NOTICE } from "./types";
 import { throttled } from "./throttle";
+import { contractAuth } from "./contractAuth";
 
 const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
@@ -374,14 +375,13 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
 };
 
 /**
- * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
- * validation of its headers schema (query and body are validated, #106; `throttle` is enforced by `mount()`, #229).
+ * What the router does not enforce yet for a route: its resolved `authorize` (#121) and the verification of its
+ * headers schema (query and body are validated, #106; `throttle` is enforced by `mount()`, #229; `auth` since A2 #120).
  * The one place that decides it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
  */
 const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
   const { headers } = route.endpoint.def;
   return Object.freeze([
-    ...(route.auth ? (["auth"] as const) : []),
     ...(route.authorize ? (["authorize"] as const) : []),
     ...(headers ? (["validation"] as const) : []),
   ]);
@@ -477,9 +477,9 @@ const registrationOrder = <T extends { readonly path: string }>(routes: readonly
 };
 
 /** What `RequestKernel` runs for a route: its controller method, or the handler of an ad-hoc route. */
-const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => {
+const routeParams = (route: RouteEntry | AdHocRouteEntry, prepend: readonly MiddlewareItem[] = []): KernelRouteParams => {
   if (route.controller === undefined) {
-    return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...route.middleware] };
+    return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...prepend, ...route.middleware] };
   }
   return {
     method: route.method,
@@ -488,7 +488,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     modelBinding: false,
     endpoint: route.endpoint,
     controller: route.controller as unknown as RouteParams["controller"],
-    middleware: [...route.middleware],
+    middleware: [...prepend, ...route.middleware],
   };
 };
 
@@ -520,9 +520,17 @@ export class ApiRoutes {
    */
   mount(app: Hono): (RouteEntry | AdHocRouteEntry)[] {
     warnUnenforced(this.routes);
+    // The auth factory @laratype/auth registers on import (A2 #120). Read once: the slot is untrusted (a value that
+    // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
+    const auth = contractAuth();
     // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
     const handlers = registrationOrder<RouteEntry | AdHocRouteEntry>([...this.routes, ...this.adHoc]).map((route) => {
-      const kernel = RequestKernel.handle(routeParams(route));
+      const prepared = route.controller !== undefined && route.auth !== undefined
+        ? auth
+          ? [auth(route.auth)]
+          : fail(`${route.name}: the contract declares auth, but @laratype/auth is not imported.`)
+        : [];
+      const kernel = RequestKernel.handle(routeParams(route, prepared));
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229). An ad-hoc
       // route has no contract, so it has no throttle either.
       const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel) : kernel;
