@@ -9,6 +9,9 @@ import type { ApiRoutes, ContractAuthFactory } from "../../src/index";
 
 const anything = { "~standard": { version: 1, vendor: "test", validate: (value: unknown) => ({ value }) } } as const;
 const slot = Symbol.for("laratype.http.contractAuth");
+const brand = Symbol.for("laratype.auth.contractAuthFactory");
+const branded = (factory: ContractAuthFactory): ContractAuthFactory =>
+  Object.defineProperty(factory, brand, { value: true });
 
 const apiOf = (contract: AnyContract, name = "users") =>
   defineApi({ [name]: { contract, path: `/${name}`, scopes: [] } });
@@ -54,6 +57,52 @@ describe("the contract auth slot", () => {
     expect(() => registerContractAuth(() => defineMiddleware((_request, next) => next()))).toThrow(
       /registerContractAuth\(\): the contract auth factory is already registered/,
     );
+  });
+
+  it("lets a branded factory replace another branded one: last wins, and the second one is used", () => {
+    let firstCalls = 0;
+    let secondCalls = 0;
+    const first: ContractAuthFactory = () => {
+      firstCalls++;
+      return defineMiddleware((_request, next) => next());
+    };
+    const second: ContractAuthFactory = () => {
+      secondCalls++;
+      return defineMiddleware((_request, next) => next());
+    };
+    registerContractAuth(branded(first));
+    expect(() => registerContractAuth(branded(second))).not.toThrow();
+    expect(contractAuth()).toBe(second);
+    // mount() is what calls the factory for a guarded route: the slot now holds the second one
+    const guarded = defineContract()({ index: endpoint.get("/").response(anything) }, { auth: true });
+    mount(Route.api(apiOf(guarded), (r) => [r.contract(guarded, UserController)]));
+    expect([firstCalls, secondCalls]).toEqual([0, 1]);
+  });
+
+  it("refuses a branded factory over a non-branded function", () => {
+    const plain: ContractAuthFactory = () => defineMiddleware((_request, next) => next());
+    registerContractAuth(plain);
+    expect(() => registerContractAuth(branded(() => defineMiddleware((_request, next) => next())))).toThrow(
+      /registerContractAuth\(\): the contract auth factory is already registered \(plain\)/,
+    );
+    expect(contractAuth()).toBe(plain);
+  });
+
+  it("refuses a non-branded function over a branded factory", () => {
+    const marked: ContractAuthFactory = () => defineMiddleware((_request, next) => next());
+    branded(marked);
+    registerContractAuth(marked);
+    expect(() => registerContractAuth(() => defineMiddleware((_request, next) => next()))).toThrow(
+      /registerContractAuth\(\): the contract auth factory is already registered \(marked\)/,
+    );
+    expect(contractAuth()).toBe(marked);
+  });
+
+  it("replaces a slot value that is not a function: it is not a registered factory", () => {
+    (globalThis as Record<symbol, unknown>)[slot] = 42;
+    const factory: ContractAuthFactory = () => defineMiddleware((_request, next) => next());
+    expect(() => registerContractAuth(factory)).not.toThrow();
+    expect(contractAuth()).toBe(factory);
   });
 
   it("prepends the factory middleware before the app-declared route middleware, and leaves the entry untouched", async () => {

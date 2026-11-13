@@ -303,3 +303,17 @@ describe("Route.api order", () => {
     expect((await denied.request("/api/users/me")).status).toBe(403);
   });
 });
+
+describe("the contract auth registration", () => {
+  it("does not throw when contractAuth.ts is evaluated twice (a reload, or a second copy of the package)", async () => {
+    const slot = Symbol.for("laratype.http.contractAuth");
+    const first = (globalThis as Record<symbol, unknown>)[slot];
+    expect(typeof first).toBe("function");
+    vi.resetModules();
+    await expect(import("../src/contractAuth")).resolves.toBeDefined();
+    const second = (globalThis as Record<symbol, unknown>)[slot];
+    expect(typeof second).toBe("function");
+    // The second evaluation registered its own closure, and the slot took it: last wins
+    expect(second).not.toBe(first);
+  });
+});

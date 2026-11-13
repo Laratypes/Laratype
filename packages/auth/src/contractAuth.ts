@@ -1,6 +1,6 @@
 import { errors } from "@laratype/contract";
 import { defineMiddleware, registerContractAuth } from "@laratype/http";
-import type { TypedMiddleware } from "@laratype/http";
+import type { ContractAuthFactory, TypedMiddleware } from "@laratype/http";
 import { authManager } from "./guard/resolve";
 import { setAuthenticatedUser } from "./support/guardContext";
 import type { GuardName, GuardUser, RegisteredUser } from "./Register";
@@ -36,6 +36,20 @@ export const auth = <G extends true | GuardName = true>(guard?: G): TypedMiddlew
     return next({ user });
   });
 
+/**
+ * The marker `@laratype/http` reads on the registered factory (A2 #120). It lets a reloaded module, or a second copy
+ * of this package, replace the factory it registered instead of throwing. It is not a security boundary: any
+ * in-process code can set it; it only tells a second copy of @laratype/auth from an unrelated value.
+ */
+const CONTRACT_AUTH_BRAND: unique symbol = Symbol.for("laratype.auth.contractAuthFactory");
+
 // A2 #120: `Route.api` enforces the resolved auth of its routes with this factory. The import of @laratype/auth is
 // what makes the enforcement available; a route with auth fails mount() when it is missing.
-registerContractAuth((guard) => auth(guard as true | GuardName));
+const factory: ContractAuthFactory = (guard) => auth(guard as true | GuardName);
+Object.defineProperty(factory, CONTRACT_AUTH_BRAND, {
+  value: true,
+  enumerable: false,
+  writable: false,
+  configurable: false,
+});
+registerContractAuth(factory);
