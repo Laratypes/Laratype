@@ -27,7 +27,7 @@ const MALFORMED_JSON = "Malformed JSON in request body.";
  * (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case form body too, and the bytes a later
  * `c.req.formData()` reads are bounded.
  */
-export const isFormMediaType = (contentType: string | undefined): boolean =>
+const isFormMediaType = (contentType: string | undefined): boolean =>
   contentType?.startsWith("multipart/form-data") === true ||
   contentType?.startsWith("application/x-www-form-urlencoded") === true;
 

@@ -33,11 +33,12 @@ export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
 /**
- * The media type whose cap applies to a request, or `undefined` for one no reader reads. Matched on the lowercased
- * value: media types are case-insensitive (RFC 9110 §8.3.1), so a `Multipart/Form-Data` or
- * `Application/X-WWW-Form-Urlencoded` body must be capped exactly as its lowercase spelling is. The pipeline's form
- * parse is a separate, case-sensitive classifier (`isFormMediaType` in `input.ts`): a mixed-case form body is `{}` to
- * the pipeline, and the cap here still counts its bytes, so a later `c.req.formData()` cannot read an unbounded body.
+ * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
+ * does not parse). Matched on the lowercased value: media types are case-insensitive (RFC 9110 §8.3.1), so a
+ * `Multipart/Form-Data` or `Application/X-WWW-Form-Urlencoded` body is capped as its lowercase spelling is.
+ * The pipeline's form parse is a separate, case-sensitive classifier (`isFormMediaType` in `input.ts`): a mixed-case
+ * form body is `{}` to the pipeline, and the cap here still counts its bytes, so a later `c.req.formData()` cannot read
+ * an unbounded body.
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";

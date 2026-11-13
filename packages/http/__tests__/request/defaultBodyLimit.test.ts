@@ -65,7 +65,9 @@ const mount = (app: Hono, kind: "0.5" | "Route.api"): void => {
       return { name: ctx.body.name };
     }
   }
-  Route.api(defineApi({ users: { contract: users, path: "/users", scopes: [] } }), (r) => [r.contract(users, Users)]).mount(app);
+  Route.api(defineApi({ users: { contract: users, path: "/users", scopes: [] } }), (r) => [
+    r.contract(users, Users),
+  ]).mount(app);
 };
 
 const json = (body: unknown, contentType = "application/json") => ({
@@ -296,7 +298,13 @@ describe("multipart raw bytes (H44 #341)", () => {
     // A 2000-byte field fits the cap, but its boundary and headers push the raw body over it
     const body = multipart(2_000);
     expect(body.length).toBeGreaterThan(2_048);
-    await expect413(await app.request("/users", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=x" }, body }));
+    await expect413(
+      await app.request("/users", {
+        method: "POST",
+        headers: { "Content-Type": "multipart/form-data; boundary=x" },
+        body,
+      }),
+    );
   });
 });
 
@@ -360,7 +368,11 @@ describe("app/config/http.ts bodyLimit (H44 #341)", () => {
     mount(app, "0.5");
     const body = multipart(4_096);
     await expect413(
-      await app.request("/users", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=x" }, body }),
+      await app.request("/users", {
+        method: "POST",
+        headers: { "Content-Type": "multipart/form-data; boundary=x" },
+        body,
+      }),
     );
     // JSON keeps its 1 MiB default: this body is well under it
     expect((await app.request("/users", json({ name: "a".repeat(1_024) }))).status).toBe(201);
@@ -419,11 +431,14 @@ describe("mixed-case form media types (H44 security review)", () => {
     await expect413(await app.request("/users", sized(form(`name=${"a".repeat(MIB)}`, MIXED_CASE_FORM))));
   });
 
-  it("leaves a mixed-case form body under the cap unparsed, as Hono's parseBody does", async () => {
+  it.each([
+    ["multipart", { method: "POST", headers: { "Content-Type": MIXED_CASE_MULTIPART }, body: multipart(64) }],
+    ["urlencoded", form("name=ada", MIXED_CASE_FORM)],
+  ] as const)("leaves a mixed-case %s body under the cap unparsed, as Hono's parseBody does", async (_label, init) => {
     quiet();
     const app = bootApp();
     mountInput(app);
-    const response = await app.request("/users", form("name=ada", MIXED_CASE_FORM));
+    const response = await app.request("/users", init);
     expect(response.status).toBe(201);
     // Hono 4.9.6's parseBody() matches the form media types case-sensitively: a handler gets no fields, and the
     // pipeline does not parse them either, so the limit and the parse stay separate classifiers
