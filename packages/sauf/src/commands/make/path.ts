@@ -22,6 +22,16 @@ const PLAIN_SEGMENT = /^[A-Za-z0-9_-]+$/;
 const PARAM_FOLDER = /^\[[A-Za-z_][A-Za-z0-9_]*\]$/;
 /** A class or function name: the last segment of a generator that writes one (docs/v1/cli.md › make:* generators). */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/**
+ * A reserved word cannot name a class or function in a module (strict mode), so it fails the identifier rule too:
+ * `make:controller class` would write `export default class class` (docs/v1/cli.md › make:* generators).
+ */
+const RESERVED_WORDS = new Set([
+  "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum",
+  "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null",
+  "return", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield",
+  "let", "static", "implements", "interface", "package", "private", "protected", "public", "await",
+]);
 
 /** The rules of `generatorPath` (docs/v1/cli.md › make:* generators). */
 interface GeneratorPathOptions {
@@ -48,7 +58,7 @@ export function generatorPath(name: string, generator: Generator, options: Gener
   );
   if (!valid) throw new Error(invalidNameMessage(name, generator, options.params === true));
   const file = segments.pop() ?? "";
-  if (options.identifier === true && !IDENTIFIER.test(file)) {
+  if (options.identifier === true && (!IDENTIFIER.test(file) || RESERVED_WORDS.has(file))) {
     throw new Error(invalidIdentifierMessage(name, generator));
   }
   return path;

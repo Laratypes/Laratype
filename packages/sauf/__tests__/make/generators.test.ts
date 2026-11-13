@@ -47,6 +47,7 @@ type RunName =
   | "identifierModel"
   | "identifierPolicy"
   | "identifierGate"
+  | "reservedController"
   | "policyModel"
   | "policyModelOk";
 
@@ -70,6 +71,7 @@ const failingRuns = new Set<RunName>([
   "identifierModel",
   "identifierPolicy",
   "identifierGate",
+  "reservedController",
   "policyModel",
 ]);
 
@@ -138,6 +140,8 @@ beforeAll(async () => {
     identifierModel: await sauf("make:model", "my-note"),
     identifierPolicy: await sauf("make:policy", "my-note"),
     identifierGate: await sauf("make:gate", "my-note"),
+    // A reserved word is not an identifier: `class` would write `export default class class`
+    reservedController: await sauf("make:controller", "class"),
     // `-m` takes the model generator's rules; the policy name is valid, so only the model name is refused
     policyModel: await sauf("make:policy", "DraftPolicy", "-m", "my-note"),
     policyModelOk: await sauf("make:policy", "PostPolicy", "-m", "Post"),
@@ -299,6 +303,18 @@ describe("make generators", () => {
       "src/gates/my-note.ts",
     ];
     for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+  });
+
+  it("make:controller rejects a reserved word, which cannot name a class", () => {
+    // A reserved word matches the identifier pattern but `export default class class` does not compile
+    const message = [
+      'Invalid controller name "class": the last segment names the exported class or function,',
+      'so use a valid identifier (letters, digits and "_", not starting with a digit),',
+      "under app/http/controllers.",
+    ].join(" ");
+    expect(runs.reservedController.code, runs.reservedController.output).not.toBe(0);
+    expect(runs.reservedController.output).toContain(message);
+    expect(existsSync(join(project, "app/http/controllers/class.ts"))).toBe(false);
   });
 
   it("make:policy checks its -m model name with the make:model rules", async () => {

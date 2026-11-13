@@ -66,10 +66,9 @@ export default class MakeCommandCommand extends MakeCommand {
     // Every name, signature and destination is checked before the first stub is written: a bad name or a name
     // another command file already uses fails this run, not the next CLI start, and leaves no stub behind.
     const commands = commandNames.map(commandName => {
-      // The manifest reads the top level of the command folder only: a sub-path is flattened, not silently skipped
-      const fileName = generatorPath(this.getFileName(commandName).replace(/\.ts$/, ""), "command", {
-        identifier: true,
-      });
+      // The manifest reads the top level of the command folder only: the whole argument is checked first (so `../Demo`
+      // is refused like any other generator), then a sub-path is flattened to its file name
+      const fileName = this.getFileName(generatorPath(commandName, "command", { identifier: true }));
       const signature = commandSignature(fileName);
       assertCommandSignature(fileName, signature);
       const destinationPath = `./${GENERATOR_FOLDERS.command}/${fileName}.ts`;

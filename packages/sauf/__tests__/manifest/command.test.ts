@@ -218,6 +218,35 @@ describe("app commands", () => {
     }
   }, 120_000);
 
+  it("make:command checks the whole argument before it flattens the name", async () => {
+    // `../Demo` and `a/../Demo` used to reach `getFileName()` before `generatorPath()`, and `..\Demo` too on Windows,
+    // so the path segment was never checked (docs/v1/cli.md › Invariants)
+    const message = (name: string) => [
+      `Invalid command name ${JSON.stringify(name)}: use letters, digits, "_" and "-",`,
+      "in folders under app/console/commands.",
+    ].join(" ");
+    const destination = "app/console/commands/Demo.ts";
+    for (const name of ["../Demo", "a/../Demo", "..\\Demo"]) {
+      // The valid name is first, so the whole list must be checked before the first write
+      const { code, output } = await sauf("make:command", "ValidCommand", name);
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(message(name));
+      expect(existsSync(join(project, destination)), name).toBe(false);
+      expect(existsSync(join(project, "app/console/commands/ValidCommand.ts")), name).toBe(false);
+    }
+
+    // A valid sub-path still works, flattened to its file name
+    try {
+      const { code, output } = await sauf("make:command", "admin/Demo");
+      expect(code, output).toBe(0);
+      const stub = readFileSync(join(project, destination), "utf-8");
+      expect(stub).toContain('static readonly signature = "demo" as const');
+      expect(existsSync(join(project, "app/console/commands/admin/Demo.ts"))).toBe(false);
+    } finally {
+      rmSync(join(project, destination), { force: true });
+    }
+  }, 120_000);
+
   it("names both sources when a command reuses a framework command name", async () => {
     const duplicate = "app/console/commands/RouteList.ts";
     write(duplicate, `
