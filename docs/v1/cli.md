@@ -3,7 +3,7 @@ area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
 verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 7c1590c)
-last-verified: 2026-11-12
+last-verified: 2026-11-13
 ---
 
 # CLI
@@ -111,7 +111,7 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/resources/templates).
 
 ### Public API
-[`make/index.ts` @ 7c1590c](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names. The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations and stubs until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants).
+[`make/index.ts` @ 7c1590c](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names (`make:policy`, `make:factory` and `make:seeder` take one). The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations and stubs until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants).
 
 | Command | Writes | Stub |
 |---|---|---|
@@ -145,7 +145,7 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E
 - `Invalid middleware name "<name>": use letters, digits, "_" and "-", in folders under src/http/middleware.` (`make:middleware`, for a segment that would leave its folder).
 - `Invalid model name "<name>": use letters, digits, "_" and "-", in folders under src/models.` (`make:model`, for a segment that would leave its folder; `make:policy -m` validates its model with the same rules, so both model messages name the model).
 - `Invalid policy name "<name>": use letters, digits, "_" and "-", in folders under src/policies.` (`make:policy`, for a segment that would leave its folder).
-- `Invalid command name "<name>": use letters, digits, "_" and "-", in folders under app/console/commands.` (`make:command`, for a file name outside those characters after the sub-path is flattened).
+- `Invalid command name "<name>": use letters, digits, "_" and "-", in folders under app/console/commands.` (`make:command`, for an argument with a segment outside those characters: the whole argument is checked before the sub-path is flattened).
 - `Invalid <generator> name "<name>": the last segment names the exported class or function, so use a valid identifier (letters, digits and "_", not starting with a digit), under <folder>.` (`make:controller`, `make:request`, `make:resource`, `make:gate`, `make:middleware`, `make:model`, `make:policy` and `make:command`, for a file name that is not a TypeScript identifier; a folder segment keeps `-`).
 - `Invalid contract name "<name>": an index needs a named folder under app/api. Fix: name the file after its contract (users.ts), or use a named folder (users/index.ts).` (`make:contract`, for a root `index` in any case and with or without `.ts`, or an `index` under only `[param]` folders; a named folder's `index` is allowed).
 - `Cannot create <path>: <existing path> already uses the command name "<name>", and the manifest reads both. Fix: rename or remove one.` (`make:command`, when the 0.5 layout or another `.ts`/`.mts` file already uses the name).
