@@ -72,7 +72,6 @@ export type ControllerOf<C> = {
 
 // ---- what the route provides ------------------------------------------------
 
-type AnyConstructor = abstract new (...args: any) => any;
 type Resolver = (value: string) => unknown;
 
 /**
@@ -104,8 +103,7 @@ type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string): 
  * inherited return of `findByRouteKey`); a callable that carries the same statics is a model too at runtime
  * (`isModelClass`), so it gives its lookup result; any other resolver is called, and its miss is a 404, so the handler
  * sees the value without `null` / `undefined`. Constructability alone is not enough: `Date` is newable and callable,
- * and the runtime calls it as a resolver. A constructor that is not a `Binder` keeps its instance; only a cast or the
- * proof type reaches one, since `r.bind()` refuses it.
+ * and the runtime calls it as a resolver.
  */
 type Bound<B> = B extends BindableModelClass
   ? InstanceType<B>
@@ -113,9 +111,7 @@ type Bound<B> = B extends BindableModelClass
     ? NonNullable<Awaited<ReturnType<B["findByRouteKey"]>>>
     : B extends Resolver
       ? NonNullable<Awaited<ReturnType<B>>>
-      : B extends AnyConstructor
-        ? InstanceType<B>
-        : never;
+      : never;
 
 /** The bound params of endpoint params `P`: an optional param (`:post?`) is `undefined` when the request has none. */
 type BoundParams<P, B> = {

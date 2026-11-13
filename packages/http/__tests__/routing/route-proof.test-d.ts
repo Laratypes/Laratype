@@ -164,7 +164,7 @@ describe('failure modes, by their diagnosis', () => {
     class NeedsPost extends PostController {
       async show(ctx: Ctx<typeof posts.show, { params: { post: PostModel } }>) { return ctx.params.post }
     }
-    expectTypeOf<Proof<NeedsPost, {}, { post: typeof Other }>>().toHaveProperty(
+    expectTypeOf<Proof<NeedsPost, {}, { post: (raw: string) => Other }>>().toHaveProperty(
       'users.posts.show: `params.post` provided by the route does not match the handler (missing .bind()?)',
     )
   })

@@ -227,19 +227,15 @@ describe('r.bind()', () => {
   })
 
   it('binds a param after a pattern Hono reads (a brace in a class, a nested quantifier)', async () => {
-    // `pathParamNames` reads these as Hono does; the contract's `PathParams` type still miscounts them, hence the cast
+    // A `{` in a character class must not hide the params after it: the route still binds `post`
     const braced = defineContract()({ show: endpoint.get('/:prefix{[{]}/:post').response(anything) })
     const bracedApi = defineApi({ braced: { contract: braced, path: '/braced', scopes: [] } })
     class BracedController extends Controller {
-      show(ctx: { params: Record<string, unknown> }) {
-        const { prefix, post } = ctx.params as { prefix: string; post: Post }
-        return { prefix, post: post.slug }
+      show(ctx: Ctx<typeof braced.show, { params: { prefix: string; post: Post } }>) {
+        return { prefix: ctx.params.prefix, post: ctx.params.post.slug }
       }
     }
-    const routes = mount(Route.api(bracedApi, (r) => {
-      const bound = r.bind({ post: Post } as never) as unknown as typeof r
-      return [bound.contract(braced, BracedController)]
-    }))
+    const routes = mount(Route.api(bracedApi, (r) => [r.bind({ post: Post }).contract(braced, BracedController)]))
     expect(await (await routes.request('/braced/{/hello')).json()).toEqual({ prefix: '{', post: 'hello' })
   })
 
