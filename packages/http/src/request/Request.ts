@@ -39,6 +39,24 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const extensionKeys = (ext: object): PropertyKey[] =>
   Reflect.ownKeys(ext).filter((key) => Object.prototype.propertyIsEnumerable.call(ext, key));
 
+/**
+ * A frozen copy of an extension's own enumerable keys at `next()` (security review B on #352): the values the request
+ * will apply, whatever the middleware does to the object afterward (or a Proxy to its ownKeys). Each key is a data
+ * property on a null prototype, so an own `__proto__` key stays a field and no setter runs.
+ */
+const snapshotExtension = (ext: object): object => {
+  const snapshot: Record<PropertyKey, unknown> = Object.create(null);
+  for (const key of extensionKeys(ext)) {
+    Object.defineProperty(snapshot, key, {
+      value: (ext as Record<PropertyKey, unknown>)[key],
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+  }
+  return Object.freeze(snapshot);
+};
+
 /** The ctx keys of a contract route an extension cannot replace: the validated input and the pinned endpoint. */
 const RESERVED_EXTENSION_KEYS: ReadonlySet<string> = new Set(["query", "body", "endpoint"]);
 
@@ -234,8 +252,8 @@ export default class Request extends AppServiceProvider {
   /**
    * Rejects an extension key that would replace something the route owns (docs/v1/http.md › Typed middleware ›
    * Diagnostics): `query`, `body` and `endpoint` of a contract route, whose ctx keeps the validated input and the pinned
-   * endpoint, and a request method on a route without a contract, whose extensions are applied onto the 0.5 request
-   * object (`next({ param })` would replace `request.param`).
+   * endpoint, and any member of the request the handler gets on a route without a contract, a method or a data field
+   * (`next({ param })` would replace `request.param`, and a custom request class may add fields).
    */
   private static checkExtension(ext: object, name: string, request: RequestSupport, contract: boolean): void {
     for (const key of extensionKeys(ext)) {
@@ -245,9 +263,9 @@ export default class Request extends AppServiceProvider {
             `[@laratype/http] typed middleware ${name} passed ${key} to next(): \`${key}\` is reserved on a contract route (the validated query and body, and the endpoint)`,
           );
         }
-      } else if (typeof (request as unknown as Record<PropertyKey, unknown>)[key] === "function") {
+      } else if (key in request) {
         throw new TypeError(
-          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a method of the request, and the extension would replace it`,
+          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a member of the 0.5 request, and the extension would replace it`,
         );
       }
     }
@@ -337,8 +355,11 @@ export default class Request extends AppServiceProvider {
                   if(!isObject(ext)) {
                     throw new TypeError(`[@laratype/http] typed middleware ${name} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
                   }
-                  this.checkExtension(ext, name, requestInstance, routeOption.endpoint !== undefined);
-                  extensions.push(ext);
+                  // Snapshot before the rest of the pipeline runs: a middleware that mutates the extension after next()
+                  // (or a Proxy that changes its ownKeys) must not change what the handler ctx gets (security review B)
+                  const extension = snapshotExtension(ext);
+                  this.checkExtension(extension, name, requestInstance, routeOption.endpoint !== undefined);
+                  extensions.push(extension);
                 }
                 return await next(arg);
               });
