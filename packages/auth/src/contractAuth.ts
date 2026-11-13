@@ -45,11 +45,11 @@ const CONTRACT_AUTH_BRAND: unique symbol = Symbol.for("laratype.auth.contractAut
 
 // A2 #120: `Route.api` enforces the resolved auth of its routes with this factory. The import of @laratype/auth is
 // what makes the enforcement available; a route with auth fails mount() when it is missing.
-const factory: ContractAuthFactory = (guard) => auth(guard as true | GuardName);
-Object.defineProperty(factory, CONTRACT_AUTH_BRAND, {
+const contractAuthFactory: ContractAuthFactory = (guard) => auth(guard as true | GuardName);
+Object.defineProperty(contractAuthFactory, CONTRACT_AUTH_BRAND, {
   value: true,
   enumerable: false,
   writable: false,
   configurable: false,
 });
-registerContractAuth(factory);
+registerContractAuth(contractAuthFactory);
