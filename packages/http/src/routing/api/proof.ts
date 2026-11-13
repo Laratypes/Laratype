@@ -72,26 +72,64 @@ export type ControllerOf<C> = {
 
 // ---- what the route provides ------------------------------------------------
 
-type ModelClass = abstract new (...args: any) => any;
 type Resolver = (value: string) => unknown;
 
+/**
+ * The static side of a model class `r.bind()` takes (docs/v1/database.md › BindableModel), structural and type-only:
+ * `@laratype/http` does not import `@laratype/database`. `findByRouteKey` returns `null` / `undefined` on a miss, which
+ * is the contract's derived 404; `routeKeyName` defaults to `primaryKey`.
+ */
+export interface BindableModelClass<M extends object = object> {
+  new (...args: any[]): M;
+  readonly primaryKey: string;
+  readonly routeKeyName?: string;
+  findByRouteKey(key: string): Promise<M | null | undefined>;
+}
+
 /** A `.bind()` value: a model class, or a resolver from the raw param (H7 #118). */
-export type Binder = ModelClass | Resolver;
+export type Binder = BindableModelClass | Resolver;
 
-/** A resolver's miss is a 404, so the handler sees the value without `null` / `undefined`. */
-type Bound<B> = B extends ModelClass ? InstanceType<B> : B extends Resolver ? NonNullable<Awaited<ReturnType<B>>> : never;
+/** A `.bind()` map: one value per path param key. */
+export type Bindings = Readonly<Record<string, Binder>>;
 
-type BoundParams<P, B> = { [K in keyof B & keyof P]: Bound<B[K]> };
+/**
+ * The statics `isModelClass` reads at runtime: a callable that has them (and no construct signature) is a model, not a
+ * resolver, so its value is the lookup result. `BindableModelClass` is the constructable form of the same shape.
+ */
+type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string): unknown };
+
+/**
+ * The value a binder gives the handler. A `BindableModelClass` gives its instance (the class's own type, not the
+ * inherited return of `findByRouteKey`); a callable that carries the same statics is a model too at runtime
+ * (`isModelClass`), so it gives its lookup result; any other resolver is called, and its miss is a 404, so the handler
+ * sees the value without `null` / `undefined`. Constructability alone is not enough: `Date` is newable and callable,
+ * and the runtime calls it as a resolver.
+ */
+type Bound<B> = B extends BindableModelClass
+  ? InstanceType<B>
+  : B extends ModelStatics
+    ? NonNullable<Awaited<ReturnType<B["findByRouteKey"]>>>
+    : B extends Resolver
+      ? NonNullable<Awaited<ReturnType<B>>>
+      : never;
+
+/** The bound params of endpoint params `P`: an optional param (`:post?`) is `undefined` when the request has none. */
+type BoundParams<P, B> = {
+  [K in keyof B & keyof P]: Bound<B[K]> | (undefined extends P[K] ? undefined : never);
+};
 
 /** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
+
+/** The middleware extensions with the bound params in place of their strings: a binding wins a param key both add. */
+type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;
 
 /**
  * What the route passes to the handler of endpoint `E` under `Path`: `BaseCtx` with every path param of the full
  * path (folder params included), the middleware extensions `X` and the bound params `B` in place of their strings.
  */
 export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}> =
-  Merge<BaseCtx<E, FullParams<E, Path>>, X & { params: BoundParams<FullParams<E, Path>, B> }>;
+  Merge<BaseCtx<E, FullParams<E, Path>>, WithBindings<X, FullParams<E, Path>, B>>;
 
 // ---- the check --------------------------------------------------------------
 

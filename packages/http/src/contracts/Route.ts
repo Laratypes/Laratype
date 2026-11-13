@@ -3,6 +3,7 @@ import type { AnyEndpoint } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
+import type { Bindings } from "../routing/api/proof"
 import type { MiddlewareClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
@@ -50,6 +51,8 @@ export type RouteParams = {
   controller: [Newable<object>, string]
   /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
   middleware?: Array<MiddlewareItem>,
+  /** The `r.bind()` bindings of a `Route.api` route, resolved once per request before policies (H7 #118). */
+  bindings?: Bindings,
   withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,
