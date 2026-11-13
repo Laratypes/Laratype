@@ -17,7 +17,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | Section | Status |
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458); bindings proposed (H7, PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 84ee807) |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458); bindings proposed (H7, PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 9bbeb83) |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7) |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
@@ -26,7 +26,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45) |
 | [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 |
-| [Model binding](#model-binding) | proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 84ee807 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2); implicit binding planned → [#163](https://github.com/Laratypes/Laratype/issues/163) |
+| [Model binding](#model-binding) | proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 9bbeb83 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2); implicit binding planned → [#163](https://github.com/Laratypes/Laratype/issues/163) |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
@@ -113,7 +113,7 @@ Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../pack
 ## Route proof at r.contract()
 
 ### Status
-Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions and the `r.bind()` bindings its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458; model binding, H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 84ee807). A handler that requires a param no `.bind()` binds fails the proof.
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions and the `r.bind()` bindings its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458; model binding, H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 9bbeb83). A handler that requires a param no `.bind()` binds fails the proof.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -194,10 +194,13 @@ Here `<key>` may be nested, for example `params.user`. At `r.contract()`, tsc re
 ### Example
 Planned shape (E3, E10; illustrative, no compiled example yet):
 ```ts
-Route.api(appApi, (r) => [
-  r.bind({ user: User }).scope('users/[user]', { policy: UserScopePolicy }),
-  r.contract(posts, PostController, { policy: PostPolicy, endpoints: { destroy: (r) => r.middleware(audit()) } }),
-])
+Route.api(appApi, (r) => {
+  const bound = r.bind({ user: User })
+  return [
+    bound.scope('users/[user]', { policy: UserScopePolicy }),
+    bound.contract(posts, PostController, { policy: PostPolicy, endpoints: { destroy: (r) => r.middleware(audit()) } }),
+  ]
+})
 ```
 
 ### Non-goals
@@ -824,13 +827,13 @@ and nested, an `undefined`-only key, a self-referencing extension type, the rese
 ## Model binding
 
 ### Status
-proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 84ee807 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2). Explicit `r.bind()` for `Route.api` routes. The 0.5 `Route.model`, `Route.bind`, `explicitModelBinding` and `ModelBindingRegistry.paramModelMap` paths are unchanged: `Route.api` routes keep `modelBinding: false` and get `r.bind()` only. Implicit binding is [#163](https://github.com/Laratypes/Laratype/issues/163) (H14), planned.
+proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 9bbeb83 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2). Explicit `r.bind()` for `Route.api` routes. The 0.5 `Route.model`, `Route.bind`, `explicitModelBinding` and `ModelBindingRegistry.paramModelMap` paths are unchanged: `Route.api` routes keep `modelBinding: false` and get `r.bind()` only. Implicit binding is [#163](https://github.com/Laratypes/Laratype/issues/163) (H14), planned.
 
 ### Public API
-[`packages/http/src/routing/api/bindings.ts`](https://github.com/Laratypes/Laratype/blob/84ee807/packages/http/src/routing/api/bindings.ts) ·
-[`proof.ts`](https://github.com/Laratypes/Laratype/blob/84ee807/packages/http/src/routing/api/proof.ts) ·
-[`types.ts`](https://github.com/Laratypes/Laratype/blob/84ee807/packages/http/src/routing/api/types.ts) ·
-[`packages/database/src/eloquent/BindableModel.ts`](https://github.com/Laratypes/Laratype/blob/84ee807/packages/database/src/eloquent/BindableModel.ts)
+[`packages/http/src/routing/api/bindings.ts`](https://github.com/Laratypes/Laratype/blob/9bbeb83/packages/http/src/routing/api/bindings.ts) ·
+[`proof.ts`](https://github.com/Laratypes/Laratype/blob/9bbeb83/packages/http/src/routing/api/proof.ts) ·
+[`types.ts`](https://github.com/Laratypes/Laratype/blob/9bbeb83/packages/http/src/routing/api/types.ts) ·
+[`packages/database/src/eloquent/BindableModel.ts`](https://github.com/Laratypes/Laratype/blob/9bbeb83/packages/database/src/eloquent/BindableModel.ts)
 
 ```ts
 // @laratype/http: the static side of a model class, structural (the same shape as @laratype/database BindableModel)
