@@ -9,7 +9,9 @@ class User {
   declare readonly id: number
   static readonly primaryKey = 'id'
   static async findByRouteKey(key: string): Promise<User | null> {
-    return key === 'missing' ? null : Object.assign(new User(), { id: Number(key) })
+    const id = Number(key)
+    // a key the model cannot convert is its own miss (database.md › BindableModel: Key conversion)
+    return Number.isInteger(id) ? Object.assign(new User(), { id }) : null
   }
 }
 
