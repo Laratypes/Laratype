@@ -45,7 +45,7 @@
     "@laratype/core": "workspace:*",
     "dotenv": "^16.4.5",
     "glob": "^11.0.0",
-    "mlly": "^1.7.4",
+    "mlly": "^1.8.2",
     "ts-toolbelt": "^9.6.0"
   },
   "peerDependencies": {

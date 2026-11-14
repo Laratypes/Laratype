@@ -34,7 +34,7 @@
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
     "passport": "^0.7.0",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/passport": "^1.0.17",
     "@laratype/console": "workspace:*",
