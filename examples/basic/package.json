@@ -34,6 +34,6 @@
     "@faker-js/faker": "^10.1.0",
     "@types/node": "^20.11.24",
     "@types/passport": "^1.0.17",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
