@@ -44,7 +44,7 @@
     "@laratype/contract": "workspace:*",
     "@laratype/core": "workspace:*",
     "dotenv": "^16.4.5",
-    "glob": "^11.0.0",
+    "glob": "^13.0.6",
     "mlly": "^1.7.4",
     "ts-toolbelt": "^9.6.0"
   },
