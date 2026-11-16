@@ -1,5 +1,5 @@
 // The v1 Model statics over TypeORM: primaryKey, find / findOrFail, and the BindableModel route key behavior
-// (docs/v1/database.md › Model and › BindableModel). The repository is stubbed over arrays, as Model.test.ts does.
+// (docs/v1/database.md › Model, › BindableModel). The repository is stubbed over arrays, as Model.test.ts does.
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
 import type { ColumnType } from 'typeorm'
@@ -12,18 +12,21 @@ type Row = Record<string, any>
 
 interface FakeColumn {
   readonly propertyName: string
+  readonly propertyPath: string
   readonly type: ColumnType
 }
 
 const COLUMNS: FakeColumn[] = [
-  { propertyName: 'id', type: Number },
-  { propertyName: 'email', type: String },
-  { propertyName: 'slug', type: String },
-  { propertyName: 'age', type: Number },
-  { propertyName: 'isActive', type: Boolean },
-  { propertyName: 'createdAt', type: Date },
-  { propertyName: 'tenantId', type: String },
-];
+  { propertyName: 'id', propertyPath: 'id', type: Number },
+  { propertyName: 'email', propertyPath: 'email', type: String },
+  { propertyName: 'slug', propertyPath: 'slug', type: String },
+  { propertyName: 'age', propertyPath: 'age', type: Number },
+  { propertyName: 'isActive', propertyPath: 'isActive', type: Boolean },
+  { propertyName: 'createdAt', propertyPath: 'createdAt', type: Date },
+  { propertyName: 'tenantId', propertyPath: 'tenantId', type: String },
+  // An embedded column: its leaf `street` is not an own model property
+  { propertyName: 'street', propertyPath: 'address.street', type: String },
+]
 
 /**
  * A model class whose repository is a slice of the TypeORM one over `rows`: `findOne` / `find` match the where
@@ -38,8 +41,8 @@ const model = (options: {
   const rows = options.rows ?? [{ id: 1, email: 'ada@example.com', slug: 'ada', age: 36, isActive: true }]
   const columns = options.columns ?? COLUMNS
   const primary = options.primary ?? ['id']
-  const lookups: any[] = []
-  const listLookups: any[] = []
+  const findOneCalls: any[] = []
+  const findCalls: any[] = []
   const raw: [string, unknown[] | undefined][] = []
 
   class User extends Model {
@@ -61,14 +64,14 @@ const model = (options: {
     metadata: {
       targetName: 'User',
       primaryColumns: primary.map((name) => ({ propertyName: name })),
-      findColumnWithPropertyName: (name: string) => columns.find((column) => column.propertyName === name),
+      columns,
     },
     findOne: async (options: { where: Row }) => {
-      lookups.push(options)
+      findOneCalls.push(options)
       return rows.find(matches(options.where)) ?? null
     },
     find: async (options?: { where?: Row }) => {
-      listLookups.push(options)
+      findCalls.push(options)
       return options?.where ? rows.filter(matches(options.where)) : rows
     },
     createQueryBuilder: () => ({}),
@@ -79,7 +82,7 @@ const model = (options: {
   }
   ;(User as any).getRepository = () => repository
 
-  return { User, rows, lookups, listLookups, raw };
+  return { User, rows, findOneCalls, findCalls, raw }
 }
 
 describe('Model.primaryKey', () => {
@@ -108,24 +111,24 @@ describe('Model.primaryKey', () => {
 
 describe('Model.find and findOrFail', () => {
   it('find(id) looks the primary key up and resolves the model or null', async () => {
-    const { User, lookups } = model()
+    const { User, findOneCalls } = model()
     await expect(User.find(1)).resolves.toMatchObject({ id: 1 })
-    expect(lookups).toEqual([{ where: { id: 1 } }])
+    expect(findOneCalls).toEqual([{ where: { id: 1 } }])
     expect(await User.find(99)).toBeNull()
   })
 
   it('find(id) accepts a string or a bigint key as it is', async () => {
-    const { User, lookups } = model()
+    const { User, findOneCalls } = model()
     await User.find('1')
     await User.find(1n)
-    expect(lookups).toEqual([{ where: { id: '1' } }, { where: { id: 1n } }])
+    expect(findOneCalls).toEqual([{ where: { id: '1' } }, { where: { id: 1n } }])
   })
 
   it('find() and find(options) keep the 0.5 TypeORM list form', async () => {
-    const { User, listLookups } = model()
+    const { User, findCalls } = model()
     await expect(User.find()).resolves.toHaveLength(1)
     await expect(User.find({ where: { email: 'ada@example.com' } })).resolves.toHaveLength(1)
-    expect(listLookups).toEqual([undefined, { where: { email: 'ada@example.com' } }])
+    expect(findCalls).toEqual([undefined, { where: { email: 'ada@example.com' } }])
   })
 
   it('findOrFail(id) resolves the model or throws ModelNotFoundException', async () => {
@@ -160,27 +163,27 @@ describe('Model.findByRouteKey', () => {
   }
 
   it('converts an integer string to a number for the primary key', async () => {
-    const { lookups, found } = await lookUp('1')
+    const { findOneCalls, found } = await lookUp('1')
     expect(found).toMatchObject({ id: 1 })
-    expect(lookups).toEqual([{ where: { id: 1 } }])
+    expect(findOneCalls).toEqual([{ where: { id: 1 } }])
   })
 
   it('accepts a negative integer and zero', async () => {
-    expect((await lookUp('-7')).lookups).toEqual([{ where: { id: -7 } }])
-    expect((await lookUp('0')).lookups).toEqual([{ where: { id: 0 } }])
+    expect((await lookUp('-7')).findOneCalls).toEqual([{ where: { id: -7 } }])
+    expect((await lookUp('0')).findOneCalls).toEqual([{ where: { id: 0 } }])
   })
 
   it('answers a key that cannot convert as a miss, never as a throw', async () => {
     for (const key of ['01', ' 1', '1 ', '1.0', '1.5', '1e3', '+1', '', 'abc', '9007199254740992']) {
-      const { lookups, found } = await lookUp(key)
+      const { findOneCalls, found } = await lookUp(key)
       expect(found, key).toBeNull()
-      expect(lookups, key).toEqual([])
+      expect(findOneCalls, key).toEqual([])
     }
   })
 
   it('keeps a uuid / string route key as it is', async () => {
-    const { lookups } = await lookUp('ADA', { routeKeyName: 'slug' })
-    expect(lookups).toEqual([{ where: { slug: 'ADA' } }])
+    const { findOneCalls } = await lookUp('ADA', { routeKeyName: 'slug' })
+    expect(findOneCalls).toEqual([{ where: { slug: 'ADA' } }])
   })
 
   it('converts a boolean route key from true/false and 1/0 only', async () => {
@@ -190,28 +193,36 @@ describe('Model.findByRouteKey', () => {
       ['false', false],
       ['0', false],
     ] as const) {
-      expect((await lookUp(key, { routeKeyName: 'isActive' })).lookups).toEqual([{ where: { isActive: value } }])
+      expect((await lookUp(key, { routeKeyName: 'isActive' })).findOneCalls).toEqual([{ where: { isActive: value } }])
     }
     for (const key of ['yes', 'TRUE', '2']) {
-      const { lookups, found } = await lookUp(key, { routeKeyName: 'isActive' })
+      const { findOneCalls, found } = await lookUp(key, { routeKeyName: 'isActive' })
       expect(found, key).toBeNull()
-      expect(lookups, key).toEqual([])
+      expect(findOneCalls, key).toEqual([])
     }
   })
 
   it('converts a date route key, and a date that cannot parse is a miss', async () => {
     const hit = await lookUp('2026-01-02', { routeKeyName: 'createdAt' })
-    const value = hit.lookups[0].where.createdAt
+    const value = hit.findOneCalls[0].where.createdAt
     expect(value).toBeInstanceOf(Date)
     expect(value.toISOString()).toBe('2026-01-02T00:00:00.000Z')
 
     const miss = await lookUp('not-a-date', { routeKeyName: 'createdAt' })
     expect(miss.found).toBeNull()
-    expect(miss.lookups).toEqual([])
+    expect(miss.findOneCalls).toEqual([])
   })
 
   it('throws when routeKeyName is not a column of the model, so no caller string reaches the lookup', async () => {
-    for (const routeKeyName of ['handle', 'id; DROP TABLE users', '__proto__', 'constructor', 'posts']) {
+    for (const routeKeyName of [
+      'handle',
+      'id; DROP TABLE users',
+      '__proto__',
+      'constructor',
+      'posts',
+      'street',
+      'address.street',
+    ]) {
       const { User } = model({ routeKeyName })
       await expect(User.findByRouteKey('ada')).rejects.toThrow(
         `[@laratype/database] User.routeKeyName ${JSON.stringify(routeKeyName)} is not a column of the model`,

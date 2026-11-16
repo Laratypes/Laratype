@@ -13,6 +13,7 @@ import {
   type SelectQueryBuilder,
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
+import { ownColumn } from "./internal";
 
 /**
  * A property of `T` that holds data, not a method: the columns `where()` and `orderBy()` accept at the type level,
@@ -56,15 +57,17 @@ const MAX_PER_PAGE = 100;
 const isWhereOperator = (value: unknown): value is WhereOperator =>
   typeof value === "string" && (OPERATORS as readonly string[]).includes(value);
 
-/** A diagnostic value: a string is quoted, anything else stringified, so the message always names the offending value. */
-const formatValue = (value: unknown): string => (typeof value === "string" ? JSON.stringify(value) : String(value));
+/** A diagnostic value: a string is quoted, anything else stringified, so the message names the offending value. */
+const formatValue = (value: unknown): string =>
+  typeof value === "string" ? JSON.stringify(value) : String(value);
 
 /** The builder's message text, in one place (errors-and-comments.md › Errors). */
 const errors = {
   firstArgument: (value: unknown): string =>
     `[@laratype/database] where() takes a column name or a where object, got ${formatValue(value)}`,
   noColumn: (model: string, name: string, method: "where" | "orderBy"): string =>
-    `[@laratype/database] ${model} has no column ${formatValue(name)}: ${method}() takes a column property of the model`,
+    `[@laratype/database] ${model} has no column ${formatValue(name)}: ${method}() takes a column property`
+    + " of the model",
   operator: (operator: unknown): string =>
     `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${formatValue(operator)}`,
   arrayOperand: (operator: string, value: unknown): string =>
@@ -78,7 +81,8 @@ const errors = {
   perPage: (perPage: unknown): string =>
     `[@laratype/database] paginate() takes a perPage of 1 to ${MAX_PER_PAGE}, got ${formatValue(perPage)}`,
   offset: (page: unknown, perPage: unknown): string =>
-    `[@laratype/database] paginate() takes a page and perPage whose offset is a safe integer, got page ${formatValue(page)} and perPage ${formatValue(perPage)}`,
+    `[@laratype/database] paginate() takes a page and perPage whose offset is a safe integer,`
+    + ` got page ${formatValue(page)} and perPage ${formatValue(perPage)}`,
 };
 
 /** Maps the 3-argument `where()` operator to the `FindOperator` TypeORM parameterizes (never SQL text). */
@@ -210,9 +214,9 @@ export default class ModelQueryBuilder<T extends object = object> {
     return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
   }
 
-  /** Resolves a caller's column name against the entity metadata; anything that is not a column throws. */
+  /** Resolves a caller's column name against the entity metadata; an own column property, or it throws. */
   private column(name: string, method: "where" | "orderBy"): string {
-    const column = this.repository.metadata.findColumnWithPropertyName(name);
+    const column = ownColumn(this.repository.metadata, name);
     if (column === undefined) {
       throw new ModelError(errors.noColumn(this.repository.metadata.targetName, name, method));
     }

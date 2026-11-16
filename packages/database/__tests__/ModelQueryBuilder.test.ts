@@ -56,18 +56,17 @@ class FakeQueryBuilder {
 /** A model query over `rows`, with the entity metadata the facade resolves columns against. */
 const builder = (rows: Row[] = [], total = rows.length) => {
   const columns = [
-    { propertyName: 'id', type: Number },
-    { propertyName: 'email', type: String },
-    { propertyName: 'age', type: Number },
-    { propertyName: 'isActive', type: Boolean },
-    { propertyName: 'deletedAt', type: Date },
+    { propertyName: 'id', propertyPath: 'id', type: Number },
+    { propertyName: 'email', propertyPath: 'email', type: String },
+    { propertyName: 'age', propertyPath: 'age', type: Number },
+    { propertyName: 'isActive', propertyPath: 'isActive', type: Boolean },
+    { propertyName: 'deletedAt', propertyPath: 'deletedAt', type: Date },
+    // An embedded column: its leaf `street` is not an own model property
+    { propertyName: 'street', propertyPath: 'address.street', type: String },
   ]
   const query = new FakeQueryBuilder(rows, total)
   const repository = {
-    metadata: {
-      targetName: 'User',
-      findColumnWithPropertyName: (propertyName: string) => columns.find((c) => c.propertyName === propertyName),
-    },
+    metadata: { targetName: 'User', columns },
     createQueryBuilder: () => query,
   } as unknown as Repository<Row>
   return { query, UserQuery: new ModelQueryBuilder<Row>(repository) }
@@ -76,7 +75,10 @@ const builder = (rows: Row[] = [], total = rows.length) => {
 /** The FindOperator a where object holds for its only column. */
 const operator = (query: FakeQueryBuilder): FindOperator<unknown> => {
   const [where] = query.wheres
-  return Object.values(where!)[0] as FindOperator<unknown>
+  if (where === undefined) throw new Error("the where() call did not reach the query builder")
+  const value = Object.values(where)[0]
+  if (value === undefined) throw new Error("the where() call set no column")
+  return value as FindOperator<unknown>
 }
 
 describe('ModelQueryBuilder.where', () => {
@@ -139,8 +141,17 @@ describe('ModelQueryBuilder.where', () => {
   })
 
   it('refuses a column that is not in the entity metadata, so no caller string reaches the SQL', () => {
-    // `posts` stands for a relation: the metadata has no column of that property name, so DB3 #147 never sees it
-    const hostile = ['id; DROP TABLE users', '"id" OR 1=1', '__proto__', 'constructor', 'posts']
+    // `posts` stands for a relation, and `street` / `address.street` for an embedded column: DB3 #147 never sees
+    // either, and an embedded leaf is not an own model property
+    const hostile = [
+      'id; DROP TABLE users',
+      '"id" OR 1=1',
+      '__proto__',
+      'constructor',
+      'posts',
+      'street',
+      'address.street',
+    ]
     for (const column of hostile) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where(column as never, 1)).toThrow(

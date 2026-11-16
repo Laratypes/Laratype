@@ -10,6 +10,7 @@ import {
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
+import { ownColumn } from "./internal";
 import ModelQueryBuilder from "./ModelQueryBuilder";
 
 /** A primary key value `find()` and `findOrFail()` take: a numeric id, a UUID / string id, or a bigint id. */
@@ -77,7 +78,8 @@ const errors = {
   noPrimaryKey: (model: string): string =>
     `[@laratype/database] ${model} has no primary key: mark one column with @PrimaryColumn or @PrimaryGeneratedColumn`,
   compositePrimaryKey: (model: string, columns: string[]): string =>
-    `[@laratype/database] ${model} has a composite primary key (${columns.join(", ")}): the v1 Model needs one primary key, so set static routeKeyName to the property a lookup uses`,
+    `[@laratype/database] ${model} has a composite primary key (${columns.join(", ")}): the v1 Model needs one`
+    + " primary key, so set static routeKeyName to the property a lookup uses",
   routeKeyNameNotAColumn: (model: string, name: string): string =>
     `[@laratype/database] ${model}.routeKeyName ${JSON.stringify(name)} is not a column of the model`,
 };
@@ -168,8 +170,14 @@ export default class Model extends BaseEntity {
    */
   static query<T extends BaseEntity>(this: ModelClass<T>): ModelQueryBuilder<T>;
 
-  /** @deprecated Use `getRepository().query(sql, parameters)` for raw SQL: `query()` returns the model query builder. */
-  static query<T extends BaseEntity>(this: ModelClass<T>, sql: string, parameters?: readonly unknown[]): Promise<any>;
+  /**
+   * @deprecated Use `getRepository().query(sql, parameters)` for raw SQL: `query()` returns the query builder.
+   */
+  static query<T extends BaseEntity>(
+    this: ModelClass<T>,
+    sql: string,
+    parameters?: readonly unknown[],
+  ): Promise<any>;
 
   static query(sql?: string, parameters?: readonly unknown[]): any {
     if (sql === undefined) {
@@ -230,7 +238,7 @@ export default class Model extends BaseEntity {
   static async findByRouteKey(key: string): Promise<any> {
     const metadata = this.getRepository().metadata;
     const property = this.routeKeyName ?? this.primaryKey;
-    const column = metadata.findColumnWithPropertyName(property);
+    const column = ownColumn(metadata, property);
     if (column === undefined) {
       throw new ModelError(errors.routeKeyNameNotAColumn(metadata.targetName, property));
     }
@@ -245,16 +253,16 @@ export default class Model extends BaseEntity {
    * Saves all given entities in the database.
    * If entities do not exist in the database then inserts, otherwise updates.
    */
-  static save<T extends BaseEntity>(this: {
-      new (): T;
-  } & typeof BaseEntity, entities: DeepPartial<T>[], options?: SaveOptions): Promise<T[]>;
+  static save<T extends BaseEntity>(
+    this: ModelClass<T>,
+    entities: DeepPartial<T>[],
+    options?: SaveOptions,
+  ): Promise<T[]>;
   /**
    * Saves a given entity in the database.
    * If entity does not exist in the database then inserts, otherwise updates.
    */
-  static save<T extends BaseEntity>(this: {
-      new (): T;
-  } & typeof BaseEntity, entity: DeepPartial<T>, options?: SaveOptions): Promise<T>;
+  static save<T extends BaseEntity>(this: ModelClass<T>, entity: DeepPartial<T>, options?: SaveOptions): Promise<T>;
 
   static save(data: any, options?: SaveOptions) {
     if(Array.isArray(data)) {
@@ -279,9 +287,7 @@ export default class Model extends BaseEntity {
   /**
    * Updates the given model with provided data.
    */
-  static updateFor<T extends BaseEntity>(this: {
-      new (): T;
-  } & typeof BaseEntity, model: T, data: DeepPartial<T>): Promise<T>;
+  static updateFor<T extends BaseEntity>(this: ModelClass<T>, model: T, data: DeepPartial<T>): Promise<T>;
 
   static updateFor(model: any, data: any) {
     const input = cast(fillableGuard(data, this.fillable), this.passwordField);
@@ -297,9 +303,7 @@ export default class Model extends BaseEntity {
   /**
    * Finds first entity that matches given conditions.
    */
-  static findOneBy<T extends BaseEntity>(this: {
-      new (): T;
-  } & typeof BaseEntity, where: FindOptionsWhere<T>): any;
+  static findOneBy<T extends BaseEntity>(this: ModelClass<T>, where: FindOptionsWhere<T>): any;
   
   // Not cast: a salted password hash never matches in a where clause; check it with Hash.check() after the lookup
   static findOneBy(where: any) {

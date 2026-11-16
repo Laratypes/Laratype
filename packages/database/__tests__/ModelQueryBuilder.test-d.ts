@@ -1,5 +1,5 @@
 // Type surface of the v1 Model: typed columns, the find overloads, the page type, and the structural BindableModel
-// check (docs/v1/database.md › Model and › BindableModel).
+// check (docs/v1/database.md › Model, › BindableModel).
 import { describe, expectTypeOf, it } from 'vitest'
 import Model, { type ModelClass, type PrimaryKeyValue } from '../src/eloquent/Model'
 import type ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
@@ -24,7 +24,7 @@ class User extends Model {
   declare readonly [HasPolicy]?: true
 }
 
-describe('Model query types', () => {
+describe('Model and ModelQueryBuilder types', () => {
   it('types the columns from the entity data properties, never a method or a symbol brand', () => {
     expectTypeOf<ColumnKey<User>>().toEqualTypeOf<'id' | 'email' | 'isActive' | 'createdAt' | 'deletedAt'>()
     expectTypeOf<ModelWhere<User>>().toEqualTypeOf<{
