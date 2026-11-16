@@ -23,7 +23,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR <leader fills> @ 770bcfa ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR (leader fills) @ def996f ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -227,6 +227,7 @@ switch (result.code) {
   - a cross-origin `mode: "no-cors"` request whose redirect mode isn't `"follow"` (the default `"manual"`, or `"error"`): the Fetch Standard makes it a network error before the request is sent, so it is the status-0 result without `response`, `error` is the thrown error. A same-origin no-cors request is sent, and a redirect gives the `opaqueredirect` above. A cross-origin no-cors call (a `mode` set by `onRequest`, or an injected `fetch`) needs `redirect: "follow"` to get an `opaque` response, which is the status-0 result with `response` set;
   - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
   - a 2xx other than the declared status, or an empty body where a response schema is declared;
+  - with `validateResponses`, a success body that does not match the response schema: the HTTP status, `response`, and `error` is a `ResponseValidationError` ([Dev-mode response validation](#dev-mode-response-validation));
   - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
   - a body that isn't JSON, on any status: `error` is the `SyntaxError`, and `text` holds the raw body (an HTML 502 from a proxy), since the body is consumed.
 - **`response`** is the fetch `Response` on every variant except a failure before the headers. A status-0 `opaqueredirect` and a no-cors `opaque` response are the cases where status and headers aren't usable: the status is 0, the headers are empty and there is no `Location`. Otherwise the client reads its body once, so the body is consumed (`bodyUsed`); status and headers such as `Retry-After` stay usable. A body-less success (`data: undefined`) doesn't read the body; unless it is a 204 or 205, the client cancels it, so an unread body doesn't hold a connection open (undici).
@@ -399,7 +400,7 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-proposed: PR <leader fills> @ 770bcfa ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
+proposed: PR (leader fills) @ def996f ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
 ### Public API
 [`packages/client/src/validate.ts`](../../packages/client/src/validate.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
