@@ -13,7 +13,7 @@ import {
   type SelectQueryBuilder,
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
-import { ownColumn } from "./internal";
+import { formatValue, ownColumn, valueType } from "./internal";
 
 /**
  * A property of `T` that holds data, not a method: the columns `where()` and `orderBy()` accept at the type level,
@@ -57,9 +57,23 @@ const MAX_PER_PAGE = 100;
 const isWhereOperator = (value: unknown): value is WhereOperator =>
   typeof value === "string" && (OPERATORS as readonly string[]).includes(value);
 
-/** A diagnostic value: a string is quoted, anything else stringified, so the message names the offending value. */
-const formatValue = (value: unknown): string =>
-  typeof value === "string" ? JSON.stringify(value) : String(value);
+/** The largest `in` / `not in` list `where()` accepts: Postgres allows 65,535 parameters, sqlite 32,766. */
+const MAX_IN_VALUES = 1000;
+
+/**
+ * The scalar values `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a
+ * Uint8Array (a Buffer is one). Anything else is a value type mysql2 would escape as SQL text.
+ */
+const isScalarValue = (value: unknown): boolean =>
+  typeof value === "string" ||
+  typeof value === "bigint" ||
+  typeof value === "boolean" ||
+  (typeof value === "number" && Number.isFinite(value)) ||
+  (value instanceof Date && !Number.isNaN(value.getTime())) ||
+  value instanceof Uint8Array;
+
+/** The scalar kinds a diagnostic lists. */
+const SCALAR_KINDS = "a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array";
 
 /** The builder's message text, in one place (errors-and-comments.md › Errors). */
 const errors = {
@@ -75,6 +89,15 @@ const errors = {
   nullishValue: (column: string, value: unknown): string =>
     `[@laratype/database] where() cannot filter ${formatValue(column)} with ${formatValue(value)}:`
     + " IS NULL filters are not part of the v1 surface",
+  scalarValue: (column: string, value: unknown): string =>
+    `[@laratype/database] where() takes a scalar value for ${formatValue(column)} (${SCALAR_KINDS}),`
+    + ` got ${valueType(value)}`,
+  inElement: (column: string, operator: string, value: unknown, index: number): string =>
+    `[@laratype/database] where() takes scalar elements for ${formatValue(column)} in ${formatValue(operator)}`
+    + ` (${SCALAR_KINDS}), got ${valueType(value)} at index ${index}`,
+  inLength: (column: string, operator: string, length: number): string =>
+    `[@laratype/database] where() takes at most ${MAX_IN_VALUES} elements for ${formatValue(column)}`
+    + ` in ${formatValue(operator)}, got ${length}`,
   direction: (direction: unknown): string =>
     `[@laratype/database] orderBy() takes "asc" or "desc", got ${formatValue(direction)}`,
   limit: (count: unknown): string =>
@@ -161,9 +184,13 @@ export default class ModelQueryBuilder<T extends object = object> {
     if (!isWhereOperator(operator)) {
       throw new ModelError(errors.operator(operator));
     }
-    this.assertValue(column, value);
-    if ((operator === "in" || operator === "not in") && !Array.isArray(value)) {
-      throw new ModelError(errors.arrayOperand(operator, value));
+    if (value === null || value === undefined) {
+      throw new ModelError(errors.nullishValue(column, value));
+    }
+    if (operator === "in" || operator === "not in") {
+      this.assertInOperand(column, operator, value);
+    } else {
+      this.assertValue(column, value);
     }
     this.query.andWhere({ [column]: toFindOperator(operator, value) } as ObjectLiteral);
     return this;
@@ -221,10 +248,32 @@ export default class ModelQueryBuilder<T extends object = object> {
     return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
   }
 
-  /** A nullish value is refused: TypeORM would bind `= NULL`, which never matches, and some drivers reject it. */
+  /** A where value: no null/undefined, and only a scalar TypeORM binds as a parameter. */
   private assertValue(column: string, value: unknown): void {
     if (value === null || value === undefined) {
       throw new ModelError(errors.nullishValue(column, value));
+    }
+    if (!isScalarValue(value)) {
+      throw new ModelError(errors.scalarValue(column, value));
+    }
+  }
+
+  /** An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined. */
+  private assertInOperand(column: string, operator: "in" | "not in", value: unknown): void {
+    if (!Array.isArray(value)) {
+      throw new ModelError(errors.arrayOperand(operator, value));
+    }
+    if (value.length > MAX_IN_VALUES) {
+      throw new ModelError(errors.inLength(column, operator, value.length));
+    }
+    for (let index = 0; index < value.length; index++) {
+      const element = (value as unknown[])[index];
+      if (element === null || element === undefined) {
+        throw new ModelError(errors.nullishValue(column, element));
+      }
+      if (!isScalarValue(element)) {
+        throw new ModelError(errors.inElement(column, operator, element, index));
+      }
     }
   }
 

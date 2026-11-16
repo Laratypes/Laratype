@@ -2,7 +2,15 @@
 // runtime-checked direction / limit / page / perPage, and a plain page result (docs/v1/database.md › Model).
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
-import type { FindOperator, ObjectLiteral, Repository } from 'typeorm'
+import {
+  DataSource,
+  EntitySchema,
+  type FindOperator,
+  type ObjectLiteral,
+  type Repository,
+  type SelectQueryBuilder,
+} from 'typeorm'
+import ModelError from '../src/exceptions/ModelError'
 import ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
 
 type Row = Record<string, any>
@@ -215,6 +223,123 @@ describe('ModelQueryBuilder.where', () => {
     expect(query.wheres).toEqual([])
   })
 
+  it('refuses a value that mysql2 would escape as key = value pairs', () => {
+    const values: [unknown, string][] = [
+      [{ email: 1 }, 'object'],
+      [{ $ne: '' }, 'object'],
+      [[1, 2], 'array'],
+      [{}, 'object'],
+      [[], 'array'],
+      [Number.NaN, 'non-finite number'],
+      [Number.POSITIVE_INFINITY, 'non-finite number'],
+      [new Date('nope'), 'invalid Date'],
+    ]
+    for (const [value, type] of values) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where('email', value as never)).toThrow(
+        `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
+      )
+      expect(query.wheres).toEqual([])
+    }
+  })
+
+  it('refuses a non-scalar value in the object form', () => {
+    const values: [unknown, string][] = [
+      [{ email: 1 }, 'object'],
+      [[1, 2], 'array'],
+      [{}, 'object'],
+      [[], 'array'],
+      [Number.NaN, 'non-finite number'],
+    ]
+    for (const [value, type] of values) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where({ email: value } as never)).toThrow(
+        `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
+      )
+      expect(query.wheres).toEqual([])
+    }
+  })
+
+  it('refuses a non-scalar value for a comparison operator', () => {
+    for (const operator of ['=', 'like'] as const) {
+      for (const [value, type] of [
+        [{ email: 1 }, 'object'],
+        [[1, 2], 'array'],
+        [Number.NaN, 'non-finite number'],
+      ] as const) {
+        const { query, UserQuery } = builder()
+        expect(() => UserQuery.where('email', operator, value as never)).toThrow(
+          `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
+        )
+        expect(query.wheres).toEqual([])
+      }
+    }
+  })
+
+  it('accepts the scalar values TypeORM parameterizes', () => {
+    const values = ['ada@example.com', 36, 1n, true, new Date('2026-01-02'), Buffer.from('ada')]
+    for (const value of values) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where('email', value as never)).not.toThrow()
+      expect(query.wheres).toHaveLength(1)
+    }
+  })
+
+  it('refuses in / not in elements that are not scalars', () => {
+    for (const operator of ['in', 'not in'] as const) {
+      for (const [element, type] of [
+        [{ email: 1 }, 'object'],
+        [[1], 'array'],
+        [Number.NaN, 'non-finite number'],
+      ] as const) {
+        const { query, UserQuery } = builder()
+        expect(() => UserQuery.where('email', operator, [element] as never)).toThrow(
+          `[@laratype/database] where() takes scalar elements for "email" in ${JSON.stringify(operator)} (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type} at index 0`,
+        )
+        expect(query.wheres).toEqual([])
+      }
+    }
+  })
+
+  it('refuses null and undefined inside an in / not in list', () => {
+    for (const operator of ['in', 'not in'] as const) {
+      for (const element of [null, undefined]) {
+        const { UserQuery } = builder()
+        expect(() => UserQuery.where('email', operator, [element] as never)).toThrow(
+          `[@laratype/database] where() cannot filter "email" with ${String(element)}: IS NULL filters are not part of the v1 surface`,
+        )
+      }
+    }
+  })
+
+  it('caps an in / not in list at 1,000 elements', () => {
+    const list = Array.from({ length: 1001 }, (_, index) => index)
+    for (const operator of ['in', 'not in'] as const) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where('email', operator, list as never)).toThrow(
+        `[@laratype/database] where() takes at most 1000 elements for "email" in ${JSON.stringify(operator)}, got 1001`,
+      )
+      expect(query.wheres).toEqual([])
+    }
+    const thousand = builder()
+    expect(() => thousand.UserQuery.where('email', 'in', list.slice(0, 1000) as never)).not.toThrow()
+  })
+
+  it('truncates a long value in a diagnostic', () => {
+    const long = 'x'.repeat(200)
+    const { UserQuery } = builder()
+    try {
+      UserQuery.where(long as never, 1)
+      throw new Error('the call did not throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ModelError)
+      const message = (error as Error).message
+      expect(message).toContain('…')
+      expect(message).not.toContain(long)
+      expect(message.length).toBeLessThan(250)
+    }
+  })
+
   it('refuses a first argument that is neither a column name nor an object', () => {
     const { query, UserQuery } = builder()
     for (const value of [null, 1, true, undefined]) {
@@ -351,5 +476,51 @@ describe('ModelQueryBuilder.paginate', () => {
       '[@laratype/database] paginate() takes a page and perPage whose offset is a safe integer, got page 9007199254740991 and perPage 100',
     )
     expect(query.offsets).toEqual([])
+  })
+})
+
+describe('ModelQueryBuilder over the real TypeORM builder', () => {
+  /** A mysql DataSource needs no connection to build its metadata and the SQL: mysql2 is already a workspace package. */
+  const realRepository = async () => {
+    const User = new EntitySchema({
+      name: 'User',
+      tableName: 'user',
+      columns: {
+        id: { type: Number, primary: true, generated: true },
+        email: { type: String },
+      },
+    })
+    const dataSource = new DataSource({
+      type: 'mysql',
+      host: 'localhost',
+      username: 'laratype',
+      password: 'laratype',
+      database: 'laratype',
+      entities: [User],
+      synchronize: false,
+    })
+    // buildMetadatas is protected; the query builder needs the metadata, not a connection
+    await (dataSource as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas()
+    return dataSource.getRepository<Row>('User')
+  }
+
+  it('sends an accepted value as a parameter', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    query.where('email', 'ada@example.com')
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).toContain('WHERE `User`.`email` = ?')
+    expect(parameters).toEqual(['ada@example.com'])
+  })
+
+  it('never lets a refused value reach the builder', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    expect(() => query.where('email', { email: 1 } as never)).toThrow(ModelError)
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).not.toContain('WHERE')
+    expect(parameters).toEqual([])
   })
 })

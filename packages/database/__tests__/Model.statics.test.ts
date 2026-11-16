@@ -148,6 +148,25 @@ describe('Model.find and findOrFail', () => {
     expect((failure as ModelNotFoundException).getHttpCode()).toBe(404)
   })
 
+  it('refuses a non-primitive id instead of falling through to the list form', async () => {
+    const ids: [unknown, string][] = [
+      [{}, 'object'],
+      [{ where: {} }, 'object'],
+      [[1], 'array'],
+      [null, 'null'],
+      [true, 'boolean'],
+    ]
+    for (const [id, type] of ids) {
+      const { User, findCalls, findOneCalls } = model()
+      await expect(User.findOrFail(id as never)).rejects.toThrow(
+        `[@laratype/database] User.findOrFail() takes a string, number or bigint primary key, got ${type}`,
+      )
+      // The strict guard throws before the lookup: neither find() nor findOne() runs
+      expect(findCalls).toEqual([])
+      expect(findOneCalls).toEqual([])
+    }
+  })
+
   it('keeps the model name and the key off the wire: the 404 body is the generic one', async () => {
     const { User } = model()
     const failure = (await User.findOrFail(99).catch((error: unknown) => error)) as ModelNotFoundException

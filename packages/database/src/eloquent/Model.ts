@@ -10,7 +10,7 @@ import {
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
-import { ownColumn } from "./internal";
+import { formatValue, ownColumn, valueType } from "./internal";
 import ModelQueryBuilder from "./ModelQueryBuilder";
 
 /** A primary key value `find()` and `findOrFail()` take: a numeric id, a UUID / string id, or a bigint id. */
@@ -81,7 +81,10 @@ const errors = {
     `[@laratype/database] ${model} has a composite primary key (${columns.join(", ")}): the v1 Model needs one`
     + " primary key, so set static routeKeyName to the property a lookup uses",
   routeKeyNameNotAColumn: (model: string, name: string): string =>
-    `[@laratype/database] ${model}.routeKeyName ${JSON.stringify(name)} is not a column of the model`,
+    `[@laratype/database] ${model}.routeKeyName ${formatValue(name)} is not a column of the model`,
+  findOrFailId: (model: string, value: unknown): string =>
+    `[@laratype/database] ${model}.findOrFail() takes a string, number or bigint primary key,`
+    + ` got ${valueType(value)}`,
 };
 
 /**
@@ -189,6 +192,8 @@ export default class Model extends BaseEntity {
   /**
    * Finds one model by its primary key. A string, number or bigint is the key; no argument, `undefined` or an
    * options object keeps TypeORM's list form (0.5 compatibility). A missing key resolves `null`.
+   *
+   * Never pass request input to the list form: use `findOrFail()` or `query().where()` for request input.
    */
   static find<T extends BaseEntity>(
     this: ModelClass<T>,
@@ -210,7 +215,8 @@ export default class Model extends BaseEntity {
 
   /**
    * Finds one model by its primary key, or throws `ModelNotFoundException` (an HTTP 404 through the existing
-   * exception filter) instead of resolving `null`.
+   * exception filter) instead of resolving `null`. A non-primitive key is refused: unlike `find()`, it never falls
+   * through to the 0.5 list form, so request input can go here (docs/v1/database.md › Model).
    */
   static findOrFail<T extends BaseEntity>(
     this: ModelClass<T>,
@@ -218,6 +224,9 @@ export default class Model extends BaseEntity {
   ): Promise<T>;
 
   static async findOrFail(id: PrimaryKeyValue): Promise<any> {
+    if (typeof id !== "string" && typeof id !== "number" && typeof id !== "bigint") {
+      throw new ModelError(errors.findOrFailId(this.getRepository().metadata.targetName, id));
+    }
     const found = await this.find(id);
     if (found === null || found === undefined) {
       throw new ModelNotFoundException(this.getRepository().metadata.targetName, id);
