@@ -33,8 +33,8 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
-| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR (leader fills) @ 9e9c304 |
-| [Route names and URLs](#route-names-and-urls) | proposed: PR (leader fills) @ 9e9c304 |
+| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR (leader fills) @ 524b7a3 |
+| [Route names and URLs](#route-names-and-urls) | proposed: PR (leader fills) @ 524b7a3 |
 | [CORS](#cors) | planned → #164 |
 | [Undeclared-error check](#undeclared-error-check) | planned → #157 |
 
@@ -1069,7 +1069,7 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). `.name()` proposed: PR (leader fills) @ 9e9c304 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
+proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). `.name()` proposed: PR (leader fills) @ 524b7a3 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Public API
 [`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/ApiRouter.ts)
@@ -1157,10 +1157,10 @@ Tests: [`packages/http/__tests__/routing/adHocRoutes.test.ts`](../../packages/ht
 ## Route names and URLs
 
 ### Status
-proposed: PR (leader fills) @ 9e9c304 (H13 [#162](https://github.com/Laratypes/Laratype/issues/162), M3). `route()`, `redirect().route()` and `.name()`; every path and query is built with [`buildUrl`](./contract.md#url-builder). The app URL is `config('config.url')`, the 0.5 single config file; the K1 [#152](https://github.com/Laratypes/Laratype/issues/152) file split (`app/config/app.ts`, `config('app.url')`) is followed up there. The model base gaining `getRouteKey()` is folded into H14 [#163](https://github.com/Laratypes/Laratype/issues/163).
+proposed: PR (leader fills) @ 524b7a3 (H13 [#162](https://github.com/Laratypes/Laratype/issues/162), M3). `route()`, `redirect().route()` and `.name()`; every path and query is built with [`buildUrl`](./contract.md#url-builder). The app URL is `config('config.url')`, the 0.5 single config file; the K1 [#152](https://github.com/Laratypes/Laratype/issues/152) file split (`app/config/app.ts`, `config('app.url')`) is followed up there. The model base gaining `getRouteKey()` is folded into H14 [#163](https://github.com/Laratypes/Laratype/issues/163).
 
 ### Public API
-[`packages/http/src/routing/routeUrl.ts`](https://github.com/Laratypes/Laratype/blob/9e9c304/packages/http/src/routing/routeUrl.ts) · [`packages/http/src/supports/helpers.ts`](https://github.com/Laratypes/Laratype/blob/9e9c304/packages/http/src/supports/helpers.ts) · [`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/9e9c304/packages/http/src/routing/api/types.ts)
+[`packages/http/src/routing/routeUrl.ts`](https://github.com/Laratypes/Laratype/blob/524b7a3/packages/http/src/routing/routeUrl.ts) · [`packages/http/src/supports/helpers.ts`](https://github.com/Laratypes/Laratype/blob/524b7a3/packages/http/src/supports/helpers.ts) · [`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/524b7a3/packages/http/src/routing/api/types.ts)
 
 ```ts
 // The app registers its routes once, by module augmentation (the config() / auth Register pattern), next to Route.api:
