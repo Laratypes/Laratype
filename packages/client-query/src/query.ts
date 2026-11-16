@@ -24,10 +24,10 @@ const withSignal = (input: unknown, signal: AbortSignal | undefined): unknown =>
 };
 
 /**
- * One endpoint of the query tree, frozen: `queryOptions` and `mutationOptions` run the endpoint, and a success
- * resolves its data while a failed result throws `ClientQueryError` with that result. A call that rejects (a
- * programming error: a missing param, a body JSON cannot carry) rejects as it is. The prototype stays the object
- * one, so `String(endpoint)` and friends keep working; only the nodes need the null prototype (`__proto__` keys).
+ * One endpoint of the query tree, frozen. `queryOptions` and `mutationOptions` run the endpoint: a success resolves
+ * the data, and a failed result throws `ClientQueryError` with that result; a call that rejects (a programming error:
+ * a missing param, a body JSON cannot carry) rejects as it is. The endpoint keeps the object prototype, so
+ * `String(endpoint)` works; only the nodes need the null one, which keeps a `__proto__` route harmless.
  */
 const buildEndpoint = (call: AnyEndpointCall, segments: readonly string[], name: string): object => {
   const keyOf = (...input: unknown[]): QueryKey => {
