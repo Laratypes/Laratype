@@ -3,29 +3,33 @@ import type { HonoRequest } from "hono/request";
 import { bufferToFormData } from "hono/utils/buffer";
 import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
+import { bodyCacheOf } from "./bodyCache";
+import type { BodyCache } from "./bodyCache";
+import { enforceBodyLimit, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
 
 /**
  * Parsing and validation of a request's input (docs/v1/validation.md › Pipeline validation and 422): the body by its
  * media type, the query, and the `query` and `body` schemas of a contract route.
  */
 
-/**
- * The media type Hono's `validator('json')` reads as JSON: `application/json` and `application/*+json`, with any
- * parameters (`; charset=utf-8`), the OWS RFC 9110 §8.3.1 allows before the `;` (`application/json ; charset=utf-8`)
- * included. Hono's regex, which it does not export, with digits and `_` in the vendor subtype too
- * (`application/vnd.github.v3+json`, H26 #287; `application/vnd.my_app+json`, RFC 6838) and the `i` flag: media types
- * are case-insensitive (RFC 9110 §8.3.1), so `Application/JSON` is JSON too.
- */
-const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
-
-export const isJsonMediaType = (contentType: string | undefined): boolean =>
-  contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
-
 /** A bad request as Hono's `validator()` answers it, with a JSON body like the other error responses. */
 const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ message }, { status: 400 }) });
 
 const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
+
+/**
+ * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched
+ * as Hono 4.9.6's check is, case-sensitively: the pipeline parses exactly the bodies a later `c.req.parseBody()` would.
+ * A mixed-case form media type is therefore `{}` here. It is not parsed because the runtimes disagree on it: undici's
+ * `Response.formData()` reads a `Multipart/Form-Data` body, Bun's rejects it, so parsing it in the pipeline would hand
+ * the handler a different body per runtime. The cap does not follow this classifier: media types are case-insensitive
+ * (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case form body too, and the bytes a later
+ * `c.req.formData()` reads are bounded.
+ */
+const isFormMediaType = (contentType: string | undefined): boolean =>
+  contentType?.startsWith("multipart/form-data") === true ||
+  contentType?.startsWith("application/x-www-form-urlencoded") === true;
 
 /** A form body of whitespace only: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
  * tells Unicode whitespace from data, so only these count. */
@@ -36,27 +40,12 @@ const isBlankBody = (bytes: Uint8Array): boolean => {
   return true;
 };
 
-/** The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. */
-const isFormMediaType = (contentType: string | undefined): boolean =>
-  contentType !== undefined && (contentType.startsWith("multipart/form-data") || contentType.startsWith("application/x-www-form-urlencoded"));
-
-/** Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. */
-const isBodyLimitError = (error: unknown): boolean => error instanceof Error && error.name === "BodyLimitError";
-
 /**
- * Hono's request body cache at runtime (Hono 4.9.6): its types say the plain value, but `text()`, `arrayBuffer()` and
- * `blob()` cache the promise the raw request answered, while `parseBody()` and `validator('form')` cache plain values.
- * This is the only place the pipeline reads those internals.
+ * Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. The
+ * default limit's own 413 is the same answer and is rethrown here too (H44 #341).
  */
-interface BodyCache {
-  text?: Promise<string>;
-  arrayBuffer?: Promise<ArrayBuffer>;
-  blob?: Promise<Blob>;
-  formData?: Promise<FormData> | FormData;
-  parsedBody?: unknown;
-}
-
-const bodyCacheOf = (request: HonoRequest): BodyCache => request.bodyCache as unknown as BodyCache;
+const isBodyLimitError = (error: unknown): boolean =>
+  (error instanceof Error && error.name === "BodyLimitError") || isPayloadTooLarge(error);
 
 /**
  * The FormData this pipeline parsed, back in Hono's cache. A promise, even though the value is here: Hono chains every
@@ -320,10 +309,13 @@ const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
  * The request body: JSON for a JSON media type, else the form fields `parseBody()` reads (`multipart/form-data` and
  * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty body is no body, `{}` for the JSON
  * and the form types alike (a client may send its Content-Type on a GET); a malformed one is a 400, and so is a form
- * body `parseBody()` rejects (a missing or bad multipart boundary).
+ * body `parseBody()` rejects (a missing or bad multipart boundary). The default body limit runs first (H44 #341), so a
+ * body over its cap is the 413 before anything reads the stream.
  */
-export const readBody = async (request: HonoRequest): Promise<unknown> =>
-  isJsonMediaType(request.header("Content-Type")) ? readJsonBody(request) : readFormBody(request);
+export const readBody = async (request: HonoRequest): Promise<unknown> => {
+  await enforceBodyLimit(request);
+  return isJsonMediaType(request.header("Content-Type")) ? readJsonBody(request) : readFormBody(request);
+};
 
 /**
  * The query string as the client's `buildUrl` sends it: a key once is a string, a repeated key an array. Converting
