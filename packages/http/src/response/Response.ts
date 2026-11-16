@@ -45,8 +45,8 @@ export const DROPPED_ERROR_HEADERS = [
 const CONTEXT_ERROR_HEADERS = [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS];
 
 /**
- * Whether a `Set-Cookie` expires its cookie, the only kind an error response keeps (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)):
- * `Max-Age` 0 or less, or an `Expires` in the past when no valid `Max-Age` is there (RFC 6265 §5.3: a `Max-Age` wins over
+ * Whether a `Set-Cookie` expires its cookie, the only kind an error response keeps (H29 #295): `Max-Age` 0 or less,
+ * or an `Expires` in the past when no valid `Max-Age` is there (RFC 6265 §5.3: a `Max-Age` wins over
  * `Expires`, and one that is not an integer is ignored). Attribute names are case-insensitive. An `Expires` that does
  * not parse does not expire the cookie, so it is not kept; when duplicates disagree, every one has to expire it
  */
@@ -104,8 +104,8 @@ const errorResponses = new WeakMap<Context, globalThis.Response>();
 const scrubInstalled = new WeakSet<Hono>();
 
 /**
- * Registers the outermost scrub middleware (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)): a middleware
- * that writes headers after `await next()` (a session commit, `etag()`) cannot put back what `resolveException` dropped,
+ * Registers the outermost scrub middleware (H29 #295): a middleware that writes headers after `await next()` (a session
+ * commit, `etag()`) cannot put back what `resolveException` dropped,
  * and cannot turn the error's answer into a success (`etag()` answers a 304). It is registered in `register()` and
  * `boot()`: the app providers mount their routes in `boot()`, and Hono only runs a middleware added before the route it
  * wraps, so a boot after the routes would be too late
