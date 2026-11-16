@@ -259,7 +259,9 @@ const resolveCors = (raw: unknown): ResolvedCors => {
  */
 const readConfig = config as unknown as (path: string) => unknown;
 
-/** What `config()` throws before the config store is loaded: the one failure that means "no config", not a broken file. */
+/**
+ * What `config()` throws before the config store is loaded: the one failure that means "no config", not a broken file.
+ */
 const NO_CONFIG_STORE =
   "[@laratype/core] config('cors') ran before the configs were loaded " +
   "(ConfigLoadServiceProvider)";
@@ -309,7 +311,11 @@ const addVaryOrigin = (headers: Headers): void => {
  */
 const withVaryOrigin = (middleware: MiddlewareHandler): MiddlewareHandler =>
   async (c, next) => {
-    const response = await middleware(c, next);
+    const response = await middleware(c, async () => {
+      // Drop the context Vary cors() set before next(): Hono copies it over the handler's own, a raw Response included
+      c.res.headers.delete("Vary");
+      await next();
+    });
     addVaryOrigin(c.res.headers);
     if (response) addVaryOrigin(response.headers);
     return response;

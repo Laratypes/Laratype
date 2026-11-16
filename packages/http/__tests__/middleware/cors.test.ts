@@ -257,6 +257,19 @@ describe("CORS Vary", () => {
     expectOrigin(response);
   });
 
+  it("keeps a raw Response's own Vary and appends Origin", async () => {
+    const app = bootApp();
+    // A raw Hono route, after the mounted CORS middleware: the response is the handler's, not one the context built
+    app.get(
+      "/api/raw",
+      () => new Response("u", { headers: { Vary: "Cookie, Authorization", "Cache-Control": "public, max-age=60" } }),
+    );
+    const response = await from(app, "/api/raw");
+    expect(response.status).toBe(200);
+    expect(allowOrigin(response)).toBe(APP);
+    expect(response.headers.get("Vary")).toBe("Cookie, Authorization, Origin");
+  });
+
   it("does not duplicate Origin when the request already lists it", async () => {
     expectOrigin(await from(bootApp(), "/api/posts", APP, { headers: { Vary: "origin" } }));
   });
