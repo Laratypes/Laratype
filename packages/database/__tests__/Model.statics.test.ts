@@ -6,7 +6,7 @@ import type { ColumnType } from 'typeorm'
 import { isException } from '@laratype/support'
 import Model from '../src/eloquent/Model'
 import ModelNotFoundException from '../src/exceptions/ModelNotFoundException'
-import { ModelQueryBuilder } from '../src/eloquent/ModelQueryBuilder'
+import ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
 
 type Row = Record<string, any>
 

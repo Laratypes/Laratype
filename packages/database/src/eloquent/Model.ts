@@ -4,15 +4,19 @@ import {
   type ColumnType,
   type DeepPartial,
   type FindManyOptions,
+  type FindOneOptions,
   type FindOptionsWhere,
   type SaveOptions,
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
-import { ModelQueryBuilder } from "./ModelQueryBuilder";
+import ModelQueryBuilder from "./ModelQueryBuilder";
 
 /** A primary key value `find()` and `findOrFail()` take: a numeric id, a UUID / string id, or a bigint id. */
 export type PrimaryKeyValue = string | number | bigint;
+
+/** A model class: the instance type its statics return, plus the TypeORM `BaseEntity` statics they call. */
+export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
 
 /**
  * Column types whose route key is a number. `bigint` stays a string on purpose: a Number conversion loses precision
@@ -67,6 +71,16 @@ const BOOLEAN_TYPES: readonly ColumnType[] = [Boolean, "boolean", "bool"];
 
 /** An integer string: no sign but `-`, no leading zero, no exponent, no space, no decimal point. */
 const INTEGER_KEY = /^-?(?:0|[1-9][0-9]*)$/;
+
+/** The Model's message text, in one place (errors-and-comments.md › Errors). */
+const errors = {
+  noPrimaryKey: (model: string): string =>
+    `[@laratype/database] ${model} has no primary key: mark one column with @PrimaryColumn or @PrimaryGeneratedColumn`,
+  compositePrimaryKey: (model: string, columns: string[]): string =>
+    `[@laratype/database] ${model} has a composite primary key (${columns.join(", ")}): the v1 Model needs one primary key, so set static routeKeyName to the property a lookup uses`,
+  routeKeyNameNotAColumn: (model: string, name: string): string =>
+    `[@laratype/database] ${model}.routeKeyName ${JSON.stringify(name)} is not a column of the model`,
+};
 
 /**
  * Converts a raw path string to the type of the route key column (docs/v1/database.md › BindableModel).
@@ -132,13 +146,11 @@ export default class Model extends BaseEntity {
     const metadata = this.getRepository().metadata;
     const columns = metadata.primaryColumns;
     if (columns.length === 0) {
-      throw new ModelError(
-        `[@laratype/database] ${metadata.targetName} has no primary key: mark one column with @PrimaryColumn or @PrimaryGeneratedColumn`,
-      );
+      throw new ModelError(errors.noPrimaryKey(metadata.targetName));
     }
     if (columns.length > 1) {
       throw new ModelError(
-        `[@laratype/database] ${metadata.targetName} has a composite primary key (${columns.map((column) => column.propertyName).join(", ")}): the v1 Model needs one primary key, so set static routeKeyName to the property a lookup uses`,
+        errors.compositePrimaryKey(metadata.targetName, columns.map((column) => column.propertyName)),
       );
     }
     return columns[0]!.propertyName;
@@ -154,14 +166,10 @@ export default class Model extends BaseEntity {
    * The typed query of this model (docs/v1/database.md › Model): `User.query().where('email', email).first()`.
    * The one-argument form is TypeORM's raw `query(sql, parameters)`, kept for 0.5 callers.
    */
-  static query<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity): ModelQueryBuilder<T>;
+  static query<T extends BaseEntity>(this: ModelClass<T>): ModelQueryBuilder<T>;
 
   /** @deprecated Use `getRepository().query(sql, parameters)` for raw SQL: `query()` returns the model query builder. */
-  static query<T extends BaseEntity>(
-    this: { new (): T } & typeof BaseEntity,
-    sql: string,
-    parameters?: readonly unknown[],
-  ): Promise<unknown>;
+  static query<T extends BaseEntity>(this: ModelClass<T>, sql: string, parameters?: readonly unknown[]): Promise<any>;
 
   static query(sql?: string, parameters?: readonly unknown[]): any {
     if (sql === undefined) {
@@ -175,19 +183,19 @@ export default class Model extends BaseEntity {
    * options object keeps TypeORM's list form (0.5 compatibility). A missing key resolves `null`.
    */
   static find<T extends BaseEntity>(
-    this: { new (): T } & typeof BaseEntity,
+    this: ModelClass<T>,
     id: PrimaryKeyValue,
   ): Promise<T | null>;
 
   /** The 0.5 / TypeORM list form: every entity, or the one `options` select. */
   static find<T extends BaseEntity>(
-    this: { new (): T } & typeof BaseEntity,
+    this: ModelClass<T>,
     options?: FindManyOptions<T>,
   ): Promise<T[]>;
 
   static find(idOrOptions?: any): any {
     if (typeof idOrOptions === "string" || typeof idOrOptions === "number" || typeof idOrOptions === "bigint") {
-      return this.findOne({ where: { [this.primaryKey]: idOrOptions } as FindOptionsWhere<any> });
+      return this.findOne({ where: { [this.primaryKey]: idOrOptions } } as FindOneOptions<Model>);
     }
     return super.find(idOrOptions);
   }
@@ -197,7 +205,7 @@ export default class Model extends BaseEntity {
    * exception filter) instead of resolving `null`.
    */
   static findOrFail<T extends BaseEntity>(
-    this: { new (): T } & typeof BaseEntity,
+    this: ModelClass<T>,
     id: PrimaryKeyValue,
   ): Promise<T>;
 
@@ -215,7 +223,7 @@ export default class Model extends BaseEntity {
    * resolves `null`.
    */
   static findByRouteKey<T extends BaseEntity>(
-    this: { new (): T } & typeof BaseEntity,
+    this: ModelClass<T>,
     key: string,
   ): Promise<T | null>;
 
@@ -224,15 +232,13 @@ export default class Model extends BaseEntity {
     const property = this.routeKeyName ?? this.primaryKey;
     const column = metadata.findColumnWithPropertyName(property);
     if (column === undefined) {
-      throw new ModelError(
-        `[@laratype/database] ${metadata.targetName}.routeKeyName ${JSON.stringify(property)} is not a column of the model`,
-      );
+      throw new ModelError(errors.routeKeyNameNotAColumn(metadata.targetName, property));
     }
     const converted = convertRouteKey(column.type, key);
     if (converted === undefined) {
       return null;
     }
-    return this.findOne({ where: { [property]: converted } as FindOptionsWhere<any> });
+    return this.findOne({ where: { [property]: converted } } as FindOneOptions<Model>);
   }
 
   /**
@@ -309,6 +315,6 @@ export default class Model extends BaseEntity {
   /** The value of this model's route key (docs/v1/database.md › BindableModel): `static routeKeyName`, or the primary key. */
   getRouteKey(): string | number | bigint {
     const model = this.constructor as typeof Model;
-    return (this as Record<string, any>)[model.routeKeyName ?? model.primaryKey];
+    return (this as unknown as Record<string, string | number | bigint>)[model.routeKeyName ?? model.primaryKey];
   }
 }

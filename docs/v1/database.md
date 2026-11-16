@@ -87,7 +87,7 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 - No composite primary key: [Model](#model) refuses one (`primaryKey`, `find` and `findOrFail`), so a model with a composite key sets `routeKeyName` to the one property to look up by and queries with `query().where(...)`.
 
 ### Open questions
-- Resolved for the model: a route key that cannot convert to the primary key type is a miss, `findByRouteKey()` returns `null` (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)). Whether the binder answers 404 or 422 for it stays [#118](https://github.com/Laratypes/Laratype/issues/118).
+- Resolved: a key that cannot convert to the route key property's type is a miss, and `findByRouteKey()` returns `null` ([#145](https://github.com/Laratypes/Laratype/issues/145)); [#118](https://github.com/Laratypes/Laratype/issues/118) decides the binding's status for that miss.
 - Resolved: how a non-TypeORM model reaches its database handle from the static `findByRouteKey` is moot, since S5 step 2 keeps TypeORM ([#88](https://github.com/Laratypes/Laratype/issues/88)).
 
 ### Acceptance
@@ -107,16 +107,18 @@ proposed: PR <leader fills> @ 88e25fb → [#145](https://github.com/Laratypes/La
 class Model extends BaseEntity {
   static get primaryKey(): string;
   static readonly routeKeyName: string | undefined;                           // primaryKey when unset
-  static query<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity): ModelQueryBuilder<T>;
-  /** @deprecated */
-  static query<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity, sql: string, parameters?: readonly unknown[]): Promise<unknown>;
-  static find<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity, id: PrimaryKeyValue): Promise<T | null>;
-  static find<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity, options?: FindManyOptions<T>): Promise<T[]>;   // 0.5 list form
-  static findOrFail<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity, id: PrimaryKeyValue): Promise<T>;
-  static findByRouteKey<T extends BaseEntity>(this: { new (): T } & typeof BaseEntity, key: string): Promise<T | null>;
+  static query<T extends BaseEntity>(this: ModelClass<T>): ModelQueryBuilder<T>;
+  /** @deprecated raw 0.5 form; it keeps TypeORM's `any` return */
+  static query<T extends BaseEntity>(this: ModelClass<T>, sql: string, parameters?: readonly unknown[]): Promise<any>;
+  static find<T extends BaseEntity>(this: ModelClass<T>, id: PrimaryKeyValue): Promise<T | null>;
+  static find<T extends BaseEntity>(this: ModelClass<T>, options?: FindManyOptions<T>): Promise<T[]>;   // 0.5 list form
+  static findOrFail<T extends BaseEntity>(this: ModelClass<T>, id: PrimaryKeyValue): Promise<T>;
+  static findByRouteKey<T extends BaseEntity>(this: ModelClass<T>, key: string): Promise<T | null>;
   getRouteKey(): string | number | bigint;
 }
 
+/** A model class: its instance type plus the `BaseEntity` statics the Model API calls. */
+type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
 type PrimaryKeyValue = string | number | bigint;
 
 type ColumnKey<T> = {
@@ -128,7 +130,7 @@ type WhereOperator = WhereComparison | "in" | "not in";
 type OrderDirection = "asc" | "desc";
 
 interface Page<T> {
-  readonly data: T[];
+  readonly data: readonly T[];
   readonly total: number;
   readonly perPage: number;
   readonly currentPage: number;
@@ -153,12 +155,12 @@ class ModelNotFoundException extends NotFoundException { name: "ModelNotFoundExc
 ```
 
 ### Invariants
-- **The 0.5 base is kept, with no breaking change.** `Model` stays the published class (`extends TypeORM`'s `BaseEntity`), so `ModelManagement`, `Route.model`, `UseModel`, factories and seeders keep working on it. `find` and `query` gain overloads around their 0.5 meanings: `User.find()` / `User.find(options)` still list (TypeORM's form), and `User.query("SELECT ...")` still runs raw SQL; `find(id)` and `query()` are new. `examples/basic`'s `User.find()` keeps compiling. The raw `query(sql, parameters)` overload is deprecated in favour of `getRepository().query(...)`.
+- **The 0.5 base is kept, with no breaking change.** `Model` stays the published class (`extends TypeORM`'s `BaseEntity`), so `ModelManagement`, `Route.model`, `UseModel`, factories and seeders keep working on it. `find` and `query` gain overloads around their 0.5 meanings: `User.find()` / `User.find(options)` still list (TypeORM's form), and `User.query("SELECT ...")` still runs raw SQL with TypeORM's `any` return; `find(id)` and `query()` are new. `examples/basic`'s `User.find()` keeps compiling. The raw `query(sql, parameters)` overload is deprecated in favour of `getRepository().query(...)`.
 - **The #346 password rules stay, exactly where they are.** They live in `packages/database/src/eloquent/Model.ts` and their tests are unchanged:
   - The credential column comes from `static passwordField` (`password` by default): `save()`, `update()` and `updateFor()` hash a plain value in it unless `Hash.isHashed()` accepts it, and `findOneBy()` refuses a where object that carries it.
   - Request input must be validated as a plain password before it reaches the model. `cast()` stores a value that `Hash.isHashed()` accepts as it is, so a client that submits a well-formed scrypt string as its password has it stored as the credential, the same bypass as Laravel's hashed cast.
 - **One typed facade, not a second query builder.** `query()` wraps one TypeORM `SelectQueryBuilder` created from the model's repository; `where()` calls combine with AND in call order, `first()` is `getOne()`, `get()` is `getMany()`, and `paginate()` uses `getManyAndCount()` (TypeORM's count ignores the page window, so `total` is every match). `limit()` sets a LIMIT for `first()` / `get()`; `paginate()` replaces an earlier limit with its own page window.
-- **Columns are typed and checked twice.** `ColumnKey<T>` keeps the entity's own string data keys and drops function-valued members, so `where("save", ...)` does not compile, and a symbol-keyed brand (A3 [#121](https://github.com/Laratypes/Laratype/issues/121)) is never a column. At runtime every column name in `where()`, `orderBy()` and `routeKeyName` is resolved with `metadata.findColumnWithPropertyName`: only an own column property name is accepted, an unknown name throws, and relation or embedded paths are refused until DB3 [#147](https://github.com/Laratypes/Laratype/issues/147). The caller's string is never interpolated: the metadata's `propertyName` is what TypeORM receives, `orderBy()` interpolates the metadata property into `${qb.alias}.${property}` with the query's own alias, and values travel as `FindOperator` parameters.
+- **Columns are typed and checked twice.** `ColumnKey<T>` keeps the entity's own string data keys and drops function-valued members, so `where("save", ...)` does not compile, and a symbol-keyed brand (A3 [#121](https://github.com/Laratypes/Laratype/issues/121)) is never a column. At runtime every column name in `where()`, `orderBy()` and `routeKeyName` is resolved with `metadata.findColumnWithPropertyName`: only an own column property name is accepted, an unknown name throws, and relation or embedded paths are refused until DB3 [#147](https://github.com/Laratypes/Laratype/issues/147). The caller's string is never interpolated: the metadata's `propertyName` is what TypeORM receives, `orderBy()` interpolates the metadata property into `${qb.alias}.${property}` with the query's own alias, and values are handed to TypeORM as parameters (as a `FindOperator`'s parameter in the three-argument form, as the object / equality value otherwise), never as SQL text.
 - **Operators, direction and limits are allowlisted.** The three-argument `where()` maps its operator to a TypeORM `FindOperator` (`=`, `!=`, `<`, `<=`, `>`, `>=`, `like`, `not like`, `in`, `not in`) through a closed switch; an operator outside the list throws, and `in` / `not in` require an array. `orderBy()` accepts `asc` / `desc` in any case at runtime. `limit()` takes a positive safe integer; `paginate()` takes `page >= 1` and `perPage` from 1 to 100 (the cap is 100, so a request cannot ask for an unbounded page), both safe integers, and their offset must stay a safe integer.
 - **`paginate()` gives a plain page.** It resolves `{ data, total, perPage, currentPage, lastPage }` as one object literal: no class, no getters, `page` defaults to 1, `perPage` to 15, and `lastPage` is `max(1, ceil(total / perPage))`. http.md › Resources `paginate(page)` takes it as is (an object with an array `data` plus plain meta fields). #339 adds a refused-key check for page-level keys in the resource; `Page` has no own `toJSON` or `constructor` key, so it is unrelated to those names.
 - **`find` / `findOrFail`.** A string, number or bigint argument is the primary key (`findOne({ where: { [primaryKey]: id } })`); no argument, `undefined` or an object keeps the 0.5 list form. `findOrFail` throws `ModelNotFoundException` instead of answering `null`.
@@ -214,7 +216,7 @@ const page = await User.query()
   .where("createdAt", ">=", new Date("2026-01-01"))
   .orderBy("createdAt", "desc")
   .paginate(1, 15);
-// { data: User[], total, perPage: 15, currentPage: 1, lastPage } — UserResource.paginate(page) takes it as is
+// { data: readonly User[], total, perPage: 15, currentPage: 1, lastPage } — UserResource.paginate(page) takes it as is
 
 const user = await User.find(1);                 // User | null
 const required = await User.findOrFail(1);       // User, or a 404

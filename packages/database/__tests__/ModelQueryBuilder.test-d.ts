@@ -1,10 +1,10 @@
 // Type surface of the v1 Model: typed columns, the find overloads, the page type, and the structural BindableModel
 // check (docs/v1/database.md › Model and › BindableModel).
 import { describe, expectTypeOf, it } from 'vitest'
-import Model, { type PrimaryKeyValue } from '../src/eloquent/Model'
+import Model, { type ModelClass, type PrimaryKeyValue } from '../src/eloquent/Model'
+import type ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
 import {
   type ColumnKey,
-  type ModelQueryBuilder,
   type ModelWhere,
   type OrderDirection,
   type Page,
@@ -57,9 +57,9 @@ describe('Model query types', () => {
     expectTypeOf(User.query().paginate()).toEqualTypeOf<Promise<Page<User>>>()
   })
 
-  it('gives the page its plain shape', () => {
+  it('gives the page its plain, read-only shape', () => {
     expectTypeOf<Page<User>>().toEqualTypeOf<{
-      readonly data: User[]
+      readonly data: readonly User[]
       readonly total: number
       readonly perPage: number
       readonly currentPage: number
@@ -100,9 +100,11 @@ describe('Model query types', () => {
     expectTypeOf(User.find({ where: { email: 'ada@example.com' } })).toEqualTypeOf<Promise<User[]>>()
     expectTypeOf(User.findOrFail(1)).toEqualTypeOf<Promise<User>>()
     expectTypeOf(User.findByRouteKey('1')).toEqualTypeOf<Promise<User | null>>()
-    expectTypeOf(User.query('SELECT 1')).toEqualTypeOf<Promise<unknown>>()
+    // The raw 0.5 form keeps TypeORM's `any` return, so an existing `const rows: User[] = await User.query(sql)` compiles
+    expectTypeOf(User.query('SELECT 1')).toEqualTypeOf<Promise<any>>()
     expectTypeOf(new User().getRouteKey()).toEqualTypeOf<string | number | bigint>()
     expectTypeOf<PrimaryKeyValue>().toEqualTypeOf<string | number | bigint>()
+    expectTypeOf(User).toExtend<ModelClass<User>>()
   })
 
   it('satisfies the BindableModel shape of database.md › BindableModel', () => {

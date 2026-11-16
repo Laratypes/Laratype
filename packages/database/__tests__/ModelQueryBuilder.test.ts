@@ -3,7 +3,7 @@
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
 import type { FindOperator, ObjectLiteral, Repository } from 'typeorm'
-import { ModelQueryBuilder } from '../src/eloquent/ModelQueryBuilder'
+import ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
 
 type Row = Record<string, any>
 
@@ -139,6 +139,7 @@ describe('ModelQueryBuilder.where', () => {
   })
 
   it('refuses a column that is not in the entity metadata, so no caller string reaches the SQL', () => {
+    // `posts` stands for a relation: the metadata has no column of that property name, so DB3 #147 never sees it
     const hostile = ['id; DROP TABLE users', '"id" OR 1=1', '__proto__', 'constructor', 'posts']
     for (const column of hostile) {
       const { query, UserQuery } = builder()
@@ -199,7 +200,7 @@ describe('ModelQueryBuilder.orderBy', () => {
   })
 })
 
-describe('ModelQueryBuilder.limit, first and get', () => {
+describe('ModelQueryBuilder.limit', () => {
   it('sets a positive safe LIMIT', () => {
     const { query, UserQuery } = builder()
     UserQuery.limit(10)
@@ -213,7 +214,9 @@ describe('ModelQueryBuilder.limit, first and get', () => {
     }
     expect(query.limits).toEqual([])
   })
+})
 
+describe('ModelQueryBuilder.first and get', () => {
   it('resolves the first row or null, and every row', async () => {
     const rows = [{ id: 1, email: 'ada@example.com' }]
     const { UserQuery } = builder(rows)
