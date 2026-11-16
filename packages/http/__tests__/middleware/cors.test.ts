@@ -8,7 +8,7 @@ import { z } from "zod";
 import { Container, depsRegistry, setConfigs } from "@laratype/core";
 import { HTTP_APP, UnauthorizedException } from "@laratype/support";
 import { defineApi, defineContract, endpoint, errors } from "@laratype/contract";
-import { Controller, RequestKernel, ResponseKernel, Route } from "../../src/index";
+import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel, Route } from "../../src/index";
 
 const APP = "http://app.test";
 const EVIL = "http://evil.test";
@@ -21,6 +21,7 @@ const posts = defineContract()({
   limited: endpoint.get("/limited").response(z.object({ ok: z.boolean() })).throttle({ limit: 1, per: 60 }),
   boom: endpoint.get("/boom").response(z.object({ ok: z.boolean() })),
   secret: endpoint.get("/secret").response(z.object({ ok: z.boolean() })),
+  vary: endpoint.get("/vary").response(z.object({ ok: z.boolean() })),
 });
 const postsApi = defineApi({ posts: { contract: posts, path: "/api/posts", scopes: [] } });
 
@@ -31,6 +32,7 @@ class PostsController extends Controller {
   limited() { return { ok: true }; }
   boom() { throw new Error("boom"); }
   secret() { throw new UnauthorizedException(); }
+  vary() { return new ResponseSupport({ ok: true }, 200, { Vary: "Accept-Encoding" }); }
 }
 
 /** The example config the tests vary: `/api/*`, one allowed origin, credentials, an exposed header. */
@@ -209,6 +211,57 @@ describe("CORS headers on error responses", () => {
   });
 });
 
+describe("CORS Vary", () => {
+  /** The response's `Vary` tokens, lowercased, so a test names `Origin` in any case. */
+  const varyTokens = (response: Response): string[] =>
+    (response.headers.get("Vary") ?? "").split(",").map((token) => token.trim().toLowerCase()).filter(Boolean);
+
+  /**
+   * `Origin` is there exactly once. Hono 4.9.6 builds `Vary` from the request and this wrapper appends `Origin`; Hono
+   * 4.10.3+ appends it itself and the wrapper is a no-op. The assertion holds on both, so a Hono bump keeps the suite.
+   */
+  const expectOrigin = (response: Response) => {
+    const tokens = varyTokens(response);
+    expect(tokens).toContain("origin");
+    expect(tokens.filter((token) => token === "origin")).toHaveLength(1);
+  };
+
+  it("keeps Origin on an actual 200 when the request sends its own Vary", async () => {
+    const response = await from(bootApp(), "/api/posts", APP, { headers: { Vary: "x" } });
+    expect(response.status).toBe(200);
+    expect(allowOrigin(response)).toBe(APP);
+    expectOrigin(response);
+  });
+
+  it("keeps Origin on a contract error when the request sends its own Vary", async () => {
+    const response = await from(bootApp(), "/api/posts/9", APP, { headers: { Vary: "x" } });
+    expect(response.status).toBe(404);
+    expect(allowOrigin(response)).toBe(APP);
+    expectOrigin(response);
+  });
+
+  it("keeps Origin on the preflight when the request sends its own Vary", async () => {
+    const response = await from(bootApp(), "/api/posts", APP, {
+      method: "OPTIONS",
+      headers: { Vary: "x", "Access-Control-Request-Method": "POST" },
+    });
+    expect(response.status).toBe(204);
+    expect(allowOrigin(response)).toBe(APP);
+    expectOrigin(response);
+  });
+
+  it("appends Origin to a handler's own Vary, keeping both tokens", async () => {
+    const response = await from(bootApp(), "/api/posts/vary", APP, { headers: { Vary: "x" } });
+    expect(response.status).toBe(200);
+    expect(varyTokens(response)).toContain("accept-encoding");
+    expectOrigin(response);
+  });
+
+  it("does not duplicate Origin when the request already lists it", async () => {
+    expectOrigin(await from(bootApp(), "/api/posts", APP, { headers: { Vary: "origin" } }));
+  });
+});
+
 describe("CORS paths", () => {
   it("scopes the middleware: /api/* is covered, an ad-hoc route outside it is not", async () => {
     const app = bootApp();
@@ -256,6 +309,18 @@ describe("CORS without a config", () => {
     expect(response.status).toBe(200);
     expect(allowOrigin(response)).toBeNull();
   });
+
+  it("fails the boot when the config read throws", () => {
+    // A `cors` value read errors (a getter, or a file that failed to load): only the missing store means "no CORS"
+    const configs: Record<string, unknown> = {};
+    Object.defineProperty(configs, "cors", {
+      enumerable: true,
+      get() {
+        throw new Error("app/config/cors.ts failed to load");
+      },
+    });
+    expect(() => bootApp(configs)).toThrow("app/config/cors.ts failed to load");
+  });
 });
 
 describe("an invalid app/config/cors.ts fails the boot", () => {
@@ -284,6 +349,19 @@ describe("an invalid app/config/cors.ts fails the boot", () => {
       [corsConfig({ origin: 42 }), "origin: expected '*' or an origin string, a list of them, or a function, got 42"],
       [corsConfig({ origin: [APP, 7] }), "origin[1]: expected a non-empty origin string, got 7"],
       [corsConfig({ origin: "" }), 'origin: expected a non-empty origin string, got ""'],
+      [corsConfig({ origin: "null" }), "origin: 'null' allows sandboxed and file: pages; list real origins"],
+      [
+        corsConfig({ origin: [APP, "null"] }),
+        "origin[1]: 'null' allows sandboxed and file: pages; list real origins",
+      ],
+      [
+        corsConfig({ origin: "http://app.test/" }),
+        'origin: expected a serialized origin (scheme://host[:port]), got "http://app.test/"',
+      ],
+      [
+        corsConfig({ origin: ["http://app.test/api"] }),
+        'origin[0]: expected a serialized origin (scheme://host[:port]), got "http://app.test/api"',
+      ],
       [corsConfig({ paths: [] }), pathExpected],
       [
         corsConfig({ paths: ["api/*"] }),

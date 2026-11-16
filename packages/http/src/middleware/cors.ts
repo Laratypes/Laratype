@@ -1,6 +1,6 @@
 import { cors } from "hono/cors";
 import { TrieRouter } from "hono/router/trie-router";
-import type { Hono } from "hono";
+import type { Hono, MiddlewareHandler } from "hono";
 import { config } from "@laratype/core";
 
 /**
@@ -78,6 +78,31 @@ const isPathPattern = (value: unknown): value is string =>
 /** A header or method name: any non-empty string. Hono joins the list into one header value. */
 const isName = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
+/**
+ * An origin as a browser serializes it: `scheme://host[:port]`, with no path, trailing slash or query. Hono compares it
+ * to the `Origin` header by exact string, so `https://app.example.com/` would silently never match.
+ */
+const isSerializedOrigin = (value: string): boolean => {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The problem of one origin string, or nothing. `'*'` is the whole-origin form; `'null'` is what a sandboxed iframe, a
+ * `data:` page and a `file:` page send, so listing it allows all of them at once.
+ */
+const originShapeProblem = (value: string, key: string): string | undefined => {
+  if (value === "null") return `${key}: 'null' allows sandboxed and file: pages; list real origins`;
+  if (value === "*") return undefined;
+  if (!isSerializedOrigin(value)) {
+    return `${key}: expected a serialized origin (scheme://host[:port]), got ${show(value)}`;
+  }
+  return undefined;
+};
+
 /** The `paths`, `origin` and Hono options a valid file resolves to. */
 interface ResolvedCors {
   paths: readonly string[];
@@ -123,17 +148,35 @@ const resolveCors = (raw: unknown): ResolvedCors => {
   if (config.origin === undefined) {
     problems.push(`origin: required; name the origins, or '*'`);
   } else if (typeof config.origin === "string" || typeof config.origin === "function") {
-    if (config.origin === "") problems.push(`origin: expected a non-empty origin string, got ""`);
-    else origin = config.origin as HonoCorsOptions["origin"];
+    if (config.origin === "") {
+      problems.push(`origin: expected a non-empty origin string, got ""`);
+    } else if (typeof config.origin === "function") {
+      origin = config.origin as HonoCorsOptions["origin"];
+    } else {
+      const problem = originShapeProblem(config.origin, "origin");
+      if (problem) problems.push(problem);
+      else origin = config.origin;
+    }
   } else if (Array.isArray(config.origin) && config.origin.length > 0) {
+    let listed = true;
     config.origin.forEach((entry, index) => {
-      if (!isName(entry)) problems.push(`origin[${index}]: expected a non-empty origin string, got ${show(entry)}`);
+      if (!isName(entry)) {
+        problems.push(`origin[${index}]: expected a non-empty origin string, got ${show(entry)}`);
+        listed = false;
+      }
       // Hono reads a list by exact `includes`, so a `'*'` entry matches no browser: the wildcard is the string form
       else if (entry === "*") {
         problems.push(`origin[${index}]: '*' cannot be a list entry; set origin: '*' for every origin, or list them`);
+        listed = false;
+      } else {
+        const problem = originShapeProblem(entry, `origin[${index}]`);
+        if (problem) {
+          problems.push(problem);
+          listed = false;
+        }
       }
     });
-    if (config.origin.every((entry) => isName(entry) && entry !== "*")) origin = config.origin;
+    if (listed) origin = config.origin;
   } else {
     problems.push(
       `origin: expected '*' or an origin string, a list of them, or a function, got ${show(config.origin)}`,
@@ -215,11 +258,16 @@ const resolveCors = (raw: unknown): ResolvedCors => {
  */
 const readConfig = config as unknown as (path: string) => unknown;
 
+/** What `config()` throws before the config store is loaded: the one failure that means "no config", not a broken file. */
+const NO_CONFIG_STORE = "[@laratype/core] config('cors') ran before the configs were loaded (ConfigLoadServiceProvider)";
+
 const configuredCors = (): unknown => {
   try {
     return readConfig("cors");
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Only the missing store mounts nothing: a getter or file that throws fails the boot instead of turning CORS off
+    if (error instanceof Error && error.message === NO_CONFIG_STORE) return undefined;
+    throw error;
   }
 };
 
@@ -233,6 +281,37 @@ const pathMatcher = (paths: readonly string[]): ((path: string) => boolean) => {
   return (path) => router.match("ALL", path)[0].length > 0;
 };
 
+/** Whether a `Vary` value already lists `Origin` (or covers every header with `*`), as tokens and case-insensitively. */
+const varyCoversOrigin = (vary: string): boolean =>
+  vary.split(",").some((token) => {
+    const name = token.trim().toLowerCase();
+    return name === "origin" || name === "*";
+  });
+
+/**
+ * Appends `Origin` to a response's `Vary`, keeping every other token and adding none twice. Hono 4.9.6 sets `Vary` from
+ * the REQUEST's `Vary` header when it has one (`c.req.header("Vary")`), so a client that sends `Vary: x` drops
+ * `Vary: Origin` and a shared cache can serve one origin's answer to another site.
+ */
+const addVaryOrigin = (headers: Headers): void => {
+  const vary = headers.get("Vary");
+  if (vary === null || vary.trim() === "") headers.set("Vary", "Origin");
+  else if (!varyCoversOrigin(vary)) headers.set("Vary", `${vary}, Origin`);
+};
+
+/**
+ * Wraps Hono's CORS middleware so the FINAL response carries `Vary: Origin`: after `next()`, so a later `c.header()` or
+ * a handler's own `Response` is covered, and on error responses. Hono's preflight returns its own `Response` while the
+ * context keeps the headers Hono copies over it, so both are written.
+ */
+const withVaryOrigin = (middleware: MiddlewareHandler): MiddlewareHandler =>
+  async (c, next) => {
+    const response = await middleware(c, next);
+    addVaryOrigin(c.res.headers);
+    if (response) addVaryOrigin(response.headers);
+    return response;
+  };
+
 /**
  * Registers the CORS middleware on the app, from `app/config/cors.ts` (docs/v1/http.md › CORS). No file (or no `cors`
  * key) mounts nothing: same-origin only. Mounted first in `RequestKernel.boot()`, before the routes are registered, so
@@ -242,7 +321,9 @@ export const mountCors = (app: Hono): void => {
   const raw = configuredCors();
   if (raw === undefined) return;
   const { paths, options } = resolveCors(raw);
-  const middleware = cors(options);
+  const corsMiddleware = cors(options);
+  // A '*' origin needs no Vary, and Hono sends it as is; a single origin, a list and a function get the Vary fix
+  const middleware = options.origin === "*" ? corsMiddleware : withVaryOrigin(corsMiddleware);
   if (paths.length === 1 && paths[0] === "*") {
     app.use("*", middleware);
     return;
