@@ -37,32 +37,65 @@ const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.R
  * the `Set-Cookie` values that expire a cookie are kept (H29 #295). Exported for the test that asserts every entry
  */
 export const DROPPED_ERROR_HEADERS = [
-  "Set-Cookie", "ETag", "Last-Modified", "Expires", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control",
-  "X-Accel-Expires", "Vercel-CDN-Cache-Control", "Netlify-CDN-Cache-Control", "Edge-Control",
+  "Set-Cookie", "ETag", "Last-Modified", "Expires", "Age", "Surrogate-Key", "Cache-Tag", "CDN-Cache-Control",
+  "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "X-Accel-Expires", "Vercel-CDN-Cache-Control",
+  "Netlify-CDN-Cache-Control", "Edge-Control",
 ];
 
 /** The context's header store loses the body headers too: an error re-serializes its own body (#272) */
 const CONTEXT_ERROR_HEADERS = [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS];
 
+/** The month names of an IMF-fixdate, indexed as `Date` does */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** RFC 9110 §5.6.7 IMF-fixdate: the only `Expires` shape an error response keeps (H29 #295) */
+const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+
+/** A `Max-Age` value RFC 6265 §5.2 reads as an integer */
+const MAX_AGE = /^-?\d+$/;
+
 /**
- * Whether a `Set-Cookie` expires its cookie, the only kind an error response keeps (H29 #295): `Max-Age` 0 or less,
- * or an `Expires` in the past when no valid `Max-Age` is there (RFC 6265 §5.3: a `Max-Age` wins over
- * `Expires`, and one that is not an integer is ignored). Attribute names are case-insensitive. An `Expires` that does
- * not parse does not expire the cookie, so it is not kept; when duplicates disagree, every one has to expire it
+ * The time an IMF-fixdate names, or `undefined` when the shape or the calendar date is not one. The components are
+ * checked on a `Date` rather than handed to `Date.parse`, which V8 lets through shapes RFC 6265 does not, and rolls a
+ * day that does not exist (a 31 February) into the next month (H29 #295)
+ */
+const imfFixdate = (value: string) => {
+  const match = IMF_FIXDATE.exec(value);
+  if (!match) return undefined;
+  const day = Number(match[1]);
+  const month = MONTHS.indexOf(match[2]);
+  const year = Number(match[3]);
+  const hours = Number(match[4]);
+  const minutes = Number(match[5]);
+  const seconds = Number(match[6]);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hours, minutes, seconds, 0);
+  const valid = date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day
+    && date.getUTCHours() === hours && date.getUTCMinutes() === minutes && date.getUTCSeconds() === seconds;
+  return valid ? date.getTime() : undefined;
+};
+
+/**
+ * Whether a `Set-Cookie` expires its cookie, the only kind an error response keeps (H29 #295): `Max-Age` 0 or less
+ * when there is one, or else every `Expires` a strict IMF-fixdate in the past (RFC 6265 §5.3: a `Max-Age` wins over
+ * `Expires`). RFC 6265 ignores a `Max-Age` that is not an integer and reads `Expires` with the browser's cookie-date
+ * parser, which disagrees with V8's `Date.parse`, so a malformed one drops the cookie instead. Attribute names are
+ * case-insensitive, and when duplicates disagree, every one has to expire the cookie
  */
 const isExpiringCookie = (cookie: string) => {
   const attributes = new Map<string, string[]>();
   // The first field is the cookie-pair itself: the scanner starts after it, so a cookie named `Max-Age` is data
   for (const field of cookie.split(";").slice(1)) {
     const separator = field.indexOf("=");
-    if (separator === -1) continue;
-    const name = field.slice(0, separator).trim().toLowerCase();
-    const value = field.slice(separator + 1).trim();
+    const name = (separator === -1 ? field : field.slice(0, separator)).trim().toLowerCase();
+    if (!name) continue;
+    const value = separator === -1 ? "" : field.slice(separator + 1).trim();
     attributes.set(name, [...(attributes.get(name) ?? []), value]);
   }
-  const maxAges = (attributes.get("max-age") ?? []).filter((value) => /^-?\d+$/.test(value)).map(Number);
-  if (maxAges.length) {
-    return maxAges.every((value) => value <= 0);
+  const maxAges = attributes.get("max-age");
+  if (maxAges) {
+    return maxAges.every((value) => MAX_AGE.test(value) && Number(value) <= 0);
   }
   const expires = attributes.get("expires");
   if (!expires) {
@@ -70,8 +103,8 @@ const isExpiringCookie = (cookie: string) => {
   }
   const now = Date.now();
   return expires.every((value) => {
-    const time = Date.parse(value);
-    return !Number.isNaN(time) && time <= now;
+    const time = imfFixdate(value);
+    return time !== undefined && time <= now;
   });
 };
 
@@ -220,9 +253,14 @@ export default class Response extends AppServiceProvider {
    * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
    */
   public resolveException(err: Error | Exception, c: Context) {
-    /** The answer the outermost scrub puts back if a middleware replaces it (H29 #295) */
+    /**
+     * The answer the outermost scrub puts back if a middleware replaces it (H29 #295). The store keeps a clone: compose
+     * wraps the returned response in a new one that shares its body stream, and a middleware's `res.clone()`
+     * (`etag()`) tees that stream and locks it, which would make the stored response unusable (`Response body object
+     * should not be disturbed or locked`). The clone tees it first, so the stored body is its own readable branch
+     */
     const answer = (response: globalThis.Response | Promise<globalThis.Response>) => {
-      if (response instanceof globalThis.Response) errorResponses.set(c, response);
+      if (response instanceof globalThis.Response) errorResponses.set(c, response.clone());
       return response;
     };
     // On the context, not only on the response built below: Hono merges the context's headers into the error response

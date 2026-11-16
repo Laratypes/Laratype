@@ -9,6 +9,7 @@ import { deleteCookie } from 'hono/cookie'
 import { etag } from 'hono/etag'
 import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
+import { errors as catalog } from '@laratype/contract'
 import { HTTP_APP, NotFoundException } from '@laratype/support'
 import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel } from '../../src/index'
 import { BODY_HEADERS } from '../../src/response/bodyHeaders'
@@ -26,6 +27,12 @@ const bootApp = () => {
 
 // The unknown-error body of docs/v1/http.md › Exceptions
 const GENERIC = { message: 'Server Error' }
+
+/** The strong ETag `etag()` computes for a body: the SHA-1 of its bytes, in quotes */
+const etagOf = async (body: string) => {
+  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(body))
+  return `"${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}"`
+}
 
 let errors: ReturnType<typeof vi.spyOn>
 
@@ -366,9 +373,10 @@ describe('error response headers', () => {
 // H29 #295: the outermost middleware scrubs what a middleware writes after `await next()`, and keeps only the
 // `Set-Cookie` values that expire a cookie
 describe('error response headers set after the throw', () => {
-  it('etag() cannot turn a 500 into a 304 with a matching validator', async () => {
+  it('etag() cannot turn a 500 into a 304 with a matching validator, and does not run onError again', async () => {
     quiet()
-    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const failure = new Error('secret detail')
+    class Failing extends Controller { index() { throw failure } }
     const app = bootApp()
     app.use(etag())
     route(app, '/fail', Failing)
@@ -378,13 +386,42 @@ describe('error response headers set after the throw', () => {
     expect(JSON.parse(body)).toEqual(GENERIC)
     // The validator etag() computes for that body: a cache could hold it even though it never reaches a client
     expect(first.headers.get('ETag')).toBeNull()
-    const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(body))
-    const tag = `"${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}"`
-    const second = await app.request('/fail', { headers: { 'If-None-Match': tag } })
+    errors.mockClear()
+    const second = await app.request('/fail', { headers: { 'If-None-Match': await etagOf(body) } })
     expect(second.status).toBe(500)
     expect(await second.json()).toEqual(GENERIC)
     expect(second.headers.get('Cache-Control')).toBe('no-store')
+    // The stored 500 is put back, never disturbed: onError runs once, for the thrown error, and logs no TypeError
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(errors).toHaveBeenCalledWith(failure)
   })
+
+  // A middleware that replaces the error's answer (`etag()`'s 304) must not leave the stored answer unusable: the put
+  // back reads a body etag()'s clone did not tee and lock (#388)
+  for (const [label, thrown, status, body] of [
+    ['responsible 4xx Exception', () => new NotFoundException('No such post.'), 404, JSON.stringify({ code: 'NOT_FOUND', message: 'No such post.' })],
+    ['contract error', () => catalog.notFound('No such post.'), 404, JSON.stringify({ code: 'NOT_FOUND', message: 'No such post.' })],
+    ['4xx HTTPException', () => new HTTPException(401, { message: 'Unauthorized' }), 401, 'Unauthorized'],
+  ] as const) {
+    it(`etag() puts the answer of a ${label} back on a matching If-None-Match`, async () => {
+      quiet()
+      class Failing extends Controller { index() { throw thrown() } }
+      const app = bootApp()
+      app.use(etag())
+      route(app, '/fail', Failing)
+      const first = await app.request('/fail')
+      expect(first.status).toBe(status)
+      expect(await first.text()).toBe(body)
+      expect(first.headers.get('ETag')).toBeNull()
+      const second = await app.request('/fail', { headers: { 'If-None-Match': await etagOf(body) } })
+      expect(second.status).toBe(status)
+      expect(await second.text()).toBe(body)
+      expect(second.headers.get('ETag')).toBeNull()
+      expect(second.headers.get('Cache-Control')).toBe('no-store')
+      // an expected answer is not logged, and the put back throws no TypeError that onError would log
+      expect(errors).not.toHaveBeenCalled()
+    })
+  }
 
   it('drops a Set-Cookie a session-style middleware adds after next() to a 500', async () => {
     quiet()
@@ -517,6 +554,9 @@ describe('header lists', () => {
         'ETag': '"upstream"',
         'Last-Modified': 'Wed, 21 Oct 2026 07:28:00 GMT',
         'Expires': 'Wed, 21 Oct 2026 08:28:00 GMT',
+        'Age': '60',
+        'Surrogate-Key': 'post-1',
+        'Cache-Tag': 'post-1',
         'Cloudflare-CDN-Cache-Control': 'max-age=600',
         'Surrogate-Control': 'max-age=600',
         'X-Accel-Expires': '600',
@@ -532,8 +572,8 @@ describe('header lists', () => {
     const response = await app.request('/limited')
     expect(response.status).toBe(429)
     for (const name of [
-      'ETag', 'Last-Modified', 'Expires', 'Cloudflare-CDN-Cache-Control', 'Surrogate-Control', 'X-Accel-Expires',
-      'Vercel-CDN-Cache-Control', 'Netlify-CDN-Cache-Control', 'Edge-Control',
+      'ETag', 'Last-Modified', 'Expires', 'Age', 'Surrogate-Key', 'Cache-Tag', 'Cloudflare-CDN-Cache-Control',
+      'Surrogate-Control', 'X-Accel-Expires', 'Vercel-CDN-Cache-Control', 'Netlify-CDN-Cache-Control', 'Edge-Control',
     ]) {
       expect(response.headers.get(name), name).toBeNull()
     }
@@ -677,6 +717,27 @@ describe('expiring cookies', () => {
       'session=; Max-Age=0; Path=/',
       'legacy=; Expires=Wed, 21 Oct 2015 07:28:00 GMT; Path=/',
     ])
+  })
+
+  // V8's Date.parse reads dates a browser's RFC 6265 cookie parser does not, and a malformed Max-Age is not an
+  // expiry either way (#388)
+  it.each([
+    'sid=abc; Expires=0',
+    'sid=abc; Expires=2000',
+    'sid=abc; Expires=Wed, 01 Jan 60 00:00:00 GMT',
+    'sid=abc; Max-Age=+3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+  ])('drops %s, whose expiry is not an RFC 6265 one', async (cookie) => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('Set-Cookie', cookie)
+      await next()
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual([])
   })
 
   it('keeps an expiring cookie of a 4xx HTTPException own response', async () => {
