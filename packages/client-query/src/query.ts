@@ -1,0 +1,100 @@
+import { ClientQueryApiError, ClientQueryError } from "./error";
+import type { AnyEndpointCall, ClientQueryContext, ClientShape, QueryKey, QueryTree } from "./types";
+
+const fail = (message: string): never => {
+  throw new ClientQueryApiError(`[@laratype/client-query] ${message}`);
+};
+
+/**
+ * The input of a call as a key holds it: no `signal` (not serializable) and no `undefined` entry, so `queryKey()`,
+ * `queryKey({})` and `queryKey({ query: undefined })` are the same key.
+ */
+const keyInput = (input: unknown): Record<string, unknown> | undefined => {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+  const entries = Object.entries(input).filter(([key, value]) => key !== "signal" && value !== undefined);
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+};
+
+/** The call input plus TanStack's `AbortSignal`, unless the input already carries a signal of its own. */
+const withSignal = (input: unknown, signal: AbortSignal | undefined): unknown => {
+  if (signal === undefined) return input;
+  if (typeof input !== "object" || input === null) return { signal };
+  const own = (input as { readonly signal?: AbortSignal }).signal;
+  return own === undefined ? { ...input, signal } : input;
+};
+
+/**
+ * One endpoint of the query tree. The query and mutation functions run the endpoint: a success resolves its data,
+ * a failed result throws `ClientQueryError` with that result. A call that rejects (a programming error: a missing
+ * param, a body JSON cannot carry) rejects as it is, so it is not turned into a `ClientQueryError`.
+ */
+const buildEndpoint = (call: AnyEndpointCall, segments: readonly string[], name: string): object => {
+  const keyOf = (...input: unknown[]): QueryKey => {
+    const extra = keyInput(input[0]);
+    return Object.freeze(extra === undefined ? ["laratype", ...segments] : ["laratype", ...segments, extra]);
+  };
+  const run = async (input: unknown, signal?: AbortSignal): Promise<unknown> => {
+    const result = await call(withSignal(input, signal));
+    if (result.ok) return result.data;
+    throw new ClientQueryError(name, result);
+  };
+  return Object.freeze(
+    Object.assign(Object.create(null), {
+      queryKey: keyOf,
+      queryOptions: (...input: unknown[]) => ({
+        queryKey: keyOf(...input),
+        queryFn: (context: ClientQueryContext) => run(input[0], context.signal),
+      }),
+      mutationOptions: () => ({
+        mutationFn: (input: unknown) => run(input),
+      }),
+    }),
+  );
+};
+
+/**
+ * One node of the query tree (or its root): its children, and the `queryKey` prefix of everything below it. A route
+ * named `queryKey` would be hidden by the node's own key, so it is refused.
+ */
+const buildNode = (node: object, segments: readonly string[], name: string): object => {
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of Object.entries(node)) {
+    const full = name === "" ? key : `${name}.${key}`;
+    if (key === "queryKey") fail(`createQueryApi: "${full}" is named "queryKey", which a node query key uses`);
+    if (typeof value === "function") {
+      out[key] = buildEndpoint(value as AnyEndpointCall, [...segments, key], full);
+    } else if (typeof value === "object" && value !== null) {
+      out[key] = buildNode(value, [...segments, key], full);
+    } else {
+      fail(`createQueryApi: "${full}" is not an endpoint or a node: expected the client from createClient`);
+    }
+  }
+  out.queryKey = Object.freeze(["laratype", ...segments]);
+  return Object.freeze(out);
+};
+
+/**
+ * A value `createQueryApi` refuses at the type level: one endpoint call, not a client node or its root. It keeps
+ * the check in a parameter, like `CheckApi` does, so the error names the fix.
+ */
+type CheckClient<C> = C extends AnyEndpointCall
+  ? { readonly error: "createQueryApi: expected the client from createClient" }
+  : unknown;
+
+/**
+ * The query tree of a client: every endpoint gets its key, query options and mutation options, and every node the
+ * key prefix of its endpoints. Build it once and share it. Keys are relative to the client root, so a node client
+ * (`createClient(appApi.users)`) gets local names.
+ *
+ * @example
+ * const api = createClient(appApi)
+ * const q = createQueryApi(api)
+ * const users = useQuery(q.users.index.queryOptions({ query: { page: 2 } }))
+ * const store = useMutation(q.users.store.mutationOptions())
+ */
+export function createQueryApi<C extends ClientShape<C>>(client: C & CheckClient<C>): QueryTree<C> {
+  if (typeof client !== "object" || client === null || Array.isArray(client)) {
+    fail("createQueryApi: expected the client from createClient");
+  }
+  return buildNode(client as object, [], "") as QueryTree<C>;
+}
