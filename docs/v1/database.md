@@ -2,7 +2,7 @@
 area: database
 packages: ["@laratype/database"]
 issues: [88, 118, 145, 146, 147, 148, 149, 150, 163]
-verified-against: Laratype@HEAD
+verified-against: Laratype@88e25fb
 last-verified: 2026-11-16
 ---
 
@@ -15,7 +15,7 @@ last-verified: 2026-11-16
 | Section | Status |
 |---|---|
 | [BindableModel](#bindablemodel) | merged @ 1f35b7b (spec only, PR [#347](https://github.com/Laratypes/Laratype/pull/347), S5 #88 step 1); the TypeORM statics land in [Model](#model), the interface type and the binder → #118, #163 |
-| [Model](#model) | proposed: PR <leader fills> @ <sha> → #145 |
+| [Model](#model) | proposed: PR <leader fills> @ 88e25fb → #145 |
 | [Fillable and hidden](#fillable-and-hidden) | planned → #146 |
 | [Relations and with()](#relations-and-with) | planned → #147 |
 | [Migrations and introspection](#migrations-and-introspection) | planned → #148 |
@@ -98,10 +98,10 @@ r.bind({ user: User, post: Post })   // ctx.params.user: User, ctx.params.post: 
 ## Model
 
 ### Status
-proposed: PR <leader fills> @ <sha> → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3). TypeORM stays (S5 [#88](https://github.com/Laratypes/Laratype/issues/88), PR [#354](https://github.com/Laratypes/Laratype/pull/354)); the 0.5 `Model` and its password rules (PR [#346](https://github.com/Laratypes/Laratype/pull/346)) are kept, and this section adds the typed query surface and [BindableModel](#bindablemodel)'s statics.
+proposed: PR <leader fills> @ 88e25fb → [#145](https://github.com/Laratypes/Laratype/issues/145) (DB1, M3). TypeORM stays (S5 [#88](https://github.com/Laratypes/Laratype/issues/88), PR [#354](https://github.com/Laratypes/Laratype/pull/354)); the 0.5 `Model` and its password rules (PR [#346](https://github.com/Laratypes/Laratype/pull/346)) are kept, and this section adds the typed query surface and [BindableModel](#bindablemodel)'s statics.
 
 ### Public API
-[`Model.ts`](https://github.com/Laratypes/Laratype/blob/<sha>/packages/database/src/eloquent/Model.ts) · [`ModelQueryBuilder.ts`](https://github.com/Laratypes/Laratype/blob/<sha>/packages/database/src/eloquent/ModelQueryBuilder.ts) · [`ModelError.ts`](https://github.com/Laratypes/Laratype/blob/<sha>/packages/database/src/exceptions/ModelError.ts) · [`ModelNotFoundException.ts`](https://github.com/Laratypes/Laratype/blob/<sha>/packages/database/src/exceptions/ModelNotFoundException.ts). The 0.5 `Model` keeps every member it has (`extends BaseEntity`, `fillable`, `passwordField`, `save`, `update`, `updateFor`, `findOneBy`); the list below is what this section adds.
+[`Model.ts`](https://github.com/Laratypes/Laratype/blob/88e25fb/packages/database/src/eloquent/Model.ts) · [`ModelQueryBuilder.ts`](https://github.com/Laratypes/Laratype/blob/88e25fb/packages/database/src/eloquent/ModelQueryBuilder.ts) · [`ModelError.ts`](https://github.com/Laratypes/Laratype/blob/88e25fb/packages/database/src/exceptions/ModelError.ts) · [`ModelNotFoundException.ts`](https://github.com/Laratypes/Laratype/blob/88e25fb/packages/database/src/exceptions/ModelNotFoundException.ts). The 0.5 `Model` keeps every member it has (`extends BaseEntity`, `fillable`, `passwordField`, `save`, `update`, `updateFor`, `findOneBy`); the list below is what this section adds.
 
 ```ts
 class Model extends BaseEntity {
