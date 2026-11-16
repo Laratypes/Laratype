@@ -1169,9 +1169,9 @@ declare module '@laratype/http' {
 }
 
 export interface Register {}
-export interface RouteKeyed { getRouteKey(): string | number }
+export interface RouteKeyed { getRouteKey(): string | number | bigint }
 export interface RouteUrlOptions<Query = object> { readonly query?: Query; readonly absolute?: boolean }
-export type RouteParamValue = string | number | RouteKeyed
+export type RouteParamValue = string | number | bigint | RouteKeyed
 export type RouteName<R = Register>;                 // contract names | the ad-hoc .name()s; string without a registration
 export type RouteParamsOf<Name extends string, R = Register>;   // the full path's params
 export type RouteQueryOf<Name extends string, R = Register>;    // the endpoint's query schema input
@@ -1198,7 +1198,7 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 - **One group in the types.** `Register.routes` holds one `Route.api()` group, whose contract names and ad-hoc `.name()`s type `route()`; the app registers the group it calls `route()` from. The runtime registry merges the other groups' names all the same.
 - **One name, one route.** An ad-hoc name maps to one method and path: a second ad-hoc route with the name and a different method or path (in this group or a later `Route.api()` call), or an ad-hoc name a contract route has, is an error; so is a contract route whose name an ad-hoc route of an earlier call took. The same group mounting again in one process (an `--hmr` restart) registers the same route, not a duplicate.
 - **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` prefixes `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an http(s) URL whose origin and path are used (a `URL` value is accepted): no query, hash or credentials, and its trailing slashes are dropped. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
-- **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
+- **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, a `bigint`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`, and a bigint value (direct, or the route key) is converted with `String()` before `buildUrl` encodes it, so DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)'s bigint keys keep their digits. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
 - **Query** is typed from the endpoint's query schema **input**, as the client types it; an endpoint without a query schema takes no `query` (`query?: undefined`). An ad-hoc route has no schema, so its query is `object`.
 - **One encoder.** `buildUrl` fills the path and serializes the query: params with `encodeURIComponent`, the query with `URLSearchParams` (`undefined` and `null` skipped, an array repeats its key, a `Date` as ISO 8601). `route()` never concatenates a value into a URL itself, and `buildUrl`'s diagnostics propagate unchanged.
 - **`.name()` is immutable.** It returns a new frozen route with `routeName` set and leaves the route it is called on unchanged. A name is a non-empty string.
@@ -1218,7 +1218,7 @@ Runtime `TypeError`s, prefixed `[@laratype/http] `:
 
 From `buildUrl` ([contract.md › URL builder](./contract.md#url-builder)), unchanged: `buildUrl: missing param "<name>" for "<path>"`, `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)`, `buildUrl: "<path>" builds "<result>", which a URL reads as another host`, `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`.
 
-Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an ad-hoc route without `.name()`, a missing required param, an unknown param, a param value that is not a string, number or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
+Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an ad-hoc route without `.name()`, a missing required param, an unknown param, a param value that is not a string, number, bigint or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
 
 ### Example
 [`examples/http/proposed/route-names.ts`](./examples/http/proposed/route-names.ts):

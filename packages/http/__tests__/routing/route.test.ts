@@ -106,6 +106,18 @@ describe('route()', () => {
     expect(route('users.posts.show', { user, post: 2 })).toBe('/api/users/ada%20lovelace/posts/2')
   })
 
+  it('accepts a bigint param, direct and from getRouteKey() (DB1 #145)', () => {
+    class BigUser {
+      getRouteKey() {
+        return 9007199254740993n
+      }
+    }
+    mount()
+    // above Number.MAX_SAFE_INTEGER: the value reaches the path as its exact digits
+    expect(route('users.posts.show', { user: 9007199254740993n, post: 2 })).toBe('/api/users/9007199254740993/posts/2')
+    expect(route('users.posts.show', { user: new BigUser(), post: 2 })).toBe('/api/users/9007199254740993/posts/2')
+  })
+
   it('rejects an object param that is not a model', () => {
     mount()
     expect(() => route('users.posts.show', { user: {} as never, post: 1 })).toThrow(

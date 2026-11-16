@@ -6,7 +6,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { z } from 'zod'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Route, redirect, route } from '../../src/index'
-import type { MountedRoute, Response, RouteKeyed, RouteName, RouteParamsOf } from '../../src/index'
+import type { MountedRoute, Response, RouteKeyed, RouteName, RouteParamValue, RouteParamsOf } from '../../src/index'
 
 const users = defineContract()({
   index: endpoint.get('/').query(z.object({ page: z.number().optional() })),
@@ -84,7 +84,7 @@ describe('route() params', () => {
     route('users.posts.update', { post: 2 })
     // @ts-expect-error not a param of the path
     route('users.show', { user: 1, slug: 'x' })
-    // @ts-expect-error a param takes a string, a number or a model
+    // @ts-expect-error a param takes a string, a number, a bigint or a model
     route('users.show', { user: true })
   })
 
@@ -92,6 +92,18 @@ describe('route() params', () => {
     expectTypeOf<User>().toExtend<RouteKeyed>()
     expectTypeOf(route('users.show', { user: new User() })).toEqualTypeOf<string>()
     expectTypeOf(route('users.posts.update', { user: new User(), post: new User() })).toEqualTypeOf<string>()
+  })
+
+  test('a param accepts a bigint, directly and from getRouteKey() (DB1 #145)', () => {
+    expectTypeOf<bigint>().toExtend<RouteParamValue>()
+    expectTypeOf(route('users.posts.update', { user: 9007199254740993n, post: 2 })).toEqualTypeOf<string>()
+    class BigId {
+      getRouteKey(): bigint {
+        return 1n
+      }
+    }
+    expectTypeOf<BigId>().toExtend<RouteKeyed>()
+    expectTypeOf(route('users.show', { user: new BigId() })).toEqualTypeOf<string>()
   })
 })
 
@@ -118,7 +130,7 @@ describe('route() query and options', () => {
   test('without a registration, any name and generic params', () => {
     expectTypeOf<RouteName<Record<string, never>>>().toEqualTypeOf<string>()
     expectTypeOf<RouteParamsOf<'whatever', Record<string, never>>>().toEqualTypeOf<
-      Record<string, string | number | RouteKeyed>
+      Record<string, string | number | bigint | RouteKeyed>
     >()
   })
 })

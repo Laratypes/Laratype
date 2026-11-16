@@ -40,8 +40,8 @@ type AdHocRouteParams<M, Name extends string> = M extends readonly unknown[]
 /** The contract route names of the API tree a group was mounted for. */
 type ContractRouteName<A> = A extends { readonly [API_ROOT]: true } ? ApiRouteName<A> : never;
 
-/** A path param value: a string or a number, or a model whose route key is used (see `RouteKeyed`). */
-export type RouteParamValue = string | number | RouteKeyed;
+/** A path param value: a string, a number or a bigint, or a model whose route key is used (see `RouteKeyed`). */
+export type RouteParamValue = string | number | bigint | RouteKeyed;
 
 /** Every value of a path, widened to what `route()` accepts. */
 type WidenParams<P> = { [K in keyof P]: RouteParamValue };
@@ -68,7 +68,7 @@ export type RouteName<R = Register> = [RegisteredRoutes<R>] extends [never]
     ? ContractRouteName<A> | Extract<AdHocRouteName<M>, string>
     : string;
 
-/** The path params of a route name, folder `[x]` params included; `string | number | RouteKeyed` values. */
+/** The path params of a route name, folder `[x]` params included; `string | number | bigint | RouteKeyed` values. */
 export type RouteParamsOf<Name extends string, R = Register> = RouteInputs<R, Name>["params"];
 
 /** The query of a route name: the endpoint's query schema input, or `object` for an ad-hoc route. */
@@ -94,8 +94,11 @@ export type RouteArgs<Name extends string, R = Register> = {} extends RouteParam
  * instance with it (or any object with it) passes.
  */
 export interface RouteKeyed {
-  /** The route key value, a string or a number: `buildUrl` encodes it like any other param. */
-  getRouteKey(): string | number;
+  /**
+   * The route key value, a string, a number or a bigint (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)
+   * returns a bigint for a bigint key): it is converted with `String()` before `buildUrl` encodes it.
+   */
+  getRouteKey(): string | number | bigint;
 }
 
 /** One registered route name: the full path it builds, and what a duplicate-name error calls it. */
@@ -188,13 +191,17 @@ const appUrl = (): string => {
 };
 
 /**
- * The path params as `buildUrl` takes them: a `RouteKeyed` value contributes its route key, any other object is a
- * mistake (a raw object would be sent as `[object Object]`).
+ * The path params as `buildUrl` takes them: a `RouteKeyed` value contributes its route key and a bigint is
+ * converted with `String()`; any other object is a mistake (a raw object would be sent as `[object Object]`).
  */
 const paramValues = (params: object | undefined): Record<string, string | number> => {
   const values: Record<string, string | number> = Object.create(null);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined || value === null) continue;
+    if (typeof value === "bigint") {
+      values[key] = String(value);
+      continue;
+    }
     if (typeof value !== "object") {
       values[key] = value as string | number;
       continue;
@@ -203,7 +210,8 @@ const paramValues = (params: object | undefined): Record<string, string | number
     if (typeof getRouteKey !== "function") {
       fail(`route: param "${key}" got an object that is not a model (no getRouteKey())`);
     }
-    values[key] = getRouteKey.call(value) as string | number;
+    const routeKey = getRouteKey.call(value);
+    values[key] = typeof routeKey === "bigint" ? String(routeKey) : (routeKey as string | number);
   }
   return values;
 };
