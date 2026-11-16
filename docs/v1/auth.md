@@ -8,13 +8,13 @@ last-verified: 2026-10-09
 
 # Auth (`@laratype/auth`), skeleton
 
-> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (proposed) and [Typed Register](#typed-register) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
+> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed) and [Policies and gates](#policies-and-gates) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
 
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
-| [Policies and gates](#policies-and-gates) | planned → #121 |
+| [Policies and gates](#policies-and-gates) | proposed: PR <leader fills> @ cb8bc16 → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
@@ -112,16 +112,131 @@ planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), w
 ## Policies and gates
 
 ### Status
-planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8).
+proposed: PR <leader fills> @ cb8bc16 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants).
 
-### Design (non-binding)
-Abilities are `keyof Policy`, and `Gate.allows` and `user.can()` are typed. An unknown ability is a type error. This replaces the 0.5 string abilities.
+### Public API
+[`Policy.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/cb8bc16/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.
 
-Two mechanisms stay side by side:
-- **`{ policy }`** on `r.scope()` and `r.contract()` drives the `authorize` capability and its compile check ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
-- **`Gate.policy(Model, Policy)`** in a service provider links a policy to its model for imperative checks, such as `user.can('update', post)` in a service, as in Laravel's `Gate::policy` ([#121](https://github.com/Laratypes/Laratype/issues/121)).
+```ts
+// @laratype/auth
+export type PolicyClass = abstract new (...args: any[]) => object;
 
-A scope policy can define `before(user, params)` for the check shared by every endpoint under the scope.
+/** The string method names of P minus "before" */
+export type PolicyAbility<P> = Exclude<Extract<{
+  [K in keyof P]-?: P[K] extends (...args: any[]) => any ? K : never
+}[keyof P], string>, "before">;
+
+/** The parameters of an ability after the user and the subject: update(user, post) gives [], share(user, post, target) gives [target] */
+export type PolicyArgs<P, K extends PolicyAbility<P>> = /* PolicyParams<P, K> extends [subject: any, ...args: infer A] ? A : [] */;
+
+/** The type half of Gate.policy(Model, Policy); the brand is an optional unique-symbol method, never a string key */
+export interface HasPolicy<P extends object> { [policyBrand]?(): P }
+export type PolicyBrand = /* typeof policyBrand */;
+export type ModelPolicy<M> = /* the policy M declares, a model class read as its instance; never without one */;
+export type SubjectAbility<M> = /* PolicyAbility<ModelPolicy<M>>, or string without a declared policy */;
+export type SubjectArgs<M, K extends SubjectAbility<M>> = /* PolicyArgs<ModelPolicy<M>, K>, or unknown[] without one */;
+export type CheckPolicy<M> = /* { error: "the subject has no policy: ..." } without a declared policy */;
+
+export interface GateAbility<Args extends readonly unknown[] = readonly unknown[]> {
+  readonly name: string;
+  readonly check: (user: unknown, ...args: Args) => Promise<boolean>;
+}
+
+export abstract class Gate {
+  abstract handle(...args: any): boolean;                       // the 0.5 gate base, unchanged
+  static policy<M extends object>(
+    model: AbstractNewable<M>,
+    policy: [ModelPolicy<M>] extends [never] ? PolicyClass : AbstractNewable<ModelPolicy<M>>,
+  ): void;
+  static allows<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
+    user: unknown, ability: K, subject: M & CheckPolicy<M>, ...args: A): Promise<boolean>;
+  static allows<Args extends readonly unknown[]>(user: unknown, ability: GateAbility<Args>, ...args: Args): Promise<boolean>;
+  static denies</* the same two overloads */>(...): Promise<boolean>;
+  static authorize</* the same two overloads */>(...): Promise<void>;   // throws ForbiddenException
+  static define<Args extends readonly unknown[]>(
+    name: string,
+    fn: (user: any, ...args: Args) => PromiseAble<boolean | null>,
+  ): GateAbility<Args>;
+}
+
+export class GateManager {                                       // a singleton in the container (D7)
+  policy<M extends object>(model: AbstractNewable<M>, policy: PolicyClass): this;
+  policyFor(subject: unknown): PolicyClass | undefined;
+  allows(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<boolean>;
+  denies(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<boolean>;
+  authorize(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<void>;
+  static current(): GateManager;
+  static container(): Container;
+}
+
+export class Authenticated<T extends Model> {
+  can<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
+    ability: K, subject: M & CheckPolicy<M>, ...args: A): Promise<boolean>;
+  cannot</* can() */>(...): Promise<boolean>;
+}
+
+export function policyCheck(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<boolean | null>;
+export function policyAllows(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<boolean>;
+export function policyAuthorize(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<void>;
+export class ForbiddenException extends Exception {}              // 403, { code: "FORBIDDEN", message }
+```
+
+A policy is any class with ability methods and an optional `before`; the 0.5 `Policy` base class is not required:
+
+```ts
+class PostPolicy {
+  before(user: User, ability: string, ...args: unknown[]): boolean | null { return null }
+  viewAny(user: User): boolean { return true }
+  update(user: User, post: Post): Promise<boolean> { return Promise.resolve(user.id === post.userId) }
+}
+```
+
+### Invariants
+- **Abilities are methods.** An ability is a string method name of the policy, minus `before`; a field that is not a method is not an ability, as in the router's policy proof ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)). The policy is looked up from the subject's class, and the subject is the ability's first parameter after the user: `Gate.allows(user, "update", post)` runs `update(user, post)`, and any extra arguments follow it. An ability with no model of its own (`viewAny(user)`) is checked with the model class as the subject, which it ignores — `create(user)` works the same.
+- **Only `true` allows.** An ability allows when it resolves exactly `true`; `null`, `undefined`, a truthy string or object deny. `before(user, ability, ...args)` short-circuits only on a boolean: `true` allows, `false` denies, anything else falls through to the ability. 0.5 policies declare `before(actor, ability)`, which keeps working: the extra arguments are ignored.
+- **Async is awaited.** `before` and the ability may return a value or a promise; `Gate.allows()`, `Gate.denies()` and `Gate.authorize()` always return a promise.
+- **Registration.** `Gate.policy(Model, Policy)` in a service provider's `register()` or `boot()` links a model class to its policy. A model has one policy: registering the same class again is a no-op, another class throws. The model class is also a valid subject, for an ability with no model yet, such as `Gate.allows(user, "create", Post)`.
+- **Exact class only.** The policy is looked up by the subject's own class (`subject.constructor` for an instance, the class itself for a class), with no parent walk: a subclass needs its own `Gate.policy()`.
+- **Where the registry and the policy live.** `GateManager.current()` is a singleton in the current request's container, else the facade application, and is bound on its first use, as `RouteRegistry` and `ModelBindingRegistry` are ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)). A new container starts with none. The policy instance is built by `GateManager.container().make(policy)`, so constructor injection works and reaches request-scoped dependencies ([http.md › Controller resolution](./http.md#controller-resolution), H21 #269).
+- **Guests deny, without the policy.** A `null` or `undefined` user answers `false` from `allows()`, `true` from `denies()` and the 403 from `authorize()`, and neither a policy nor a gate runs. On a route the auth guard answers the 401 first ([Authentication from the contract](#authentication-from-the-contract)).
+- **A missing policy is an internal error.** `allows()`, `denies()` and `authorize()` throw `InternalException` (500) when the subject's class has no policy: a bug must not read as a denial. A policy without the ability method (and without a `before` that decided) denies.
+- **Exceptions are not denials.** What a `before` or an ability throws propagates (the exception filter's 500); it is never caught into `false`.
+- **The 403 is the contract's derived forbidden.** `authorize()` throws `ForbiddenException`, a responsible `Exception` with `code: "FORBIDDEN"`, `httpCode: 403` and the message `This action is unauthorized.`, so its wire body `{ code: "FORBIDDEN", message }` is the one `errors.forbidden()` declares ([contract.md › Built-in errors](./contract.md#built-in-errors)); the filter answers a responsible 4xx `Exception` with its `toJson()` ([http.md › Exceptions](./http.md#exceptions)). `@laratype/auth` imports no contract runtime: the 403 is the 0.5 exception channel.
+- **Two `can()` meanings stay side by side.** `Authenticated.can(ability, subject, ...args)` (`Auth.user()!.can("update", post)`) resolves the **subject's** policy, as Laravel's `$user->can()` does. The 0.5 `@UsePolicy(Policy)` mixin on a model keeps its own meaning: `model.can(ability, ...args)` runs the **actor's** policy with the model as the user. A v1 model declares its policy with `export default interface Post extends HasPolicy<PostPolicy> {}` beside its `export default class Post`, which is the type half of `Gate.policy`; nothing is added to the model at runtime, and the default-export pair is the shape the repo's models already use (a named class/interface merge is a lint error).
+- **A gate is a typed value.** `Gate.define(name, fn)` returns `{ name, check }`; `Gate.allows(user, gate, ...args)` checks it, with no registry and no second type map. A gate's arguments come from `fn`; a non-`true` answer denies, and what `fn` throws propagates. A guest denies without the gate running.
+- **Route integration (proposed for #105).** `policyCheck(policy, user, ability, ...args)` is the tri-state single check (`true`, `false`, or `null` when neither `before` nor the ability answered), `policyAllows()` is `=== true` and `policyAuthorize()` throws the 403 unless it allows. A proposal for #105, not its decision: for each mounted scope policy, outer to inner, `policyCheck(instance, user, <endpoint key>, params)` — `false` answers the 403, `true` allows the request and skips the remaining policies, `null` continues — then the endpoint's policy with `policyAuthorize(instance, user, <endpoint key>, params)`, where `params` is the bound-model record the route resolved. That is what answers [http.md › Authorization from the contract](./http.md#authorization-from-the-contract)'s open question on the endpoint policy's arguments.
+
+### Diagnostics
+`Error` messages (exact text), all `InternalException` (500) unless stated:
+- `[@laratype/auth] Gate.policy: the model must be a class, got <typeof>.`
+- `[@laratype/auth] Gate.policy: the policy must be a class, got <typeof>.`
+- `[@laratype/auth] <Model> already has the policy <Policy>; a model has one policy (register it once).`
+- `[@laratype/auth] Gate.allows: no policy is defined for <Model>. Fix: register it with Gate.policy(<Model>, <Policy>) in a service provider.` — `Gate.authorize` with its own name in place of `Gate.allows`.
+- `[@laratype/auth] Gate.allows: the ability must be an ability name or a gate from Gate.define(), got <typeof>.` — `Gate.denies` and `Gate.authorize` likewise.
+- `[@laratype/auth] Gate.define: the name must be a non-empty string, got <typeof>.`
+- `[@laratype/auth] Gate.define: the gate must be a function, got <typeof>.`
+
+The 403's body: `{ "code": "FORBIDDEN", "message": "This action is unauthorized." }`.
+
+Type-level, from `Gate.allows()` and `Authenticated.can()`:
+- Unknown ability: `Argument of type '"nope"' is not assignable to parameter of type '"viewAny" | "update" | "delete"'`.
+- Wrong argument: `Argument of type '[1]' is not assignable to parameter of type '[post: Post] & unknown[]'` (the rest parameter is the ability's own arguments).
+- A subject with no declared policy: the `CheckPolicy` intersection fails, `Property 'error' is missing in type 'Comment' but required in type '{ error: "the subject has no policy: add `export default interface <Model> extends HasPolicy<<Policy>> {}` beside its class and register the policy with Gate.policy(<Model>, <Policy>)"; }'`.
+- `Gate.policy(Post, OtherPolicy)` on a declared `HasPolicy<PostPolicy>`: `Argument of type 'typeof OtherPolicy' is not assignable to parameter of type 'AbstractNewable<PostPolicy>'`.
+- A gate's wrong argument or arity: `Argument of type 'Post' is not assignable to parameter of type 'User'`, and `Expected 1 arguments, but got 0` for a gate whose `fn` takes one.
+
+### Example
+[`examples/auth/proposed/policies.ts`](./examples/auth/proposed/policies.ts); the type tests are `packages/auth/__tests__/policies.test-d.ts` and the runtime ones `packages/auth/__tests__/policies.test.ts`.
+
+### Non-goals
+- No route integration here: `{ policy }` on `r.scope()` / `r.contract()` and the `authorize` capability stay [#105](https://github.com/Laratypes/Laratype/issues/105)'s, and this section does not run them.
+- No policy auto-discovery from a model's name (Laravel's `guessPolicyName`): `Gate.policy()` is explicit.
+- No named gate registry: `Gate.define()` returns the value to check, so `Gate.allows(user, "update-post", post)` is not an API ([#121](https://github.com/Laratypes/Laratype/issues/121) chose typed values).
+- No global gate hooks (`before`/`after` on `Gate` itself) and no `Gate::any`/`none`.
+- No per-guard user type in a policy: the ability declares its own `user` parameter.
+
+### Open questions
+- [#105](https://github.com/Laratypes/Laratype/issues/105): the scope-policy order and the `before` fall-through it uses (see Invariants › Route integration).
 
 ### Acceptance
 [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
