@@ -7,3 +7,12 @@ reviews:
     # resolves the default branch (PR #285 was skipped as a non-default base).
     base_branches:
       - master
+    # Review a PR once when it opens. A later push needs a manual
+    # `@coderabbitai review` (see AGENTS.md › Automated review).
+    auto_incremental_review: false
+    # Dependabot PRs get the dependency review and CI, not CodeRabbit.
+    ignore_usernames:
+      - "dependabot[bot]"
+  # The lockfile is generated: reviewers read the package.json diff instead.
+  path_filters:
+    - "!bun.lock"

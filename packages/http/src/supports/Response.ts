@@ -99,12 +99,12 @@ export default class Response implements ResponseInterface {
   }
 
   /**
-   * Whether the 0.5 response sends the content as JSON. A string is the HTML body, and how a string return is sent is
-   * #336; every other value is JSON: a model, a `JsonResource`, and the shapes detected by prototype — an array (a
-   * subclass too), an object whose prototype is `Object.prototype` or `null`, a form body's groups — as well as a value
-   * of another prototype (a Date, a class instance), whose JSON text must never go out as text/html. The value's
-   * `constructor` property is never read: it is data (H45 #342). The non-string rule is the widest, so it is the one
-   * that decides; the shape, model and `JsonResource` clauses before it are what make each kind a JSON body on its own
+   * Whether the 0.5 response sends the content as JSON. A string is a text body (H41 #336); every other value is JSON:
+   * a model, a `JsonResource`, and the shapes detected by prototype — an array (a subclass too), an object whose
+   * prototype is `Object.prototype` or `null`, a form body's groups — as well as a value of another prototype (a Date,
+   * a class instance), whose JSON text must never go out as text/html. The value's `constructor` property is never
+   * read: it is data (H45 #342). The non-string rule is the widest, so it is the one that decides; the shape, model and
+   * `JsonResource` clauses before it are what make each kind a JSON body on its own
    */
   public shouldBeJson(): boolean {
     const jsonShape = this.isModel() || this.content instanceof JsonResource || isJsonShape(this.content);
@@ -120,16 +120,16 @@ export class ResponseSerialization {
   }
 
   /**
-   * Whether the content is a JSON body: a 0.5 response sends a string as the HTML body (#336 decides string returns)
-   * and every other value as JSON (H45 #342)
+   * Whether the content is a JSON body: a 0.5 response sends a string as text/plain (H41 #336) and every other value as
+   * JSON (H45 #342)
    */
   public static isJsonBody(data: unknown): boolean {
     return data !== undefined && data !== null && typeof data !== "string";
   }
 
   /**
-   * The HTML body: the string itself, or an empty one. A value with JSON text is sent as `application/json` by
-   * `resolveResponse`, so `JSON.stringify` output is never labelled `text/html` (H45 #342)
+   * The empty body for no content: a string is sent as text/plain by `resolveResponse` (H41 #336). A value with JSON
+   * text is sent as `application/json`, so `JSON.stringify` output is never labelled `text/html` (H45 #342)
    */
   public static htmlSerialize(data?: unknown): string {
     if(typeof data === "string") return data
