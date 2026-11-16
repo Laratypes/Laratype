@@ -5,10 +5,14 @@ import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
+import { deleteCookie } from 'hono/cookie'
+import { etag } from 'hono/etag'
 import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, NotFoundException } from '@laratype/support'
 import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel } from '../../src/index'
+import { BODY_HEADERS } from '../../src/response/bodyHeaders'
+import { DROPPED_ERROR_HEADERS } from '../../src/response/Response'
 
 /** An app booted like `sauf dev`: RequestKernel puts the container on each request, ResponseKernel handles errors. */
 const bootApp = () => {
@@ -356,5 +360,336 @@ describe('error response headers', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=60')
     expect(response.headers.getSetCookie()).toHaveLength(2)
+  })
+})
+
+// H29 #295: the outermost middleware scrubs what a middleware writes after `await next()`, and keeps only the
+// `Set-Cookie` values that expire a cookie
+describe('error response headers set after the throw', () => {
+  it('etag() cannot turn a 500 into a 304 with a matching validator', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(etag())
+    route(app, '/fail', Failing)
+    const first = await app.request('/fail')
+    expect(first.status).toBe(500)
+    const body = await first.text()
+    expect(JSON.parse(body)).toEqual(GENERIC)
+    // The validator etag() computes for that body: a cache could hold it even though it never reaches a client
+    expect(first.headers.get('ETag')).toBeNull()
+    const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(body))
+    const tag = `"${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}"`
+    const second = await app.request('/fail', { headers: { 'If-None-Match': tag } })
+    expect(second.status).toBe(500)
+    expect(await second.json()).toEqual(GENERIC)
+    expect(second.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('drops a Set-Cookie a session-style middleware adds after next() to a 500', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      c.header('Set-Cookie', 'session=fresh; Path=/; HttpOnly')
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual([])
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('keeps a cookie a middleware expires after next() to a 500', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      c.header('Set-Cookie', 'session=; Max-Age=0; Path=/; HttpOnly')
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/; HttpOnly'])
+  })
+
+  it('is outermost when the kernel registers before the routes, as in the production boot', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const container = new Container({ deps: depsRegistry })
+    const app = new Hono()
+    container.instance(HTTP_APP, app)
+    new RequestKernel(container).boot()
+    const kernel = new ResponseKernel(container)
+    // the app providers mount their routes in boot(), after this kernel registered
+    kernel.register()
+    app.use(async (c, next) => {
+      await next()
+      c.header('Set-Cookie', 'session=fresh; Path=/; HttpOnly')
+    })
+    route(app, '/fail', Failing)
+    kernel.boot()
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it('keeps CORS headers a middleware sets before the throw', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('Access-Control-Allow-Origin', 'https://app.example.test')
+      c.header('Vary', 'Origin')
+      await next()
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    expect(response.headers.get('Vary')).toBe('Origin')
+  })
+})
+
+// H29 #295: the two lists, every entry, and the body headers on an error's own response
+describe('header lists', () => {
+  it('drops every body header the handler set before the throw', async () => {
+    quiet()
+    const app = bootApp()
+    app.get('/bodies', (c) => {
+      for (const name of BODY_HEADERS) c.header(name, 'handler-value')
+      throw new Error('secret detail')
+    })
+    const response = await app.request('/bodies')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    for (const name of BODY_HEADERS) {
+      const value = response.headers.get(name)
+      if (name === 'Content-Type' || name === 'Content-Length') {
+        // the error body's own, never the handler's
+        expect(value, name).not.toBe('handler-value')
+      }
+      else expect(value, name).toBeNull()
+    }
+  })
+
+  it.each([
+    'X-Accel-Redirect', 'X-Sendfile', 'X-Lighttpd-Send-File', 'X-LiteSpeed-Location',
+  ])('drops %s, which would make the server send a file in place of the error body', async (name) => {
+    quiet()
+    const app = bootApp()
+    app.get('/offload', (c) => {
+      c.header(name, '/private/report.pdf')
+      throw new Error('secret detail')
+    })
+    const response = await app.request('/offload')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    expect(response.headers.get(name)).toBeNull()
+  })
+
+  it('drops every caching, validator and vendor header the handler set before the throw', async () => {
+    quiet()
+    const app = bootApp()
+    app.get('/cache', (c) => {
+      for (const name of DROPPED_ERROR_HEADERS) {
+        c.header(name, name === 'Set-Cookie' ? 'session=abc; Path=/' : 'handler-value')
+      }
+      throw new Error('secret detail')
+    })
+    const response = await app.request('/cache')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    for (const name of DROPPED_ERROR_HEADERS) {
+      if (name === 'Set-Cookie') expect(response.headers.getSetCookie(), name).toEqual([])
+      else expect(response.headers.get(name), name).toBeNull()
+    }
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('drops the cache and validator headers of a 4xx HTTPException own response, keeping its other ones', async () => {
+    quiet()
+    const res = new Response('Too Many Requests', {
+      status: 429,
+      headers: {
+        'ETag': '"upstream"',
+        'Last-Modified': 'Wed, 21 Oct 2026 07:28:00 GMT',
+        'Expires': 'Wed, 21 Oct 2026 08:28:00 GMT',
+        'Cloudflare-CDN-Cache-Control': 'max-age=600',
+        'Surrogate-Control': 'max-age=600',
+        'X-Accel-Expires': '600',
+        'Vercel-CDN-Cache-Control': 'max-age=600',
+        'Netlify-CDN-Cache-Control': 'max-age=600',
+        'Edge-Control': 'no-store',
+        'X-Upstream': 'redis-10.0.0.7',
+      },
+    })
+    class Limited extends Controller { index() { throw new HTTPException(429, { res }) } }
+    const app = bootApp()
+    route(app, '/limited', Limited)
+    const response = await app.request('/limited')
+    expect(response.status).toBe(429)
+    for (const name of [
+      'ETag', 'Last-Modified', 'Expires', 'Cloudflare-CDN-Cache-Control', 'Surrogate-Control', 'X-Accel-Expires',
+      'Vercel-CDN-Cache-Control', 'Netlify-CDN-Cache-Control', 'Edge-Control',
+    ]) {
+      expect(response.headers.get(name), name).toBeNull()
+    }
+    expect(response.headers.get('X-Upstream')).toBe('redis-10.0.0.7')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+})
+
+// H29 #295: the potential answer of an HTTPException is not always sent, so its body stream is cancelled
+describe('cancelled bodies', () => {
+  it('cancels the finalized body a throw drops', async () => {
+    quiet()
+    let cancelled = 0
+    const stream = new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('report')) },
+      cancel() { cancelled += 1 },
+    })
+    class Fine extends Controller { index() { return { ok: true } } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      c.res = new Response(stream, { status: 200, headers: { 'Content-Type': 'application/pdf' } })
+      throw new Error('secret detail')
+    })
+    route(app, '/stream', Fine)
+    const response = await app.request('/stream')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    await vi.waitFor(() => expect(cancelled).toBe(1))
+  })
+
+  it('cancels the HTTPException own body on the 5xx path', async () => {
+    quiet()
+    let cancelled = 0
+    const stream = new ReadableStream({ cancel() { cancelled += 1 } })
+    const res = new Response(stream, { status: 503, headers: { 'Retry-After': '120' } })
+    class Down extends Controller { index() { throw new HTTPException(503, { res }) } }
+    const app = bootApp()
+    route(app, '/down', Down)
+    const response = await app.request('/down')
+    expect(response.status).toBe(503)
+    expect(response.headers.get('Retry-After')).toBe('120')
+    expect(await response.json()).toEqual(GENERIC)
+    await vi.waitFor(() => expect(cancelled).toBe(1))
+  })
+})
+
+// H29 #295: keep every WWW-Authenticate challenge, and the error response's own value wins over a c.header() one
+describe('WWW-Authenticate', () => {
+  it('keeps both challenges of a 5xx HTTP error', async () => {
+    quiet()
+    const failure = Object.assign(new Error('secret detail'), {
+      status: 502,
+      getResponse: () => new Response('secret detail', {
+        status: 502,
+        headers: [
+          ['WWW-Authenticate', 'Basic realm="admin"'],
+          ['WWW-Authenticate', 'Bearer realm="api"'],
+        ],
+      }),
+    })
+    class Gateway extends Controller { index() { throw failure } }
+    const app = bootApp()
+    route(app, '/challenges', Gateway)
+    const response = await app.request('/challenges')
+    expect(response.status).toBe(502)
+    const challenge = response.headers.get('WWW-Authenticate') ?? ''
+    expect(challenge).toContain('Basic realm="admin"')
+    expect(challenge).toContain('Bearer realm="api"')
+  })
+
+  it('a WWW-Authenticate and Retry-After set before the throw do not replace the 4xx HTTPException own ones', async () => {
+    quiet()
+    const res = new Response('Too Many Requests', {
+      status: 429,
+      headers: { 'WWW-Authenticate': 'Bearer realm="api"', 'Retry-After': '120' },
+    })
+    class Limited extends Controller { index() { throw new HTTPException(429, { res }) } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('WWW-Authenticate', 'Basic realm="middleware"')
+      c.header('Retry-After', '1')
+      await next()
+    })
+    route(app, '/limited', Limited)
+    const response = await app.request('/limited')
+    expect(response.status).toBe(429)
+    expect(response.headers.get('WWW-Authenticate')).toBe('Bearer realm="api"')
+    expect(response.headers.get('Retry-After')).toBe('120')
+  })
+})
+
+// H29 #295: an error response keeps the cookies that expire one, and drops every other one
+describe('expiring cookies', () => {
+  it('a 401 that clears the session cookie keeps the clearing cookie', async () => {
+    quiet()
+    class Guarded extends Controller { index() { throw new HTTPException(401, { message: 'Unauthorized' }) } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      deleteCookie(c, 'session', { path: '/' })
+      await next()
+    })
+    route(app, '/guarded', Guarded)
+    const response = await app.request('/guarded')
+    expect(response.status).toBe(401)
+    expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/'])
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('drops a fresh session cookie on a 500', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('Set-Cookie', 'session=fresh; Path=/; HttpOnly')
+      await next()
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it('keeps only the cookies that expire one in a mixed list', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      c.header('Set-Cookie', 'theme=dark; Path=/')
+      c.header('Set-Cookie', 'session=; Max-Age=0; Path=/', { append: true })
+      c.header('Set-Cookie', 'legacy=; Expires=Wed, 21 Oct 2015 07:28:00 GMT; Path=/', { append: true })
+      c.header('Set-Cookie', 'broken=; Expires=not-a-date; Path=/', { append: true })
+      // a cookie named Max-Age: its pair is data, not an attribute
+      c.header('Set-Cookie', 'Max-Age=fresh; Path=/', { append: true })
+      await next()
+    })
+    route(app, '/fail', Failing)
+    const response = await app.request('/fail')
+    expect(response.status).toBe(500)
+    expect(response.headers.getSetCookie()).toEqual([
+      'session=; Max-Age=0; Path=/',
+      'legacy=; Expires=Wed, 21 Oct 2015 07:28:00 GMT; Path=/',
+    ])
+  })
+
+  it('keeps an expiring cookie of a 4xx HTTPException own response', async () => {
+    quiet()
+    const res = new Response('Unauthorized', {
+      status: 401,
+      headers: { 'Set-Cookie': 'session=; Max-Age=0; Path=/' },
+    })
+    class Guarded extends Controller { index() { throw new HTTPException(401, { res }) } }
+    const app = bootApp()
+    route(app, '/guarded', Guarded)
+    const response = await app.request('/guarded')
+    expect(response.status).toBe(401)
+    expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/'])
   })
 })

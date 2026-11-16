@@ -38,6 +38,9 @@ export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 /** A success status that never has a body: 204 No Content and 205 Reset Content. Shared with `@laratype/client`. */
 export const isBodylessStatus = (status: number): boolean => status === 204 || status === 205;
 
+/** An error status, 400 to 599: the one rule, shared with `@laratype/http`'s exception filter (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)). */
+export { isFailureStatus } from "./internal";
+
 /**
  * `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. A wide
  * `number` status can't say which, so it stays `number`, as the runtime may keep any of them.

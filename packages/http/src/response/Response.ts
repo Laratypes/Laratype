@@ -1,14 +1,12 @@
-import type { Context } from "hono";
+import type { Context, Hono, MiddlewareHandler } from "hono";
 import ResponseSupport, { ResponseSerialization } from "../supports/Response";
 import { GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey, isException } from "@laratype/support";
 import type { Exception } from "@laratype/support";
 import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { KernelRouteParams } from "../contracts";
-import { isBodylessStatus, isContractError } from "@laratype/contract";
+import { isBodylessStatus, isContractError, isFailureStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 import { BODY_HEADERS } from "./bodyHeaders";
-
-const isErrorStatus = (status: unknown): status is number => Number.isInteger(status) && (status as number) >= 400 && (status as number) <= 599;
 
 /**
  * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
@@ -19,12 +17,12 @@ const isErrorStatus = (status: unknown): status is number => Number.isInteger(st
 const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.Response } | undefined => {
   const candidate = err as { status?: unknown; getResponse?: unknown } | null;
   const status = candidate?.status;
-  if (typeof candidate?.getResponse !== "function" || !isErrorStatus(status)) {
+  if (typeof candidate?.getResponse !== "function" || !isFailureStatus(status)) {
     return undefined;
   }
   try {
     const response: unknown = candidate.getResponse();
-    return response instanceof globalThis.Response && isErrorStatus(response.status)
+    return response instanceof globalThis.Response && isFailureStatus(response.status)
       ? { status: response.status as StatusCode, response }
       : undefined;
   } catch {
@@ -34,23 +32,106 @@ const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.R
 
 /**
  * Headers that no error response carries, whether set before the throw or on an HTTP error's own response (#272): a
- * failed request sets no cookie, and no cache (CDN-targeted ones included) keeps or revalidates an error.
- * Cache-Control is replaced by `no-store`
+ * failed request sets no cookie, and no cache (CDN-targeted ones included) keeps or revalidates an error. The vendor
+ * headers are what proxies and CDNs read before `Cache-Control` (H29 #295). Cache-Control is replaced by `no-store`;
+ * the `Set-Cookie` values that expire a cookie are kept (H29 #295). Exported for the test that asserts every entry
  */
-const DROPPED_ERROR_HEADERS = [
+export const DROPPED_ERROR_HEADERS = [
   "Set-Cookie", "ETag", "Last-Modified", "Expires", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control",
+  "X-Accel-Expires", "Vercel-CDN-Cache-Control", "Netlify-CDN-Cache-Control", "Edge-Control",
 ];
 
-/** Drops the headers no error response carries and sets `Cache-Control: no-store` (#272) */
-const scrubErrorHeaders = (headers: Headers) => {
-  for (const name of DROPPED_ERROR_HEADERS) {
+/** The context's header store loses the body headers too: an error re-serializes its own body (#272) */
+const CONTEXT_ERROR_HEADERS = [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS];
+
+/**
+ * Whether a `Set-Cookie` expires its cookie, the only kind an error response keeps (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)):
+ * `Max-Age` 0 or less, or an `Expires` in the past when no valid `Max-Age` is there (RFC 6265 §5.3: a `Max-Age` wins over
+ * `Expires`, and one that is not an integer is ignored). Attribute names are case-insensitive. An `Expires` that does
+ * not parse does not expire the cookie, so it is not kept; when duplicates disagree, every one has to expire it
+ */
+const isExpiringCookie = (cookie: string) => {
+  const attributes = new Map<string, string[]>();
+  // The first field is the cookie-pair itself: the scanner starts after it, so a cookie named `Max-Age` is data
+  for (const field of cookie.split(";").slice(1)) {
+    const separator = field.indexOf("=");
+    if (separator === -1) continue;
+    const name = field.slice(0, separator).trim().toLowerCase();
+    const value = field.slice(separator + 1).trim();
+    attributes.set(name, [...(attributes.get(name) ?? []), value]);
+  }
+  const maxAges = (attributes.get("max-age") ?? []).filter((value) => /^-?\d+$/.test(value)).map(Number);
+  if (maxAges.length) {
+    return maxAges.every((value) => value <= 0);
+  }
+  const expires = attributes.get("expires");
+  if (!expires) {
+    return false;
+  }
+  const now = Date.now();
+  return expires.every((value) => {
+    const time = Date.parse(value);
+    return !Number.isNaN(time) && time <= now;
+  });
+};
+
+/**
+ * Drops the headers no error response carries and sets `Cache-Control: no-store` (#272), keeping only the cookies
+ * that expire one (H29 #295). `names` adds the body headers for the context's store, never for a response sent as it is
+ */
+const scrubErrorHeaders = (headers: Headers, names: readonly string[] = DROPPED_ERROR_HEADERS) => {
+  const cookies = headers.getSetCookie().filter(isExpiringCookie);
+  for (const name of names) {
     headers.delete(name);
+  }
+  for (const cookie of cookies) {
+    headers.append("Set-Cookie", cookie);
   }
   headers.set("Cache-Control", "no-store");
 };
 
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
-const KEPT_5XX_HEADERS = ["Retry-After", "WWW-Authenticate"];
+const KEPT_5XX_HEADERS = new Set(["retry-after", "www-authenticate"]);
+
+/** Cancels a body no response sends, so an upstream fetch releases its socket (H29 #295); a failed cancel is ignored */
+const cancelBody = (body: ReadableStream | null | undefined) => {
+  body?.cancel().catch(() => {});
+};
+
+/** The error's own answer, kept so the outermost scrub can put it back when a middleware replaces it (H29 #295) */
+const errorResponses = new WeakMap<Context, globalThis.Response>();
+
+const scrubInstalled = new WeakSet<Hono>();
+
+/**
+ * Registers the outermost scrub middleware (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)): a middleware
+ * that writes headers after `await next()` (a session commit, `etag()`) cannot put back what `resolveException` dropped,
+ * and cannot turn the error's answer into a success (`etag()` answers a 304). It is registered in `register()` and
+ * `boot()`: the app providers mount their routes in `boot()`, and Hono only runs a middleware added before the route it
+ * wraps, so a boot after the routes would be too late
+ */
+const installErrorScrub = (app: Hono) => {
+  if (scrubInstalled.has(app)) return;
+  scrubInstalled.add(app);
+  const scrub: MiddlewareHandler = async (c, next) => {
+    await next();
+    if (!c.error) return;
+    const answer = errorResponses.get(c);
+    // A middleware answered the error with a non-error response (etag()'s 304): the error's own answer is put back,
+    // with every cookie it kept, and the dropped body is cancelled
+    if (answer && !isFailureStatus(c.res.status)) {
+      const replaced = c.res;
+      const cookies = answer.headers.getSetCookie();
+      c.res = answer;
+      for (const cookie of cookies) {
+        if (!c.res.headers.getSetCookie().includes(cookie)) c.res.headers.append("Set-Cookie", cookie);
+      }
+      cancelBody(replaced.body);
+    }
+    scrubErrorHeaders(c.res.headers);
+  };
+  app.use(scrub);
+};
 
 export default class Response extends AppServiceProvider {
 
@@ -139,19 +220,24 @@ export default class Response extends AppServiceProvider {
    * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
    */
   public resolveException(err: Error | Exception, c: Context) {
+    /** The answer the outermost scrub puts back if a middleware replaces it (H29 #295) */
+    const answer = (response: globalThis.Response | Promise<globalThis.Response>) => {
+      if (response instanceof globalThis.Response) errorResponses.set(c, response);
+      return response;
+    };
     // On the context, not only on the response built below: Hono merges the context's headers into the error response
     // (#272). The other headers set before the throw (CORS, Vary) stay. A context finalized before the throw holds a
     // response whose body may be read already, and whose headers may be immutable: the error starts from a copy of
-    // its headers only (Hono's `res` setter merges the old ones into it, mutable)
+    // its headers only (Hono's `res` setter merges the old ones into it, mutable). Its body is no response's any more,
+    // so it is cancelled, which releases an upstream fetch's socket (H29 #295)
     if (c.finalized) {
-      c.res = new globalThis.Response(null, { headers: c.res.headers });
+      const finalized = c.res;
+      c.res = new globalThis.Response(null, { headers: finalized.headers });
+      cancelBody(finalized.body);
     }
     // c.res.headers is the context's only header store from Hono 4.8 on, the peer floor: before 4.8, a second store
-    // put back the headers deleted here (#281 security review)
-    for (const name of BODY_HEADERS) {
-      c.res.headers.delete(name);
-    }
-    scrubErrorHeaders(c.res.headers);
+    // put back the headers deleted here (#281 security review). One pass: the body headers and the dropped ones
+    scrubErrorHeaders(c.res.headers, CONTEXT_ERROR_HEADERS);
 
     // A contract error is a declared answer: its own status and `{ code, ...body }`, a 5xx too, whatever the route's or
     // controller's status. It is expected, so it is not logged (#108)
@@ -164,12 +250,12 @@ export default class Response extends AppServiceProvider {
         if (typeof json.toJSON === "function") {
           delete json.toJSON;
         }
-        return c.json(json, err.status as ContentfulStatusCode);
+        return answer(c.json(json, err.status as ContentfulStatusCode));
       }
       catch (failure) {
         // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
         console.error(err, failure);
-        return c.json({ message: "Server Error" }, 500);
+        return answer(c.json({ message: "Server Error" }, 500));
       }
     }
 
@@ -186,25 +272,56 @@ export default class Response extends AppServiceProvider {
     // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
     // no route or controller status overrides, with the generic body of docs/v1/http.md › Exceptions
     if (status >= 500) {
-      const kept: Record<string, string> = {};
-      for (const name of KEPT_5XX_HEADERS) {
-        const value = httpError?.response.headers.get(name);
-        if (value != null) kept[name] = value;
+      const kept: Array<[string, string]> = [];
+      if (httpError) {
+        // The kept headers are read one entry at a time: `headers.get` would join several `WWW-Authenticate` challenges
+        // into one value, and the error's own ones win over a `c.header()` one set before the throw (H29 #295)
+        for (const [name, value] of httpError.response.headers) {
+          if (KEPT_5XX_HEADERS.has(name.toLowerCase())) kept.push([name, value]);
+        }
+        for (const [name] of kept) c.res.headers.delete(name);
+        // The error's own body is not sent, so its stream is cancelled (H29 #295)
+        cancelBody(httpError.response.body);
       }
-      return Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode, kept));
+      const response = Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
+      for (const [name, value] of kept) response.headers.append(name, value);
+      return answer(response);
     }
     if (httpError) {
       // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay. The
       // error's own headers are set on purpose and stay too, but they never set a cookie or cache the error either
       const headers = new Headers(httpError.response.headers);
       scrubErrorHeaders(headers);
-      return c.newResponse(httpError.response.body, { status: httpError.status, headers });
+      // Hono's `res` setter merges the context's headers back over the response: the ones the error's own response sets
+      // win here (a `WWW-Authenticate` or `Retry-After` set before the throw must not replace it, H29 #295), and both
+      // sets of kept cookies survive the setter's set-cookie branch
+      const cookies = [...new Set([...c.res.headers.getSetCookie(), ...headers.getSetCookie()])];
+      for (const name of headers.keys()) {
+        c.res.headers.delete(name);
+      }
+      c.res.headers.delete("Set-Cookie");
+      for (const cookie of cookies) {
+        c.res.headers.append("Set-Cookie", cookie);
+      }
+      return answer(c.newResponse(httpError.response.body, { status: httpError.status, headers }));
     }
     //TODO: Response exception with HTML
-    return Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status));
+    return answer(Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status)));
+  }
+
+  /**
+   * Installs the outermost error scrub before the app providers boot their routes (H29 #295): Hono only runs a
+   * middleware added before the route it wraps, and this kernel boots after them
+   */
+  public register(): void {
+    installErrorScrub(this.apps);
   }
 
   public boot(): void {
+    // First: the outermost middleware scrubs what a later middleware writes after `await next()` (H29 #295). A direct
+    // boot (tests, an app that never calls `register()`) installs it here, before its routes are mounted
+    installErrorScrub(this.apps);
+
     this.apps.use(async (ctx, next) => {
       this.resolveResponse(ctx);
       return next();

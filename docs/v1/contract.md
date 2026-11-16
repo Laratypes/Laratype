@@ -189,6 +189,7 @@ export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
 export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 export const isBodylessStatus: (status: number) => boolean;   // 204 or 205
+export const isFailureStatus: (status: unknown) => status is number;   // an integer from 400 to 599, the one error-status rule (H29 #295)
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
