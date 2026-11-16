@@ -14,6 +14,7 @@ interface FakeColumn {
   readonly propertyName: string
   readonly propertyPath: string
   readonly type: ColumnType
+  readonly relationMetadata?: unknown
 }
 
 const COLUMNS: FakeColumn[] = [
@@ -26,6 +27,8 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'tenantId', propertyPath: 'tenantId', type: String },
   // An embedded column: its leaf `street` is not an own model property
   { propertyName: 'street', propertyPath: 'address.street', type: String },
+  // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
+  { propertyName: 'author', propertyPath: 'author', type: Number, relationMetadata: {} },
 ]
 
 /**
@@ -222,6 +225,8 @@ describe('Model.findByRouteKey', () => {
       'posts',
       'street',
       'address.street',
+      // A relation's join column is not an own model column
+      'author',
     ]) {
       const { User } = model({ routeKeyName })
       await expect(User.findByRouteKey('ada')).rejects.toThrow(

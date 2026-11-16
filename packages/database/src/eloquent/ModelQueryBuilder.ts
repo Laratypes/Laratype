@@ -72,6 +72,9 @@ const errors = {
     `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${formatValue(operator)}`,
   arrayOperand: (operator: string, value: unknown): string =>
     `[@laratype/database] where() takes an array for ${formatValue(operator)}, got ${formatValue(value)}`,
+  nullishValue: (column: string, value: unknown): string =>
+    `[@laratype/database] where() cannot filter ${formatValue(column)} with ${formatValue(value)}:`
+    + " IS NULL filters are not part of the v1 surface",
   direction: (direction: unknown): string =>
     `[@laratype/database] orderBy() takes "asc" or "desc", got ${formatValue(direction)}`,
   limit: (count: unknown): string =>
@@ -138,7 +141,9 @@ export default class ModelQueryBuilder<T extends object = object> {
       }
       const conditions: Record<string, unknown> = {};
       for (const [name, value] of Object.entries(columnOrWhere as Record<string, unknown>)) {
-        conditions[this.column(name, "where")] = value;
+        const property = this.column(name, "where");
+        this.assertValue(property, value);
+        conditions[property] = value;
       }
       this.query.andWhere(conditions as ObjectLiteral);
       return this;
@@ -146,6 +151,7 @@ export default class ModelQueryBuilder<T extends object = object> {
 
     const column = this.column(columnOrWhere, "where");
     if (rest.length === 1) {
+      this.assertValue(column, rest[0]);
       this.query.andWhere({ [column]: rest[0] } as ObjectLiteral);
       return this;
     }
@@ -155,6 +161,7 @@ export default class ModelQueryBuilder<T extends object = object> {
     if (!isWhereOperator(operator)) {
       throw new ModelError(errors.operator(operator));
     }
+    this.assertValue(column, value);
     if ((operator === "in" || operator === "not in") && !Array.isArray(value)) {
       throw new ModelError(errors.arrayOperand(operator, value));
     }
@@ -212,6 +219,13 @@ export default class ModelQueryBuilder<T extends object = object> {
     // TypeORM's count ignores the page window, so `total` is the full number of matches
     const [data, total] = await this.query.getManyAndCount();
     return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
+  }
+
+  /** A nullish value is refused: TypeORM would bind `= NULL`, which never matches, and some drivers reject it. */
+  private assertValue(column: string, value: unknown): void {
+    if (value === null || value === undefined) {
+      throw new ModelError(errors.nullishValue(column, value));
+    }
   }
 
   /** Resolves a caller's column name against the entity metadata; an own column property, or it throws. */

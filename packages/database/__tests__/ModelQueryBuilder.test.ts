@@ -63,6 +63,10 @@ const builder = (rows: Row[] = [], total = rows.length) => {
     { propertyName: 'deletedAt', propertyPath: 'deletedAt', type: Date },
     // An embedded column: its leaf `street` is not an own model property
     { propertyName: 'street', propertyPath: 'address.street', type: String },
+    // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
+    { propertyName: 'author', propertyPath: 'author', type: Number, relationMetadata: {} },
+    // A user-declared foreign key column of a relation carries relationMetadata too
+    { propertyName: 'authorId', propertyPath: 'authorId', type: Number, relationMetadata: {} },
   ]
   const query = new FakeQueryBuilder(rows, total)
   const repository = {
@@ -159,6 +163,56 @@ describe('ModelQueryBuilder.where', () => {
       )
       expect(query.wheres).toEqual([])
     }
+  })
+
+  it('refuses a relation join column, which is not an own model column', () => {
+    const { query, UserQuery } = builder()
+    for (const column of ['author', 'authorId']) {
+      expect(() => UserQuery.where(column as never, 5)).toThrow(
+        `[@laratype/database] User has no column ${JSON.stringify(column)}: where() takes a column property of the model`,
+      )
+      expect(() => UserQuery.where({ [column]: 5 } as never)).toThrow(
+        `[@laratype/database] User has no column ${JSON.stringify(column)}: where() takes a column property of the model`,
+      )
+      expect(() => UserQuery.orderBy(column as never)).toThrow(
+        `[@laratype/database] User has no column ${JSON.stringify(column)}: orderBy() takes a column property of the model`,
+      )
+    }
+    expect(query.wheres).toEqual([])
+    expect(query.orderBys).toEqual([])
+  })
+
+  it('refuses a null or undefined value in the two-argument form', () => {
+    const { query, UserQuery } = builder()
+    for (const value of [null, undefined]) {
+      expect(() => UserQuery.where('email', value as never)).toThrow(
+        `[@laratype/database] where() cannot filter "email" with ${String(value)}: IS NULL filters are not part of the v1 surface`,
+      )
+    }
+    expect(query.wheres).toEqual([])
+  })
+
+  it('refuses a null or undefined value in the object form', () => {
+    const { query, UserQuery } = builder()
+    for (const value of [null, undefined]) {
+      expect(() => UserQuery.where({ email: value } as never)).toThrow(
+        `[@laratype/database] where() cannot filter "email" with ${String(value)}: IS NULL filters are not part of the v1 surface`,
+      )
+    }
+    expect(query.wheres).toEqual([])
+  })
+
+  it('refuses a null or undefined value for every comparison operator', () => {
+    const { query, UserQuery } = builder()
+    const operators = ['=', '!=', '<', '<=', '>', '>=', 'like', 'not like', 'in', 'not in'] as const
+    for (const operator of operators) {
+      for (const value of [null, undefined]) {
+        expect(() => UserQuery.where('email', operator, value as never)).toThrow(
+          `[@laratype/database] where() cannot filter "email" with ${String(value)}: IS NULL filters are not part of the v1 surface`,
+        )
+      }
+    }
+    expect(query.wheres).toEqual([])
   })
 
   it('refuses a first argument that is neither a column name nor an object', () => {
