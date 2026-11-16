@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -33,6 +33,7 @@ type RunName =
   | "request"
   | "resource"
   | "nestedResource"
+  | "gate"
   | "escapeController"
   | "escapeRequest"
   | "escapeResource"
@@ -126,6 +127,7 @@ beforeAll(async () => {
     request: await sauf("make:request", "DraftRequest"),
     resource: await sauf("make:resource", "Draft", "--collection"),
     nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
+    gate: await sauf("make:gate", "UpdateUserGate"),
     escapeController: await sauf("make:controller", "../x"),
     escapeRequest: await sauf("make:request", "../x"),
     escapeResource: await sauf("make:resource", "../x", "--collection"),
@@ -338,8 +340,20 @@ describe("make generators", () => {
   it("make:policy -m writes the model import and the camelCase parameter", () => {
     expectOk(runs.policyModelOk);
     const stub = readFileSync(join(project, "src/policies/PostPolicy.ts"), "utf8");
-    expect(stub).toContain('import Post from "../models/Post";');
-    expect(stub).toContain("viewAny(actor: User, post: Post)");
+    expect(stub).toContain('import type Post from "../models/Post";');
+    expect(stub).toContain("viewAny(user: User)");
+    expect(stub).toContain("update(user: User, post: Post)");
+    // A v1 policy is a plain class, with no 0.5 base class to extend
+    expect(stub).toContain("export default class PostPolicy {");
+    expect(stub).not.toContain("extends Policy");
+  });
+
+  it("make:gate writes a typed gate value, not a 0.5 gate class", () => {
+    expectOk(runs.gate);
+    const stub = readFileSync(join(project, "src/gates/UpdateUserGate.ts"), "utf8");
+    expect(stub).toContain('import { Gate } from "@laratype/auth";');
+    expect(stub).toContain('export default Gate.define("update-user", (user: User, target: User) => user.id === target.id);');
+    expect(stub).not.toContain("extends Gate");
   });
 
   it("types:generate gives the nested folder its Prefix", () => {
@@ -356,6 +370,16 @@ describe("make generators", () => {
       expect(result.code, `${name}: ${result.output}`).toBe(0);
     }
 
+    // The 0.5 folders (`src/gates`, `src/policies`) are outside examples/basic's `app/` tree, so the stubs' own
+    // `../models/<Model>` imports have nothing to resolve to there: the models they import are written for the check.
+    mkdirSync(join(project, "src/models"), { recursive: true });
+    for (const model of ["User", "Post"]) {
+      writeFileSync(
+        join(project, `src/models/${model}.ts`),
+        `import { Model } from "@laratype/database";\n\nexport default class ${model} extends Model {\n  id!: number\n}\n`,
+      );
+    }
+
     const generated = [
       "app/api/my-note.ts",
       "app/api/reports/monthly.ts",
@@ -369,6 +393,9 @@ describe("make generators", () => {
       // A sub-path is a folder, never part of an exported name
       "app/http/resources/admin/NoteResource.ts",
       "app/http/resources/admin/NoteResourceCollection.ts",
+      // The v1 policy and gate stubs (A3 #121)
+      "src/policies/PostPolicy.ts",
+      "src/gates/UpdateUserGate.ts",
     ].map((path) => join(project, path));
     for (const file of generated) expect(existsSync(file), file).toBe(true);
 

@@ -1,10 +1,8 @@
 import { Gate } from "@laratype/auth";
-import User  from "../models/User";
+import type User from "../models/User";
 
-export default class {{GateName}} extends Gate {
-  handle(actor: User, user: User): boolean {
-    // Implement your authorization logic here
-    // For example, allow if the user is updating their own profile
-    return actor.id === user.id;
-  }
-}
+/**
+ * A gate for an ability with no model of its own (docs/v1/auth.md › Policies and gates): `true` allows, anything else
+ * denies. Check it with `Gate.allows(user, {{GateName}}, target)`; `Gate.authorize()` answers the 403 instead.
+ */
+export default Gate.define("{{GateName}}", (user: User, target: User) => user.id === target.id);
