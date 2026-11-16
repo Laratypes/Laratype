@@ -89,7 +89,7 @@ Package manifests, build configuration and scripts:
   `bun run build:type` (`rollup.dts.config.js`) writes `dist/index.d.cts` next to `dist/index.d.ts`.
 - **Peer dependencies:**
   - `hono` (`^4.8.0`) for http, support and laratype;
-  - `zod` (`^3.25.0`) for http and validation, whose `.d.ts` import zod.
+  - `zod` (`^4.6.6`) for http and validation, whose `.d.ts` import zod.
   - Optional workspace peers for imports that are type-only or loaded on demand: support → http; http → auth; laratype → http, auth; sauf → laratype, database.
   - support also has `passport` and `@types/passport` as optional peers (the auth config type).
 - **Dependencies** that were devDependencies:

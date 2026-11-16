@@ -23,7 +23,7 @@ export const UserDto = z.object({
 })
 
 export default defineContract<Prefix>()({
-  index: endpoint.get('/').query(z.object({ page: z.coerce.number().optional() })).response(z.array(UserDto)),
+  index: endpoint.get('/').query(z.object({ page: z.coerce.number<number>().optional() })).response(z.array(UserDto)),
   show: endpoint.get('/:user').response(UserDto),
   store: endpoint
     .post('/')

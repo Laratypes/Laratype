@@ -129,7 +129,7 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E
 - **The stubs type-check** in `examples/basic`. The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
   - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
-  - on the repo's zod 3.25 `zod` entry, contract and request stubs write `z.coerce.number()`. With zod 4's default entry the input type of plain `z.coerce.number()` is `unknown`, so the stub then needs `z.coerce.number<number>()`;
+  - contract and request stubs write `z.coerce.number<number>()`: with zod 4 the input type of plain `z.coerce.number()` is `unknown`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 - **`make:request` stays 0.5** until FormRequest v2 ([#137](https://github.com/Laratypes/Laratype/issues/137)): the class extends `Request` and declares `rules()`. A contract route validates the contract's schemas and takes no request class ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 - **`make:resource` maps plain data:** `defineResource(model, fn)` returns `make`, `collection` and `paginate`; the contract checks the returned data at `r.contract()` ([http.md › Resources](./http.md#resources)). The placeholder model class in the stub is replaced by the app's model.
@@ -158,7 +158,7 @@ import { defineContract, endpoint } from "@laratype/contract";
 import * as z from "zod";
 import type { Prefix } from "./$types";
 
-const IndexQuery = z.object({ page: z.coerce.number().int().min(1).default(1) });
+const IndexQuery = z.object({ page: z.coerce.number<number>().int().min(1).default(1) });
 
 export default defineContract<Prefix>()({
   index: endpoint.get("/").query(IndexQuery),

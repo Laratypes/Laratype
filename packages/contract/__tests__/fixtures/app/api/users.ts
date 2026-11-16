@@ -7,7 +7,7 @@ export const UserDto = z.object({ id: z.number(), name: z.string(), email: z.str
 
 export default defineContract()({
   // `.response()` last in the chain: status must stay 200 (NoInfer regression, see contract.types.ts)
-  index: endpoint.get('/').query(z.object({ page: z.coerce.number().default(1) })).response(z.array(UserDto)),
+  index: endpoint.get('/').query(z.object({ page: z.coerce.number<number>().default(1) })).response(z.array(UserDto)),
   show: endpoint.get('/:user').response(UserDto),
   store: endpoint
     .post('/')

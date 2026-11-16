@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as v from 'valibot'
-import * as z from 'zod/v4'
-import { z as z3 } from 'zod'
+import * as z from 'zod'
 import { issuePath, toErrorBag, validate, validateSync } from '@laratype/contract'
 import type { StandardSchemaV1 } from '@laratype/contract'
 
@@ -91,16 +90,16 @@ describe.each(vendors)('%s', (_, schemas) => {
 })
 
 describe('validate() with zod', () => {
-  it.each([['zod 3', z3], ['zod 4', z]] as const)('%s: a throwing refinement runs once, and rejects', async (_, lib) => {
+  it('a throwing refinement runs once, and rejects', async () => {
     let calls = 0
     const failure = new Error('boom')
-    const schema = (lib.object({ name: lib.string() }) as any).superRefine(() => { calls++; throw failure }) as StandardSchemaV1
+    const schema = (z.object({ name: z.string() }) as any).superRefine(() => { calls++; throw failure }) as StandardSchemaV1
     await expect(validate(schema, { name: 'ada' })).rejects.toBe(failure)
     expect(calls).toBe(1)
   })
 
-  it.each([['zod 3', z3], ['zod 4', z]] as const)('%s: issues and output are the ones of ~standard.validate', async (_, lib) => {
-    const schema = lib.object({ name: lib.string(), page: lib.coerce.number() }) as unknown as StandardSchemaV1
+  it('issues and output are the ones of ~standard.validate', async () => {
+    const schema = z.object({ name: z.string(), page: z.coerce.number() }) as unknown as StandardSchemaV1
     const invalid = await validate(schema, { page: '2' })
     expect(invalid.ok).toBe(false)
     expect(invalid).toEqual({ ok: false, errors: toErrorBag((await schema['~standard'].validate({ page: '2' }) as { issues: [] }).issues), issues: expect.any(Array) })
