@@ -1,5 +1,5 @@
-import { Controller, Request, response, redirect } from "@laratype/http";
-import { GeneralTypesEnum } from "@laratype/support";
+import { Controller, Request, Response, response, redirect } from "@laratype/http";
+import { ContentTypeEnum, GeneralTypesEnum } from "@laratype/support";
 
 export class BaseController extends Controller {
 
@@ -16,7 +16,8 @@ export class BaseController extends Controller {
           msg: "Hello world",
         }
       case "html":
-        return "Hello World"
+        // A returned string is text/plain (H41 #336): an HTML body is an explicit Response
+        return response("Hello World").setContentType(ContentTypeEnum.HTML)
       case "array":
         return ["Hello", "World"]
       case "number":
@@ -31,7 +32,8 @@ export class BaseController extends Controller {
   }
 
   public testCollectionDataType(req: Request) {
-    return response(this.getDataType(req.param("dataType")))
+    const data = this.getDataType(req.param("dataType"))
+    return data instanceof Response ? data : response(data)
   }
 
   public testRedirect(req: Request) {
