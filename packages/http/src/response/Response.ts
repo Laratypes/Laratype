@@ -166,21 +166,37 @@ const installErrorScrub = (app: Hono) => {
   if (scrubInstalled.has(app)) return;
   scrubInstalled.add(app);
   const scrub: MiddlewareHandler = async (c, next) => {
-    await next();
-    if (!c.error) return;
-    const answer = errorResponses.get(c);
-    // A middleware answered the error with a non-error response (etag()'s 304): the error's own answer is put back,
-    // with every cookie it kept, and the dropped body is cancelled
-    if (answer && !isFailureStatus(c.res.status)) {
-      const replaced = c.res;
-      const cookies = answer.headers.getSetCookie();
-      c.res = answer;
-      for (const cookie of cookies) {
-        if (!c.res.headers.getSetCookie().includes(cookie)) c.res.headers.append("Set-Cookie", cookie);
-      }
-      cancelBody(replaced.body);
+    // `finally`: a throw out of `next()` (a non-`Error`, whose generic 500 is the fetch wrapper's) must not skip the
+    // stored clone's cleanup
+    try {
+      await next();
     }
-    scrubErrorHeaders(c.res.headers);
+    finally {
+      const answer = errorResponses.get(c);
+      // Taken once: the scrub is the only reader, and an entry no put back uses is cancelled below (H29 #388)
+      errorResponses.delete(c);
+      if (!c.error) {
+        cancelBody(answer?.body);
+      }
+      else {
+        // A middleware answered the error with a non-error response (etag()'s 304): the error's own answer is put back,
+        // with every cookie it kept, and the dropped body is cancelled. Any other path cancels the stored clone: a
+        // branch no put back sends would queue every chunk the sent branch reads, and keep an upstream body open
+        if (answer && !isFailureStatus(c.res.status)) {
+          const replaced = c.res;
+          const cookies = answer.headers.getSetCookie();
+          c.res = answer;
+          for (const cookie of cookies) {
+            if (!c.res.headers.getSetCookie().includes(cookie)) c.res.headers.append("Set-Cookie", cookie);
+          }
+          cancelBody(replaced.body);
+        }
+        else {
+          cancelBody(answer?.body);
+        }
+        scrubErrorHeaders(c.res.headers);
+      }
+    }
   };
   app.use(scrub);
 };
@@ -280,7 +296,8 @@ export default class Response extends AppServiceProvider {
      * The answer the outermost scrub puts back if a middleware replaces it (H29 #295). The store keeps a clone: compose
      * wraps the returned response in a new one that shares its body stream, and a middleware's `res.clone()`
      * (`etag()`) tees that stream and locks it, which would make the stored response unusable (`Response body object
-     * should not be disturbed or locked`). The clone tees it first, so the stored body is its own readable branch
+     * should not be disturbed or locked`). The clone tees it first, so the stored body is its own readable branch; the
+     * scrub cancels that branch when it does not put it back, so nothing is ever queued on it (H29 #388)
      */
     const answer = (response: globalThis.Response | Promise<globalThis.Response>) => {
       if (response instanceof globalThis.Response) errorResponses.set(c, response.clone());

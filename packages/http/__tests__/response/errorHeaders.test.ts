@@ -619,6 +619,31 @@ describe('cancelled bodies', () => {
     expect(await response.json()).toEqual(GENERIC)
     await vi.waitFor(() => expect(cancelled).toBe(1))
   })
+
+  // H29 #388: the stored clone is cancelled when it is not put back, so a client that stops reading does not leave an
+  // unread tee branch holding the upstream body open
+  it('cancels the stored clone of a streamed 4xx HTTPException once the client cancels', async () => {
+    quiet()
+    let cancelled = 0
+    const stream = new ReadableStream({
+      pull(controller) { controller.enqueue(new TextEncoder().encode('chunk')) },
+      cancel() { cancelled += 1 },
+    })
+    const res = new Response(stream, { status: 429, headers: { 'Content-Type': 'text/plain' } })
+    class Limited extends Controller { index() { throw new HTTPException(429, { res }) } }
+    const app = bootApp()
+    route(app, '/limited', Limited)
+    const response = await app.request('/limited')
+    expect(response.status).toBe(429)
+    const body = response.body
+    expect(body).not.toBeNull()
+    const reader = body!.getReader()
+    expect((await reader.read()).done).toBe(false)
+    await reader.cancel()
+    // A tee cancels its source once both branches are cancelled: the scrub cancelled the stored clone, the client this
+    // branch. The wait is bounded because the cancellations are promises.
+    await vi.waitFor(() => expect(cancelled).toBe(1), { timeout: 2_000 })
+  })
 })
 
 // H29 #295: keep every WWW-Authenticate challenge, and the error response's own value wins over a c.header() one
