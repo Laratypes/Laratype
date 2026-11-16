@@ -533,6 +533,45 @@ describe('Object.prototype methods are not abilities (#394)', () => {
   })
 })
 
+describe('an accessor is never an ability (#394)', () => {
+  it('denies a getter that returns a function, through Gate.allows, policyCheck and authorize', async () => {
+    class GetterPolicy {
+      get create() {
+        return () => true
+      }
+    }
+    Gate.policy(PostModel, GetterPolicy)
+    expect(await allows(user, 'create', post)).toBe(false)
+    expect(await policyCheck(new GetterPolicy(), user, 'create', post)).not.toBe(true)
+    await expect(authorize(user, 'create', post)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('denies a getter that throws, instead of a 500, and never runs it during the lookup', async () => {
+    let reads = 0
+    class ThrowingGetter {
+      get create(): () => boolean {
+        reads++
+        throw new Error('the getter ran')
+      }
+    }
+    Gate.policy(PostModel, ThrowingGetter)
+    expect(await allows(user, 'create', post)).toBe(false)
+    // The descriptor is read, the accessor is not: no policy code runs while the ability is looked up
+    expect(reads).toBe(0)
+    await expect(authorize(user, 'create', post)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(reads).toBe(0)
+  })
+
+  it('still allows an own arrow function field, which is a data property', async () => {
+    class FieldPolicy {
+      field = () => true
+    }
+    Gate.policy(PostModel, FieldPolicy)
+    expect(await allows(user, 'field', post)).toBe(true)
+    await expect(authorize(user, 'field', post)).resolves.toBeUndefined()
+  })
+})
+
 describe('Gate.policy inside a request (#394)', () => {
   class RequestPolicy {
     update() {
@@ -540,9 +579,9 @@ describe('Gate.policy inside a request (#394)', () => {
     }
   }
 
-  it('refuses, and neither another request nor the app sees the policy', async () => {
-    const message = '[@laratype/auth] Gate.policy: register policies in a service provider, not inside a request.'
+  const message = '[@laratype/auth] Gate.policy: register policies in a service provider, not inside a request.'
 
+  it('refuses, and neither another request nor the app sees the policy', async () => {
     const first = app.createRequestScope()
     await ContextApi.run({ container: first } as never, async () => {
       expect(() => Gate.policy(Comment, RequestPolicy)).toThrow(message)
@@ -558,5 +597,13 @@ describe('Gate.policy inside a request (#394)', () => {
     expect(GateManager.current().policyFor(Comment)).toBeUndefined()
     await first.dispose()
     await second.dispose()
+  })
+
+  it('refuses inside a request store that has no container, and still allows at boot', async () => {
+    // A hand-mounted handler or a test app can run with a request store but no container: the store is the test
+    await ContextApi.run({ request: {} } as never, async () => {
+      expect(() => Gate.policy(Comment, RequestPolicy)).toThrow(message)
+    })
+    expect(() => Gate.policy(Comment, RequestPolicy)).not.toThrow()
   })
 })

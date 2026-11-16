@@ -22,10 +22,11 @@ export default class GateManager {
   /**
    * Registers `policy` for `model`: `Gate.policy(Post, PostPolicy)`, from a service provider's `register()` or `boot()`.
    * Registration is a boot-time act: the registry is the app's singleton, so a policy added inside a request would live
-   * on for every request (#394).
+   * on for every request (#394). The request store is the test, not its container: a hand-mounted handler or a test app
+   * can run with a store but no container.
    */
   policy<M extends object>(model: AbstractNewable<M>, policy: PolicyClass): this {
-    if (ContextApi.getContainer() !== undefined) {
+    if (ContextApi.getRequestStore().getStore() !== undefined) {
       throw new InternalException(
         "[@laratype/auth] Gate.policy: register policies in a service provider, not inside a request.",
       );

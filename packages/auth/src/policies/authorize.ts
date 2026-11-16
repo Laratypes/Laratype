@@ -13,14 +13,17 @@ const before = async (policy: object, user: unknown, ability: string, args: read
  * The ability method of a policy, or `undefined`: a function the policy instance or a class below `Object.prototype`
  * declares. `Object.prototype`'s own methods (`hasOwnProperty`, `toString`, `__defineGetter__`, ...) are never
  * abilities: `hasOwnProperty(user)` would ask whether the policy has an own field named `String(user)`, and answer
- * true (#394). A field, `before` and `constructor` never run either.
+ * true (#394). A field, `before` and `constructor` never run either, and neither does an accessor.
  */
 const abilityMethod = (policy: object, ability: string): ((...args: unknown[]) => unknown) | undefined => {
   if (ability === "constructor" || ability === "before") return undefined;
   for (let level: object | null = policy; level !== null && level !== Object.prototype; level = Object.getPrototypeOf(level)) {
-    if (!Object.hasOwn(level, ability)) continue;
-    const method = (level as Record<string, unknown>)[ability];
-    return typeof method === "function" ? method as (...args: unknown[]) => unknown : undefined;
+    // The descriptor, not `level[ability]`: reading the property would run a getter with the prototype as its `this` and
+    // use its value, so `get create() { return () => true }` would allow. Only a data property holding a function is an
+    // ability; an accessor denies, and no policy code runs during the lookup (#394 round 3).
+    const descriptor = Object.getOwnPropertyDescriptor(level, ability);
+    if (!descriptor) continue;
+    return typeof descriptor.value === "function" ? descriptor.value as (...args: unknown[]) => unknown : undefined;
   }
   return undefined;
 };
