@@ -26,7 +26,7 @@ export type CorsConfig = Omit<
 > & {
   /** Hono path patterns the middleware runs on; the default is every path (`['*']`). */
   readonly paths?: readonly string[];
-  /** `'*'` for every origin, an origin string (matched exactly), a list of them, or a function answering one, or nothing. */
+  /** `'*'` for every origin, an origin string (matched exactly), a list of them, or a function answering one. */
   readonly origin: ReadonlyList<HonoCorsOptions["origin"]>;
   /** Hono's default `GET, HEAD, PUT, POST, DELETE, PATCH`; a function may answer per origin. */
   readonly allowMethods?: ReadonlyList<HonoCorsOptions["allowMethods"]>;
@@ -79,12 +79,13 @@ const isPathPattern = (value: unknown): value is string =>
 const isName = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
 /**
- * An origin as a browser serializes it: `scheme://host[:port]`, with no path, trailing slash or query. Hono compares it
- * to the `Origin` header by exact string, so `https://app.example.com/` would silently never match.
+ * An origin as a browser serializes it: `http(s)://host[:port]`, with no path, trailing slash or query. Hono compares
+ * it to the `Origin` header by exact string, so `https://app.example.com/` would silently never match.
  */
 const isSerializedOrigin = (value: string): boolean => {
   try {
-    return new URL(value).origin === value;
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value;
   } catch {
     return false;
   }
@@ -98,7 +99,7 @@ const originShapeProblem = (value: string, key: string): string | undefined => {
   if (value === "null") return `${key}: 'null' allows sandboxed and file: pages; list real origins`;
   if (value === "*") return undefined;
   if (!isSerializedOrigin(value)) {
-    return `${key}: expected a serialized origin (scheme://host[:port]), got ${show(value)}`;
+    return `${key}: expected a serialized origin (http(s)://host[:port]), got ${show(value)}`;
   }
   return undefined;
 };
@@ -259,7 +260,9 @@ const resolveCors = (raw: unknown): ResolvedCors => {
 const readConfig = config as unknown as (path: string) => unknown;
 
 /** What `config()` throws before the config store is loaded: the one failure that means "no config", not a broken file. */
-const NO_CONFIG_STORE = "[@laratype/core] config('cors') ran before the configs were loaded (ConfigLoadServiceProvider)";
+const NO_CONFIG_STORE =
+  "[@laratype/core] config('cors') ran before the configs were loaded " +
+  "(ConfigLoadServiceProvider)";
 
 const configuredCors = (): unknown => {
   try {
@@ -281,7 +284,7 @@ const pathMatcher = (paths: readonly string[]): ((path: string) => boolean) => {
   return (path) => router.match("ALL", path)[0].length > 0;
 };
 
-/** Whether a `Vary` value already lists `Origin` (or covers every header with `*`), as tokens and case-insensitively. */
+/** Whether a `Vary` value already lists `Origin` (or `*` covers every header), as tokens and case-insensitively. */
 const varyCoversOrigin = (vary: string): boolean =>
   vary.split(",").some((token) => {
     const name = token.trim().toLowerCase();
@@ -313,9 +316,9 @@ const withVaryOrigin = (middleware: MiddlewareHandler): MiddlewareHandler =>
   };
 
 /**
- * Registers the CORS middleware on the app, from `app/config/cors.ts` (docs/v1/http.md › CORS). No file (or no `cors`
- * key) mounts nothing: same-origin only. Mounted first in `RequestKernel.boot()`, before the routes are registered, so
- * every route answers a preflight and every error response keeps the headers Hono sets before `next()`.
+ * Registers the CORS middleware on the app, from `app/config/cors.ts` (docs/v1/http.md › CORS): no file (or no `cors`
+ * key) mounts nothing (same-origin only), and `RequestKernel.boot()` mounts it first, before the routes, so every route
+ * answers a preflight and every error response keeps the headers Hono sets before `next()`.
  */
 export const mountCors = (app: Hono): void => {
   const raw = configuredCors();

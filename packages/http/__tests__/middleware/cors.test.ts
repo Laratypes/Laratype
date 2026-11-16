@@ -356,11 +356,15 @@ describe("an invalid app/config/cors.ts fails the boot", () => {
       ],
       [
         corsConfig({ origin: "http://app.test/" }),
-        'origin: expected a serialized origin (scheme://host[:port]), got "http://app.test/"',
+        'origin: expected a serialized origin (http(s)://host[:port]), got "http://app.test/"',
       ],
       [
         corsConfig({ origin: ["http://app.test/api"] }),
-        'origin[0]: expected a serialized origin (scheme://host[:port]), got "http://app.test/api"',
+        'origin[0]: expected a serialized origin (http(s)://host[:port]), got "http://app.test/api"',
+      ],
+      [
+        corsConfig({ origin: "ftp://app.test" }),
+        'origin: expected a serialized origin (http(s)://host[:port]), got "ftp://app.test"',
       ],
       [corsConfig({ paths: [] }), pathExpected],
       [
