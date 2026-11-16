@@ -3,7 +3,6 @@ import { describe, expectTypeOf, test } from "vitest";
 import { createPathClient } from "@laratype/client";
 import type { ClientResult, ClientSuccess, PathCall, PathClient, ProvidedHeaders } from "@laratype/client";
 import type { ApiTypes } from "@laratype/contract";
-import { appApi } from "./fixtures/.laratype/api/index.gen";
 import type { AppApi } from "./fixtures/.laratype/api/index.gen";
 import type { AppApi as Generated } from "./fixtures/separate-fe/api";
 
@@ -79,6 +78,10 @@ describe("createPathClient", () => {
     void api.get("/api/nope");
     // @ts-expect-error no POST endpoint at path "/api/users/:user"
     void api.post("/api/users/:user", { params: { user: 1 } });
+    // @ts-expect-error no DELETE endpoint at path "/api/users"
+    void api.delete("/api/users");
+    // @ts-expect-error no PUT endpoint at path "/api/users/:user"
+    void api.put("/api/users/:user", { params: { user: 1 } });
     // @ts-expect-error a missing required folder param
     void api.get("/api/users/:user/posts", {});
     // @ts-expect-error the input is required: the body
@@ -101,6 +104,39 @@ describe("createPathClient", () => {
     const template: `/api/${string}` = "/api/users";
     // @ts-expect-error createPathClient: a template path is not a literal path of the API
     void api.post(template, { body: { name: "A", email: "a@b.c" }, headers: { "x-tenant": "t" } });
+  });
+
+  test("put and delete calls are typed when the API declares them", () => {
+    type Removable = {
+      things: {
+        remove: {
+          method: "delete";
+          path: "/api/things/:id";
+          params: { id: string };
+          query: undefined;
+          body: undefined;
+          headers: undefined;
+          response: undefined;
+          status: 204;
+          errors: never;
+        };
+        replace: {
+          method: "put";
+          path: "/api/things/:id";
+          params: { id: string };
+          query: undefined;
+          body: { name: string };
+          headers: undefined;
+          response: { id: string; name: string };
+          status: 200;
+          errors: never;
+        };
+      };
+    };
+    const removable = createPathClient<Removable>();
+    const removed = removable.delete("/api/things/:id", { params: { id: 1 } });
+    expectTypeOf(removed).toEqualTypeOf<Promise<ClientResult<Removable["things"]["remove"]>>>();
+    void removable.put("/api/things/:id", { params: { id: 1 }, body: { name: "n" } });
   });
 
   test("a path that matches two endpoints is ambiguous", () => {

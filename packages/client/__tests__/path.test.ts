@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createPathClient } from "@laratype/client";
 import type { ClientOptions, FetchLike } from "@laratype/client";
 import type { ApiTypes } from "@laratype/contract";
-import { appApi } from "./fixtures/.laratype/api/index.gen";
 import type { AppApi } from "./fixtures/.laratype/api/index.gen";
 
 type Api = ApiTypes<AppApi>;
@@ -140,6 +139,30 @@ describe("createPathClient", () => {
     expect(result).toMatchObject({ ok: true, status: 200, data: { id: 7, title: "T" } });
   });
 
+  it("a 204 is a success with no data, and a non-JSON 2xx is unexpected", async () => {
+    const noContent = vi.fn<FetchLike>(async () => new Response(null, { status: 204 }));
+    expect(await createPathClient<Api>({ fetch: noContent }).get("/api/users")).toMatchObject({
+      ok: true,
+      status: 204,
+      data: undefined,
+    });
+    const notJson = vi.fn<FetchLike>(async () => new Response("<html>ok</html>", { status: 200 }));
+    expect(await createPathClient<Api>({ fetch: notJson }).get("/api/users")).toMatchObject({
+      ok: false,
+      unexpected: true,
+      status: 200,
+      text: "<html>ok</html>",
+    });
+  });
+
+  it("a code on an endpoint that declares no errors is outside the type, as the known gap says", async () => {
+    const fetch = vi.fn<FetchLike>(async () => new Response(JSON.stringify({ code: "BOOM", message: "x" }), { status: 500 }));
+    const result = await createPathClient<Api>({ fetch }).get("/api/v1/health");
+    // the runtime trusts the path; ClientResult<health> has no failure branch, so `code` is typed undefined
+    expect(result).toMatchObject({ ok: false, status: 500, code: "BOOM", error: { message: "x" } });
+    expect(result.unexpected).toBeUndefined();
+  });
+
   it("returns a 4xx/5xx JSON body with a code as an error even when the code is not declared", async () => {
     // the path names the endpoint, so the code is trusted; the types only know the declared ones
     const fetch = vi.fn<FetchLike>(async () => Response.json({ code: "TEAPOT", message: "x" }, { status: 418 }));
@@ -177,6 +200,7 @@ describe("path diagnostics", () => {
       "void api.post('/api/users/:user', { params: { user: 1 } })",
       "void dup.get('/api/dup')",
       "void api.post(wide, { body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })",
+      "void api.delete('/api/users')",
     ].join("\n");
     const { config } = ts.readConfigFile(`${root}tsconfig.app.json`, ts.sys.readFile);
     const { options } = ts.parseJsonConfigFileContent(config, ts.sys, root);
@@ -206,5 +230,6 @@ describe("path diagnostics", () => {
       '[@laratype/client] createPathClient: more than one endpoint answers GET at path "/api/dup"',
     );
     expect(text).toContain("[@laratype/client] createPathClient: the path must be a literal");
+    expect(text).toContain('[@laratype/client] createPathClient: no DELETE endpoint at path "/api/users"');
   }, 60_000);
 });

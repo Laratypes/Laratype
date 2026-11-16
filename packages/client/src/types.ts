@@ -156,8 +156,12 @@ type ApiEndpoints<A> = { [K in keyof A]: A[K] extends EndpointShape ? A[K] : Api
 /** The endpoint an API type declares at method `M` and full path `Path`; `never` when none matches. */
 type EndpointAt<A, M extends Method, Path extends string> = Extract<ApiEndpoints<A>, { method: M; path: Path }>;
 
-/** The paths an API type declares for method `M`. */
-type PathsOf<A, M extends Method> = EndpointAt<A, M, string> extends { path: infer P } ? P : never;
+/** The paths an API type declares for method `M`; `never` when it declares none. */
+type PathsOf<A, M extends Method> = ApiEndpoints<A> extends infer E
+  ? E extends { method: M; path: infer P }
+    ? P
+    : never
+  : never;
 
 /** Whether `T` is a union: a path that matches two endpoints is ambiguous. */
 type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
@@ -169,9 +173,11 @@ type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] 
 type CheckPath<A, M extends Method, Path extends string> = [string] extends [Path]
   ? { error: "[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)" }
   : [Path] extends [PathsOf<A, M>]
-    ? true extends IsUnion<EndpointAt<A, M, Path>>
-      ? { error: `[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
-      : unknown
+    ? [EndpointAt<A, M, Path>] extends [never]
+      ? { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` }
+      : true extends IsUnion<EndpointAt<A, M, Path>>
+        ? { error: `[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
+        : unknown
     : { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` };
 
 /** The input of a path-style call: the matched endpoint's `CallInput`, with the headers `options.headers` provides. */
@@ -192,8 +198,8 @@ export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
 ) => Promise<ClientResult<EndpointAt<A, M, Path>>>;
 
 /**
- * The client `createPathClient<AppApi>()` returns: one call per HTTP method (`get`, `post`, `put`, `patch`,
- * `delete`), keyed by the full request path. `P` holds the headers `options.headers` provides, as in `Client`.
+ * The client `createPathClient(...)` returns: one call per HTTP method (`get`, `post`, `put`, `patch`, `delete`),
+ * each taking the full request path of the endpoint it calls. `P` holds the headers `options.headers` provides.
  */
 export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
 
