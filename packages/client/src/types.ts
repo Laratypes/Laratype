@@ -1,4 +1,4 @@
-import type { ApiTypes, EndpointShape, Jsonify, Prettify } from "@laratype/contract";
+import type { ApiTypes, EndpointShape, Jsonify, Method, Prettify } from "@laratype/contract";
 
 /** What `JSON.stringify` drops from an object or sends as `null` in an array; the same set as `Jsonify` in @laratype/contract. */
 type NotJson = undefined | symbol | ((...args: any[]) => unknown);
@@ -149,6 +149,49 @@ export type Client<T, P = {}> = {
 
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
 export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
+
+/** Every endpoint of an API type, as a union: the tree flattened. */
+type EndpointsOf<A> = { [K in keyof A]: A[K] extends EndpointShape ? A[K] : EndpointsOf<A[K]> }[keyof A];
+
+/** The endpoint an API type declares at method `M` and full path `Path`; `never` when none matches. */
+type EndpointAt<A, M extends Method, Path extends string> = Extract<EndpointsOf<A>, { method: M; path: Path }>;
+
+/** Whether `T` is a union: a path that matches two endpoints is ambiguous. */
+type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
+
+/**
+ * The type-level check of a path-style call: `unknown` when exactly one endpoint matches, otherwise an object whose
+ * `error` property names the problem. Intersecting the path with it makes a bad path a type error that shows the text.
+ */
+type CheckPath<A, M extends Method, Path extends string> = [EndpointAt<A, M, Path>] extends [never]
+  ? { error: `[@laratype/client] no ${Uppercase<M>} endpoint at path "${Path}"` }
+  : true extends IsUnion<EndpointAt<A, M, Path>>
+    ? { error: `[@laratype/client] more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
+    : unknown;
+
+/** The input of a path-style call: the matched endpoint's `CallInput`, with the headers `options.headers` provides. */
+type PathInput<A, M extends Method, Path extends string, P> = CallInput<EndpointAt<A, M, Path>, P>;
+
+/**
+ * One path-style call: `api.get('/api/users/:user', { params })`. The path is the full request path the server
+ * mounts, and it selects the endpoint whose params, query, body, headers, result and errors the call is typed with.
+ * The input is optional when nothing in it is required. A path that matches no endpoint, or more than one, is a type
+ * error that shows the text in `Diagnostics`; `string` is not accepted, so the path must be a literal.
+ */
+export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
+  path: Path & CheckPath<A, M, Path>,
+  ...input: [EndpointAt<A, M, Path>] extends [never]
+    ? [input?: never]
+    : {} extends PathInput<A, M, Path, P>
+      ? [input?: PathInput<A, M, Path, P>]
+      : [input: PathInput<A, M, Path, P>]
+) => Promise<ClientResult<EndpointAt<A, M, Path>>>;
+
+/**
+ * The client `createPathClient<AppApi>()` returns: one call per HTTP method (`get`, `post`, `put`, `patch`,
+ * `delete`), keyed by the full request path. `P` holds the headers `options.headers` provides, as in `Client`.
+ */
+export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
 
 /** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
 type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;

@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, PathClient, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -70,14 +70,15 @@ interface Success {
 
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
- * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer).
+ * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer). `declared` is absent for a
+ * path-style call, which has no contract runtime: it trusts the path and takes any string `code` as declared.
  */
 interface RouteSpec {
   readonly name: string;
   readonly method: string;
   readonly path: string;
   readonly success: Success;
-  readonly declared: () => Declared;
+  readonly declared?: () => Declared;
 }
 
 /** The runtime view of `ClientResult`. */
@@ -299,10 +300,13 @@ const cancelBody = (response: Response): void => {
  *   is a declared error whose `error` is the body without `code`; anything else is unexpected. A 3xx is always
  *   unexpected, whatever code its body carries: a contract can't declare one, and the manifest knows codes only, so
  *   its body would match any status.
+ * - `declared` is absent for a path-style call: it has no contract runtime, so it trusts the path, and any string
+ *   `code` on a 4xx or 5xx is a declared error (the type says the endpoint declares it; http.md › Undeclared-error
+ *   check keeps the server honest).
  * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
  *   `unexpected` with the HTTP status, the `response` and that error.
  */
-async function toResult(response: Response, success: Success, declared: () => Declared): Promise<Result> {
+async function toResult(response: Response, success: Success, declared?: () => Declared): Promise<Result> {
   const { status } = response;
   const expected = success.status === undefined || status === success.status;
   if (response.ok && expected && success.data === "none") {
@@ -332,10 +336,14 @@ async function toResult(response: Response, success: Success, declared: () => De
   // a 3xx is never a declared error (see the doc above): only 4xx and 5xx body codes are matched
   if (status >= 400 && status < 600 && typeof body === "object" && body !== null && !Array.isArray(body)) {
     const { code, ...error } = body as Record<string, unknown>;
-    const errors = declared();
-    if (typeof code === "string" && errors.has(code)) {
-      const statuses = errors.get(code);
-      if (statuses === undefined || statuses.has(status)) return { ok: false, status, code, error, response };
+    if (typeof code === "string") {
+      // no contract runtime (the path client): the path names the endpoint, so the code is taken as declared
+      if (!declared) return { ok: false, status, code, error, response };
+      const errors = declared();
+      if (errors.has(code)) {
+        const statuses = errors.get(code);
+        if (statuses === undefined || statuses.has(status)) return { ok: false, status, code, error, response };
+      }
     }
   }
   return unexpected(status, body, response);
@@ -473,4 +481,40 @@ export function createClient(api: object, options: ClientOptions = {}): object {
   if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false);
   if (isManifest(api)) return buildTree(manifestRoutes(api), send, true);
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
+}
+
+/** The path-style client has no contract runtime, so it knows neither the declared status nor whether a schema exists. */
+const ANY_SUCCESS: Success = { status: undefined, data: "any" };
+
+/** The methods of `PathClient`, in declaration order. */
+const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
+
+/**
+ * The type-only path-style client (CL4 #140): `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then
+ * `api.get('/api/users/:user', { params })`. It takes no contract value: the API type comes from `import type` or the
+ * generated types, so no schema, contract file or appApi reaches the bundle.
+ * The path is the full request path the server mounts (`EndpointTypes.path`), and it is a literal: the call is typed
+ * with that endpoint's params, query, body, headers, result and errors, as in the named style.
+ * It reuses the named client's request path (`createSend`, `toResult`), so options and hooks behave the same: live
+ * options, a headers function, credentials, `redirect` (default `"manual"`), `onRequest`/`onResponse`, and the same
+ * baseUrl and same-origin checks.
+ * Without a contract runtime it trusts the path: any 2xx is the success, and a 4xx or 5xx JSON body with a string
+ * `code` is a declared error even if the endpoint does not declare that code (http.md › Undeclared-error check keeps
+ * the server honest). Use the named style when the status or code must be checked at runtime.
+ *
+ * @example
+ * const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://example.com' })
+ * const result = await api.get('/api/users/:user', { params: { user: 1 } })
+ */
+export function createPathClient<A extends ApiShape<A> = never, const Hd extends HeadersInit = HeadersInit>(
+  options?: ClientOptions<Hd>,
+): PathClient<A, ProvidedHeaders<Hd>> {
+  splitBaseUrl(options?.baseUrl ?? "");
+  const send = createSend(options ?? {});
+  const client: Record<string, unknown> = Object.create(null);
+  for (const method of METHODS) {
+    client[method] = (path: string, input?: RequestInput) =>
+      createCall(send, method, { name: "", method, path, success: ANY_SUCCESS })(input);
+  }
+  return Object.freeze(client) as unknown as PathClient<A, ProvidedHeaders<Hd>>;
 }
