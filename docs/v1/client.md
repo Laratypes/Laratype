@@ -22,7 +22,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
-| [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
+| [TanStack Query adapter](#tanstack-query-adapter) | proposed: PR <leader fills> @ 385e9ce ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5) |
 | [Dev-mode response validation](#dev-mode-response-validation) | planned → #159 |
 
 ---
@@ -386,13 +386,86 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8). The r
 ## TanStack Query adapter
 
 ### Status
-planned → [#141](https://github.com/Laratypes/Laratype/issues/141) (CL5, `@laratype/client-query`).
+proposed: PR <leader fills> @ 385e9ce ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5). The issue's "Vue and React adapters" task is met by one options API that `@tanstack/vue-query` and `@tanstack/react-query` both consume: `packages/client-query/__tests__/vue.test.ts` and `react.test.ts` each render a component with a mocked fetch, and `query.test-d.ts` checks that both frameworks infer the data, variables and error types from the options. Wrapper hooks would be a follow-up. The usage in `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)) is the item still open.
 
-### Design (non-binding)
-Vue and React adapters, generated query keys, and mutations with typed errors. Used in `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)).
+### Public API
+[`packages/client-query/src/index.ts`](../../packages/client-query/src/index.ts)
 
-### Acceptance
-[#141 Done when](https://github.com/Laratypes/Laratype/issues/141)
+```ts
+export const PACKAGE_NAME = "@laratype/client-query" as const
+
+export function createQueryApi<C extends ClientShape<C>>(client: C & CheckClient<C>): QueryTree<C>
+
+export class ClientQueryError<F extends ClientFailureResult = ClientFailureResult> extends Error {
+  readonly result: F;                          // narrow result.code / result.unexpected, as a failed call's
+  readonly status: F["status"];                // 0 for a network failure or an abort before the headers
+  readonly code: F["code"];                    // undefined when the result is unexpected
+  constructor(name: string, result: F);
+}
+export const CLIENT_QUERY_ERROR: unique symbol;   // Symbol.for brand, for an error from another copy
+export function isClientQueryError(value: unknown): value is ClientQueryError;
+export class ClientQueryApiError extends Error;   // a misuse of createQueryApi, not a failed call
+
+export type QueryKey = readonly unknown[];
+export type ClientFailureResult = ClientFailure<EndpointShape> | UnexpectedResult;
+export type AnyEndpointCall = (...input: any[]) => Promise<any>;
+export type ClientShape<C>;                    // every leaf is an endpoint call, every other value a node
+export type QueryKeyOf<F, Segments>;           // ['laratype', ...segments, input?]
+export type QueryTree<C, Prefix = []>;         // the client tree, every node with its key prefix
+export interface QueryEndpoint<F extends AnyEndpointCall, Segments extends readonly string[]> {
+  readonly queryKey: (...input: Parameters<F>) => QueryKeyOf<F, Segments>;
+  readonly queryOptions: (...input: Parameters<F>) => ClientQueryOptions<...>;   // `{ error }` without a response schema
+  readonly mutationOptions: () => ClientMutationOptions<...>;                     // `{ mutationFn }`
+}
+export interface ClientQueryContext<Key extends QueryKey = QueryKey> {
+  readonly queryKey: Key; readonly signal: AbortSignal; readonly meta?: unknown;
+}
+export interface ClientQueryOptions<Data, Error, Key extends QueryKey = QueryKey> {
+  readonly queryKey: Key;
+  readonly queryFn: (context: ClientQueryContext<Key>) => Promise<Data>;
+  readonly retry?: boolean | number | ((failureCount: number, error: Error) => boolean);   // TError anchor
+}
+export interface ClientMutationOptions<Data, Error, Variables> {
+  readonly mutationFn: (variables: Variables) => Promise<Data>;
+  readonly onError?: (error: Error, variables: Variables, context: unknown) => unknown;   // TError anchor
+}
+```
+
+```ts
+import { createClient } from "@laratype/client"
+import { createQueryApi } from "@laratype/client-query"
+import { useMutation, useQuery } from "@tanstack/vue-query"   // or "@tanstack/react-query"
+
+const api = createClient(appApi)
+const q = createQueryApi(api)
+
+const users = useQuery(q.users.index.queryOptions({ query: { page: 2 } }))
+const store = useMutation(q.users.store.mutationOptions())
+store.mutate({ body: { name: "Ada", email: "ada@example.com" } })
+
+queryClient.invalidateQueries({ queryKey: q.users.posts.queryKey })
+```
+
+### Invariants
+- **Wraps a `createClient` client**, from any of its four inputs (the `appApi`, an API node, a contract, the manifest). `createQueryApi` walks the client tree once and mirrors it: a node keeps the client's name and lists its endpoints and child nodes; an endpoint has `queryKey`, `queryOptions` and `mutationOptions`. Nodes and endpoints are frozen and have a null prototype, as the client's nodes do. Keys are relative to the client root, so `createQueryApi(createClient(appApi.users))` gets local names.
+- **Query keys:** `["laratype", ...nameSegments]` for the root and every node, and `["laratype", ...nameSegments, input]` for an endpoint. `input` is the call input without `signal` and without `undefined` entries, so `queryKey()`, `queryKey({})` and `queryKey({ query: undefined })` are the same key; it is left out when empty. TanStack hashes plain-object keys sorted, so `{ params, query }` order does not matter, and two endpoints never collide, since their name segments are part of the key. A node's key prefixes its endpoints' keys, so `queryClient.invalidateQueries({ queryKey: q.users.posts.queryKey })` invalidates a folder.
+- **Query options:** `{ queryKey, queryFn }` and nothing else: no `retry`, `staleTime` or `gcTime` of its own, so the `QueryClient`'s defaults apply. `queryFn` runs the endpoint and resolves the success data (`ResponseData<E>`, `undefined` only for an endpoint without a response schema, which `queryOptions` refuses). An `ok: false` result throws `ClientQueryError`. TanStack's `context.signal` is passed to the call when the input has no signal of its own; a call input's own signal wins. The type declares `retry` only as the position TanStack infers `TError` from (no other field of `UseQueryOptions` carries it): the runtime sets no retry.
+- **Mutation options:** `{ mutationFn }`, with the endpoint's call input as the variables, so `mutate(input)` and `mutateAsync(input)` are typed. An endpoint whose input is all optional (no body, no required header) takes `mutate()` without an argument. `mutationFn` resolves the success data and throws `ClientQueryError` on `ok: false`.
+- **Typed errors:** a failed result becomes `ClientQueryError`, which holds that exact result variant in `result`, so `error.result.code`, `error.result.error` and `error.result.unexpected` narrow as a failed call does, and `error.status` / `error.code` are shortcuts. `isClientQueryError` checks a `Symbol.for` brand, so an error thrown by another copy of the package is still recognized. A call that *rejects* (a programming error: a missing param, a body JSON cannot carry, no `fetch`) rejects as it is, so the error channel is `ClientQueryError<...> | Error`.
+- **No response schema**: the endpoint's data is `undefined`, which TanStack refuses at runtime (`Query data cannot be undefined`), so its `queryOptions` is a type-level diagnostic (`{ error }`) instead. `mutationOptions` works for it.
+- **Structural types, no TanStack import:** the shipped `.d.ts` imports nothing from `@tanstack/query-core`: `ClientQueryOptions`, `ClientMutationOptions` and `ClientQueryContext` describe the options structurally, so an app keeps the TanStack copy it already has (v5) and pnpm's strict resolution needs no extra install. Vue and React both infer data, variables and error from them (`query.test-d.ts`).
+- **Browser-pure:** no `node:*`, no runtime dependency and no runtime import of `@laratype/client` or `@laratype/contract` (both are type-only), as the client.
+
+### Diagnostics
+- `[@laratype/client-query] createQueryApi: expected the client from createClient`
+- `[@laratype/client-query] createQueryApi: "<name>" is not an endpoint or a node: expected the client from createClient`
+- `[@laratype/client-query] createQueryApi: "<name>" is named "queryKey", which a node query key uses`
+- `[@laratype/client-query] "<name>" failed with code "<CODE>" (status <status>)` (a declared error; `<name>` is the route name relative to the client root)
+- `[@laratype/client-query] "<name>" failed unexpectedly (status <status>)` (a network failure or an abort before the headers: status `0`; an undeclared status or code, or a body that is not JSON)
+- Type-level: a value that is not a client (including one endpoint call), a missing required param, body or header, an unknown input key, and `queryOptions` on an endpoint without a response schema.
+
+### Example
+[`examples/client/proposed/client-query.ts`](./examples/client/proposed/client-query.ts)
 
 ---
 

@@ -66,6 +66,7 @@ Status as recorded in [`docs/v1/overview.md`](docs/v1/overview.md#package-graph)
 | `@laratype/contract` | Endpoint builder, path params, capabilities and derived errors, `defineError`, Standard Schema types, validation adapter, `defineContract`, `defineScope`, `defineApi` | Available (C1–C5, C4b) |
 | `@laratype/core` | DI container, tokens, dependency registry | Available (D1, D2) |
 | `@laratype/client` | Typed frontend client, `createClient(appApi)` | Available (CL1, CL2) |
+| `@laratype/client-query` | TanStack Query adapter, `createQueryApi(api)` | Proposed: [#141](https://github.com/Laratypes/Laratype/issues/141) (CL5) |
 | `@laratype/support` | `ServiceProvider` lifecycle (and 0.5 helpers) | ServiceProvider v2 available (D4); other helpers 0.5 |
 | `sauf` | CLI, dev server, constructor DI transform | 0.5. Constructor DI transform available (T1, T3), wired into `sauf dev` (T2) |
 | `@laratype/http` | Router v2, request pipeline, controllers | 0.5. v1 Router v2, controllers and request validation merged ([#104](https://github.com/Laratypes/Laratype/issues/104), [#105](https://github.com/Laratypes/Laratype/issues/105), [#106](https://github.com/Laratypes/Laratype/issues/106)) |
