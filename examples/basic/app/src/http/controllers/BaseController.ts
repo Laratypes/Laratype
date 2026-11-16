@@ -17,7 +17,7 @@ export class BaseController extends Controller {
         }
       case "html":
         // A returned string is text/plain (H41 #336): an HTML body is an explicit Response
-        return response("Hello World").setContentType(ContentTypeEnum.HTML)
+        return response("Hello World").setContentType(`${ContentTypeEnum.HTML}; charset=utf-8`)
       case "array":
         return ["Hello", "World"]
       case "number":

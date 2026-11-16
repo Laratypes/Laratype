@@ -15,13 +15,15 @@ const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
 
 /**
  * The `Content-Type` a `Response` sets, whatever the case of its name (headers are case-insensitive, RFC 9110 §5.1), or
- * `undefined`: an explicit one is kept for a string body, so a handler can opt into HTML (H41 #336)
+ * `undefined`: an explicit one is kept for a string body, so a handler can opt into HTML (H41 #336). An own key only
+ * (an inherited one must not opt a string into HTML), and the last spelling wins, as the header loop below sets it
  */
 const explicitContentType = (headers: Record<string, string>): string | undefined => {
+  let contentType: string | undefined;
   for (const name in headers) {
-    if (name.toLowerCase() === "content-type") return headers[name];
+    if (Object.hasOwn(headers, name) && name.toLowerCase() === "content-type") contentType = headers[name];
   }
-  return undefined;
+  return contentType;
 };
 
 /**
@@ -119,16 +121,11 @@ export default class Response extends AppServiceProvider {
     }
 
     const content = responseObj.getContent()
-    // Everything without a string content is JSON, whose text is never sent as text/html: the shapes
-    // `shouldBeJson()` detects by prototype, and any other value (H45 #342). A string is text (H41 #336, below)
+    // Every non-string content is JSON, whose text is never sent as text/html: the shapes `shouldBeJson()` detects by
+    // prototype, and any other value (H45 #342). A string is text (H41 #336, below)
     const isJson = responseObj.shouldBeJson()
     if(isJson) {
       setHeader("Content-Type", ContentTypeEnum.JSON)
-    }
-
-    const contentType = responseObj.getContentType()
-    if(contentType) {
-      setHeader("Content-Type", contentType)
     }
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
@@ -145,14 +142,14 @@ export default class Response extends AppServiceProvider {
     }
 
     // A returned string is text, never an HTML body (H41 #336): a reflected `<script>` must not run. HTML needs an
-    // explicit `Content-Type` on the `Response`. `nosniff` stops an old browser from sniffing the text as HTML; with
-    // the handler's own type, the header it chose is the one that decides
+    // explicit `Content-Type` on the `Response`. `nosniff` stops an old browser from sniffing the text as HTML; a blank
+    // type is no type, so it takes the default and `nosniff` too
     if(typeof content === "string") {
-      const type = explicitContentType(headers)
-      if(type === undefined) {
+      const type = explicitContentType(headers)?.trim()
+      if(!type) {
         setHeader("X-Content-Type-Options", "nosniff")
       }
-      return ctx.text(content, contentFullStatusCode, { "Content-Type": type ?? TEXT_CONTENT_TYPE })
+      return ctx.text(content, contentFullStatusCode, { "Content-Type": type || TEXT_CONTENT_TYPE })
     }
 
     return ctx.html(ResponseSerialization.htmlSerialize(content), contentFullStatusCode)

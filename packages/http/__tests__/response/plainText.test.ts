@@ -60,6 +60,17 @@ describe("the 0.5 response of a string", () => {
     expect(await response.text()).toBe("<script>alert(1)</script>");
   });
 
+  it("keeps a 0.5 controller method's explicit text/html Response", async () => {
+    class Page extends Controller {
+      index() { return new LaratypeResponse("<b>hi</b>").setContentType("text/html; charset=utf-8"); }
+    }
+    const app = bootApp();
+    app.get("/page", RequestKernel.handle({ method: "get", path: "/page", controller: [Page as never, "index"] }));
+    const response = await app.request("/page");
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await response.text()).toBe("<b>hi</b>");
+  });
+
   it("sends a 0.5 route middleware's string as text/plain", async () => {
     class Guard extends Middleware {
       async handle() { return "blocked <script>alert(1)</script>"; }
@@ -89,6 +100,18 @@ describe("the 0.5 response of a string", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toBe("Forbidden");
   });
+
+  it("keeps a contract route's 0.5 redirect as it is", async () => {
+    class Moved extends Middleware {
+      async handle() { return new LaratypeResponse("ignored", 302).redirect("/login"); }
+    }
+    const app = bootApp();
+    Route.api(appApi, (r) => [r.middleware(Moved).contract(health, HealthController)]).mount(app);
+    const response = await app.request("/api/health");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/login");
+    expect(await response.text()).toBe("");
+  });
 });
 
 describe("the explicit content type of a string", () => {
@@ -115,6 +138,18 @@ describe("the explicit content type of a string", () => {
     expect(response.headers.get("content-type")).toBe("text/csv");
     expect(response.headers.get("x-request-id")).toBe("7");
     expect(await response.text()).toBe("a,b");
+  });
+
+  it("treats a blank Content-Type as no type: text/plain with nosniff", async () => {
+    const app = bootApp();
+    Route.api(appApi, (r) => [
+      r.contract(health, HealthController),
+      r.get("/blank", () => new LaratypeResponse("<script>alert(1)</script>").setContentType("  ")),
+    ]).mount(app);
+    const response = await app.request("/blank");
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.text()).toBe("<script>alert(1)</script>");
   });
 });
 
