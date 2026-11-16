@@ -1,0 +1,208 @@
+import {
+  Equal,
+  In,
+  LessThan,
+  LessThanOrEqual,
+  Like,
+  MoreThan,
+  MoreThanOrEqual,
+  Not,
+  type FindOperator,
+  type ObjectLiteral,
+  type Repository,
+  type SelectQueryBuilder,
+} from "typeorm";
+import ModelError from "../exceptions/ModelError";
+
+/**
+ * A property of `T` that holds data, not a method: the columns `where()` and `orderBy()` accept at the type level,
+ * so `where('save', ...)` does not compile. Only string keys count: a symbol-keyed brand is not a column.
+ */
+export type ColumnKey<T> = {
+  [K in Extract<keyof T, string>]: T[K] extends (...args: any[]) => any ? never : K;
+}[Extract<keyof T, string>];
+
+/** A plain equality filter over the model's columns, the object form of `where()`. */
+export type ModelWhere<T> = { [K in ColumnKey<T>]?: Exclude<T[K], undefined> };
+
+/** A comparison `where()` maps to a TypeORM `FindOperator`, so a value can never become SQL text. */
+export type WhereComparison = "=" | "!=" | "<" | "<=" | ">" | ">=" | "like" | "not like";
+
+/** Every operator the three-argument `where()` accepts. */
+export type WhereOperator = WhereComparison | "in" | "not in";
+
+/** The direction `orderBy()` accepts; checked at runtime, any case. */
+export type OrderDirection = "asc" | "desc";
+
+/** A page of models with plain meta fields: what `paginate()` resolves and http.md › Resources accepts as is. */
+export interface Page<T> {
+  readonly data: T[];
+  readonly total: number;
+  readonly perPage: number;
+  readonly currentPage: number;
+  readonly lastPage: number;
+}
+
+/** The largest page size `paginate()` accepts, so a request cannot ask one query for an unbounded page. */
+const MAX_PER_PAGE = 100;
+
+const COMPARISONS: readonly WhereComparison[] = ["=", "!=", "<", "<=", ">", ">=", "like", "not like"];
+const OPERATORS: readonly WhereOperator[] = [...COMPARISONS, "in", "not in"];
+
+/** The runtime allowlist behind `WhereOperator`: an unknown string from a cast or plain JS is refused. */
+const isWhereOperator = (value: unknown): value is WhereOperator =>
+  typeof value === "string" && (OPERATORS as readonly string[]).includes(value);
+
+/** A diagnostic value: a string is quoted, anything else stringified, so the message always names the offending value. */
+const render = (value: unknown): string => (typeof value === "string" ? JSON.stringify(value) : String(value));
+
+/** Maps the 3-argument `where()` operator to the `FindOperator` TypeORM parameterizes (never SQL text). */
+const toFindOperator = (operator: WhereOperator, value: unknown): FindOperator<unknown> => {
+  switch (operator) {
+    case "=":
+      return Equal(value);
+    case "!=":
+      return Not(value);
+    case "<":
+      return LessThan(value);
+    case "<=":
+      return LessThanOrEqual(value);
+    case ">":
+      return MoreThan(value);
+    case ">=":
+      return MoreThanOrEqual(value);
+    case "like":
+      return Like(value);
+    case "not like":
+      return Not(Like(value));
+    case "in":
+      return In(value as readonly unknown[]);
+    case "not in":
+      return Not(In(value as readonly unknown[]));
+  }
+};
+
+/**
+ * The typed query `Model.query()` returns: a thin facade over one TypeORM `SelectQueryBuilder`, not a second query
+ * builder (docs/v1/database.md › Model). Every column, operator and direction is resolved against the entity's
+ * TypeORM metadata before TypeORM sees it, and values always travel as parameters.
+ */
+export class ModelQueryBuilder<T extends object = object> {
+  private readonly repository: Repository<T>;
+  private readonly query: SelectQueryBuilder<T>;
+
+  constructor(repository: Repository<T>) {
+    this.repository = repository;
+    this.query = repository.createQueryBuilder();
+  }
+
+  /** Adds an equality filter, a comparison, or the object form; `where()` calls combine with AND. */
+  where<K extends ColumnKey<T>>(column: K, value: Exclude<T[K], undefined>): this;
+  where<K extends ColumnKey<T>>(column: K, operator: "in" | "not in", value: readonly Exclude<T[K], undefined>[]): this;
+  where<K extends ColumnKey<T>>(column: K, operator: WhereComparison, value: Exclude<T[K], undefined>): this;
+  where(where: ModelWhere<T>): this;
+  where(columnOrWhere: ColumnKey<T> | ModelWhere<T>, ...rest: unknown[]): this {
+    if (typeof columnOrWhere !== "string") {
+      // A plain JS caller can pass anything: only an object is the object form, and null / a number is refused
+      if (typeof columnOrWhere !== "object" || columnOrWhere === null) {
+        throw new ModelError(
+          `[@laratype/database] where() takes a column name or a where object, got ${render(columnOrWhere)}`,
+        );
+      }
+      const conditions: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(columnOrWhere as Record<string, unknown>)) {
+        conditions[this.column(name, "where")] = value;
+      }
+      this.query.andWhere(conditions as ObjectLiteral);
+      return this;
+    }
+
+    const column = this.column(columnOrWhere, "where");
+    if (rest.length === 1) {
+      this.query.andWhere({ [column]: rest[0] } as ObjectLiteral);
+      return this;
+    }
+
+    const [operator, value] = rest;
+    // The allowlist, not a pass-through string: a cast or a plain JS caller cannot put SQL in the operator position
+    if (!isWhereOperator(operator)) {
+      throw new ModelError(
+        `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${render(operator)}`,
+      );
+    }
+    if ((operator === "in" || operator === "not in") && !Array.isArray(value)) {
+      throw new ModelError(`[@laratype/database] where() takes an array for ${JSON.stringify(operator)}, got ${render(value)}`);
+    }
+    this.query.andWhere({ [column]: toFindOperator(operator, value) } as ObjectLiteral);
+    return this;
+  }
+
+  /** Orders by a column property; the direction is checked at runtime, and only `asc` / `desc` reach TypeORM. */
+  orderBy<K extends ColumnKey<T>>(column: K, direction: OrderDirection = "asc"): this {
+    const property = this.column(column, "orderBy");
+    const order = typeof direction === "string" ? direction.toLowerCase() : direction;
+    if (order !== "asc" && order !== "desc") {
+      throw new ModelError(`[@laratype/database] orderBy() takes "asc" or "desc", got ${render(direction)}`);
+    }
+    // The alias is the entity's own target name from the metadata, not caller input
+    this.query.orderBy(`${this.query.alias}.${property}`, order === "asc" ? "ASC" : "DESC");
+    return this;
+  }
+
+  /** Caps the rows a `get()` / `first()` reads: a positive safe integer, so no unbounded or negative LIMIT. */
+  limit(count: number): this {
+    if (!Number.isSafeInteger(count) || count < 1) {
+      throw new ModelError(`[@laratype/database] limit() takes a positive safe integer, got ${render(count)}`);
+    }
+    this.query.limit(count);
+    return this;
+  }
+
+  /** The first row of the query, or `null`. */
+  first(): Promise<T | null> {
+    return this.query.getOne();
+  }
+
+  /** Every row of the query. */
+  get(): Promise<T[]> {
+    return this.query.getMany();
+  }
+
+  /**
+   * A plain page of the query (docs/v1/database.md › Model): `page` is 1-based, `perPage` defaults to 15 and is
+   * capped at 100, and `lastPage` is 1 for no rows. The page window replaces any earlier `limit()`.
+   */
+  async paginate(page = 1, perPage = 15): Promise<Page<T>> {
+    if (!Number.isSafeInteger(page) || page < 1) {
+      throw new ModelError(
+        `[@laratype/database] paginate() takes a page of 1 or more (a safe integer), got ${render(page)}`,
+      );
+    }
+    if (!Number.isSafeInteger(perPage) || perPage < 1 || perPage > MAX_PER_PAGE) {
+      throw new ModelError(
+        `[@laratype/database] paginate() takes a perPage of 1 to ${MAX_PER_PAGE}, got ${render(perPage)}`,
+      );
+    }
+    const offset = (page - 1) * perPage;
+    if (!Number.isSafeInteger(offset)) {
+      throw new ModelError(
+        `[@laratype/database] paginate() takes a page and perPage whose offset is a safe integer, got page ${render(page)} and perPage ${render(perPage)}`,
+      );
+    }
+    this.query.offset(offset).limit(perPage);
+    // TypeORM's count ignores the page window, so `total` is the full number of matches
+    const [data, total] = await this.query.getManyAndCount();
+    return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
+  }
+
+  /** Resolves a caller's column name against the entity metadata; anything that is not a column throws. */
+  private column(name: string, method: "where" | "orderBy"): string {
+    const column = this.repository.metadata.findColumnWithPropertyName(name);
+    if (column === undefined) {
+      throw new ModelError(
+        `[@laratype/database] ${this.repository.metadata.targetName} has no column ${render(name)}: ${method}() takes a column property of the model`,
+      );
+    }
+    return column.propertyName;
+  }
+}

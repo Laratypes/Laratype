@@ -29,6 +29,7 @@ type RunName =
   | "types"
   | "command"
   | "controller"
+  | "model"
   | "hyphenFolder"
   | "request"
   | "resource"
@@ -122,6 +123,7 @@ beforeAll(async () => {
     types: await sauf("types:generate", "--root", "app/api", "--base", "/api"),
     command: await sauf("make:command", "DraftCommand"),
     controller: await sauf("make:controller", "DraftController"),
+    model: await sauf("make:model", "Draft"),
     hyphenFolder: await sauf("make:controller", "my-team/PostController"),
     request: await sauf("make:request", "DraftRequest"),
     resource: await sauf("make:resource", "Draft", "--collection"),
@@ -153,6 +155,23 @@ afterAll(() => {
 });
 
 describe("make generators", () => {
+  it("make:model writes the v1 Model stub in its 0.5 folder", () => {
+    expectOk(runs.model);
+    const file = join(project, "src/models/Draft.ts");
+    expect(existsSync(file), runs.model.output).toBe(true);
+    const stub = readFileSync(file, "utf8");
+    expect(stub).toContain(
+      'import { CreateDateColumn, Entity, Model, PrimaryGeneratedColumn, UpdateDateColumn } from "@laratype/database";',
+    );
+    expect(stub).toContain("@Entity()");
+    expect(stub).toContain("export class Draft extends Model {");
+    expect(stub).toContain("id!: number;");
+    expect(stub).toContain("created_at!: Date;");
+    expect(stub).toContain("updated_at!: Date;");
+    // DB2 #146 owns fillable / hidden: the v1 stub does not pre-empt it
+    expect(stub).not.toContain("fillable");
+  });
+
   it("make:contract writes into the contract folder tree", () => {
     expectOk(runs.contract);
     const file = join(project, "app/api/reports/monthly.ts");
@@ -369,6 +388,8 @@ describe("make generators", () => {
       // A sub-path is a folder, never part of an exported name
       "app/http/resources/admin/NoteResource.ts",
       "app/http/resources/admin/NoteResourceCollection.ts",
+      // DB1 #145 replaced the 0.5 stub: the v1 Model stub type-checks
+      "src/models/Draft.ts",
     ].map((path) => join(project, path));
     for (const file of generated) expect(existsSync(file), file).toBe(true);
 
