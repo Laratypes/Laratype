@@ -151,6 +151,19 @@ describe("the explicit content type of a string", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toBe("<script>alert(1)</script>");
   });
+
+  it("ignores an inherited Content-Type, which must not opt a string into HTML", async () => {
+    const headers: Record<string, string> = Object.create({ "Content-Type": "text/html" });
+    const app = bootApp();
+    Route.api(appApi, (r) => [
+      r.contract(health, HealthController),
+      r.get("/inherited", () => new LaratypeResponse("<script>alert(1)</script>", undefined, headers)),
+    ]).mount(app);
+    const response = await app.request("/inherited");
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.text()).toBe("<script>alert(1)</script>");
+  });
 });
 
 describe("the other bodies of the 0.5 response", () => {
@@ -161,6 +174,18 @@ describe("the other bodies of the 0.5 response", () => {
       r.get("/json", () => ({ ok: true })),
     ]).mount(app);
     const response = await app.request("/json");
+    expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it("still sends an object as JSON when the Response sets another Content-Type", async () => {
+    const app = bootApp();
+    Route.api(appApi, (r) => [
+      r.contract(health, HealthController),
+      r.get("/json-html", () => new LaratypeResponse({ ok: true }, undefined, { "Content-Type": "text/html" })),
+    ]).mount(app);
+    const response = await app.request("/json-html");
     expect(response.headers.get("content-type")).toMatch(/^application\/json/);
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.json()).toEqual({ ok: true });
