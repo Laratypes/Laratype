@@ -24,9 +24,10 @@ const withSignal = (input: unknown, signal: AbortSignal | undefined): unknown =>
 };
 
 /**
- * One endpoint of the query tree. The query and mutation functions run the endpoint: a success resolves its data,
- * a failed result throws `ClientQueryError` with that result. A call that rejects (a programming error: a missing
- * param, a body JSON cannot carry) rejects as it is, so it is not turned into a `ClientQueryError`.
+ * One endpoint of the query tree, frozen: `queryOptions` and `mutationOptions` run the endpoint, and a success
+ * resolves its data while a failed result throws `ClientQueryError` with that result. A call that rejects (a
+ * programming error: a missing param, a body JSON cannot carry) rejects as it is. The prototype stays the object
+ * one, so `String(endpoint)` and friends keep working; only the nodes need the null prototype (`__proto__` keys).
  */
 const buildEndpoint = (call: AnyEndpointCall, segments: readonly string[], name: string): object => {
   const keyOf = (...input: unknown[]): QueryKey => {
@@ -38,18 +39,16 @@ const buildEndpoint = (call: AnyEndpointCall, segments: readonly string[], name:
     if (result.ok) return result.data;
     throw new ClientQueryError(name, result);
   };
-  return Object.freeze(
-    Object.assign(Object.create(null), {
-      queryKey: keyOf,
-      queryOptions: (...input: unknown[]) => ({
-        queryKey: keyOf(...input),
-        queryFn: (context: ClientQueryContext) => run(input[0], context.signal),
-      }),
-      mutationOptions: () => ({
-        mutationFn: (input: unknown) => run(input),
-      }),
+  return Object.freeze({
+    queryKey: keyOf,
+    queryOptions: (...input: unknown[]) => ({
+      queryKey: keyOf(...input),
+      queryFn: (context: ClientQueryContext) => run(input[0], context.signal),
     }),
-  );
+    mutationOptions: () => ({
+      mutationFn: (input: unknown) => run(input),
+    }),
+  });
 };
 
 /**

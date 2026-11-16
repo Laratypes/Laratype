@@ -212,4 +212,12 @@ describe("createQueryApi", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toBe("misuse");
   });
+
+  it("recognizes a ClientQueryError by its brand, not by instanceof", () => {
+    const result = { ok: false as const, unexpected: true as const, status: 0, error: "x", response: undefined };
+    expect(isClientQueryError(new ClientQueryError("users.show", result))).toBe(true);
+    expect(isClientQueryError(new Error("plain"))).toBe(false);
+    expect(isClientQueryError(undefined)).toBe(false);
+    expect(isClientQueryError({ name: "ClientQueryError" })).toBe(false);
+  });
 });
