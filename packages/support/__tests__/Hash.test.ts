@@ -16,6 +16,16 @@ const replacing = (make: (value: string) => string) =>
     }
   })()
 
+/** A Hasher of another format, to prove the async pair delegates to the overridden sync pair. */
+class Bcrypt extends Hasher {
+  override make(value: string) {
+    return `bcrypt:${value}`
+  }
+  override check(value: string, hashed: string) {
+    return hashed === `bcrypt:${value}`
+  }
+}
+
 describe('Hasher', () => {
   const hasher = new Hasher()
 
@@ -98,6 +108,9 @@ describe('Hasher async methods', () => {
     expect(await hasher.checkAsync('secret', sync)).toBe(true)
     expect(hasher.check('wrong', asyncHash)).toBe(false)
     expect(await hasher.checkAsync('wrong', sync)).toBe(false)
+    // A makeAsync() hash is a current hash: Model stores it as is and the login does not rehash it
+    expect(hasher.isHashed(asyncHash)).toBe(true)
+    expect(hasher.needsRehash(asyncHash)).toBe(false)
   })
 
   it('accepts a 0.5 sha256 hash', async () => {
@@ -142,14 +155,6 @@ describe('Hasher async methods', () => {
   })
 
   it('delegates to a custom Hasher that overrides make() and check(): its format keeps working', async () => {
-    class Bcrypt extends Hasher {
-      override make(value: string) {
-        return `bcrypt:${value}`
-      }
-      override check(value: string, hashed: string) {
-        return hashed === `bcrypt:${value}`
-      }
-    }
     const custom = new Bcrypt()
     const hashed = await custom.makeAsync('secret')
     expect(hashed).toBe('bcrypt:secret')
@@ -157,14 +162,16 @@ describe('Hasher async methods', () => {
     expect(await custom.checkAsync('wrong', hashed)).toBe(false)
   })
 
-  it('delegates to an overridden check(), but a custom make() alone still needs its check()', async () => {
+  it('delegates to an overridden check()', async () => {
     class Refusing extends Hasher {
       override check() {
         return false
       }
     }
     expect(await new Refusing().checkAsync('secret', hasher.make('secret'))).toBe(false)
+  })
 
+  it('does not infer a check() from an overridden make(), so a custom format overrides both', async () => {
     class Upper extends Hasher {
       override make(value: string) {
         return value.toUpperCase()
@@ -195,14 +202,6 @@ describe('Hash facade', () => {
   })
 
   it('resolves the async methods on a custom Hasher bound in the facade application', async () => {
-    class Bcrypt extends Hasher {
-      override make(value: string) {
-        return `bcrypt:${value}`
-      }
-      override check(value: string, hashed: string) {
-        return hashed === `bcrypt:${value}`
-      }
-    }
     Facade.setFacadeApplication(new Container().bind(Hasher, Bcrypt))
     const hashed = await Hash.makeAsync('secret')
     expect(hashed).toBe('bcrypt:secret')

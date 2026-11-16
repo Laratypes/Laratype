@@ -124,23 +124,31 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
+  // First unknown-user login of the file: the module-level dummy hash is still cold, so this pins its async build too
+  it('runs one async check against the dummy hash when the user is unknown', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    const check = vi.spyOn(Hash, 'checkAsync')
+    const make = vi.spyOn(Hash, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
+    expect(make).toHaveBeenCalledTimes(1)
+    expect(make.mock.calls[0]).toEqual([''])
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toEqual([])
+    check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
+  })
+
   it('refuses a wrong password and an unknown user', async () => {
     const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await attempt(User, { email: 'ada@example.com', password: 'wrong' })).toBeNull()
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
-  })
-
-  it('runs one async check against the dummy hash when the user is unknown', async () => {
-    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'checkAsync')
-    const syncCheck = vi.spyOn(Hash, 'check')
-    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
-    expect(check).toHaveBeenCalledTimes(1)
-    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
-    expect(syncCheck).not.toHaveBeenCalled()
-    expect(calls.update).toEqual([])
-    check.mockRestore()
-    syncCheck.mockRestore()
   })
 
   it('leaves the event loop free while the password is checked', async () => {
