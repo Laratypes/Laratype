@@ -33,8 +33,8 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
-| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
-| [Route names and URLs](#route-names-and-urls) | planned → #162 |
+| [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR (leader fills) @ 28c9e8f |
+| [Route names and URLs](#route-names-and-urls) | proposed: PR (leader fills) @ 28c9e8f |
 | [CORS](#cors) | planned → #164 |
 | [Undeclared-error check](#undeclared-error-check) | planned → #157 |
 
@@ -1069,7 +1069,7 @@ Nest-style hooks before and after the handler, for transform, cache and logging.
 ## Ad-hoc routes
 
 ### Status
-proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). Explicit names (`.name()`) planned → [#162](https://github.com/Laratypes/Laratype/issues/162). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
+proposed: PR [#306](https://github.com/Laratypes/Laratype/pull/306) @ 9df674f ([#139](https://github.com/Laratypes/Laratype/issues/139), H12). `.name()` proposed: PR (leader fills) @ 28c9e8f ([#162](https://github.com/Laratypes/Laratype/issues/162), H13). `Route.prefix(...)` and `group(...)` are planned → [#321](https://github.com/Laratypes/Laratype/issues/321). Typed middleware on an ad-hoc route, and `MountedRoute.middleware` as `MiddlewareItem[]`: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Public API
 [`packages/http/src/routing/api/types.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/types.ts) · [`packages/http/src/routing/api/ApiRouter.ts`](https://github.com/Laratypes/Laratype/blob/fd6945817092f47f7af620409c1354f97e17a3b5/packages/http/src/routing/api/ApiRouter.ts)
@@ -1081,18 +1081,25 @@ type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
 type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
   path: P, handler: (req: Request, params: PathParams<P>) => R | Promise<R>) => MountedRoute<M, P, R>;
 
-interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = string, R = unknown> {
+interface MountedRoute<
+  M extends AdHocMethod = AdHocMethod,
+  P extends string = string,
+  R = unknown,
+  N extends string | undefined = undefined,       // the .name(), H13 #162
+> {
   readonly kind: "route";
   readonly method: M;
   readonly path: P;
   handler(req: Request, params: PathParams<P>): R | Promise<R>;
   readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
+  readonly routeName: N;
+  name<const Name extends string>(name: Name): MountedRoute<M, P, R, Name>;   // a new frozen route
 }
 
 interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the registry
   readonly method: AdHocMethod;
   readonly path: string;
-  readonly name: undefined;                      // .name() is #162
+  readonly name: string | undefined;             // the .name() (H13 #162)
   readonly controller: undefined;
   readonly handler: MountedRoute["handler"];
   readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
@@ -1108,7 +1115,8 @@ interface AdHocRouteEntry {                      // ApiRoutes.adHoc, and the reg
 - **One route per method and path.** Hono answers with the first of two routes with the same method and path, so an ad-hoc route that repeats a contract route or another ad-hoc route of the group is a runtime error in `Route.api`. Param names don't count (`/items/:item` repeats `/items/:id`), a last optional param counts as both its routes (`/items/:id?` repeats `/items` and `/items/:id`), and a param pattern or a trailing slash makes another route. Routes of other groups are not checked (as for the registration order).
 - **Inferred types.** `params` comes from the path (`'/hello/:name'` gives `{ name: string }`, `:id?` an optional key, `:id{[0-9]+}` the key `id`), and `R` from what the handler returns (an async handler's `Promise<R>` gives `R`). `R` types nothing at runtime: the response is not validated.
 - **The 0.5 request and response.** `RequestKernel.handle` parses the body as for a contract route (a malformed JSON or form body is the 400 of [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)), then runs the route middleware, then the handler with the 0.5 request and the raw path params (no model binding, no contract validation, no ctx). Its result goes through the 0.5 response path, not [Response from the contract](#response-from-the-contract): a string as HTML, no content as an empty body, and every other value as `application/json` with `nosniff`, as for a 0.5 controller method ([The 0.5 response](#the-05-response)). The status is 200 unless it returns a `Response` (`@laratype/http`) with its own status: there is no controller method, so no status decorator or method-name guess (`store` → 201) applies.
-- **Not a contract route.** An ad-hoc route has no contract, endpoint, schema, capabilities, policies or name. It is in `ApiRoutes.adHoc`, never in `ApiRoutes.routes` or `apiRoutes(appApi)`, so it is **excluded from OpenAPI and from the generated types** ([typegen.md](./typegen.md)), and never in the not-enforced warning.
+- **Not a contract route.** An ad-hoc route has no contract, endpoint, schema, capabilities or policies. It is in `ApiRoutes.adHoc`, never in `ApiRoutes.routes` or `apiRoutes(appApi)`, so it is **excluded from OpenAPI and from the generated types** ([typegen.md](./typegen.md)), and never in the not-enforced warning; its `.name()` only feeds `route()` ([Route names and URLs](#route-names-and-urls)) and `sauf route:list`.
+- **Names (H13 #162).** `.name('health')` returns a new frozen route with `routeName` set, leaving the route it is called on unchanged, so a name never mutates a value another list holds. A name is a non-empty string, and only one route may have it: two ad-hoc routes with it, an ad-hoc name a contract route has, or the same name in a later `Route.api()` call are runtime errors (the duplicate is checked in `Route.api()` across its groups, not only within its callback).
 - **Registration order.** `mount()` sorts the ad-hoc and the contract routes of a group together, by specificity ([Router v2](#router-v2)): `r.get('/api/users/me', ...)` is reached before a contract's `/api/users/:id`. A more specific ad-hoc route takes those requests from a contract route: `r.get('/api/users/:id{[0-9]+}', ...)` answers `GET /api/users/7` instead of `users.show`.
 - **No scope.** An ad-hoc route is outside the contract tree, so it gets no scope middleware or policy, even when its URL is under a scope folder's path (`/api/users/:user/export`): only the middleware of its own builder (`r.middleware(Auth).get(...)`).
 - **Domain and registry.** `.domain()` applies to the ad-hoc routes too. `mount()` returns the contract entries, then the ad-hoc ones; `sauf route:list` shows an ad-hoc route with the controller `Closure`.
@@ -1124,11 +1132,16 @@ Runtime `Error`s, prefixed `[@laratype/http] Route.api: `:
 - `r.<method>('<path>') is the same route as <route name>` (a contract route of the group)
 - `r.<method>('<path>') is the same route as another r.<method>('<path>')`
 
+Names (H13 #162), `TypeError`s with the same prefix:
+- `r.<method>('<path>').name() needs a name, a non-empty string`
+- `r.<method>('<path>').name("<name>") is already the name of <route>`
+- `contract "<name>" has the name of r.<method>('<path>')`
+
 ### Example
 ```ts
 export const apiRoutes = Route.api(appApi, (r) => [
   r.contract(users, UserController),
-  r.get('/health', () => 'ok'),
+  r.get('/health', () => 'ok').name('health'),
   r.middleware(Audit).get('/hello/:name', (req, { name }) => ({ hello: name })),
 ])
 ```
@@ -1136,7 +1149,7 @@ export const apiRoutes = Route.api(appApi, (r) => [
 Tests: [`packages/http/__tests__/routing/adHocRoutes.test.ts`](../../packages/http/__tests__/routing/adHocRoutes.test.ts) and [`adHocRoutes.test-d.ts`](../../packages/http/__tests__/routing/adHocRoutes.test-d.ts).
 
 ### Non-goals
-- No names (`.name()`): H13 [#162](https://github.com/Laratypes/Laratype/issues/162).
+- No names in OpenAPI or typegen: `.name()` only feeds `route()` (H13 [#162](https://github.com/Laratypes/Laratype/issues/162)).
 - No `Route.prefix(...)` or `group(...)` yet: planned → [#321](https://github.com/Laratypes/Laratype/issues/321).
 - No response or input validation: an ad-hoc route has no schema.
 
@@ -1151,14 +1164,91 @@ Tests: [`packages/http/__tests__/routing/adHocRoutes.test.ts`](../../packages/ht
 ## Route names and URLs
 
 ### Status
-planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13, M3).
+proposed: PR (leader fills) @ 28c9e8f (H13 [#162](https://github.com/Laratypes/Laratype/issues/162), M3). `route()`, `redirect().route()` and `.name()`; every path and query is built with [`buildUrl`](./contract.md#url-builder). The app URL is `config('config.url')`, the 0.5 single config file; the K1 [#152](https://github.com/Laratypes/Laratype/issues/152) file split (`app/config/app.ts`, `config('app.url')`) is followed up there. The model base gaining `getRouteKey()` is folded into H14 [#163](https://github.com/Laratypes/Laratype/issues/163).
 
-### Design (non-binding)
-- **URL helpers:** a typed `route('users.posts.update', { user, post })` and `redirect().route(name, params)`. Names come from the folder tree plus the endpoint key ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). Params are typed from the path, including parent `[x]` folders.
-- **Bound params:** they accept a Model, which contributes its route key.
-- **Ad-hoc routes:** `.name()` names them.
-- **Absolute URLs:** built from `config('app.url')`.
-- **Shared builder:** the pure builder lives in `@laratype/contract` (see [contract.md › URL builder](./contract.md#url-builder)).
+### Public API
+[`packages/http/src/routing/routeUrl.ts`](../../packages/http/src/routing/routeUrl.ts) · [`packages/http/src/supports/helpers.ts`](../../packages/http/src/supports/helpers.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
+
+```ts
+// The app registers its routes once, by module augmentation (the config() / auth Register pattern), next to Route.api:
+declare module '@laratype/http' {
+  interface Register { routes: typeof apiRoutes }
+}
+
+export interface Register {}
+export interface RouteKeyed { getRouteKey(): string | number }
+export interface RouteUrlOptions<Query = object> { readonly query?: Query; readonly absolute?: boolean }
+export type RouteParamValue = string | number | RouteKeyed
+export type RouteName<R = Register>;                 // contract names | the ad-hoc .name()s; string without a registration
+export type RouteParamsOf<Name extends string, R = Register>;   // the full path's params
+export type RouteQueryOf<Name extends string, R = Register>;    // the endpoint's query schema input
+export type RouteArgs<Name extends string, R = Register>;       // [params, options?], params required only with a required param
+export function route<const Name extends RouteName>(name: Name, ...args: RouteArgs<Name>): string
+
+// Ad-hoc routes (H12 #139): MountedRoute gains the name and the `name()` builder
+interface MountedRoute<M extends AdHocMethod, P extends string, R, N extends string | undefined = undefined> {
+  readonly routeName: N;
+  name<const Name extends string>(name: Name): MountedRoute<M, P, R, Name>;
+}
+interface AdHocRouteEntry { readonly name: string | undefined }   // was `undefined`
+
+// @laratype/http, next to the 0.5 redirect(url, status?) which keeps its signature
+export interface RedirectRouteBuilder {
+  route<const Name extends RouteName>(name: Name, ...args: RouteArgs<Name>): Response;   // the 0.5 response
+}
+export function redirect(httpStatusCode?: RedirectStatusCode): RedirectRouteBuilder
+export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Response
+```
+
+### Invariants
+- **Names.** `route()` resolves a name against the routes `Route.api()` mounted in this process: every contract route (`users.posts.update`, the tree name plus the endpoint key, [contract.md › Contract folder tree](./contract.md#contract-folder-tree)) and every ad-hoc route named with `.name()`. `Route.api()` fills the registry, and a second call merges its names (a contract route remounts at its path without an error). `route()` before any `Route.api()` throws.
+- **One route per name.** A name belongs to one route: two ad-hoc routes with it, an ad-hoc name a contract route has, or the same ad-hoc name in a later `Route.api()` call are errors, and so is a contract route whose name an ad-hoc route of an earlier call took.
+- **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` prefixes `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an origin with an optional path prefix, and its trailing slashes are dropped. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
+- **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
+- **Query** is typed from the endpoint's query schema **input**, as the client types it; an endpoint without a query schema takes no `query` (`query?: undefined`). An ad-hoc route has no schema, so its query is `object`.
+- **One encoder.** `buildUrl` fills the path and serializes the query: params with `encodeURIComponent`, the query with `URLSearchParams` (`undefined` and `null` skipped, an array repeats its key, a `Date` as ISO 8601). `route()` never concatenates a value into a URL itself, and `buildUrl`'s diagnostics propagate unchanged.
+- **`.name()` is immutable.** It returns a new frozen route with `routeName` set and leaves the route it is called on unchanged. A name is a non-empty string.
+- **`redirect().route()`** redirects to the same URL, relative by default like `route()`, with `{ absolute: true }` to opt in: a relative `Location` is valid (RFC 9110 §10.2.2), and an absolute default would throw on every app without a `url`.
+- **Server-side.** `route()` is for the server; the FE builds URLs with `@laratype/client` (CL1) over the same `buildUrl`. A name is not added to OpenAPI or typegen: an ad-hoc route stays out of both.
+
+### Diagnostics
+Runtime `TypeError`s, prefixed `[@laratype/http] `:
+- `route: no routes are registered (call Route.api(appApi, ...) first)`
+- `route: unknown route name "<name>"`
+- `route: param "<name>" got an object that is not a model (no getRouteKey())`
+- `route: absolute URLs need config('config.url') (app.url), which is not set`
+- `route: config('config.url') must be an absolute http(s) URL, got "<value>"`
+- `Route.api: r.get('/x').name("<name>") is already the name of <route>` (a contract route name, or `r.get('/path')` of the ad-hoc route that has it)
+- `Route.api: contract "<name>" has the name of r.get('/path')`
+- `Route.api: r.get('/x').name() needs a name, a non-empty string`
+
+From `buildUrl` ([contract.md › URL builder](./contract.md#url-builder)), unchanged: `buildUrl: missing param "<name>" for "<path>"`, `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)`, `buildUrl: "<path>" builds "<result>", which a URL reads as another host`, `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`.
+
+Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an unnamed ad-hoc route, a missing required param, an unknown param, a param value that is not a string, number or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
+
+### Example
+[`examples/http/proposed/route-names.ts`](./examples/http/proposed/route-names.ts):
+
+```ts
+// app/routes/api.ts: the group route() reads, registered next to it
+export const apiRoutes = Route.api(appApi, (r) => [
+  r.contract(posts, PostController),
+  r.get('/health', () => 'ok').name('health'),
+])
+// app/declare/routes.d.ts
+declare module '@laratype/http' { interface Register { routes: typeof apiRoutes } }
+
+route('users.posts.index', { user }, { query: { page: 2 } })                    // "/api/users/ada/posts?page=2"
+route('users.posts.show', { user: new User(), post }, { absolute: true })      // "https://app.test/api/users/ada/posts/7"
+redirect().route('users.posts.show', { user, post })                           // Location: "/api/users/ada/posts/7"
+```
+
+### Non-goals
+- No client change: `@laratype/client` keeps building its own URLs with `buildUrl`.
+- No generated `Register`: the app writes the `declare module` block; `sauf types:generate` emitting it is a follow-up.
+- No type-level duplicate-name check: a duplicate is a `Route.api()` runtime error.
+- No `.name()` in `apiPaths()`, `apiRoutes()`, OpenAPI or typegen: an ad-hoc route stays out of them.
+- No model instance method here: `getRouteKey()` is H14 [#163](https://github.com/Laratypes/Laratype/issues/163)'s to add to the model base.
 
 ### Acceptance
 [#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
