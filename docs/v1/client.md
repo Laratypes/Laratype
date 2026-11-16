@@ -23,7 +23,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | planned → #159 |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR <leader fills> @ 770bcfa ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -174,7 +174,7 @@ if (result.ok) result.data.title                     // see Result union
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Non-goals
-- No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No response parsing by schema: `data` is the parsed JSON body, typed `Jsonify<output>`, and [Dev-mode response validation](#dev-mode-response-validation) only checks it.
 
 ### Open questions
 - None recorded.
@@ -241,7 +241,7 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 
 ### Non-goals
 - No retries, and no throwing variant (`unwrap`).
-- No parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No parsing by schema: the data is the parsed JSON body, and [Dev-mode response validation](#dev-mode-response-validation) only checks it.
 
 ### Open questions
 - Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)).
@@ -399,10 +399,61 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-planned → [#159](https://github.com/Laratypes/Laratype/issues/159) (CL6, M4).
+proposed: PR <leader fills> @ 770bcfa ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
-### Design (non-binding)
-Optionally validate responses against the contract on the client during development, to catch drift between server and contract. This only works with option (a), which ships the schemas.
+### Public API
+[`packages/client/src/validate.ts`](../../packages/client/src/validate.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
+
+```ts
+export interface ClientOptions {
+  validateResponses?: boolean;                       // default false; CL6 #159
+}
+export type ManifestClientOptions = Omit<ClientOptions, "validateResponses"> & { validateResponses?: false };
+
+export class ResponseValidationError extends Error {
+  readonly errors: ErrorBag;                         // dot path -> messages; "" for an issue without a path
+  readonly issues: readonly StandardIssue[];         // the Standard Schema issues
+}
+```
+
+```ts
+import { createClient } from '@laratype/client'
+import { appApi } from '$api'
+
+const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
+const result = await api.users.show({ params: { user: 1 } })
+if (!result.ok && result.unexpected) console.warn(result.error)   // a ResponseValidationError in development
+```
+
+### Invariants
+- **Opt-in, off by default; no dev detection.** The client cannot tell a development build from a production one: `process` does not exist in a browser bundle, `import.meta.env` is Vite's and not standard, the package also builds CJS and ESM for Node, and the server's `__PROD__` is not set in a browser. The app wires the option to its bundler's dev flag, `validateResponses: import.meta.env.DEV` (Vite) or `NODE_ENV !== "production"` on SSR; a production build passes `false` and never runs the check.
+- **What is checked:** the parsed JSON body of a body-carrying 2xx whose endpoint has a response schema, with [`validate()`](./contract.md#validation-adapter) from `@laratype/contract` (sync or async). The inputs with schemas are option (a): the `appApi`, an API node and a contract file. A 204/205 or an endpoint without a response schema is skipped, and so is every declared error body: the contract has no schema for those (`ErrorDef` carries the status, the code and the body type only), so a 401/403/404/409/422 answer is classified exactly as it is with the option off.
+- **The manifest input has no schemas:** `ManifestClientOptions` makes `validateResponses: true` a type error, and `createClient` throws the diagnostic below. It is not a silent no-op.
+- **The success keeps the wire value:** only the schema's input is validated. `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output: a transforming schema (`z.coerce.date()`, a `.transform`) passes and does not change `data`, and a schema whose input is not JSON (a `z.date()` field) fails, since the wire carries the ISO string: use `z.coerce.date()`.
+- **A mismatch is the unexpected result:** `ok: false`, `unexpected: true`, the HTTP status and `response`, and `error` is a `ResponseValidationError` whose `errors` is the schema's error bag (a null prototype) and whose `issues` are the Standard Schema issues. `code` is `undefined`, so `switch (result.code)`'s `case undefined` already covers it. This mirrors the server, which answers a development mismatch with a 500 instead of sending a value that does not match the contract: the client's loud equivalent is a failed call, since handing out data typed `Jsonify<output>` that does not match is the drift the check exists to catch.
+- **Async:** the body is already read when the check runs, so `onResponse` still precedes it; `toResult` awaits `validate()` before the call settles, so a sync or async schema is complete. A schema whose `~standard.validate` throws or rejects rejects the call, like a failing hook (a programming error).
+- **Live option:** `validateResponses` is read from the options object when each call starts, like every option.
+- **Production cost:** with the option off or `false` the check is never reached: `validate()` is not called and no schema library is touched. The client imports the contract's `validate` regardless (measured +0.47 KiB gzip on the `createClient` runtime); a bundler that folds `import.meta.env.DEV` to `false` never reaches it but the library keeps the branch, since options are live. No schema library is imported by the client: the schemas come with the `appApi` or the contract, which option (a) already ships for client-side form validation.
+- **The message holds no response body:** the route name, the issue paths and the schema's own messages only. A schema whose message quotes the received value (a zod enum, say) quotes it here too: the server's received-value cut lives in `@laratype/http`, which the client may not import, and duplicating it here is out of this change's scope.
+
+### Diagnostics
+- `[@laratype/client] <route name>: the response body does not match the endpoint's response schema (<path>: <messages>; ...)` (a path is `(root)` when the issue has none; the call resolves as the unexpected result)
+- `[@laratype/client] createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)`
+- Type-level: `validateResponses` that is not a boolean, and `validateResponses: true` on the manifest client.
+
+### Example
+[`packages/client/__tests__/validate.test.ts`](../../packages/client/__tests__/validate.test.ts)
+
+```ts
+import { createClient, ResponseValidationError } from '@laratype/client'
+
+const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
+const result = await api.users.store({ body })
+if (result.ok) return result.data
+if (result.unexpected && result.error instanceof ResponseValidationError) {
+  throw result.error   // development: the server broke the contract; error.errors and error.issues name it
+}
+```
 
 ### Acceptance
 [#159 Done when](https://github.com/Laratypes/Laratype/issues/159)
