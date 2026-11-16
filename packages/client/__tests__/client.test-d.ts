@@ -1,10 +1,10 @@
 // Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124, CL9 #315) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
-import { createClient } from '@laratype/client'
+import { createClient, ResponseValidationError } from '@laratype/client'
 import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
-import type { ApiTypes } from '@laratype/contract'
+import type { ApiTypes, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
 import posts from './fixtures/app/api/users/[user]/posts'
@@ -398,5 +398,30 @@ describe('options and hooks', () => {
         request.url = '/other'
       },
     })
+  })
+})
+
+describe('dev-mode response validation', () => {
+  test('validateResponses is a boolean option on every input with schemas', () => {
+    expectTypeOf<ClientOptions['validateResponses']>().toEqualTypeOf<boolean | undefined>()
+    void createClient(appApi, { validateResponses: true })
+    void createClient(appApi, { validateResponses: false })
+    void createClient(appApi.users, { validateResponses: true })
+    void createClient(usersContract, { validateResponses: true })
+    // @ts-expect-error not a flag
+    createClient(appApi, { validateResponses: 'yes' })
+  })
+
+  test('the manifest client refuses it: the generated manifest has no schemas', () => {
+    void createClient<Generated>(manifest, { validateResponses: false })
+    // @ts-expect-error the manifest carries no response schemas
+    void createClient<Generated>(manifest, { validateResponses: true })
+  })
+
+  test('ResponseValidationError carries the error bag and the Standard Schema issues', () => {
+    const error = new ResponseValidationError('m', {}, [])
+    expectTypeOf(error).toMatchTypeOf<Error>()
+    expectTypeOf(error.errors).toEqualTypeOf<Record<string, string[]>>()
+    expectTypeOf(error.issues).toEqualTypeOf<ReadonlyArray<StandardIssue>>()
   })
 })

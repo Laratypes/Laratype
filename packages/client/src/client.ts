@@ -1,6 +1,8 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, ProvidedHeaders } from "./types";
+import { checkResponseBody } from "./validate";
+import type { ResponseValidationError } from "./validate";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -66,17 +68,21 @@ const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly stat
 interface Success {
   readonly status: number | undefined;
   readonly data: "json" | "none" | "any";
+  /** The dev-mode response check (CL6 #159), set per call when `validateResponses` is on. */
+  readonly check?: (body: unknown) => Promise<ResponseValidationError | undefined>;
 }
 
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
- * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer).
+ * the 2xx it expects, the schema its success body must match (none in the manifest) and its declared errors
+ * (computed on the first 4xx or 5xx answer).
  */
 interface RouteSpec {
   readonly name: string;
   readonly method: string;
   readonly path: string;
   readonly success: Success;
+  readonly schema?: StandardSchemaV1;
   readonly declared: () => Declared;
 }
 
@@ -327,6 +333,11 @@ async function toResult(response: Response, success: Success, declared: () => De
     if (success.data === "json" && text === "") {
       return unexpected(status, new TypeError(`[@laratype/client] empty ${status} body: the endpoint declares a response`), response);
     }
+    // CL6 #159: dev-mode response validation, awaited before the call settles; the data stays the parsed JSON
+    if (success.check) {
+      const error = await success.check(body);
+      if (error) return unexpected(status, error, response);
+    }
     return { ok: true, status, data: body, response };
   }
   // a 3xx is never a declared error (see the doc above): only 4xx and 5xx body codes are matched
@@ -345,9 +356,14 @@ async function toResult(response: Response, success: Success, declared: () => De
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
  * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
  * The declared errors are computed on the first 4xx or 5xx answer, then kept.
+ * `options.validateResponses` is read when the call starts: when it is on and the endpoint has a response schema, the
+ * success body is checked against it (CL6 #159), and a mismatch is unexpected.
  */
-const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
+const createCall = (send: Send, method: Method, route: RouteSpec, options: ClientOptions): Call => {
   return async (input) => {
+    const schema = route.schema;
+    const check = options.validateResponses && schema ? (body: unknown) => checkResponseBody(schema, body, route.name) : undefined;
+    const success = check ? { ...route.success, check } : route.success;
     let response: Response;
     try {
       response = await send(method, route.path, input);
@@ -355,7 +371,7 @@ const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
       if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
       throw error;
     }
-    return toResult(response, route.success, route.declared);
+    return toResult(response, success, route.declared);
   };
 };
 
@@ -368,7 +384,7 @@ const freezeTree = (node: Record<string, unknown>): object => {
  * Nests flat route names into the client: `"users.posts.update"` → `client.users.posts.update`.
  * The one builder for every input: the routes come from `apiPaths()` or from the generated manifest.
  */
-function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean): object {
+function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean, options: ClientOptions): object {
   const where = isManifest ? " in the manifest" : "";
   const root: Record<string, unknown> = Object.create(null);
   for (const route of routes) {
@@ -383,7 +399,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
     if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
-    node[key] = createCall(send, route.method.toLowerCase() as Method, route);
+    node[key] = createCall(send, route.method.toLowerCase() as Method, route, options);
   }
   return freezeTree(root);
 }
@@ -398,11 +414,13 @@ const pathsOf = (api: object): RouteSpec[] => {
   const prefix = isApiNode(api) ? `${api[API_NODE].name}.` : "";
   return (apiPaths(api as unknown as Api) as ApiPath[]).map((r) => {
     const { response, status } = r.endpoint.def;
+    const json = response !== undefined && !isBodylessStatus(status);
     return {
       name: r.name.slice(prefix.length),
       method: r.method,
       path: r.path,
-      success: { status, data: response && !isBodylessStatus(status) ? "json" : "none" },
+      success: { status, data: json ? "json" : "none" },
+      schema: json ? response : undefined,
       declared: once(() => declaredOf(routeErrors(r))),
     };
   });
@@ -429,8 +447,9 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
  * `createClient<AppApi>(manifest)`. The `AppApi` type argument types the calls (without it the client is `never`).
  * The manifest holds each route's method and full path, so the FE loads no contract file of the app and no schema library.
+ * It has no response schemas, so `validateResponses` (CL6 #159) is refused: use the appApi, an API node or a contract.
  */
-export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;
+export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ManifestClientOptions): Client<T>;
 /**
  * The manifest client with the type of `options.headers` as the second type argument, since it is not inferred next
  * to an explicit `AppApi`: `createClient<AppApi, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': key } })`.
@@ -438,7 +457,7 @@ export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, 
  */
 export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
   manifest: Manifest,
-  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+  options: ManifestClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): Client<T, ProvidedHeaders<Hd>>;
 /**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
@@ -470,7 +489,12 @@ export function createClient(api: object, options: ClientOptions = {}): object {
   const send = createSend(options);
   // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
   if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
-  if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false);
-  if (isManifest(api)) return buildTree(manifestRoutes(api), send, true);
+  if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false, options);
+  if (isManifest(api)) {
+    if (options.validateResponses) {
+      fail("createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)");
+    }
+    return buildTree(manifestRoutes(api), send, true, options);
+  }
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }

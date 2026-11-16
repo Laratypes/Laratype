@@ -230,4 +230,28 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    * when `fetch` rejects. A throw rejects the call.
    */
   onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
+  /**
+   * Validate every success body against the endpoint's response schema (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)).
+   * Default: off.
+   *
+   * This is a development switch: wire it to the bundler's dev flag, so a production build never runs it, e.g.
+   * `createClient(appApi, { validateResponses: import.meta.env.DEV })` (Vite) or `NODE_ENV !== "production"` on SSR.
+   * The client can't detect dev itself: `process` does not exist in a browser bundle, `import.meta.env` is
+   * bundler-specific, and the package also builds for Node (CJS and ESM).
+   *
+   * A body-carrying 2xx with a response schema is checked; a 204/205, an endpoint without a schema and a declared
+   * error body (the contract has no schema for those) are not. A mismatch resolves as the
+   * [unexpected result](https://github.com/Laratypes/Laratype/blob/master/docs/v1/client.md#result-union) with a
+   * `ResponseValidationError` as `error`, as the server answers a dev mismatch with a 500. Only the schema's input is
+   * checked: `data` stays the parsed JSON body, typed with the schema's wire type (`Jsonify<output>`).
+   *
+   * The generated manifest carries no schemas, so the manifest client refuses this option at compile time and throws
+   * at `createClient`.
+   */
+  validateResponses?: boolean;
 }
+
+/** The manifest client's options: the generated manifest has no response schemas to validate against (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)). */
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & {
+  validateResponses?: false;
+};
