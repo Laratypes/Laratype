@@ -1,3 +1,4 @@
+// Type test for the CorsConfig config type (H15 #164): run by `bunx vitest run --project types`.
 import { describe, expectTypeOf, it } from "vitest";
 import { defineConfig } from "@laratype/core";
 import type { CorsConfig } from "../../src/index";

@@ -22,17 +22,17 @@ type ReadonlyList<T> = T extends readonly (infer U)[] ? readonly U[] : T;
  */
 export type CorsConfig = Omit<HonoCorsOptions, "origin" | "allowMethods" | "allowHeaders" | "exposeHeaders"> & {
   /** Hono path patterns the middleware runs on; the default is every path (`['*']`). */
-  paths?: readonly string[];
+  readonly paths?: readonly string[];
   /** An origin string (matched exactly), a list of them, or a function answering the origin to allow, or nothing. */
-  origin: ReadonlyList<HonoCorsOptions["origin"]>;
+  readonly origin: ReadonlyList<HonoCorsOptions["origin"]>;
   /** Hono's default `GET, HEAD, PUT, POST, DELETE, PATCH`; a function may answer per origin. */
-  allowMethods?: ReadonlyList<HonoCorsOptions["allowMethods"]>;
+  readonly allowMethods?: ReadonlyList<HonoCorsOptions["allowMethods"]>;
   /** The preflight's `Access-Control-Allow-Headers`; without it, Hono echoes `Access-Control-Request-Headers`. */
-  allowHeaders?: readonly string[];
+  readonly allowHeaders?: readonly string[];
   /** The `Access-Control-Expose-Headers` of an actual response. */
-  exposeHeaders?: readonly string[];
+  readonly exposeHeaders?: readonly string[];
   /** `Access-Control-Max-Age`, in seconds: a whole number of 0 or more. */
-  maxAge?: number;
+  readonly maxAge?: number;
 }
 
 /** The config file, as the diagnostics name it. */
@@ -48,7 +48,9 @@ const KEYS = ["paths", "origin", "allowMethods", "allowHeaders", "exposeHeaders"
 const show = (value: unknown): string => {
   if (typeof value === "function") return "a function";
   if (typeof value === "string") return JSON.stringify(value);
-  if (value === undefined || value === null || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === undefined || value === null || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   try {
     const text = JSON.stringify(value);
     if (text !== undefined && text.length <= 120) return text;
@@ -59,13 +61,14 @@ const show = (value: unknown): string => {
 };
 
 /** The boot error: every problem of the file at once, so one restart fixes the file (like the env validation). */
-const invalidConfig = (problems: readonly string[]): TypeError =>
-  new TypeError(
-    `[@laratype/http] Invalid CORS config (${CONFIG_FILE}), ${problems.length} problem${problems.length === 1 ? "" : "s"}:\n` +
-      problems.map((problem) => `- ${problem}`).join("\n"),
-  );
+const invalidConfig = (problems: readonly string[]): TypeError => {
+  const header = `[@laratype/http] Invalid CORS config (${CONFIG_FILE}), ${problems.length} problem`;
+  const lines = problems.map((problem) => `- ${problem}`).join("\n");
+  return new TypeError(`${header}${problems.length === 1 ? "" : "s"}:\n${lines}`);
+};
 
-const isPathPattern = (value: unknown): value is string => typeof value === "string" && (value === "*" || value.startsWith("/"));
+const isPathPattern = (value: unknown): value is string =>
+  typeof value === "string" && (value === "*" || value.startsWith("/"));
 
 /** A header or method name: any non-empty string. Hono joins the list into one header value. */
 const isName = (value: unknown): value is string => typeof value === "string" && value.length > 0;
@@ -97,10 +100,15 @@ const resolveCors = (raw: unknown): ResolvedCors => {
   if (config.paths !== undefined) {
     const value = config.paths;
     if (!Array.isArray(value) || value.length === 0) {
-      problems.push(`paths: expected a non-empty array of path patterns ('*' or a path starting with '/'), got ${show(value)}`);
+      problems.push(
+        `paths: expected a non-empty array of path patterns ('*' or a path starting with '/'), got ${show(value)}`,
+      );
     } else {
       value.forEach((path, index) => {
-        if (!isPathPattern(path)) problems.push(`paths[${index}]: expected a path pattern ('*' or a path starting with '/'), got ${show(path)}`);
+        if (!isPathPattern(path)) {
+          const expected = "a path pattern ('*' or a path starting with '/')";
+          problems.push(`paths[${index}]: expected ${expected}, got ${show(path)}`);
+        }
       });
       if (value.every(isPathPattern)) paths = value;
     }
@@ -118,7 +126,9 @@ const resolveCors = (raw: unknown): ResolvedCors => {
     });
     if (config.origin.every(isName)) origin = config.origin;
   } else {
-    problems.push(`origin: expected '*' or an origin string, a list of them, or a function, got ${show(config.origin)}`);
+    problems.push(
+      `origin: expected '*' or an origin string, a list of them, or a function, got ${show(config.origin)}`,
+    );
   }
 
   let allowMethods: HonoCorsOptions["allowMethods"] | undefined;
@@ -163,8 +173,11 @@ const resolveCors = (raw: unknown): ResolvedCors => {
 
   let credentials: boolean | undefined;
   if (config.credentials !== undefined) {
-    if (typeof config.credentials !== "boolean") problems.push(`credentials: expected a boolean, got ${show(config.credentials)}`);
-    else credentials = config.credentials;
+    if (typeof config.credentials !== "boolean") {
+      problems.push(`credentials: expected a boolean, got ${show(config.credentials)}`);
+    } else {
+      credentials = config.credentials;
+    }
   }
 
   // A browser refuses `Access-Control-Allow-Origin: *` on a credentialed request, so Hono would send a pair no browser
