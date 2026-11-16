@@ -49,8 +49,8 @@ describe('Route.api', () => {
       r.contract(posts, PostController),
       r.contract(health, HealthController),
     ])
-    expectTypeOf(routes).toEqualTypeOf<ApiRoutes>()
-    expectTypeOf(routes.domain('api.example.test')).toEqualTypeOf<ApiRoutes>()
+    expectTypeOf(routes).toExtend<ApiRoutes>()
+    expectTypeOf(routes.domain('api.example.test')).toExtend<ApiRoutes>()
   })
 
   test('r.contract() and r.scope() return typed items', () => {
