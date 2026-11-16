@@ -1,4 +1,4 @@
-// The password is checked with Hash.check() after the lookup, never matched in the query
+// The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
 import { Container, depsRegistry } from '@laratype/core'
@@ -105,7 +105,7 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
   })
 
 describe('TokenGuard.attempt()', () => {
-  it('finds the user by the other fields and checks the password with Hash.check()', async () => {
+  it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
@@ -130,14 +130,50 @@ describe('TokenGuard.attempt()', () => {
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
   })
 
-  it('runs one check against the dummy hash when the user is unknown', async () => {
+  it('runs one async check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'check')
+    const check = vi.spyOn(Hash, 'checkAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
     expect(check).toHaveBeenCalledTimes(1)
     expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
+    expect(syncCheck).not.toHaveBeenCalled()
     expect(calls.update).toEqual([])
     check.mockRestore()
+    syncCheck.mockRestore()
+  })
+
+  it('leaves the event loop free while the password is checked', async () => {
+    const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // The timer is scheduled first: with scrypt on the loop it can only run after attempt() settled
+    const tick = new Promise((resolve) => setTimeout(resolve, 0))
+    let settled = false
+    const login = attempt(User, { email: 'ada@example.com', password: 'secret' }).finally(() => {
+      settled = true
+    })
+    await tick
+    expect(settled).toBe(false)
+    await expect(login).resolves.toEqual({ id: 1, email: 'ada@example.com' })
+  })
+
+  it('checks and rehashes through the async Hasher methods only', async () => {
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows)
+    const check = vi.spyOn(Hash, 'checkAsync')
+    const make = vi.spyOn(Hash, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(make).toHaveBeenCalledTimes(1)
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toHaveLength(1)
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+    check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
   })
 
   it('keeps the password on the user when the column is selectable, as a plain lookup does', async () => {
