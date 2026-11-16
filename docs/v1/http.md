@@ -633,7 +633,7 @@ Tests: [`packages/http/__tests__/response/jsonDetection.test.ts`](../../packages
 ## Exceptions
 
 ### Status
-proposed: PR #<leader fills> @ 84b5a2c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)). The filter is PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)); the error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ 5fc3162 (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)). The filter is PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)); the error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Public API
 [`Response.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/http/src/response/Response.ts) · [`isContractError` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/contract/src/errors.ts) · [`isException` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/support/src/exception/Exception.ts)
