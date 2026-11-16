@@ -14,12 +14,15 @@ const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
 /**
  * The `Content-Type` a `Response` sets, whatever the case of its name (headers are case-insensitive, RFC 9110 §5.1), or
  * `undefined`: an explicit one is kept for a string body, so a handler can opt into HTML (H41 #336). An own key only
- * (an inherited one must not opt a string into HTML), and the last spelling wins, as the header loop below sets it
+ * (an inherited one must not opt a string into HTML), the last spelling wins as the header loop below sets it, and a
+ * value that is not a string is no type at all: the loop below stringifies it, so reading it as one would throw
  */
 const explicitContentType = (headers: Record<string, string>): string | undefined => {
   let contentType: string | undefined;
   for (const name in headers) {
-    if (Object.hasOwn(headers, name) && name.toLowerCase() === "content-type") contentType = headers[name];
+    if (!Object.hasOwn(headers, name) || name.toLowerCase() !== "content-type") continue;
+    const value: unknown = headers[name];
+    contentType = typeof value === "string" ? value : undefined;
   }
   return contentType;
 };
@@ -256,13 +259,11 @@ export default class Response extends AppServiceProvider {
     }
 
     // A returned string is text, never an HTML body (H41 #336): a reflected `<script>` must not run. HTML needs an
-    // explicit `Content-Type` on the `Response`. `nosniff` stops an old browser from sniffing the text as HTML; a blank
-    // type is no type, so it takes the default and `nosniff` too
+    // explicit `Content-Type` on the `Response`, and `nosniff` stops an old browser from sniffing the text as HTML even
+    // then; a blank or non-string type is no type, so it takes the default, `nosniff` too
     if(typeof content === "string") {
       const type = explicitContentType(headers)?.trim()
-      if(!type) {
-        setHeader("X-Content-Type-Options", "nosniff")
-      }
+      setHeader("X-Content-Type-Options", "nosniff")
       return ctx.text(content, contentFullStatusCode, { "Content-Type": type || TEXT_CONTENT_TYPE })
     }
 
