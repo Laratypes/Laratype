@@ -29,7 +29,7 @@ export const valueType = (value: unknown): string => {
   if (Array.isArray(value)) return "array";
   if (value === null) return "null";
   if (value === undefined) return "undefined";
-  if (typeof value === "number") return "non-finite number";
-  if (value instanceof Date) return "invalid Date";
+  if (typeof value === "number") return Number.isFinite(value) ? "number" : "non-finite number";
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "invalid Date" : "Date";
   return typeof value;
 };

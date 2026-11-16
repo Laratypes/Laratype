@@ -93,6 +93,32 @@ const operator = (query: FakeQueryBuilder): FindOperator<unknown> => {
   return value as FindOperator<unknown>
 }
 
+/** The scalar kinds the facade's diagnostics list. */
+const SCALAR_KINDS = 'a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array'
+
+/** A value mysql2 would escape as SQL text, and the type name the diagnostic gives it. */
+const NON_SCALARS: [unknown, string][] = [
+  [{ email: 1 }, 'object'],
+  [{ $ne: '' }, 'object'],
+  [[1, 2], 'array'],
+  [{}, 'object'],
+  [[], 'array'],
+  [Number.NaN, 'non-finite number'],
+  [Number.POSITIVE_INFINITY, 'non-finite number'],
+  [new Date('nope'), 'invalid Date'],
+]
+
+const scalarMessage = (column: string, type: string) =>
+  `[@laratype/database] where() takes a scalar value for ${JSON.stringify(column)} (${SCALAR_KINDS}), got ${type}`
+
+const inElementMessage = (column: string, operatorName: string, type: string) =>
+  `[@laratype/database] where() takes scalar elements for ${JSON.stringify(column)}`
+  + ` in ${JSON.stringify(operatorName)} (${SCALAR_KINDS}), got ${type} at index 0`
+
+const nullishMessage = (column: string, value: unknown) =>
+  `[@laratype/database] where() cannot filter ${JSON.stringify(column)} with ${String(value)}:`
+  + ' IS NULL filters are not part of the v1 surface'
+
 describe('ModelQueryBuilder.where', () => {
   it('adds an equality condition for the two-argument form', () => {
     const { query, UserQuery } = builder()
@@ -223,54 +249,27 @@ describe('ModelQueryBuilder.where', () => {
     expect(query.wheres).toEqual([])
   })
 
-  it('refuses a value that mysql2 would escape as key = value pairs', () => {
-    const values: [unknown, string][] = [
-      [{ email: 1 }, 'object'],
-      [{ $ne: '' }, 'object'],
-      [[1, 2], 'array'],
-      [{}, 'object'],
-      [[], 'array'],
-      [Number.NaN, 'non-finite number'],
-      [Number.POSITIVE_INFINITY, 'non-finite number'],
-      [new Date('nope'), 'invalid Date'],
-    ]
-    for (const [value, type] of values) {
+  it('refuses a value that mysql2 would escape as key = value pairs in the two-argument form', () => {
+    for (const [value, type] of NON_SCALARS) {
       const { query, UserQuery } = builder()
-      expect(() => UserQuery.where('email', value as never)).toThrow(
-        `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
-      )
+      expect(() => UserQuery.where('email', value as never)).toThrow(scalarMessage('email', type))
       expect(query.wheres).toEqual([])
     }
   })
 
   it('refuses a non-scalar value in the object form', () => {
-    const values: [unknown, string][] = [
-      [{ email: 1 }, 'object'],
-      [[1, 2], 'array'],
-      [{}, 'object'],
-      [[], 'array'],
-      [Number.NaN, 'non-finite number'],
-    ]
-    for (const [value, type] of values) {
+    for (const [value, type] of NON_SCALARS) {
       const { query, UserQuery } = builder()
-      expect(() => UserQuery.where({ email: value } as never)).toThrow(
-        `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
-      )
+      expect(() => UserQuery.where({ email: value } as never)).toThrow(scalarMessage('email', type))
       expect(query.wheres).toEqual([])
     }
   })
 
   it('refuses a non-scalar value for a comparison operator', () => {
     for (const operator of ['=', 'like'] as const) {
-      for (const [value, type] of [
-        [{ email: 1 }, 'object'],
-        [[1, 2], 'array'],
-        [Number.NaN, 'non-finite number'],
-      ] as const) {
+      for (const [value, type] of NON_SCALARS) {
         const { query, UserQuery } = builder()
-        expect(() => UserQuery.where('email', operator, value as never)).toThrow(
-          `[@laratype/database] where() takes a scalar value for "email" (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type}`,
-        )
+        expect(() => UserQuery.where('email', operator, value as never)).toThrow(scalarMessage('email', type))
         expect(query.wheres).toEqual([])
       }
     }
@@ -287,14 +286,10 @@ describe('ModelQueryBuilder.where', () => {
 
   it('refuses in / not in elements that are not scalars', () => {
     for (const operator of ['in', 'not in'] as const) {
-      for (const [element, type] of [
-        [{ email: 1 }, 'object'],
-        [[1], 'array'],
-        [Number.NaN, 'non-finite number'],
-      ] as const) {
+      for (const [element, type] of NON_SCALARS) {
         const { query, UserQuery } = builder()
         expect(() => UserQuery.where('email', operator, [element] as never)).toThrow(
-          `[@laratype/database] where() takes scalar elements for "email" in ${JSON.stringify(operator)} (a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array), got ${type} at index 0`,
+          inElementMessage('email', operator, type),
         )
         expect(query.wheres).toEqual([])
       }
@@ -306,13 +301,13 @@ describe('ModelQueryBuilder.where', () => {
       for (const element of [null, undefined]) {
         const { UserQuery } = builder()
         expect(() => UserQuery.where('email', operator, [element] as never)).toThrow(
-          `[@laratype/database] where() cannot filter "email" with ${String(element)}: IS NULL filters are not part of the v1 surface`,
+          nullishMessage('email', element),
         )
       }
     }
   })
 
-  it('caps an in / not in list at 1,000 elements', () => {
+  it('refuses an in / not in list over 1,000 elements', () => {
     const list = Array.from({ length: 1001 }, (_, index) => index)
     for (const operator of ['in', 'not in'] as const) {
       const { query, UserQuery } = builder()
@@ -321,8 +316,12 @@ describe('ModelQueryBuilder.where', () => {
       )
       expect(query.wheres).toEqual([])
     }
-    const thousand = builder()
-    expect(() => thousand.UserQuery.where('email', 'in', list.slice(0, 1000) as never)).not.toThrow()
+  })
+
+  it('accepts an in / not in list of 1,000 elements', () => {
+    const list = Array.from({ length: 1000 }, (_, index) => index)
+    const { UserQuery } = builder()
+    expect(() => UserQuery.where('email', 'in', list as never)).not.toThrow()
   })
 
   it('truncates a long value in a diagnostic', () => {

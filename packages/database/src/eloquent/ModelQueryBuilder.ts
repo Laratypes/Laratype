@@ -60,11 +60,14 @@ const isWhereOperator = (value: unknown): value is WhereOperator =>
 /** The largest `in` / `not in` list `where()` accepts: Postgres allows 65,535 parameters, sqlite 32,766. */
 const MAX_IN_VALUES = 1000;
 
+/** A value `where()` accepts: something mysql2 binds as one parameter, never as SQL text. */
+type ScalarValue = string | number | bigint | boolean | Date | Uint8Array;
+
 /**
- * The scalar values `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a
- * Uint8Array (a Buffer is one). Anything else is a value type mysql2 would escape as SQL text.
+ * Whether a value is a scalar `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date, a
+ * Buffer or a Uint8Array (a Buffer is one).
  */
-const isScalarValue = (value: unknown): boolean =>
+const isScalarValue = (value: unknown): value is ScalarValue =>
   typeof value === "string" ||
   typeof value === "bigint" ||
   typeof value === "boolean" ||
@@ -184,9 +187,7 @@ export default class ModelQueryBuilder<T extends object = object> {
     if (!isWhereOperator(operator)) {
       throw new ModelError(errors.operator(operator));
     }
-    if (value === null || value === undefined) {
-      throw new ModelError(errors.nullishValue(column, value));
-    }
+    this.assertDefined(column, value);
     if (operator === "in" || operator === "not in") {
       this.assertInOperand(column, operator, value);
     } else {
@@ -248,11 +249,16 @@ export default class ModelQueryBuilder<T extends object = object> {
     return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
   }
 
-  /** A where value: no null/undefined, and only a scalar TypeORM binds as a parameter. */
-  private assertValue(column: string, value: unknown): void {
+  /** A nullish value is refused: TypeORM would bind `= NULL`, which never matches, and some drivers reject it. */
+  private assertDefined(column: string, value: unknown): void {
     if (value === null || value === undefined) {
       throw new ModelError(errors.nullishValue(column, value));
     }
+  }
+
+  /** A where value: no null/undefined, and only a scalar TypeORM binds as a parameter. */
+  private assertValue(column: string, value: unknown): void {
+    this.assertDefined(column, value);
     if (!isScalarValue(value)) {
       throw new ModelError(errors.scalarValue(column, value));
     }
@@ -268,9 +274,7 @@ export default class ModelQueryBuilder<T extends object = object> {
     }
     for (let index = 0; index < value.length; index++) {
       const element = (value as unknown[])[index];
-      if (element === null || element === undefined) {
-        throw new ModelError(errors.nullishValue(column, element));
-      }
+      this.assertDefined(column, element);
       if (!isScalarValue(element)) {
         throw new ModelError(errors.inElement(column, operator, element, index));
       }
