@@ -151,10 +151,13 @@ export type Client<T, P = {}> = {
 export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
 
 /** Every endpoint of an API type, as a union: the tree flattened. */
-type EndpointsOf<A> = { [K in keyof A]: A[K] extends EndpointShape ? A[K] : EndpointsOf<A[K]> }[keyof A];
+type ApiEndpoints<A> = { [K in keyof A]: A[K] extends EndpointShape ? A[K] : ApiEndpoints<A[K]> }[keyof A];
 
 /** The endpoint an API type declares at method `M` and full path `Path`; `never` when none matches. */
-type EndpointAt<A, M extends Method, Path extends string> = Extract<EndpointsOf<A>, { method: M; path: Path }>;
+type EndpointAt<A, M extends Method, Path extends string> = Extract<ApiEndpoints<A>, { method: M; path: Path }>;
+
+/** The paths an API type declares for method `M`. */
+type PathsOf<A, M extends Method> = EndpointAt<A, M, string> extends { path: infer P } ? P : never;
 
 /** Whether `T` is a union: a path that matches two endpoints is ambiguous. */
 type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
@@ -163,20 +166,21 @@ type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] 
  * The type-level check of a path-style call: `unknown` when exactly one endpoint matches, otherwise an object whose
  * `error` property names the problem. Intersecting the path with it makes a bad path a type error that shows the text.
  */
-type CheckPath<A, M extends Method, Path extends string> = [EndpointAt<A, M, Path>] extends [never]
-  ? { error: `[@laratype/client] no ${Uppercase<M>} endpoint at path "${Path}"` }
-  : true extends IsUnion<EndpointAt<A, M, Path>>
-    ? { error: `[@laratype/client] more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
-    : unknown;
+type CheckPath<A, M extends Method, Path extends string> = [string] extends [Path]
+  ? { error: "[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)" }
+  : [Path] extends [PathsOf<A, M>]
+    ? true extends IsUnion<EndpointAt<A, M, Path>>
+      ? { error: `[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
+      : unknown
+    : { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` };
 
 /** The input of a path-style call: the matched endpoint's `CallInput`, with the headers `options.headers` provides. */
 type PathInput<A, M extends Method, Path extends string, P> = CallInput<EndpointAt<A, M, Path>, P>;
 
 /**
  * One path-style call: `api.get('/api/users/:user', { params })`. The path is the full request path the server
- * mounts, and it selects the endpoint whose params, query, body, headers, result and errors the call is typed with.
- * The input is optional when nothing in it is required. A path that matches no endpoint, or more than one, is a type
- * error that shows the text in `Diagnostics`; `string` is not accepted, so the path must be a literal.
+ * mounts and selects the endpoint whose input, result and errors type the call; a path that matches none or more
+ * than one is an error (see `client.md › Diagnostics`), and a `string` variable is rejected.
  */
 export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
   path: Path & CheckPath<A, M, Path>,

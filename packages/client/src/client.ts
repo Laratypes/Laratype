@@ -60,25 +60,28 @@ const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly stat
 };
 
 /**
- * What a 2xx must look like: the declared status (unknown for the manifest) and the data, `"json"` for a response
- * schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the manifest: the body is parsed if there is one).
+ * What a 2xx must look like: the declared status (unknown for the manifest and the path client) and the data, `"json"`
+ * for a response schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the body is
+ * parsed if there is one).
  */
 interface Success {
   readonly status: number | undefined;
   readonly data: "json" | "none" | "any";
 }
 
+/** The success of a client that has no contract runtime (the manifest, the path client): any 2xx, body parsed if any. */
+const UNKNOWN_SUCCESS: Success = { status: undefined, data: "any" };
+
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
- * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer). `declared` is absent for a
- * path-style call, which has no contract runtime: it trusts the path and takes any string `code` as declared.
+ * the 2xx it expects and its declared errors (computed on the first 4xx or 5xx answer).
  */
 interface RouteSpec {
   readonly name: string;
   readonly method: string;
   readonly path: string;
   readonly success: Success;
-  readonly declared?: () => Declared;
+  readonly declared: () => Declared;
 }
 
 /** The runtime view of `ClientResult`. */
@@ -352,18 +355,19 @@ async function toResult(response: Response, success: Success, declared?: () => D
 /**
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
  * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
- * The declared errors are computed on the first 4xx or 5xx answer, then kept.
+ * The declared errors are computed on the first 4xx or 5xx answer, then kept. Without `declared` (the path client),
+ * the result trusts the path and takes any string `code` as declared.
  */
-const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
+const createCall = (send: Send, method: Method, path: string, success: Success, declared?: () => Declared): Call => {
   return async (input) => {
     let response: Response;
     try {
-      response = await send(method, route.path, input);
+      response = await send(method, path, input);
     } catch (error) {
       if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
       throw error;
     }
-    return toResult(response, route.success, route.declared);
+    return toResult(response, success, declared);
   };
 };
 
@@ -391,7 +395,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
     if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
-    node[key] = createCall(send, route.method.toLowerCase() as Method, route);
+    node[key] = createCall(send, route.method.toLowerCase() as Method, route.path, route.success, route.declared);
   }
   return freezeTree(root);
 }
@@ -428,7 +432,7 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
       name,
       method: route.method,
       path: route.path,
-      success: { status: undefined, data: "any" },
+      success: UNKNOWN_SUCCESS,
       declared: once(() => new Map((errors ?? []).map((code) => [code, undefined]))),
     };
   });
@@ -483,24 +487,13 @@ export function createClient(api: object, options: ClientOptions = {}): object {
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }
 
-/** The path-style client has no contract runtime, so it knows neither the declared status nor whether a schema exists. */
-const ANY_SUCCESS: Success = { status: undefined, data: "any" };
-
 /** The methods of `PathClient`, in declaration order. */
 const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
 
 /**
- * The type-only path-style client (CL4 #140): `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then
- * `api.get('/api/users/:user', { params })`. It takes no contract value: the API type comes from `import type` or the
- * generated types, so no schema, contract file or appApi reaches the bundle.
- * The path is the full request path the server mounts (`EndpointTypes.path`), and it is a literal: the call is typed
- * with that endpoint's params, query, body, headers, result and errors, as in the named style.
- * It reuses the named client's request path (`createSend`, `toResult`), so options and hooks behave the same: live
- * options, a headers function, credentials, `redirect` (default `"manual"`), `onRequest`/`onResponse`, and the same
- * baseUrl and same-origin checks.
- * Without a contract runtime it trusts the path: any 2xx is the success, and a 4xx or 5xx JSON body with a string
- * `code` is a declared error even if the endpoint does not declare that code (http.md › Undeclared-error check keeps
- * the server honest). Use the named style when the status or code must be checked at runtime.
+ * The type-only path-style client: `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then
+ * `api.get('/api/users/:user', { params })`. It takes no contract value, so the API type comes from `import type` and
+ * the path types the call's input, result and errors (see `client.md › Path-style calls`).
  *
  * @example
  * const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://example.com' })
@@ -513,8 +506,7 @@ export function createPathClient<A extends ApiShape<A> = never, const Hd extends
   const send = createSend(options ?? {});
   const client: Record<string, unknown> = Object.create(null);
   for (const method of METHODS) {
-    client[method] = (path: string, input?: RequestInput) =>
-      createCall(send, method, { name: "", method, path, success: ANY_SUCCESS })(input);
+    client[method] = (path: string, input?: RequestInput) => createCall(send, method, path, UNKNOWN_SUCCESS)(input);
   }
   return Object.freeze(client) as unknown as PathClient<A, ProvidedHeaders<Hd>>;
 }
