@@ -2,9 +2,10 @@ import { validate } from "@laratype/contract";
 import type { ErrorBag, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 
 /**
- * A dev-mode response mismatch (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)): the success body does
- * not match the endpoint's response schema. A call resolves it as the [unexpected result](https://github.com/Laratypes/Laratype/blob/master/docs/v1/client.md#result-union),
- * since the server broke the contract, as an empty body already does.
+ * A dev-mode response mismatch (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159); `client.md` ›
+ * Dev-mode response validation): the success body does not match the endpoint's response schema. A call resolves it
+ * as the unexpected result (`client.md` › Result union), since the server broke the contract, as an empty body
+ * already does.
  *
  * `errors` is the schema's [error bag](../../contract/src/validate.ts) (dot path → messages, `""` for an issue without
  * one) and `issues` its Standard Schema issues. The message holds the route name and those paths and messages, never

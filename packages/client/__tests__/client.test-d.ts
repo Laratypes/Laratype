@@ -2,7 +2,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
 import { createClient, ResponseValidationError } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ManifestClientOptions, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
 import type { ApiTypes, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
@@ -413,6 +413,7 @@ describe('dev-mode response validation', () => {
   })
 
   test('the manifest client refuses it: the generated manifest has no schemas', () => {
+    expectTypeOf<ManifestClientOptions['validateResponses']>().toEqualTypeOf<false | undefined>()
     void createClient<Generated>(manifest, { validateResponses: false })
     // @ts-expect-error the manifest carries no response schemas
     void createClient<Generated>(manifest, { validateResponses: true })

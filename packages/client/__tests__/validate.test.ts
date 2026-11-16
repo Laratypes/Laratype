@@ -119,6 +119,15 @@ describe('dev-mode response validation (CL6 #159)', () => {
     expect(order).toEqual(['onResponse', 'validate', 'settled'])
   })
 
+  it('a schema that throws rejects the call, like a failing hook', async () => {
+    const validate = vi.fn(async () => {
+      throw new Error('broken schema')
+    })
+    const schema: StandardSchemaV1 = { '~standard': { version: 1, vendor: 'test', validate } }
+    const things = defineContract()({ show: endpoint.get('/api/things').response(schema) })
+    await expect(createClient(things, { fetch: jsonFetch({ ok: true }), validateResponses: true }).show()).rejects.toThrow('broken schema')
+  })
+
   it('keeps the parsed JSON as data, not the schema output: only the input is checked', async () => {
     const transformed = defineContract()({
       show: endpoint.get('/api/n').response(z.object({ n: z.string().transform((value) => value.length) })),
