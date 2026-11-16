@@ -122,6 +122,9 @@ describe('route() absolute URLs', () => {
     expect(route('users.posts.show', input, { absolute: false })).toBe('/api/users/1/posts/2')
     setConfigs({ config: { url: 'https://app.test/sub/' } })
     expect(route('users.posts.show', input, { absolute: true })).toBe('https://app.test/sub/api/users/1/posts/2')
+    // a URL value and an empty hash are read as their origin and path
+    setConfigs({ config: { url: new URL('https://url-instance.test/sub/#') } })
+    expect(route('users.posts.show', input, { absolute: true })).toBe('https://url-instance.test/sub/api/users/1/posts/2')
   })
 
   it('never takes the origin from the request Host or X-Forwarded-Host header', async () => {
@@ -144,9 +147,9 @@ describe('route() absolute URLs', () => {
     expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
       new TypeError("[@laratype/http] route: absolute URLs need config('config.url') (app.url), which is not set"),
     )
-    for (const url of ['localhost:3000', '/api', 'ftp://app.test', 'https://app.test/?x=1', 'https://app.test/#h']) {
+    for (const url of ['localhost:3000', '/api', 'ftp://app.test', 'https://app.test/?x=1', 'https://app.test/#h', 'https://user:pass@app.test']) {
       setConfigs({ config: { url } })
-      const message = `[@laratype/http] route: config('config.url') must be an absolute http(s) URL without a query or hash, got "${url}"`
+      const message = `[@laratype/http] route: config('config.url') must be an absolute http(s) URL without a query, hash or credentials, got "${url}"`
       expect(() => route('users.posts.show', input, { absolute: true })).toThrow(new TypeError(message))
     }
     setConfigs({ config: { url: '' } })

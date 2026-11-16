@@ -45,7 +45,7 @@ declare const post: number
 // "/api/users/ada/posts?page=2" once user.getRouteKey() is "ada"; relative by default
 export const relative = route('users.posts.index', { user }, { query: { page: 2 } })
 // "https://app.test/api/users/ada/posts/7" with config('config.url') = "https://app.test"
-export const absolute = route('users.posts.show', { user: user, post }, { absolute: true })
+export const absolute = route('users.posts.show', { user, post }, { absolute: true })
 // an ad-hoc route named with .name()
 export const health = route('health')
 
@@ -60,6 +60,6 @@ route('users.posts.show')
 route('users.posts.show', { user, post }, { query: { page: 2 } })
 
 // Location: "/api/users/ada/posts/7" (relative, like route())
-export const login = redirect().route('users.posts.show', { user: user, post })
+export const login = redirect().route('users.posts.show', { user, post })
 // Location: "/health", 301
 export const moved = redirect(301).route('health')

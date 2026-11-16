@@ -30,6 +30,7 @@ class PostsController extends Controller {
 const routes = Route.api(appApi, (r) => [
   r.contract(users, UsersController),
   r.contract(posts, PostsController),
+  r.get('/ping', () => 'ok'),
   r.get('/health', () => 'ok').name('health'),
   r.get('/files/:name?', () => 'ok').name('file'),
 ])
@@ -61,8 +62,8 @@ describe('route() names', () => {
     route('users.nope')
     // @ts-expect-error a tree node, not a route
     route('users.posts')
-    // @ts-expect-error an ad-hoc route without .name() has no name
-    route('anonymous')
+    // @ts-expect-error an ad-hoc route without .name() is not addressable
+    route('ping')
   })
 })
 

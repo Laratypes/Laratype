@@ -171,12 +171,20 @@ const appUrl = (): string => {
   }
   // The config value is the only origin source: the request's Host header never reaches an absolute URL
   const problem =
-    parsed === undefined || !/^https?:$/.test(parsed.protocol) || parsed.search !== "" || parsed.hash !== "";
+    parsed === undefined ||
+    !/^https?:$/.test(parsed.protocol) ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== "";
   if (problem) {
     const got = JSON.stringify(url);
-    fail(`route: config('config.url') must be an absolute http(s) URL without a query or hash, got ${got}`);
+    fail(`route: config('config.url') must be an absolute http(s) URL without a query, hash or credentials, got ${got}`);
   }
-  return url.replace(/\/+$/, "");
+  // The parsed origin and path, so a trailing "?", "#", a credential or a space in the config never reaches a URL
+  // (`problem` above proves `parsed` is defined here)
+  const base = parsed!;
+  return `${base.origin}${base.pathname}`.replace(/\/+$/, "");
 };
 
 /**
