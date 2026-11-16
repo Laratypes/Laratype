@@ -19,8 +19,17 @@ export default class GateManager {
 
   protected readonly policies = new Map<AbstractNewable<object>, PolicyClass>();
 
-  /** Registers `policy` for `model`: `Gate.policy(Post, PostPolicy)`, from a service provider's `register()` or `boot()`. */
+  /**
+   * Registers `policy` for `model`: `Gate.policy(Post, PostPolicy)`, from a service provider's `register()` or `boot()`.
+   * Registration is a boot-time act: the registry is the app's singleton, so a policy added inside a request would live
+   * on for every request (#394).
+   */
   policy<M extends object>(model: AbstractNewable<M>, policy: PolicyClass): this {
+    if (ContextApi.getContainer() !== undefined) {
+      throw new InternalException(
+        "[@laratype/auth] Gate.policy: register policies in a service provider, not inside a request.",
+      );
+    }
     if (typeof model !== "function" || model.prototype === undefined) {
       throw new InternalException(`[@laratype/auth] Gate.policy: the model must be a class, got ${describeValue(model)}.`);
     }

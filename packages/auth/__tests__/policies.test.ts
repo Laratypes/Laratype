@@ -65,6 +65,19 @@ const denies = (user: unknown, ability: string, subject: unknown, ...args: unkno
 const authorize = (user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<void> =>
   Gate.authorize(user, ability as never, subject as never, ...args)
 
+/** `Authenticated.can()`, for a runtime ability name (see `allows`). */
+const can = (
+  authenticated: Authenticated<User>,
+  ability: string,
+  subject: unknown,
+  ...args: unknown[]
+): Promise<boolean> =>
+  (authenticated.can as unknown as (ability: string, subject: unknown, ...args: unknown[]) => Promise<boolean>)(
+    ability,
+    subject,
+    ...args,
+  )
+
 /** The policy instance and its calls, for a policy whose decision the test sets. */
 const policyWith = (decide: (user: unknown, post: Post, ...args: unknown[]) => unknown) => {
   const calls: unknown[][] = []
@@ -452,5 +465,98 @@ describe('InternalException for a missing policy', () => {
     const error = await allows(user, 'update', new Comment()).catch((thrown: unknown) => thrown)
     expect(error).toBeInstanceOf(InternalException)
     expect((error as InternalException).getHttpCode()).toBe(500)
+  })
+})
+
+/**
+ * #394: the Object.prototype methods are not abilities. The `hasOwnProperty`/`propertyIsEnumerable` probe used to
+ * allow: the user is coerced to a property name, and a policy field (`repo`) is an own property of the instance.
+ */
+describe('Object.prototype methods are not abilities (#394)', () => {
+  class Repo {
+    find() {
+      return true
+    }
+  }
+
+  /** A policy with a constructor-injected field, the own property the probe used to hit. */
+  class FieldPolicy {
+    constructor(public repo: Repo) {}
+    update() {
+      return true
+    }
+  }
+  __laratype_deps(FieldPolicy, [() => Repo], { params: ['repo'] })
+
+  /** A user whose String() is the policy field's name: the probe's key. */
+  const probingUser = () => Object.assign(new User(), { toString: () => 'repo' })
+
+  /** Every own name of Object.prototype: constructor, the legacy __define* / __lookup* accessors, toString, ... */
+  const objectPrototypeNames = Object.getOwnPropertyNames(Object.prototype)
+
+  const register = () => Gate.policy(PostModel, FieldPolicy)
+
+  it('denies every Object.prototype name through Gate.allows and policyCheck', async () => {
+    register()
+    const policy = new FieldPolicy(new Repo())
+    for (const name of objectPrototypeNames) {
+      expect(await allows(probingUser(), name, post), name).toBe(false)
+      expect(await policyCheck(policy, probingUser(), name, post), name).not.toBe(true)
+    }
+  })
+
+  it('authorizes none of them, and answers the 403 instead of a TypeError', async () => {
+    register()
+    for (const name of objectPrototypeNames) {
+      await expect(authorize(probingUser(), name, post), name).rejects.toBeInstanceOf(ForbiddenException)
+    }
+  })
+
+  it('denies every Object.prototype name through Authenticated.can too', async () => {
+    register()
+    const authenticated = new Authenticated<User>(probingUser(), undefined as never)
+    for (const name of objectPrototypeNames) {
+      expect(await can(authenticated, name, post), name).toBe(false)
+    }
+  })
+
+  it('still runs a method inherited from a policy base class', async () => {
+    class BasePolicy {
+      update() {
+        return true
+      }
+    }
+    class ChildPolicy extends BasePolicy {}
+    Gate.policy(PostModel, ChildPolicy)
+    expect(await allows(user, 'update', post)).toBe(true)
+    expect(await policyCheck(new ChildPolicy(), user, 'update', post)).toBe(true)
+  })
+})
+
+describe('Gate.policy inside a request (#394)', () => {
+  class RequestPolicy {
+    update() {
+      return true
+    }
+  }
+
+  it('refuses, and neither another request nor the app sees the policy', async () => {
+    const message = '[@laratype/auth] Gate.policy: register policies in a service provider, not inside a request.'
+
+    const first = app.createRequestScope()
+    await ContextApi.run({ container: first } as never, async () => {
+      expect(() => Gate.policy(Comment, RequestPolicy)).toThrow(message)
+      // Gate.define() registers nothing, so it stays usable inside a request
+      expect(Gate.define('inside-a-request', () => true).name).toBe('inside-a-request')
+    })
+
+    const second = app.createRequestScope()
+    await ContextApi.run({ container: second } as never, async () => {
+      await expect(allows(user, 'update', new Comment())).rejects.toThrow('no policy is defined for Comment')
+    })
+
+    expect(GateManager.current().policyFor(Comment)).toBeUndefined()
+    await first.dispose()
+    await second.dispose()
   })
 })

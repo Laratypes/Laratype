@@ -9,11 +9,20 @@ const before = async (policy: object, user: unknown, ability: string, args: read
   return typeof answer === "boolean" ? answer : null;
 };
 
-/** The ability method of a policy, or `undefined`: a method only, so a field, `before` or `constructor` never runs. */
+/**
+ * The ability method of a policy, or `undefined`: a function the policy instance or a class below `Object.prototype`
+ * declares. `Object.prototype`'s own methods (`hasOwnProperty`, `toString`, `__defineGetter__`, ...) are never
+ * abilities: `hasOwnProperty(user)` would ask whether the policy has an own field named `String(user)`, and answer
+ * true (#394). A field, `before` and `constructor` never run either.
+ */
 const abilityMethod = (policy: object, ability: string): ((...args: unknown[]) => unknown) | undefined => {
   if (ability === "constructor" || ability === "before") return undefined;
-  const method = (policy as Record<string, unknown>)[ability];
-  return typeof method === "function" ? method as (...args: unknown[]) => unknown : undefined;
+  for (let level: object | null = policy; level !== null && level !== Object.prototype; level = Object.getPrototypeOf(level)) {
+    if (!Object.hasOwn(level, ability)) continue;
+    const method = (level as Record<string, unknown>)[ability];
+    return typeof method === "function" ? method as (...args: unknown[]) => unknown : undefined;
+  }
+  return undefined;
 };
 
 /**
