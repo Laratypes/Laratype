@@ -116,7 +116,9 @@ describe('route() query and options', () => {
 
   test('without a registration, any name and generic params', () => {
     expectTypeOf<RouteName<Record<string, never>>>().toEqualTypeOf<string>()
-    expectTypeOf<RouteParamsOf<'whatever', Record<string, never>>>().toEqualTypeOf<Record<string, string | number | RouteKeyed>>()
+    expectTypeOf<RouteParamsOf<'whatever', Record<string, never>>>().toEqualTypeOf<
+      Record<string, string | number | RouteKeyed>
+    >()
   })
 })
 
@@ -131,7 +133,12 @@ describe('.name()', () => {
       expectTypeOf(named.routeName).toEqualTypeOf<'health'>()
       // @ts-expect-error a name is a string
       base.name(1)
-      return [r.contract(users, UsersController), r.contract(posts, PostsController), named, r.get('/files/:name?', () => 'ok').name('file')]
+      return [
+        r.contract(users, UsersController),
+        r.contract(posts, PostsController),
+        named,
+        r.get('/files/:name?', () => 'ok').name('file'),
+      ]
     })
   })
 })

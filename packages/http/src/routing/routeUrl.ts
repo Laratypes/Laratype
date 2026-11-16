@@ -18,7 +18,11 @@ export interface Register {}
 type RegisteredRoutes<R> = R extends { readonly routes: infer T } ? T : never;
 
 /** The API tree node an endpoint name ends in: `"users.posts.update"` stops at the `posts` node. */
-type NodeAt<A, Name extends string> = Name extends `${infer H}.${infer T}` ? (H extends keyof A ? NodeAt<A[H], T> : never) : A;
+type NodeAt<A, Name extends string> = Name extends `${infer H}.${infer T}`
+  ? H extends keyof A
+    ? NodeAt<A[H], T>
+    : never
+  : A;
 
 /** One route's types: the endpoint under the node its name belongs to, with its full path, params and query. */
 type RouteTypes<A, Name extends string> = EndpointTypes<ApiEndpoint<A, Name>, NodeContext<NodeAt<A, Name>>>;
@@ -49,7 +53,9 @@ type RouteInputs<R, Name extends string> = [RegisteredRoutes<R>] extends [never]
     ? | (Name extends ContractRouteName<A>
         ? { params: WidenParams<RouteTypes<A, Name>["params"]>; query: RouteTypes<A, Name>["query"] }
         : never)
-      | (Name extends Extract<AdHocRouteName<M>, string> ? { params: WidenParams<AdHocRouteParams<M, Name>>; query: object } : never)
+      | (Name extends Extract<AdHocRouteName<M>, string>
+          ? { params: WidenParams<AdHocRouteParams<M, Name>>; query: object }
+          : never)
     : { params: Record<string, RouteParamValue>; query: object };
 
 /**
@@ -100,9 +106,10 @@ interface RegisteredRoute {
 }
 
 /**
- * Every route name a `Route.api()` group mounted, in this process. Contract routes merge by name: a later group
- * mounting the same tree points the name at its path, without an error. A name only one route may take is the
- * ad-hoc one: `.name()` of a second route, in this group or a later `Route.api()` call, is a duplicate error.
+ * Every route name a `Route.api()` group mounted, in this process. Contract routes merge by name: the latest mount of
+ * a name points it at its path, without an error (the same tree in two groups). A name only one route may take is the
+ * ad-hoc one: `.name()` of another route, in this group or a later `Route.api()` call, is a duplicate error. A group
+ * mounted again in the same process (an `--hmr` restart) is the same route, not a duplicate.
  */
 const registry = new Map<string, RegisteredRoute>();
 
@@ -117,17 +124,20 @@ export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[
   for (const entry of entries) {
     const { name } = entry;
     if (name === undefined) continue;
-    const adHoc = entry.controller === undefined;
     const existing = registry.get(name);
-    if (adHoc) {
-      if (existing !== undefined) {
-        fail(`Route.api: ${labelOf(entry)}.name(${JSON.stringify(name)}) is already the name of ${existing.label}`);
-      }
-      registry.set(name, { path: entry.path, label: labelOf(entry), adHoc: true });
-    } else {
+    if (entry.controller !== undefined) {
+      // A contract route of the tree: a later group agrees on the name, so it points the name at the path it mounts
       if (existing?.adHoc) fail(`Route.api: contract "${name}" has the name of ${existing.label}`);
       registry.set(name, { path: entry.path, label: name, adHoc: false });
+      continue;
     }
+    const label = labelOf(entry);
+    // The same group mounting again (an --hmr restart) is the same route, not a duplicate
+    if (existing?.adHoc === true && existing.label === label) continue;
+    if (existing !== undefined) {
+      fail(`Route.api: ${label}.name(${JSON.stringify(name)}) is already the name of ${existing.label}`);
+    }
+    registry.set(name, { path: entry.path, label, adHoc: true });
   }
 };
 
@@ -144,23 +154,15 @@ function fail(message: string): never {
 }
 
 /**
- * `config()` throws before `ConfigLoadServiceProvider` booted; a package test can run that early. Any other error is a
- * real one and is rethrown (the `@laratype/i18n` pattern).
+ * `config('config.url')` as an origin with an optional path prefix, its trailing slashes dropped. The app reads the
+ * 0.5 single config file; K1 #152's `app/config/app.ts` makes it `config('app.url')`.
  */
-const readConfig = (path: string): unknown => {
-  try {
-    return (config as unknown as (path: string) => unknown)(path);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("ran before the configs were loaded")) return undefined;
-    throw error;
-  }
-};
-
-/** `config('config.url')` as an origin with an optional path prefix, its trailing slashes dropped. */
 const appUrl = (): string => {
-  const value = readConfig("config.url");
+  const value: unknown = (config as unknown as (path: string) => unknown)("config.url");
   const url = typeof value === "string" ? value : value instanceof URL ? value.toString() : undefined;
-  if (url === undefined || url.trim() === "") fail("route: absolute URLs need config('config.url') (app.url), which is not set");
+  if (url === undefined || url.trim() === "") {
+    fail("route: absolute URLs need config('config.url') (app.url), which is not set");
+  }
   let parsed: URL | undefined;
   try {
     parsed = new URL(url);
@@ -168,8 +170,11 @@ const appUrl = (): string => {
     parsed = undefined;
   }
   // The config value is the only origin source: the request's Host header never reaches an absolute URL
-  if (parsed === undefined || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
-    fail(`route: config('config.url') must be an absolute http(s) URL, got ${JSON.stringify(url)}`);
+  const problem =
+    parsed === undefined || !/^https?:$/.test(parsed.protocol) || parsed.search !== "" || parsed.hash !== "";
+  if (problem) {
+    const got = JSON.stringify(url);
+    fail(`route: config('config.url') must be an absolute http(s) URL without a query or hash, got ${got}`);
   }
   return url.replace(/\/+$/, "");
 };
@@ -187,7 +192,9 @@ const paramValues = (params: object | undefined): Record<string, string | number
       continue;
     }
     const getRouteKey = (value as Partial<RouteKeyed>).getRouteKey;
-    if (typeof getRouteKey !== "function") fail(`route: param "${key}" got an object that is not a model (no getRouteKey())`);
+    if (typeof getRouteKey !== "function") {
+      fail(`route: param "${key}" got an object that is not a model (no getRouteKey())`);
+    }
     values[key] = getRouteKey.call(value) as string | number;
   }
   return values;
@@ -198,7 +205,11 @@ const paramValues = (params: object | undefined): Record<string, string | number
  * `redirect().route()`; not exported by the package.
  * @internal
  */
-export const buildRouteUrl = (name: string, params?: object, options?: { readonly query?: object | undefined; readonly absolute?: boolean }): string => {
+export const buildRouteUrl = (
+  name: string,
+  params?: object,
+  options?: { readonly query?: object | undefined; readonly absolute?: boolean },
+): string => {
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   const entry = registry.get(name);
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(name)}`);

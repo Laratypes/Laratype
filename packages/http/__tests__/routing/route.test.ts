@@ -55,7 +55,9 @@ describe('route()', () => {
 
   it('rejects an unknown name', () => {
     mount()
-    expect(() => route('users.posts.nope')).toThrow(new TypeError('[@laratype/http] route: unknown route name "users.posts.nope"'))
+    expect(() => route('users.posts.nope')).toThrow(
+      new TypeError('[@laratype/http] route: unknown route name "users.posts.nope"'),
+    )
   })
 
   it('fills the full path with buildUrl, encoding a param with "/", "?", "#", "%" and a space', () => {
@@ -68,9 +70,10 @@ describe('route()', () => {
 
   it('serializes the query with buildUrl: "&" and "=" encoded, arrays repeated, null skipped', () => {
     mount()
-    expect(
-      route('users.posts.index', { user: 1 }, { query: { filter: 'a&b=c', tag: ['x', 'y'], none: undefined, nil: null, page: 2 } }),
-    ).toBe('/api/users/1/posts?filter=a%26b%3Dc&tag=x&tag=y&page=2')
+    const query = { filter: 'a&b=c', tag: ['x', 'y'], none: undefined, nil: null, page: 2 }
+    expect(route('users.posts.index', { user: 1 }, { query })).toBe(
+      '/api/users/1/posts?filter=a%26b%3Dc&tag=x&tag=y&page=2',
+    )
     expect(route('users.posts.index', { user: 1 }, { query: {} })).toBe('/api/users/1/posts')
   })
 
@@ -80,7 +83,9 @@ describe('route()', () => {
       new TypeError('[@laratype/contract] buildUrl: missing param "post" for "/api/users/:user/posts/:post"'),
     )
     expect(() => route('users.posts.index', { user: 1 }, { query: { nested: { a: 1 } } })).toThrow(
-      new TypeError('[@laratype/contract] buildUrl: query "nested" must be a string, number, boolean, bigint or Date, or an array of them'),
+      new TypeError(
+        '[@laratype/contract] buildUrl: query "nested" must be a string, number, boolean, bigint or Date, or an array of them',
+      ),
     )
   })
 
@@ -97,7 +102,8 @@ describe('route()', () => {
       }
     }
     mount()
-    expect(route('users.posts.show', { user: new User(1, 'ada lovelace'), post: 2 })).toBe('/api/users/ada%20lovelace/posts/2')
+    const user = new User(1, 'ada lovelace')
+    expect(route('users.posts.show', { user, post: 2 })).toBe('/api/users/ada%20lovelace/posts/2')
   })
 
   it('rejects an object param that is not a model', () => {
@@ -111,10 +117,11 @@ describe('route()', () => {
 describe('route() absolute URLs', () => {
   it('prefixes config("config.url"), trailing slashes dropped, path prefix kept', () => {
     mount()
-    expect(route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toBe('https://app.test/api/users/1/posts/2')
-    expect(route('users.posts.show', { user: 1, post: 2 }, { absolute: false })).toBe('/api/users/1/posts/2')
+    const input = { user: 1, post: 2 }
+    expect(route('users.posts.show', input, { absolute: true })).toBe('https://app.test/api/users/1/posts/2')
+    expect(route('users.posts.show', input, { absolute: false })).toBe('/api/users/1/posts/2')
     setConfigs({ config: { url: 'https://app.test/sub/' } })
-    expect(route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toBe('https://app.test/sub/api/users/1/posts/2')
+    expect(route('users.posts.show', input, { absolute: true })).toBe('https://app.test/sub/api/users/1/posts/2')
   })
 
   it('never takes the origin from the request Host or X-Forwarded-Host header', async () => {
@@ -124,24 +131,28 @@ describe('route() absolute URLs', () => {
     ])
     const app = new Hono()
     routes.mount(app)
-    const res = await app.request('http://evil.test/link', { headers: { host: 'evil.test', 'x-forwarded-host': 'evil.test' } })
+    const res = await app.request('http://evil.test/link', {
+      headers: { host: 'evil.test', 'x-forwarded-host': 'evil.test' },
+    })
     expect(await res.text()).toBe('https://app.test/api/users/1/posts/2')
   })
 
-  it('needs config("config.url"), and an absolute http(s) one', () => {
+  it('needs config("config.url"), an absolute http(s) one without a query or hash', () => {
     mount()
+    const input = { user: 1, post: 2 }
     setConfigs({})
-    expect(() => route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toThrow(
+    expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
       new TypeError("[@laratype/http] route: absolute URLs need config('config.url') (app.url), which is not set"),
     )
-    for (const url of ['localhost:3000', '/api', 'ftp://app.test']) {
+    for (const url of ['localhost:3000', '/api', 'ftp://app.test', 'https://app.test/?x=1', 'https://app.test/#h']) {
       setConfigs({ config: { url } })
-      expect(() => route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toThrow(
-        new TypeError(`[@laratype/http] route: config('config.url') must be an absolute http(s) URL, got "${url}"`),
-      )
+      const message = `[@laratype/http] route: config('config.url') must be an absolute http(s) URL without a query or hash, got "${url}"`
+      expect(() => route('users.posts.show', input, { absolute: true })).toThrow(new TypeError(message))
     }
     setConfigs({ config: { url: '' } })
-    expect(() => route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toThrow(/absolute URLs need config\('config.url'\)/)
+    expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
+      /absolute URLs need config\('config.url'\)/,
+    )
   })
 })
 
@@ -174,13 +185,19 @@ describe('.name()', () => {
         r.get('/a', () => 1).name('health'),
         r.get('/b', () => 2).name('health'),
       ]),
-    ).toThrow(new TypeError('[@laratype/http] Route.api: r.get(\'/b\').name("health") is already the name of r.get(\'/a\')'))
+    ).toThrow(
+      new TypeError('[@laratype/http] Route.api: r.get(\'/b\').name("health") is already the name of r.get(\'/a\')'),
+    )
   })
 
   it('rejects an ad-hoc name a contract route already has', () => {
     expect(() =>
       Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/x', () => 1).name('users.posts.index')]),
-    ).toThrow(new TypeError('[@laratype/http] Route.api: r.get(\'/x\').name("users.posts.index") is already the name of users.posts.index'))
+    ).toThrow(
+      new TypeError(
+        '[@laratype/http] Route.api: r.get(\'/x\').name("users.posts.index") is already the name of users.posts.index',
+      ),
+    )
   })
 
   it('merges names across Route.api() calls, and rejects a duplicate across them', () => {
@@ -189,9 +206,19 @@ describe('.name()', () => {
     expect(route('health')).toBe('/a')
     expect(route('status')).toBe('/b')
     expect(route('users.posts.index', { user: 1 })).toBe('/api/users/1/posts')
-    expect(() => Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/c', () => 3).name('health')])).toThrow(
+    const duplicate = () =>
+      Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/c', () => 3).name('health')])
+    expect(duplicate).toThrow(
       new TypeError('[@laratype/http] Route.api: r.get(\'/c\').name("health") is already the name of r.get(\'/a\')'),
     )
+  })
+
+  it('mounts the same group again without a duplicate error (an --hmr restart)', () => {
+    const group = () =>
+      Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/health', () => 'ok').name('health')])
+    group()
+    expect(() => group()).not.toThrow()
+    expect(route('health')).toBe('/health')
   })
 
   it('rejects a contract route whose name an ad-hoc route of an earlier group took', () => {

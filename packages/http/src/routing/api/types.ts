@@ -130,7 +130,10 @@ export interface MountedRoute<
   readonly middleware: readonly MiddlewareItem[];
   /** The name `.name()` gave it, or `undefined`; the registry entry's `name` reads it. */
   readonly routeName: N;
-  /** Names the route for `route()` (H13 #162): a new frozen route with the name, never this one. */
+  /**
+   * Names the route for `route()` (H13 #162): a new frozen route with the name, never this one. The name is a
+   * non-empty string, and only one route in the process may have it.
+   */
   name<const Name extends string>(name: Name): MountedRoute<M, P, R, Name>;
 }
 

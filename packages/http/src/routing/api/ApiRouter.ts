@@ -516,7 +516,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
  */
 export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly ApiRouteItem[]> {
   /** @internal Phantom: the API tree and the mounted items, read by `RouteName` / `RouteParamsOf`. */
-  readonly __types?: { readonly api: A; readonly items: M };
+  declare readonly __type?: { readonly api: A; readonly items: M };
   /** One entry per contract route, depth-first in tree order. */
   public readonly routes: readonly RouteEntry[];
   /** The ad-hoc routes (`r.get()`, ...), in callback order. They have no contract, so they are not in `routes`. */
@@ -529,12 +529,12 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
   }
 
   /** Serves these routes on `domain` only (the request port is ignored). Other hosts fall through to the next route. */
-  domain(domain: string): ApiRoutes {
+  domain(domain: string): ApiRoutes<A, M> {
     const host = checkDomain(domain);
     return new ApiRoutes(
       this.routes.map((route) => Object.freeze({ ...route, domain: host })),
       this.adHoc.map((route) => Object.freeze({ ...route, domain: host })),
-    );
+    ) as ApiRoutes<A, M>;
   }
 
   /**

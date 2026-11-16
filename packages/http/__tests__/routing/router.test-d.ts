@@ -50,7 +50,7 @@ describe('Route.api', () => {
       r.contract(health, HealthController),
     ])
     expectTypeOf(routes).toExtend<ApiRoutes>()
-    expectTypeOf(routes.domain('api.example.test')).toExtend<ApiRoutes>()
+    expectTypeOf(routes.domain('api.example.test')).toEqualTypeOf<typeof routes>()
   })
 
   test('r.contract() and r.scope() return typed items', () => {
