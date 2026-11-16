@@ -19,7 +19,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Path-style calls](#path-style-calls) | planned → #140 |
+| [Path-style calls](#path-style-calls) | proposed: PR <leader fills> @ e4abc84 ([#140](https://github.com/Laratypes/Laratype/issues/140)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
@@ -313,13 +313,73 @@ export interface ClientRequest {
 ## Path-style calls
 
 ### Status
-planned → [#140](https://github.com/Laratypes/Laratype/issues/140) (CL4, M3).
+proposed: PR <leader fills> @ e4abc84 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4, M2). The named style stays primary.
 
-### Design (non-binding)
-- This is an **additive, type-only** call style: `api.get('/users/:user', { params })` ([#140](https://github.com/Laratypes/Laratype/issues/140)).
-- It needs no contract runtime. The API type comes from `import type` (`ApiTypes<AppApi>`) or from generated types.
-- The S2 spike measured it at 0.63 KiB gzip.
-- The named style stays primary.
+### Public API
+[`packages/client/src/client.ts` @ e4abc84](https://github.com/Laratypes/Laratype/blob/e4abc8486a62be86a70fd481c3e40857179c783b/packages/client/src/client.ts), [`packages/client/src/types.ts` @ e4abc84](https://github.com/Laratypes/Laratype/blob/e4abc8486a62be86a70fd481c3e40857179c783b/packages/client/src/types.ts)
+
+```ts
+export function createPathClient<A extends ApiShape<A> = never, const Hd extends HeadersInit = HeadersInit>(
+  options?: ClientOptions<Hd>,
+): PathClient<A, ProvidedHeaders<Hd>>;
+
+export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
+export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
+  path: Path & CheckPath<A, M, Path>,
+  ...input: [EndpointAt<A, M, Path>] extends [never]
+    ? [input?: never]
+    : {} extends CallInput<EndpointAt<A, M, Path>, P>
+      ? [input?: CallInput<EndpointAt<A, M, Path>, P>]
+      : [input: CallInput<EndpointAt<A, M, Path>, P>]
+) => Promise<ClientResult<EndpointAt<A, M, Path>>>;
+```
+
+```ts
+import type { ApiTypes } from '@laratype/contract'
+import type { AppApi } from '$api'                       // .laratype/api/index.gen.ts, imported as a type only
+import { createPathClient } from '@laratype/client'
+
+const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://api.example.com' })
+const result = await api.get('/api/users/:user', { params: { user: 1 } })
+```
+
+### Invariants
+- **Type-only:** `createPathClient` takes no contract value. The API type comes from `import type { AppApi } from '$api'` projected with `ApiTypes<AppApi>`, or from the generated `AppApi` of a separate-repo FE ([Separate-repo FE](#separate-repo-fe-generated-manifest)), so no contract file, schema or schema library reaches the bundle. Nothing about the contracts is read at runtime; the path alone is sent.
+- **The path** is the full request path the server mounts, the same string [`buildUrl`](./contract.md#url-builder) gets: the contract's URL prefix and the folder tree, with `[x]` folder params in it (`app/api/users/[user]/posts.ts` → `/api/users/:user/posts/:post`, both `user` and `post` in `params`). It must be a literal: a `string` variable is rejected. A path that matches no endpoint of that method, or more than one (the same method and path in two contracts), is a type error (see Diagnostics). `CheckPath` and `EndpointAt` are private types.
+- **The call** is typed from the matched endpoint with the named style's own types, so nothing is inferred twice: `EndpointShape`'s params, query, body, headers and `signal` become [`CallInput`](#createclient) (the input is optional when nothing in it is required), and the result and errors are [`ClientResult`](#result-union) (the declared status, the wire `data`, and the per-code error union). A missing param, a wrong body or a missing schema header is the same type error as in the named style. `options.headers` provides a schema header only with the headers type as the second type argument, as with the manifest client of `createClient`: `createPathClient<AppApi, { 'x-api-key': string }>({ headers: { 'x-api-key': key } })`; `createPathClient<AppApi>({ headers })` sends them but uses `HeadersInit`, so a required schema header stays required.
+- **Runtime reuse:** the path client reuses the named style's request path: [`buildUrl`](./contract.md#url-builder) fills the path and the query, `createSend` parses and joins `baseUrl`, applies the same-origin guard, merges the headers, sets the JSON `content-type`, `credentials`, `redirect` and the `init`, and `toResult` reads the response. Options and hooks are therefore the named style's ([Options and hooks](#options-and-hooks)): every option is read at each call, a `headers` function is called and awaited, `onRequest`/`onResponse` run, `redirect` defaults to `"manual"`, and a call rejects on the same configuration errors (a missing param, a GET with a body, no fetch, a relative URL outside a browser, a route path that would leave the page's origin).
+- **Known gap, trust the path:** the runtime has no contract, so it knows neither the declared success status nor whether the endpoint has a response schema. Any 2xx is the success (its parsed body, or `undefined` when it has none); a 4xx or 5xx JSON object with a string `code` is the declared-error shape, typed as that endpoint's declared error union **even when the code is not declared and whatever its status**, and everything else (a 4xx/5xx without a `code`, a non-JSON body, a network failure) is [`unexpected`](#result-union). The client cannot check a code against the endpoint or a status against the code; [http.md › Undeclared-error check](./http.md#undeclared-error-check) is what keeps the server honest. Use the named style `createClient` (or the manifest client) when exact statuses and codes must be checked at runtime.
+- **No route table:** the client is five methods (`get`, `post`, `put`, `patch`, `delete`), one per HTTP method, frozen and with a null prototype; it has none of the named tree. It cannot check the path at runtime, since it never sees the API's routes: a caller that bypasses the types sends whatever path it passes.
+- **Bundle:** a path-only FE entry (no schema library) measured **4.30 KiB min+gzip** against the built `dist` (3.58 KiB against `src`), under the 5 kB [Bundle budget](#bundle-budget) for client + contract runtime. A named+path entry costs **0.12 KiB gzip** more than the same named client (346 B min, 124 B gzip, esbuild minify + gzip -9, browser, ES2022, ESM); the path client's own code is the five dispatchers, since it reuses the named request path. The named client's total (5.58 KiB in the same measurement) is above 5 kB before this change; the CI budget check is [#132](https://github.com/Laratypes/Laratype/issues/132).
+
+### Diagnostics
+- Type-level, from `CheckPath`:
+  - `[@laratype/client] no GET endpoint at path "/api/nope"` (also for a known path with the wrong method, e.g. `no POST endpoint at path "/api/users/:user"`);
+  - `[@laratype/client] more than one endpoint answers GET at path "/api/dup"` (two contracts with the same method and path);
+  - `string` is not assignable to the path parameter (a path must be a literal);
+  - the missing or wrong `params`, `query`, `body` and schema `headers` of the matched endpoint, as in [createClient](#createclient) › Diagnostics.
+- Runtime, from the shared request path (with the named style's text): `[@laratype/client] createClient: baseUrl …` (the shared `createClient:` prefix), `[@laratype/client] route path "…" would leave the page's origin: "…"`, `[@laratype/contract] buildUrl: …` and `[@laratype/client] a GET request cannot have a body: "…"`. There is no unknown-path runtime error: the runtime has no route table.
+
+### Example
+[`docs/v1/examples/client/create-client.ts`](./examples/client/create-client.ts) shows the named style. The path style:
+
+```ts
+import type { ApiTypes } from '@laratype/contract'
+import type { AppApi } from '$api'
+import { createPathClient } from '@laratype/client'
+
+const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://api.example.com' })
+const result = await api.get('/api/users/:user', { params: { user: 1 } })
+if (result.ok) result.data.name
+```
+
+### Non-goals
+- No named tree, route name lookup or runtime path check: the named style stays primary.
+- No contract, schema or code/status check at runtime (the known gap above).
+- No response validation: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#140 Done when](https://github.com/Laratypes/Laratype/issues/140)
