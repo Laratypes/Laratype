@@ -11,8 +11,17 @@ const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf
 
 type Row = { id: number; [key: string]: any }
 
+type FakeOptions = {
+  column?: string
+  declared?: string
+  select?: boolean
+  failUpdate?: boolean
+  /** Runs when the rehash update arrives, to model a password change that committed while scrypt ran. */
+  beforeUpdate?: () => void
+}
+
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { column = 'password', declared = column, select = false, failUpdate = false } = {}) => {
+const fakeModel = (rows: Row[], { column = 'password', declared = column, select = false, failUpdate = false, beforeUpdate }: FakeOptions = {}) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
   const builders = vi.fn()
   const findOneBy = vi.fn(async () => null)
@@ -23,12 +32,17 @@ const fakeModel = (rows: Row[], { column = 'password', declared = column, select
     static getRepository() {
       return {
         metadata: {
+          primaryColumns: [{ propertyName: 'id' }],
           findColumnWithPropertyName: (name: string) => (name === column ? { propertyPath: column, isSelect: select } : undefined),
         },
-        update: async (id: number, data: Partial<Row>) => {
-          calls.update.push([id, data])
+        update: async (criteria: Record<string, unknown>, data: Partial<Row>) => {
+          calls.update.push([criteria, data])
+          beforeUpdate?.()
           if (failUpdate) throw new Error('the database is down')
-          Object.assign(rows.find((row) => row.id === id)!, data)
+          const row = rows.find((candidate) => Object.entries(criteria).every(([key, value]) => candidate[key as keyof Row] === value))
+          if (!row) return { affected: 0 }
+          Object.assign(row, data)
+          return { affected: 1 }
         },
       }
     }
@@ -231,6 +245,26 @@ describe('TokenGuard.attempt()', () => {
     expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
+  it('keeps a hash changed between the check and the rehash, and still logs in', async () => {
+    const newer = Hash.make('newer')
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      select: true,
+      beforeUpdate: () => {
+        rows[0]!.password = newer
+      },
+    })
+    const user: any = await attempt(User, { email: 'old@example.com', password: 'secret' })
+    expect(user).not.toBeNull()
+    expect(calls.update).toHaveLength(1)
+    // The update names the hash that was checked, so it cannot match the newer one
+    expect(calls.update[0]![0]).toEqual({ id: 7, password: SHA256_SECRET })
+    expect(rows[0]!.password).toBe(newer)
+    // The response does not carry a rehash of the old password
+    expect(user.password).toBe(SHA256_SECRET)
+    expect(Hash.check('newer', rows[0]!.password)).toBe(true)
+  })
+
   it('never queries without a password or a lookup field', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await attempt(User, { email: 'ada@example.com' })).toBeNull()
@@ -314,14 +348,20 @@ describe('a custom password column end to end', () => {
     }
     Object.assign(Account, {
       getRepository: () => ({
-        metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
+        metadata: {
+          primaryColumns: [{ propertyName: 'id' }],
+          findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined),
+        },
         save: async (data: Row) => {
           const row = { id: rows.length + 1, ...data }
           rows.push(row)
           return row
         },
-        update: async (id: number, data: Partial<Row>) => {
-          Object.assign(rows.find((row) => row.id === id)!, data)
+        update: async (criteria: Record<string, unknown>, data: Partial<Row>) => {
+          const row = rows.find((candidate) => Object.entries(criteria).every(([key, value]) => candidate[key] === value))
+          if (!row) return { affected: 0 }
+          Object.assign(row, data)
+          return { affected: 1 }
         },
       }),
       createQueryBuilder: () => {
