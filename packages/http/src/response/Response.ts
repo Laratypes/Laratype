@@ -181,7 +181,8 @@ const installErrorScrub = (app: Hono) => {
       else {
         // A middleware answered the error with a non-error response (etag()'s 304): the error's own answer is put back,
         // with every cookie it kept, and the dropped body is cancelled. Any other path cancels the stored clone: a
-        // branch no put back sends would queue every chunk the sent branch reads, and keep an upstream body open
+        // branch no response sends would otherwise queue every chunk the sent branch reads, and keep an upstream body
+        // open until GC
         if (answer && !isFailureStatus(c.res.status)) {
           const replaced = c.res;
           const cookies = answer.headers.getSetCookie();
