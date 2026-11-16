@@ -142,6 +142,14 @@ describe("CORS on an actual request", () => {
     expect(allowOrigin(await from(app, "/api/posts"))).toBe(APP);
     expect(allowOrigin(await from(app, "/api/posts", EVIL))).toBeNull();
   });
+
+  it("echoes '*' for every origin when origin is the string '*' and credentials are off", async () => {
+    const app = bootApp({ cors: corsConfig({ origin: "*", credentials: false }) });
+    const response = await from(app, "/api/posts", EVIL);
+    expect(response.status).toBe(200);
+    expect(allowOrigin(response)).toBe("*");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
 });
 
 describe("CORS headers on error responses", () => {
@@ -294,7 +302,10 @@ describe("an invalid app/config/cors.ts fails the boot", () => {
       [corsConfig({ maxAge: 1.5 }), "maxAge: expected a whole number of seconds, 0 or more, got 1.5"],
       [corsConfig({ credentials: "true" }), 'credentials: expected a boolean, got "true"'],
       [corsConfig({ origin: "*", credentials: true }), pair],
-      [corsConfig({ origin: [APP, "*"], credentials: true }), pair],
+      [
+        corsConfig({ origin: [APP, "*"], credentials: true }),
+        "origin[1]: '*' cannot be a list entry; set origin: '*' for every origin, or list them",
+      ],
       [
         corsConfig({ credential: true }),
         "'credential': unknown key " +

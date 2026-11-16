@@ -20,10 +20,13 @@ type ReadonlyList<T> = T extends readonly (infer U)[] ? readonly U[] : T;
  * The `app/config/cors.ts` shape: Hono 4's CORS options (its `origin` may be an async function), with readonly lists,
  * plus `paths`. `origin` is required: a file that turns CORS on must say who may call.
  */
-export type CorsConfig = Omit<HonoCorsOptions, "origin" | "allowMethods" | "allowHeaders" | "exposeHeaders"> & {
+export type CorsConfig = Omit<
+  HonoCorsOptions,
+  "origin" | "allowMethods" | "allowHeaders" | "exposeHeaders" | "credentials"
+> & {
   /** Hono path patterns the middleware runs on; the default is every path (`['*']`). */
   readonly paths?: readonly string[];
-  /** An origin string (matched exactly), a list of them, or a function answering the origin to allow, or nothing. */
+  /** `'*'` for every origin, an origin string (matched exactly), a list of them, or a function answering one, or nothing. */
   readonly origin: ReadonlyList<HonoCorsOptions["origin"]>;
   /** Hono's default `GET, HEAD, PUT, POST, DELETE, PATCH`; a function may answer per origin. */
   readonly allowMethods?: ReadonlyList<HonoCorsOptions["allowMethods"]>;
@@ -33,6 +36,8 @@ export type CorsConfig = Omit<HonoCorsOptions, "origin" | "allowMethods" | "allo
   readonly exposeHeaders?: readonly string[];
   /** `Access-Control-Max-Age`, in seconds: a whole number of 0 or more. */
   readonly maxAge?: number;
+  /** `Access-Control-Allow-Credentials: true`; a browser refuses it with a `'*'` origin. */
+  readonly credentials?: boolean;
 }
 
 /** The config file, as the diagnostics name it. */
@@ -123,8 +128,12 @@ const resolveCors = (raw: unknown): ResolvedCors => {
   } else if (Array.isArray(config.origin) && config.origin.length > 0) {
     config.origin.forEach((entry, index) => {
       if (!isName(entry)) problems.push(`origin[${index}]: expected a non-empty origin string, got ${show(entry)}`);
+      // Hono reads a list by exact `includes`, so a `'*'` entry matches no browser: the wildcard is the string form
+      else if (entry === "*") {
+        problems.push(`origin[${index}]: '*' cannot be a list entry; set origin: '*' for every origin, or list them`);
+      }
     });
-    if (config.origin.every(isName)) origin = config.origin;
+    if (config.origin.every((entry) => isName(entry) && entry !== "*")) origin = config.origin;
   } else {
     problems.push(
       `origin: expected '*' or an origin string, a list of them, or a function, got ${show(config.origin)}`,
@@ -181,10 +190,9 @@ const resolveCors = (raw: unknown): ResolvedCors => {
   }
 
   // A browser refuses `Access-Control-Allow-Origin: *` on a credentialed request, so Hono would send a pair no browser
-  // accepts and every request would fail with no obvious cause. A function origin can answer a real origin, so only a
-  // literal `*` is refused
-  const wildcard = origin === "*" || (Array.isArray(origin) && origin.includes("*"));
-  if (credentials === true && wildcard) {
+  // accepts and every request would fail with no obvious cause. A function origin can answer a real origin, and a `'*'`
+  // list entry already failed above, so only the string form is refused here
+  if (credentials === true && origin === "*") {
     problems.push(`credentials: true cannot pair with origin '*'; list the origins instead`);
   }
 
