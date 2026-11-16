@@ -2,7 +2,7 @@
 area: cli
 packages: ["sauf", "@laratype/console"]
 issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
-verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 7c1590c; + make:model at 2c679aa)
+verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 7c1590c; + make:model at e5b8de9)
 last-verified: 2026-11-16
 ---
 
@@ -108,7 +108,7 @@ The build steps are specified in [build.md › sauf build steps](./build.md#sauf
 ## make:* generators
 
 ### Status
-proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. `make:model`'s stub is DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) (see Invariants). Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/2c679aa/packages/sauf/resources/templates).
+proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134), M2). `make:command` was merged with F2 [#161](https://github.com/Laratypes/Laratype/issues/161) in PR [#357](https://github.com/Laratypes/Laratype/pull/357); this PR adds its shared name and identifier check. `make:model`'s stub is DB1 [#145](https://github.com/Laratypes/Laratype/issues/145) (see Invariants). Depends on H2 #105, H9 #123. The commands live under [`packages/sauf/src/commands/make`](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make) and the stubs under [`packages/sauf/resources/templates`](https://github.com/Laratypes/Laratype/blob/e5b8de9/packages/sauf/resources/templates).
 
 ### Public API
 [`make/index.ts` @ 7c1590c](https://github.com/Laratypes/Laratype/blob/7c1590c160e395943c5cd9e8bcd6b6027b08b814/packages/sauf/src/commands/make/index.ts) registers every generator; each takes one or more names (`make:policy`, `make:factory` and `make:seeder` take one). The table lists the v1 generators; the kept 0.5 generators (`make:gate`, `make:middleware`, `make:model`, `make:policy`, `make:factory`, `make:seeder`) keep their 0.5 destinations until their area's issue (Non-goals), but every one of them except `make:factory` and `make:seeder` now checks its names (Invariants). `make:model` already writes the v1 Model stub (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)).
