@@ -8,6 +8,22 @@ import { isBodylessStatus, isContractError, isFailureStatus } from "@laratype/co
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 import { BODY_HEADERS } from "./bodyHeaders";
 
+/** The type a returned string is sent as (H41 #336): HTML needs an explicit `Response` content type. */
+const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
+
+/**
+ * The `Content-Type` a `Response` sets, whatever the case of its name (headers are case-insensitive, RFC 9110 §5.1), or
+ * `undefined`: an explicit one is kept for a string body, so a handler can opt into HTML (H41 #336). An own key only
+ * (an inherited one must not opt a string into HTML), and the last spelling wins, as the header loop below sets it
+ */
+const explicitContentType = (headers: Record<string, string>): string | undefined => {
+  let contentType: string | undefined;
+  for (const name in headers) {
+    if (Object.hasOwn(headers, name) && name.toLowerCase() === "content-type") contentType = headers[name];
+  }
+  return contentType;
+};
+
 /**
  * Hono's `HTTPException` (basicAuth 401, bodyLimit 413, ...), duck-typed as Hono's own error handler does: hono is a
  * peer dependency, so the app may hold another copy of the class. Only an error status (400-599) whose `getResponse()`
@@ -219,16 +235,11 @@ export default class Response extends AppServiceProvider {
     }
 
     const content = responseObj.getContent()
-    // A string is the HTML body, and how a string return is sent is #336. Everything else is JSON, whose text
-    // is never sent as text/html: the shapes `shouldBeJson()` detects by prototype, and any other value (H45 #342)
+    // Every non-string content is JSON, whose text is never sent as text/html: the shapes `shouldBeJson()` detects by
+    // prototype, and any other value (H45 #342). A string is text (H41 #336, below)
     const isJson = responseObj.shouldBeJson()
     if(isJson) {
       setHeader("Content-Type", ContentTypeEnum.JSON)
-    }
-
-    const contentType = responseObj.getContentType()
-    if(contentType) {
-      setHeader("Content-Type", contentType)
     }
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
@@ -242,6 +253,17 @@ export default class Response extends AppServiceProvider {
       // JSON is not to be read as another type (H45 #342)
       setHeader("X-Content-Type-Options", "nosniff")
       return ctx.json(ResponseSerialization.jsonSerialize(content), contentFullStatusCode)
+    }
+
+    // A returned string is text, never an HTML body (H41 #336): a reflected `<script>` must not run. HTML needs an
+    // explicit `Content-Type` on the `Response`. `nosniff` stops an old browser from sniffing the text as HTML; a blank
+    // type is no type, so it takes the default and `nosniff` too
+    if(typeof content === "string") {
+      const type = explicitContentType(headers)?.trim()
+      if(!type) {
+        setHeader("X-Content-Type-Options", "nosniff")
+      }
+      return ctx.text(content, contentFullStatusCode, { "Content-Type": type || TEXT_CONTENT_TYPE })
     }
 
     return ctx.html(ResponseSerialization.htmlSerialize(content), contentFullStatusCode)
