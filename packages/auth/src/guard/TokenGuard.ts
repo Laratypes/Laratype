@@ -203,8 +203,8 @@ export default class TokenGuard<User = any> {
           { [primaryKeyOf(model)]: model.getId(user), [passwordField]: hashed },
           { [passwordField]: rehashed },
         );
-        // A row that no longer matches keeps the newer password, and the returned user does not claim the rehash persisted
-        if (column.isSelect && affected !== 0) user[passwordField] = rehashed;
+        // Only a reported one-row update is persisted: drivers that leave `affected` undefined may not have matched
+        if (column.isSelect && affected === 1) user[passwordField] = rehashed;
       } catch {
         // swallowed on purpose
       }
