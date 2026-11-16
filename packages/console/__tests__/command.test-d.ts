@@ -2,13 +2,15 @@
 import { describe, expectTypeOf, it } from "vitest";
 import Command from "../src/command/Command";
 import { command } from "../src/command/closure";
-import type {
-  ArgumentName,
-  CommandInput,
-  OptionName,
-  ParsedSignature,
-  SignatureArgument,
-  SignatureOption,
+import {
+  assertArgumentOrder,
+  type ArgumentName,
+  type CommandInput,
+  type OptionName,
+  type ParsedSignature,
+  type PositionalArgument,
+  type SignatureArgument,
+  type SignatureOption,
 } from "../src/command/signature";
 import type { AnyClosureCommand, ClosureCommand, CommandClass, ConsoleCommand } from "../src/index";
 
@@ -84,6 +86,14 @@ describe("signature types", () => {
       dryRun: boolean | undefined;
     }>();
     expectTypeOf<CommandInput<"deploy : the description is not a parameter">>().toEqualTypeOf<{}>();
+  });
+
+  it("PositionalArgument is one positional argument in registration order", () => {
+    expectTypeOf<PositionalArgument>().toEqualTypeOf<{ readonly name: string; readonly variadic: boolean }>();
+  });
+
+  it("assertArgumentOrder takes the merged argument list", () => {
+    expectTypeOf(assertArgumentOrder).parameter(1).toEqualTypeOf<readonly PositionalArgument[]>();
   });
 
   it("a non-literal signature falls back to a loose record", () => {

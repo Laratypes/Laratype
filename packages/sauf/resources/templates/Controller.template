@@ -1,13 +1,14 @@
-import { Controller } from "@laratype/http";
+import type { AnyEndpoint } from "@laratype/contract";
+import { Controller, type Ctx } from "@laratype/http";
 
+// A contract controller (docs/v1/http.md › Controller typing: Ctx and ControllerOf). Mount it with Route.api:
+//   r.contract(users, {{ ControllerName }});
+// Each method takes the endpoint's ctx; replace the placeholder with the contract's endpoint:
+//   async index({ query }: Ctx<typeof users.index>) { ... }
 export default class {{ ControllerName }} extends Controller {
 
-  // Define other methods as needed
-  
-  async index() {
-    // Implement your logic here, e.g., fetching posts from a database
-    return {
-      says: "Hello from {{ PostController }} index method!",
-    }
+  async index(_ctx: Ctx<AnyEndpoint>) {
+    // Implement your logic here
+    return undefined;
   }
 }

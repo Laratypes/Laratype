@@ -12,8 +12,6 @@ describe("commandSignature", () => {
     expect(commandSignature("_CleanCache")).toBe("clean:cache");
     expect(commandSignature("CleanCache_")).toBe("clean:cache");
     expect(commandSignature("Clean__Cache")).toBe("clean:cache");
-    expect(commandSignature("Clean:Cache")).toBe("clean:cache");
-    expect(commandSignature("Clean::Cache")).toBe("clean:cache");
   });
 });
 

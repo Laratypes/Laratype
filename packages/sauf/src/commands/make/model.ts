@@ -1,4 +1,5 @@
 import MakeCommand from "../../utils/MakeCommand";
+import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
 export default class MakeModelCommand extends MakeCommand {
 
@@ -15,10 +16,12 @@ export default class MakeModelCommand extends MakeCommand {
 
   async make(modelNames: string[]) {
     const resourcePath = this.resolve("sauf", "Model.template");
-    
-    return modelNames.map(modelName => {
-      const destinationPath = "./src/models/" + modelName + ".ts";
-      const result = this.build(resourcePath, { ModelName: this.getFileName(modelName) });
+    // A sub-path (`admin/Post`) is a folder: the exported name is the file name alone
+    const names = modelNames.map(modelName => generatorPath(modelName, "model", { identifier: true }));
+
+    return names.map(name => {
+      const destinationPath = `./${GENERATOR_FOLDERS.model}/${name}.ts`;
+      const result = this.build(resourcePath, { ModelName: this.getFileName(name) });
       this.publish(result, destinationPath);
       return destinationPath;
     });
