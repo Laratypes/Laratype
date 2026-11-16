@@ -42,7 +42,9 @@ const DECLARED = new WeakMap<readonly AnyErrorDef[], ReadonlySet<string>>();
 
 const declaredErrors = (errors: readonly AnyErrorDef[]): ReadonlySet<string> => {
   let declared = DECLARED.get(errors);
-  if (declared === undefined) DECLARED.set(errors, (declared = new Set(errors.map((error) => `${error.code} ${error.status}`))));
+  if (declared === undefined) {
+    DECLARED.set(errors, (declared = new Set(errors.map((error) => `${error.code} ${error.status}`))));
+  }
   return declared;
 };
 

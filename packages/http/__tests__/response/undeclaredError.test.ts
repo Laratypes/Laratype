@@ -4,7 +4,7 @@ import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
-import { HTTP_APP } from '@laratype/support'
+import { HTTP_APP, UnauthorizedException } from '@laratype/support'
 import { defineApi, defineContract, defineError, endpoint, errors } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { MiddlewareClass } from '../../src/index'
@@ -20,6 +20,8 @@ const users = defineContract()({
   show: endpoint.get('/:id').response(anything),                                    // derived 404
   store: endpoint.post('/').body(anything).response(anything, 201),                 // derived 422
   me: endpoint.get('/me').auth().response(anything),                                // derived 401
+  guarded: endpoint.get('/guarded').auth().response(anything),                      // a 0.5 Exception, its 401 declared
+  open: endpoint.get('/open').response(anything),                                   // a 0.5 Exception, undeclared
   admin: endpoint.get('/admin').auth().authorize().response(anything),              // derived 401, 403
   limited: endpoint.get('/limited').throttle({ limit: 5, per: '1m' }).response(anything),   // derived 429
   paid: endpoint.get('/paid').response(anything),                                   // throws at the contract level
@@ -38,6 +40,8 @@ class Users extends Controller {
   show() { throw errors.notFound() }
   store() { throw errors.validation({ name: ['Required'] }) }
   me() { throw errors.unauthorized() }
+  guarded() { throw new UnauthorizedException() }
+  open() { throw new UnauthorizedException() }
   admin() { throw errors.forbidden() }
   limited() { throw errors.tooManyRequests() }
   paid() { throw (thrown = AtContract()) }
@@ -121,6 +125,13 @@ describe('declared errors', () => {
     expect(response.status).toBe(404)
     expect(logged).not.toHaveBeenCalled()
   })
+
+  it('a responsible 0.5 Exception whose code and status are declared passes silently', async () => {
+    const response = await bootApp().request('/api/users/guarded')
+    expect(response.status).toBe(401)
+    expect((await response.json()).code).toBe('UNAUTHORIZED')
+    expect(logged).not.toHaveBeenCalled()
+  })
 })
 
 describe('an undeclared contract error', () => {
@@ -185,9 +196,28 @@ describe('an undeclared contract error', () => {
     expect(response.status).toBe(418)
     expect(logged).not.toHaveBeenCalled()
   })
+
+  it('is reported for a responsible 0.5 Exception: its code reaches the client too', async () => {
+    const response = await bootApp().request('/api/users/open')
+    expect(response.status).toBe(401)
+    expect(logged).toHaveBeenCalledWith(
+      undeclaredLine('users.open', 401, 'UNAUTHORIZED'),
+      expect.any(UnauthorizedException),
+    )
+  })
 })
 
 describe('what is not checked', () => {
+  it('a framework answer is not checked: the malformed-body 400 of a contract route', async () => {
+    const response = await bootApp().request('/api/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{bad',
+    })
+    expect(response.status).toBe(400)
+    expect(logged).not.toHaveBeenCalled()
+  })
+
   it('an unknown error is unchanged: the generic 500, logged as it is, in dev and in test', async () => {
     const app = bootApp()
     const dev = await app.request('/api/users/unknown')
@@ -227,7 +257,9 @@ describe('what is not checked', () => {
     new RequestKernel(container).boot()
     new ResponseKernel(container).boot()
     // The endpoint alone cannot say which contract or scope throws the route inherits, so the route is left unchecked
-    app.get('/raw', RequestKernel.handle({ method: 'get', path: '/raw', endpoint: users.undeclared, controller: [Raw, 'index'] }))
+    app.get('/raw', RequestKernel.handle({
+      method: 'get', path: '/raw', endpoint: users.undeclared, controller: [Raw, 'index'],
+    }))
     const response = await app.request('/raw')
     expect(response.status).toBe(418)
     expect(logged).not.toHaveBeenCalled()
