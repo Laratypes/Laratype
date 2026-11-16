@@ -22,7 +22,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Path-style calls](#path-style-calls) | planned → #140 |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
-| [TanStack Query adapter](#tanstack-query-adapter) | proposed: PR <leader fills> @ 385e9ce ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5) |
+| [TanStack Query adapter](#tanstack-query-adapter) | proposed: PR <leader fills> @ 5b22275 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5) |
 | [Dev-mode response validation](#dev-mode-response-validation) | planned → #159 |
 
 ---
@@ -386,7 +386,7 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8). The r
 ## TanStack Query adapter
 
 ### Status
-proposed: PR <leader fills> @ 385e9ce ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5). The issue's "Vue and React adapters" task is met by one options API that `@tanstack/vue-query` and `@tanstack/react-query` both consume: `packages/client-query/__tests__/vue.test.ts` and `react.test.ts` each render a component with a mocked fetch, and `query.test-d.ts` checks that both frameworks infer the data, variables and error types from the options. Wrapper hooks would be a follow-up. The usage in `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)) is the item still open.
+proposed: PR <leader fills> @ 5b22275 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5). The issue's "Vue and React adapters" task is met by one options API that `@tanstack/vue-query` and `@tanstack/react-query` both consume: `packages/client-query/__tests__/vue.test.ts` and `react.test.ts` each render a component with a mocked fetch, and `query.test-d.ts` checks that both frameworks infer the data, variables and error types from the options. Wrapper hooks would be a follow-up. The usage in `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)) is the item still open.
 
 ### Public API
 [`packages/client-query/src/index.ts`](../../packages/client-query/src/index.ts)
