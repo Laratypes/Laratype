@@ -148,6 +148,51 @@ describe('route()', () => {
   })
 })
 
+describe('route() name type', () => {
+  it('refuses a non-string name at once, so a huge length never reaches Array.from (R2)', () => {
+    mount()
+    const began = performance.now()
+    expect(() => route({ length: 1e9 } as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got object'),
+    )
+    // Array.from({ length: 1e9 }) blocked the event loop for seconds: the guard is before any read of the name
+    expect(performance.now() - began).toBeLessThan(50)
+  })
+
+  it('names only the type, never the value: an object whose toJSON throws gets the type error', () => {
+    mount()
+    const value = {
+      toJSON() {
+        throw new Error('toJSON ran')
+      },
+    }
+    expect(() => route(value as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got object'),
+    )
+  })
+
+  it('refuses a number, null and undefined with the same type error', () => {
+    mount()
+    expect(() => route(42 as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got number'),
+    )
+    expect(() => route(null as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got object'),
+    )
+    expect(() => route(undefined as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got undefined'),
+    )
+  })
+
+  it('resolves a string name as before', () => {
+    mount()
+    expect(route('users.posts.index', { user: 1 })).toBe('/api/users/1/posts')
+    expect(() => route('users.posts.nope')).toThrow(
+      new TypeError('[@laratype/http] route: unknown route name "users.posts.nope"'),
+    )
+  })
+})
+
 describe('route() absolute URLs', () => {
   it('prefixes config("config.url"), trailing slashes dropped, path prefix kept', () => {
     mount()
@@ -323,6 +368,16 @@ describe('redirect().route()', () => {
     const res = await app.request('/go')
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/api/users/1/posts/2')
+  })
+
+  it('refuses a non-string name through the same guard as route() (R2)', () => {
+    mount()
+    expect(() => redirect().route({ length: 1e9 } as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got object'),
+    )
+    expect(() => redirect(301).route(42 as never)).toThrow(
+      new TypeError('[@laratype/http] route: a route name is a string, got number'),
+    )
   })
 
   it('keeps redirect(url, status) as it was', () => {

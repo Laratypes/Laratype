@@ -121,8 +121,8 @@ const labelOf = (entry: { readonly method: string; readonly path: string }) => `
 /**
  * Registers the names of one `Route.api()` group for `route()`: every contract route and every ad-hoc route with
  * `.name()`. The group is checked on a copy and committed only once all of it passes: a duplicate later in the group
- * throws, and a group that never mounts leaves no name behind for `route()`. Called by `Route.api()`; not exported by
- * the package.
+ * throws, and a group that fails `Route.api()` leaves no name behind for `route()`. Called by `Route.api()`; not
+ * exported by the package.
  * @internal
  */
 export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[]): void => {
@@ -145,7 +145,7 @@ export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[
     }
     next.set(name, { path: entry.path, label, adHoc: true });
   }
-  // A caller that catches the duplicate's error must not find a name of the group that never mounted
+  // A caller that catches the error must not find a name of the group that failed: commit only once all of it passed
   registry.clear();
   for (const [name, route] of next) registry.set(name, route);
 };
@@ -239,6 +239,8 @@ export const buildRouteUrl = (
   options?: { readonly query?: object | undefined; readonly absolute?: boolean },
 ): string => {
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
+  // A JSON body value reaches here from untyped code: only its type is named, and a name is never iterated
+  if (typeof name !== "string") fail(`route: a route name is a string, got ${typeof name}`);
   const entry = registry.get(name);
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
   // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams

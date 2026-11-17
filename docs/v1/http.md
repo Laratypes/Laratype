@@ -1211,6 +1211,7 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/http] `:
 - `route: no routes are registered (call Route.api(appApi, ...) first)`
+- `route: a route name is a string, got <typeof>` (the type alone, never the value)
 - `route: unknown route name "<name>"` (a name longer than 100 characters is cut to 100 plus `…`)
 - `route: param "<name>" got an object that is not a model (no getRouteKey())`
 - `route: absolute URLs need config('config.url') (app.url), which is not set`
