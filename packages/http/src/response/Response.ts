@@ -74,9 +74,10 @@ const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|
 const MAX_AGE = /^-?\d+$/;
 
 /**
- * The time an IMF-fixdate names, or `undefined` when the shape or the calendar date is not one. The components are
- * checked on a `Date` rather than handed to `Date.parse`, which V8 lets through shapes RFC 6265 does not, and rolls a
- * day that does not exist (a 31 February) into the next month (H29 #295)
+ * The time an IMF-fixdate names, or `undefined` when the shape, the calendar date or the year is not one. The
+ * components are checked on a `Date` rather than handed to `Date.parse`, which V8 lets through shapes RFC 6265 does
+ * not, and rolls a day that does not exist (a 31 February) into the next month (H29 #295). RFC 6265 §5.1.1 makes a
+ * cookie-date year 1601 or later, and a browser ignores an `Expires` before it (§5.2.1), so it is no expiry either
  */
 const imfFixdate = (value: string) => {
   const match = IMF_FIXDATE.exec(value);
@@ -84,6 +85,7 @@ const imfFixdate = (value: string) => {
   const day = Number(match[1]);
   const month = MONTHS.indexOf(match[2]);
   const year = Number(match[3]);
+  if (year < 1601) return undefined;
   const hours = Number(match[4]);
   const minutes = Number(match[5]);
   const seconds = Number(match[6]);

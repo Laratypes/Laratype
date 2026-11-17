@@ -750,6 +750,8 @@ describe('expiring cookies', () => {
     'sid=abc; Expires=0',
     'sid=abc; Expires=2000',
     'sid=abc; Expires=Wed, 01 Jan 60 00:00:00 GMT',
+    // RFC 6265 §5.1.1: a cookie-date year is 1601 or later, so a browser keeps this cookie as a session one (#388)
+    'sid=abc; Expires=Sat, 01 Jan 1600 00:00:00 GMT',
     'sid=abc; Max-Age=+3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
   ])('drops %s, whose expiry is not an RFC 6265 one', async (cookie) => {
     quiet()
