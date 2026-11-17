@@ -29,8 +29,8 @@ const toResult = <O>(result: StandardResult<unknown>): ValidationResult<O> =>
     : { ok: true, value: result.value as O };
 
 /**
- * Validates `value` with any Standard Schema (zod, valibot, arktype, ...), sync or async: v1 ships on zod 4.6.6+, and
- * a zod 3.25 schema still validates here through its Standard Schema support.
+ * Validates `value` with any Standard Schema (zod, valibot, arktype, ...), sync or async: v1 ships on zod 4.6.6+, and a
+ * zod 3.25 schema still validates here, since it declares the `zod` vendor and takes the same `safeParseAsync` path.
  * Invalid input resolves to `{ ok: false, errors }`; it never rejects for it.
  *
  * @example
@@ -44,8 +44,8 @@ export const validate = async <S extends StandardSchemaV1>(schema: S, value: unk
   toResult(isZod(schema) ? await zodResult(schema, value) : await schema["~standard"].validate(value));
 
 /**
- * zod 4 (what v1 ships) and 3.25+ (still accepted through Standard Schema), told by their Standard Schema vendor, not
- * by duck-typing a method name.
+ * zod 4 (what v1 ships) and 3.25+ (the same `safeParseAsync` path), told by their Standard Schema vendor, not by
+ * duck-typing a method name.
  */
 type Zod = StandardSchemaV1 & {
   safeParseAsync(value: unknown): Promise<{ success: true; data: unknown } | { success: false; error: { issues: StandardIssue[] } }>;
