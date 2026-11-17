@@ -2,6 +2,7 @@
 // runtime-checked direction / limit / page / perPage, and a plain page result (docs/v1/database.md › Model).
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
+import { format } from 'mysql2'
 import {
   DataSource,
   EntitySchema,
@@ -94,7 +95,10 @@ const operator = (query: FakeQueryBuilder): FindOperator<unknown> => {
 }
 
 /** The scalar kinds the facade's diagnostics list. */
-const SCALAR_KINDS = 'a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array'
+const SCALAR_KINDS = 'a string, a finite number, a bigint, a boolean, a valid Date or a Buffer'
+
+/** One accepted value of every scalar kind. */
+const SCALAR_VALUES = ['ada@example.com', 36, 1n, true, new Date('2026-01-02'), Buffer.from('ada')]
 
 /** A value mysql2 would escape as SQL text, and the type name the diagnostic gives it. */
 const NON_SCALARS: [unknown, string][] = [
@@ -106,6 +110,11 @@ const NON_SCALARS: [unknown, string][] = [
   [Number.NaN, 'non-finite number'],
   [Number.POSITIVE_INFINITY, 'non-finite number'],
   [new Date('nope'), 'invalid Date'],
+  // mysql2 binds only a Buffer as one value: it expands these into SQL text, so the facade refuses every one
+  [new Uint8Array([1, 2]), 'object'],
+  [new Uint16Array([1, 2]), 'object'],
+  [new ArrayBuffer(2), 'object'],
+  [new DataView(new ArrayBuffer(2)), 'object'],
 ]
 
 const scalarMessage = (column: string, type: string) =>
@@ -276,11 +285,26 @@ describe('ModelQueryBuilder.where', () => {
   })
 
   it('accepts the scalar values TypeORM parameterizes', () => {
-    const values = ['ada@example.com', 36, 1n, true, new Date('2026-01-02'), Buffer.from('ada')]
-    for (const value of values) {
+    for (const value of SCALAR_VALUES) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where('email', value as never)).not.toThrow()
       expect(query.wheres).toHaveLength(1)
+    }
+  })
+
+  it('accepts a Buffer, but no other typed array, as an in / not in element', () => {
+    for (const operator of ['in', 'not in'] as const) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where('email', operator, [Buffer.from('ada')] as never)).not.toThrow()
+      expect(query.wheres).toHaveLength(1)
+    }
+  })
+
+  it('keeps every accepted scalar kind one parameter in mysql2, never SQL text', () => {
+    // mysql2 is the driver behind TypeORM's mysql path: a future accepted kind it expands into identifiers (backticks)
+    // would turn a filter value into SQL, the round 2 finding, and fails here instead
+    for (const value of SCALAR_VALUES) {
+      expect(format('SELECT ?', [value])).not.toContain('`')
     }
   })
 

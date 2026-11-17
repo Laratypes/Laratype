@@ -61,11 +61,12 @@ const isWhereOperator = (value: unknown): value is WhereOperator =>
 const MAX_IN_VALUES = 1000;
 
 /** A value `where()` accepts: something mysql2 binds as one parameter, never as SQL text. */
-type ScalarValue = string | number | bigint | boolean | Date | Uint8Array;
+type ScalarValue = string | number | bigint | boolean | Date | Buffer;
 
 /**
- * Whether a value is a scalar `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date, a
- * Buffer or a Uint8Array (a Buffer is one).
+ * Whether a value is a scalar `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date or a
+ * Buffer. mysql2 binds only a Buffer as one parameter: it expands a plain Uint8Array (and every other typed array,
+ * ArrayBuffer or DataView) into SQL text, so those are refused.
  */
 const isScalarValue = (value: unknown): value is ScalarValue =>
   typeof value === "string" ||
@@ -73,10 +74,10 @@ const isScalarValue = (value: unknown): value is ScalarValue =>
   typeof value === "boolean" ||
   (typeof value === "number" && Number.isFinite(value)) ||
   (value instanceof Date && !Number.isNaN(value.getTime())) ||
-  value instanceof Uint8Array;
+  Buffer.isBuffer(value);
 
 /** The scalar kinds a diagnostic lists. */
-const SCALAR_KINDS = "a string, a finite number, a bigint, a boolean, a valid Date, a Buffer or a Uint8Array";
+const SCALAR_KINDS = "a string, a finite number, a bigint, a boolean, a valid Date or a Buffer";
 
 /** The builder's message text, in one place (errors-and-comments.md › Errors). */
 const errors = {
