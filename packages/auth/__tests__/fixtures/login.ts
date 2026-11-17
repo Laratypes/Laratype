@@ -23,7 +23,14 @@ export type FakeOptions = {
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
 export const fakeModel = (
   rows: Row[],
-  { column = "password", declared = column, select = false, failUpdate = false, beforeUpdate, primaryColumns = ["id"] }: FakeOptions = {},
+  {
+    column = "password",
+    declared = column,
+    select = false,
+    failUpdate = false,
+    beforeUpdate,
+    primaryColumns = ["id"],
+  }: FakeOptions = {},
 ) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] };
   const builders = vi.fn();

@@ -13,7 +13,7 @@ const usingHasher = (hasher: Hasher) => {
 };
 
 /** A Hasher that records every check and derivation, so a test can count the scrypt work of a path. */
-class Counting extends Hasher {
+class RecordingHasher extends Hasher {
   checks: [string, string][] = [];
   makes: string[] = [];
 
@@ -92,7 +92,7 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
 
 describe("TokenGuard.attempt() with a legacy stored hash", () => {
   it("pays one dummy check for a wrong password, as an unknown user does", async () => {
-    const hasher = new Counting();
+    const hasher = new RecordingHasher();
     usingHasher(hasher);
     const { User, calls } = fakeModel([{ id: 1, email: "old@example.com", password: SHA256_SECRET }]);
 
@@ -106,7 +106,7 @@ describe("TokenGuard.attempt() with a legacy stored hash", () => {
   });
 
   it("logs in and rehashes a correct legacy password, after the same dummy check", async () => {
-    const hasher = new Counting();
+    const hasher = new RecordingHasher();
     usingHasher(hasher);
     const rows = [{ id: 1, email: "old@example.com", password: SHA256_SECRET }];
     const { User, calls } = fakeModel(rows);
