@@ -1,94 +1,10 @@
-// The password is checked with Hash.check() after the lookup, never matched in the query
+// The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
-import { Container, depsRegistry } from '@laratype/core'
 import { Model } from '@laratype/database'
-import { ContextApi, Hash } from '@laratype/support'
-import { Auth, AuthManager, PassportGuard } from '../src'
-
-/** sha256('secret'), the 0.5 format. */
-const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b'
-
-type Row = { id: number; [key: string]: any }
-
-/** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { column = 'password', declared = column, select = false, failUpdate = false } = {}) => {
-  const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
-  const builders = vi.fn()
-  const findOneBy = vi.fn(async () => null)
-  class User {
-    /** The credential column the model declares: cast() hashes it and attempt() checks it. */
-    static readonly passwordField = declared
-    static findOneBy = findOneBy
-    static getRepository() {
-      return {
-        metadata: {
-          findColumnWithPropertyName: (name: string) => (name === column ? { propertyPath: column, isSelect: select } : undefined),
-        },
-        update: async (id: number, data: Partial<Row>) => {
-          calls.update.push([id, data])
-          if (failUpdate) throw new Error('the database is down')
-          Object.assign(rows.find((row) => row.id === id)!, data)
-        },
-      }
-    }
-    static createQueryBuilder(alias: string) {
-      builders()
-      let where: Record<string, unknown> = {}
-      const qb = {
-        where(value: Record<string, unknown>) {
-          where = value
-          calls.where.push(value)
-          return qb
-        },
-        addSelect(selection: string) {
-          calls.addSelect.push(selection)
-          expect(selection.startsWith(`${alias}.`)).toBe(true)
-          return qb
-        },
-        async getOne() {
-          // A typeorm entity: the login reads the column and the caller keeps the model's identity
-          const row = rows.find((r) => Object.entries(where).every(([key, value]) => r[key as keyof Row] === value))
-          return row ? Object.assign(new User(), row) : null
-        },
-      }
-      return qb
-    }
-    static getId(user: Row) {
-      return user.id
-    }
-  }
-  return { User, calls, builders, findOneBy }
-}
-
-const options = (custom: Record<string, unknown> = {}) => ({ usernameField: 'email', passwordField: 'password', ...custom })
-
-const configOf = (provider: unknown, custom: Record<string, unknown> = {}) => ({
-  default: { guard: 'web' },
-  guards: {
-    web: {
-      strategyName: 'local',
-      strategy: class {},
-      options: options(custom),
-      provider,
-      verification: 'jwt',
-    },
-  },
-})
-
-/** Runs `callback` in a request whose container holds an `AuthManager` over `provider`, as RequestKernel does. */
-const inApp = <T>(provider: unknown, callback: () => Promise<T>, custom: Record<string, unknown> = {}): Promise<T> => {
-  const container = new Container({ deps: depsRegistry })
-  container.instance(AuthManager, new AuthManager(configOf(provider, custom) as any))
-  return ContextApi.run({ container } as any, callback) as unknown as Promise<T>
-}
-
-/** `Auth.guard('web').attempt()`, flattened to the user or `null`, as a caller sees it. */
-const attempt = (provider: unknown, fields: Record<string, any>, custom: Record<string, unknown> = {}) =>
-  inApp(provider, async () => {
-    const authenticated = await Auth.guard<any>('web').attempt(fields)
-    return authenticated ? authenticated.getUser() : null
-  }, custom)
+import { Hash } from '@laratype/support'
+import { Auth, PassportGuard } from '../src'
+import { SHA256_SECRET, attempt, configOf, fakeModel, inApp, type Row } from './fixtures/login'
 
 /** The local strategy's verify callback, through `PassportGuard.verifyLocal()`. */
 const verifyLocal = (provider: unknown, username: any, password: any, custom: Record<string, unknown> = {}) =>
@@ -105,7 +21,7 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
   })
 
 describe('TokenGuard.attempt()', () => {
-  it('finds the user by the other fields and checks the password with Hash.check()', async () => {
+  it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
@@ -124,20 +40,64 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
+  // First unknown-user login of the file: the module-level dummy hash is still cold, so this pins its async build too
+  it('runs one async check against the dummy hash when the user is unknown', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    const check = vi.spyOn(Hash, 'checkAsync')
+    const make = vi.spyOn(Hash, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
+    expect(make).toHaveBeenCalledTimes(1)
+    expect(make.mock.calls[0]).toEqual([''])
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toEqual([])
+    check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
+  })
+
   it('refuses a wrong password and an unknown user', async () => {
     const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await attempt(User, { email: 'ada@example.com', password: 'wrong' })).toBeNull()
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
   })
 
-  it('runs one check against the dummy hash when the user is unknown', async () => {
-    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'check')
-    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
+  it('leaves the event loop free while the password is checked', async () => {
+    const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // The timer is scheduled first: with scrypt on the loop it can only run after attempt() settled
+    const tick = new Promise((resolve) => setTimeout(resolve, 0))
+    let settled = false
+    const login = attempt(User, { email: 'ada@example.com', password: 'secret' }).finally(() => {
+      settled = true
+    })
+    await tick
+    expect(settled).toBe(false)
+    await expect(login).resolves.toEqual({ id: 1, email: 'ada@example.com' })
+  })
+
+  it('checks and rehashes through the async Hasher methods only', async () => {
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows)
+    const check = vi.spyOn(Hash, 'checkAsync')
+    const make = vi.spyOn(Hash, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
     expect(check).toHaveBeenCalledTimes(1)
-    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
-    expect(calls.update).toEqual([])
+    expect(make).toHaveBeenCalledTimes(1)
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toHaveLength(1)
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
     check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
   })
 
   it('keeps the password on the user when the column is selectable, as a plain lookup does', async () => {
@@ -185,6 +145,26 @@ describe('TokenGuard.attempt()', () => {
     expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
     expect(calls.update).toHaveLength(1)
     expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('keeps a hash changed between the check and the rehash, and still logs in', async () => {
+    const newer = Hash.make('newer')
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      select: true,
+      beforeUpdate: () => {
+        rows[0]!.password = newer
+      },
+    })
+    const user: any = await attempt(User, { email: 'old@example.com', password: 'secret' })
+    expect(user).not.toBeNull()
+    expect(calls.update).toHaveLength(1)
+    // The update names the hash that was checked, so it cannot match the newer one
+    expect(calls.update[0]![0]).toEqual({ id: 7, password: SHA256_SECRET })
+    expect(rows[0]!.password).toBe(newer)
+    // The response does not carry a rehash of the old password
+    expect(user.password).toBe(SHA256_SECRET)
+    expect(Hash.check('newer', rows[0]!.password)).toBe(true)
   })
 
   it('never queries without a password or a lookup field', async () => {
@@ -270,14 +250,20 @@ describe('a custom password column end to end', () => {
     }
     Object.assign(Account, {
       getRepository: () => ({
-        metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
+        metadata: {
+          primaryColumns: [{ propertyName: 'id' }],
+          findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined),
+        },
         save: async (data: Row) => {
           const row = { id: rows.length + 1, ...data }
           rows.push(row)
           return row
         },
-        update: async (id: number, data: Partial<Row>) => {
-          Object.assign(rows.find((row) => row.id === id)!, data)
+        update: async (criteria: Record<string, unknown>, data: Partial<Row>) => {
+          const row = rows.find((candidate) => Object.entries(criteria).every(([key, value]) => candidate[key] === value))
+          if (!row) return { affected: 0 }
+          Object.assign(row, data)
+          return { affected: 1 }
         },
       }),
       createQueryBuilder: () => {

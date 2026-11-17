@@ -7,8 +7,17 @@ import type { GuardConfig } from "./tokens";
 
 const ALIAS = "user";
 
-/** Checked when no user matches, so an unknown user takes as long as a wrong password. */
-let unknownUserHash: string | undefined;
+/** The pending dummy hash checked when no user matches, so an unknown user takes as long as a wrong password. */
+let unknownUserHash: Promise<string> | undefined;
+
+/** The dummy hash, built once; a rejected build is dropped so the next unknown-user request retries it. */
+const dummyHash = () => {
+  unknownUserHash ??= Hash.makeAsync("").catch((error) => {
+    unknownUserHash = undefined;
+    throw error;
+  });
+  return unknownUserHash;
+};
 
 /** A value a lookup can compare in the query: a string, a boolean, or a finite number. */
 const isLookupValue = (value: unknown): value is string | boolean | number =>
@@ -149,8 +158,9 @@ export default class TokenGuard<User = any> {
   /**
    * The user of the guard's provider model matching `fields`, or `null`. `fields` carries the guard's
    * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
-   * only, and the password is then checked with `Hash.check()`, since a salted hash can't be matched in the query.
-   * A hash from an older format (0.5's sha256) is replaced on a successful login.
+   * only, and the password is then checked with `Hash.checkAsync()`, since a salted hash can't be matched in the
+   * query and scrypt stays off the event loop. A hash from an older format (0.5's sha256) is replaced on a
+   * successful login.
    */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
@@ -174,20 +184,27 @@ export default class TokenGuard<User = any> {
     // addSelect: the password column is usually { select: false }
     const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
     if (!user) {
-      Hash.check(password, unknownUserHash ??= Hash.make(""));
+      // Concurrent unknown users share one derivation, and the check still costs one derivation, as a wrong password does
+      await Hash.checkAsync(password, await dummyHash());
       return null;
     }
 
     const hashed = user[passwordField];
     // The returned user has the shape a plain lookup gives: no hidden password column
     if (!column.isSelect) delete user[passwordField];
-    if (!Hash.check(password, hashed)) return null;
+    // Only an explicit boolean true logs in, so a custom Hasher cannot pass a truthy value off as a check
+    if ((await Hash.checkAsync(password, hashed)) !== true) return null;
     if (Hash.needsRehash(hashed)) {
       // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
       try {
-        const rehashed = Hash.make(password);
-        await model.getRepository().update(model.getId(user), { [passwordField]: rehashed });
-        if (column.isSelect) user[passwordField] = rehashed;
+        const rehashed = await Hash.makeAsync(password);
+        // Only replace the hash that was checked: a password reset that commits while scrypt runs keeps its newer hash
+        const { affected } = await model.getRepository().update(
+          { [primaryKeyOf(model)]: model.getId(user), [passwordField]: hashed },
+          { [passwordField]: rehashed },
+        );
+        // Only a reported one-row update is persisted: drivers that leave `affected` undefined may not have matched
+        if (column.isSelect && affected === 1) user[passwordField] = rehashed;
       } catch {
         // swallowed on purpose
       }

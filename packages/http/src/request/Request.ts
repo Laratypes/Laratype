@@ -14,6 +14,7 @@ import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { mountCors } from "../middleware/cors";
 import { resolveBindings } from "../routing/api/bindings";
 import type { Bindings } from "../routing/api/proof";
 
@@ -495,6 +496,9 @@ export default class Request extends AppServiceProvider {
   }
 
   public boot(): void {
+    // First, before the routes are mounted (an app provider's boot) and before the request scope: a preflight is
+    // answered before routing and before the body read, and the headers Hono sets before next() reach error responses
+    mountCors(this.apps);
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response
