@@ -132,10 +132,10 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. `isFailureStatus` is proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ 93e0398 (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)).
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. `isFailureStatus` is proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)).
 
 ### Public API
-[`packages/contract/src/endpoint.ts` @ 93e0398](https://github.com/Laratypes/Laratype/blob/93e03987686be66023616528670206d46f70107a/packages/contract/src/endpoint.ts) · [`isFailureStatus` @ 93e0398](https://github.com/Laratypes/Laratype/blob/93e03987686be66023616528670206d46f70107a/packages/contract/src/endpoint.ts#L41-L42)
+[`packages/contract/src/endpoint.ts` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts) · [`isFailureStatus` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts#L41-L42)
 
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";

@@ -25,7 +25,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Default body limit](#default-body-limit) | proposed: PR [#381](https://github.com/Laratypes/Laratype/pull/381) @ [554d82f](https://github.com/Laratypes/Laratype/commit/554d82f) (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 |
 | [The 0.5 response](#the-05-response) | proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575) ([#342](https://github.com/Laratypes/Laratype/issues/342), H45); string body `text/plain` and `nosniff` proposed: PR [#384](https://github.com/Laratypes/Laratype/pull/384) @ [738fd55](https://github.com/Laratypes/Laratype/commit/738fd55) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336), breaking) |
-| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108); error responses proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ 05c408a (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)) |
+| [Exceptions](#exceptions) | error handling merged (#267, #272, #275); contract errors proposed: PR #307 @ 1d24eb0 (#108); error responses proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)) |
 | [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 |
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
@@ -633,7 +633,7 @@ Tests: [`packages/http/__tests__/response/jsonDetection.test.ts`](../../packages
 ## Exceptions
 
 ### Status
-proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ 05c408a (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)). The filter is PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)); the error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
+proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)). The filter is PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108)); the error handling it keeps is merged ([#267](https://github.com/Laratypes/Laratype/issues/267) H20, [#272](https://github.com/Laratypes/Laratype/issues/272) H23, [#275](https://github.com/Laratypes/Laratype/issues/275) H24).
 
 ### Public API
 [`Response.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/http/src/response/Response.ts) · [`isContractError` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/contract/src/errors.ts) · [`isException` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb0/packages/support/src/exception/Exception.ts)
