@@ -568,7 +568,7 @@ describe('header lists', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store')
   })
 
-  it('drops the cache and validator headers of a 4xx HTTPException own response, keeping its other ones', async () => {
+  it('drops the cache, validator and offload headers of a 4xx HTTPException own response, keeping its other ones', async () => {
     quiet()
     const res = new Response('Too Many Requests', {
       status: 429,
@@ -585,6 +585,8 @@ describe('header lists', () => {
         'Vercel-CDN-Cache-Control': 'max-age=600',
         'Netlify-CDN-Cache-Control': 'max-age=600',
         'Edge-Control': 'no-store',
+        // an error response never lets a proxy serve a file, not even the error's own
+        'X-Accel-Redirect': '/private/report.pdf',
         'X-Upstream': 'redis-10.0.0.7',
       },
     })
@@ -596,6 +598,7 @@ describe('header lists', () => {
     for (const name of [
       'ETag', 'Last-Modified', 'Expires', 'Age', 'Surrogate-Key', 'Cache-Tag', 'Cloudflare-CDN-Cache-Control',
       'Surrogate-Control', 'X-Accel-Expires', 'Vercel-CDN-Cache-Control', 'Netlify-CDN-Cache-Control', 'Edge-Control',
+      'X-Accel-Redirect',
     ]) {
       expect(response.headers.get(name), name).toBeNull()
     }
