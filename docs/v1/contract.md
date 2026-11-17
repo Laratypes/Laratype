@@ -132,10 +132,10 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. `isFailureStatus` is proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)).
 
 ### Public API
-[`packages/contract/src/endpoint.ts`](../../packages/contract/src/endpoint.ts)
+[`packages/contract/src/endpoint.ts` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts) · [`isFailureStatus` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts#L41-L42)
 
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
@@ -189,6 +189,7 @@ export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
 export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 export const isBodylessStatus: (status: number) => boolean;   // 204 or 205
+export const isFailureStatus: (status: unknown) => status is number;   // an integer from 400 to 599, the one error-status rule (H29 #295)
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
