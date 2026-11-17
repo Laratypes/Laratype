@@ -17,6 +17,9 @@ const appApi = defineApi({ 'users.posts': { contract: posts, path: '/api/users/:
 const audit = defineContract()({ index: endpoint.get('/') })
 const auditApi = defineApi({ 'audit.only': { contract: audit, path: '/api/audit', scopes: [] } })
 
+// The same contract name at another path, for the registry's latest-mount rule
+const postsV2 = defineApi({ 'users.posts': { contract: posts, path: '/v2/users/:user/posts', scopes: [] } })
+
 class AuditController extends Controller {
   index() {}
 }
@@ -62,14 +65,21 @@ describe('route()', () => {
 
   it('truncates a long unknown name in the message', () => {
     mount()
-    let message = ''
-    try {
-      route('x'.repeat(100_000))
-    } catch (error) {
-      message = (error as Error).message
-    }
-    expect(message).toBe(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`)
-    expect(message.length).toBeLessThan(200)
+    expect(() => route('x'.repeat(100_000))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`),
+    )
+    // characters, not UTF-16 units: an emoji is one character and the cut never splits a surrogate pair
+    expect(() => route('😀'.repeat(101))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(100)}…"`),
+    )
+  })
+
+  it('ignores .domain(): the URL is a path, not the host the route is served on', () => {
+    mount().domain('api.example.com')
+    expect(route('users.posts.show', { user: 1, post: 2 })).toBe('/api/users/1/posts/2')
+    expect(route('users.posts.show', { user: 1, post: 2 }, { absolute: true })).toBe(
+      'https://app.test/api/users/1/posts/2',
+    )
   })
 
   it('fills the full path with buildUrl, encoding a param with "/", "?", "#", "%" and a space', () => {
@@ -264,6 +274,12 @@ describe('.name()', () => {
     expect(duplicate).toThrow(
       new TypeError('[@laratype/http] Route.api: r.get(\'/c\').name("health") is already the name of r.get(\'/a\')'),
     )
+  })
+
+  it('points a contract name at the path the latest group mounts', () => {
+    Route.api(appApi, (r) => [r.contract(posts, PostController)])
+    Route.api(postsV2, (r) => [r.contract(posts, PostController)])
+    expect(route('users.posts.index', { user: 1 })).toBe('/v2/users/1/posts')
   })
 
   it('mounts the same group again without a duplicate error (an --hmr restart)', () => {

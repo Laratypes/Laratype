@@ -145,7 +145,7 @@ export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[
     }
     next.set(name, { path: entry.path, label, adHoc: true });
   }
-  // The whole group passed: commit its names at once
+  // A caller that catches the duplicate's error must not find a name of the group that never mounted
   registry.clear();
   for (const [name, route] of next) registry.set(name, route);
 };
@@ -162,8 +162,11 @@ function fail(message: string): never {
   throw new TypeError(`[@laratype/http] ${message}`);
 }
 
-/** A name echoed in a diagnostic: a 100 KB name must not build a 100 KB message. */
-const truncateName = (name: string, max = 100): string => (name.length > max ? `${name.slice(0, max)}…` : name);
+/** A name echoed in a diagnostic: a 100 KB name must not build a 100 KB message. Counts characters, not UTF-16 units. */
+const truncateName = (name: string): string => {
+  const characters = Array.from(name);
+  return characters.length > 100 ? `${characters.slice(0, 100).join("")}…` : name;
+};
 
 /**
  * `config('config.url')` as an origin with an optional path prefix, its trailing slashes dropped. The app reads the
