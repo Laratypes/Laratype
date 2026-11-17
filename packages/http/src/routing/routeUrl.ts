@@ -120,18 +120,21 @@ const labelOf = (entry: { readonly method: string; readonly path: string }) => `
 
 /**
  * Registers the names of one `Route.api()` group for `route()`: every contract route and every ad-hoc route with
- * `.name()`. Called by `Route.api()`; not exported by the package.
+ * `.name()`. The group is checked on a copy and committed only once all of it passes: a duplicate later in the group
+ * throws, and a group that never mounts leaves no name behind for `route()`. Called by `Route.api()`; not exported by
+ * the package.
  * @internal
  */
 export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[]): void => {
+  const next = new Map(registry);
   for (const entry of entries) {
     const { name } = entry;
     if (name === undefined) continue;
-    const existing = registry.get(name);
+    const existing = next.get(name);
     if (entry.controller !== undefined) {
       // A contract route of the tree: a later group agrees on the name, so it points the name at the path it mounts
       if (existing?.adHoc) fail(`Route.api: contract "${name}" has the name of ${existing.label}`);
-      registry.set(name, { path: entry.path, label: name, adHoc: false });
+      next.set(name, { path: entry.path, label: name, adHoc: false });
       continue;
     }
     const label = labelOf(entry);
@@ -140,8 +143,11 @@ export const registerRoutes = (entries: readonly (RouteEntry | AdHocRouteEntry)[
     if (existing !== undefined) {
       fail(`Route.api: ${label}.name(${JSON.stringify(name)}) is already the name of ${existing.label}`);
     }
-    registry.set(name, { path: entry.path, label, adHoc: true });
+    next.set(name, { path: entry.path, label, adHoc: true });
   }
+  // The whole group passed: commit its names at once
+  registry.clear();
+  for (const [name, route] of next) registry.set(name, route);
 };
 
 /**
@@ -155,6 +161,9 @@ export const resetRouteRegistry = (): void => {
 function fail(message: string): never {
   throw new TypeError(`[@laratype/http] ${message}`);
 }
+
+/** A name echoed in a diagnostic: a 100 KB name must not build a 100 KB message. */
+const truncateName = (name: string, max = 100): string => (name.length > max ? `${name.slice(0, max)}…` : name);
 
 /**
  * `config('config.url')` as an origin with an optional path prefix, its trailing slashes dropped. The app reads the
@@ -228,7 +237,7 @@ export const buildRouteUrl = (
 ): string => {
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   const entry = registry.get(name);
-  if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(name)}`);
+  if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
   // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams
   const path = buildUrl(entry.path, { params: paramValues(params), query: options?.query });
   return options?.absolute ? joinPath(appUrl(), path) : path;

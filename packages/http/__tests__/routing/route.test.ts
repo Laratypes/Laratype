@@ -60,6 +60,18 @@ describe('route()', () => {
     )
   })
 
+  it('truncates a long unknown name in the message', () => {
+    mount()
+    let message = ''
+    try {
+      route('x'.repeat(100_000))
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toBe(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`)
+    expect(message.length).toBeLessThan(200)
+  })
+
   it('fills the full path with buildUrl, encoding a param with "/", "?", "#", "%" and a space', () => {
     mount()
     expect(route('users.posts.show', { user: 7, post: 'a b/c?d#e%f' })).toBe('/api/users/7/posts/a%20b%2Fc%3Fd%23e%25f')
@@ -203,6 +215,32 @@ describe('.name()', () => {
     ).toThrow(
       new TypeError('[@laratype/http] Route.api: r.get(\'/b\').name("health") is already the name of r.get(\'/a\')'),
     )
+  })
+
+  it('registers no name of a group that a later duplicate fails', () => {
+    // a mounted group, so the message of an unregistered name is "unknown", not "no routes are registered"
+    Route.api(auditApi, (r) => [r.contract(audit, AuditController)])
+    expect(() =>
+      Route.api(appApi, (r) => [
+        r.contract(posts, PostController),
+        r.get('/a', () => 1).name('kept'),
+        r.get('/b', () => 2).name('kept'),
+      ]),
+    ).toThrow(
+      new TypeError('[@laratype/http] Route.api: r.get(\'/b\').name("kept") is already the name of r.get(\'/a\')'),
+    )
+    // the group never mounts, so not even the names before the duplicate are resolvable
+    expect(() => route('kept')).toThrow(new TypeError('[@laratype/http] route: unknown route name "kept"'))
+    expect(() => route('users.posts.index', { user: 1 })).toThrow(
+      new TypeError('[@laratype/http] route: unknown route name "users.posts.index"'),
+    )
+    expect(route('audit.only.index')).toBe('/api/audit')
+  })
+
+  it('registers every name of a group that passes', () => {
+    Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/a', () => 1).name('kept')])
+    expect(route('kept')).toBe('/a')
+    expect(route('users.posts.index', { user: 1 })).toBe('/api/users/1/posts')
   })
 
   it('rejects an ad-hoc name a contract route already has', () => {
