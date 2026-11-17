@@ -123,8 +123,36 @@ describe("the explicit content type of a string", () => {
     ]).mount(app);
     const response = await app.request("/html");
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(response.headers.get("x-content-type-options")).toBeNull();
+    // nosniff is not only for the default type: an explicit one keeps it too
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toBe("<b>hi</b>");
+  });
+
+  it("sets nosniff even when a Response sets an explicit non-HTML type", async () => {
+    const app = bootApp();
+    Route.api(appApi, (r) => [
+      r.contract(health, HealthController),
+      r.get("/csv", () => new LaratypeResponse("a,b", 200, { "Content-Type": "text/csv" })),
+    ]).mount(app);
+    const response = await app.request("/csv");
+    expect(response.headers.get("content-type")).toBe("text/csv");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("ignores a Content-Type value that is not a string, instead of throwing", async () => {
+    const app = bootApp();
+    Route.api(appApi, (r) => [
+      r.contract(health, HealthController),
+      // the 0.5 header store takes anything; a number and a list are not a type
+      r.get("/number", () => new LaratypeResponse("42", 200, { "Content-Type": 42 as unknown as string })),
+      r.get("/list", () => new LaratypeResponse("a,b", 200, { "Content-Type": ["text/csv"] as unknown as string })),
+    ]).mount(app);
+    for (const path of ["/number", "/list"]) {
+      const response = await app.request(path);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-type"), path).toBe("text/plain; charset=utf-8");
+      expect(response.headers.get("x-content-type-options"), path).toBe("nosniff");
+    }
   });
 
   it("keeps a Content-Type set with another case, and the Response's status and headers", async () => {
