@@ -23,7 +23,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR (leader fills) @ def996f ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ cfe2731 ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -402,7 +402,7 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-proposed: PR (leader fills) @ def996f ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
+proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ cfe2731 ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
 ### Public API
 [`packages/client/src/validate.ts`](../../packages/client/src/validate.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
