@@ -2,8 +2,8 @@
 import "reflect-metadata";
 import { afterEach, describe, expect, it } from "vitest";
 import { Container, Facade, depsRegistry } from "@laratype/core";
-import { Hasher } from "@laratype/support";
-import { attempt, fakeModel } from "./fixtures/login";
+import { Hash, Hasher } from "@laratype/support";
+import { SHA256_SECRET, attempt, fakeModel } from "./fixtures/login";
 
 /** Makes `hasher` the implementation the Hash facade resolves, as a provider binding does. */
 const usingHasher = (hasher: Hasher) => {
@@ -12,10 +12,26 @@ const usingHasher = (hasher: Hasher) => {
   Facade.setFacadeApplication(app);
 };
 
+/** A Hasher that records every check and derivation, so a test can count the scrypt work of a path. */
+class Counting extends Hasher {
+  checks: [string, string][] = [];
+  makes: string[] = [];
+
+  override async checkAsync(value: string, hashed: string): Promise<boolean> {
+    this.checks.push([value, hashed]);
+    return super.checkAsync(value, hashed);
+  }
+
+  override async makeAsync(value: string): Promise<string> {
+    this.makes.push(value);
+    return super.makeAsync(value);
+  }
+}
+
 afterEach(() => Facade.setFacadeApplication(undefined));
 
 describe("TokenGuard.attempt() with a custom Hasher", () => {
-  it("retries a rejected dummy-hash build instead of caching the rejection", async () => {
+  it("answers a rejected dummy-hash build as an invalid credential, and builds it again next time", async () => {
     class Broken extends Hasher {
       calls = 0;
       override async makeAsync(): Promise<string> {
@@ -28,8 +44,9 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     const { User } = fakeModel([]);
     const login = () => attempt(User, { email: "nobody@example.com", password: "secret" });
 
-    await expect(login()).rejects.toThrow("the hasher is down");
-    await expect(login()).rejects.toThrow("the hasher is down");
+    // A failed build is dropped rather than cached, so a wrong password never turns into a 500
+    await expect(login()).resolves.toBeNull();
+    await expect(login()).resolves.toBeNull();
     expect(hasher.calls).toBe(2);
   });
 
@@ -65,9 +82,46 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     }
     const hasher = new Truthy();
     usingHasher(hasher);
-    const { User } = fakeModel([{ id: 1, email: "ada@example.com", password: "stored" }]);
+    // A current-format hash: only the explicit-true rule is under test, not a rehash or a dummy check
+    const { User } = fakeModel([{ id: 1, email: "ada@example.com", password: Hash.make("stored") }]);
 
     expect(await attempt(User, { email: "ada@example.com", password: "secret" })).toBeNull();
     expect(hasher.calls).toBe(1);
+  });
+});
+
+describe("TokenGuard.attempt() with a legacy stored hash", () => {
+  it("pays one dummy check for a wrong password, as an unknown user does", async () => {
+    const hasher = new Counting();
+    usingHasher(hasher);
+    const { User, calls } = fakeModel([{ id: 1, email: "old@example.com", password: SHA256_SECRET }]);
+
+    expect(await attempt(User, { email: "old@example.com", password: "wrong" })).toBeNull();
+    // The dummy check runs the scrypt derivation, then the 0.5 hash is compared without one
+    expect(hasher.checks).toHaveLength(2);
+    expect(hasher.checks[0]![0]).toBe("wrong");
+    expect(Hash.isHashed(hasher.checks[0]![1])).toBe(true);
+    expect(hasher.checks[1]).toEqual(["wrong", SHA256_SECRET]);
+    expect(calls.update).toEqual([]);
+  });
+
+  it("logs in and rehashes a correct legacy password, after the same dummy check", async () => {
+    const hasher = new Counting();
+    usingHasher(hasher);
+    const rows = [{ id: 1, email: "old@example.com", password: SHA256_SECRET }];
+    const { User, calls } = fakeModel(rows);
+
+    expect(await attempt(User, { email: "old@example.com", password: "secret" })).toEqual({
+      id: 1,
+      email: "old@example.com",
+    });
+    // One dummy check, then the real one; makeAsync() builds the dummy hash once and the new hash once
+    expect(hasher.checks).toHaveLength(2);
+    expect(Hash.isHashed(hasher.checks[0]![1])).toBe(true);
+    expect(hasher.checks[1]).toEqual(["secret", SHA256_SECRET]);
+    expect(hasher.makes).toContainEqual("secret");
+    expect(calls.update).toHaveLength(1);
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true);
+    expect(Hash.check("secret", rows[0]!.password)).toBe(true);
   });
 });

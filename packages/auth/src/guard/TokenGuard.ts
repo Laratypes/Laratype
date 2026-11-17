@@ -23,10 +23,16 @@ const dummyHash = () => {
 const isLookupValue = (value: unknown): value is string | boolean | number =>
   typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 
-/** The slice of a model a token lookup needs: its name and its primary column. */
+/** The slice of a model a token lookup and the rehash update need: its name and its primary columns. */
 interface PrimaryKeyModel {
   name: string;
-  getRepository(): { metadata?: { primaryColumns?: { propertyName: string }[] } };
+  getRepository(): {
+    metadata?: {
+      primaryColumns?: { propertyName: string }[];
+      /** The primary columns' values of one row, or undefined when the row is missing part of its key. */
+      getEntityIdMap?(row: unknown): Record<string, unknown> | undefined;
+    };
+  };
 }
 
 /** The primary key's property name: a model without one cannot be loaded by a token, so it is a configuration error. */
@@ -36,6 +42,29 @@ const primaryKeyOf = (model: PrimaryKeyModel): string => {
     throw new InternalException(`[@laratype/auth] Model ${model.name} does not have a primary key defined.`);
   }
   return primaryKey;
+};
+
+/**
+ * The criteria naming one row by every primary column, or `undefined` when the model has no primary key or the row is
+ * missing part of its key. A composite key's `model.getId()` is an object, so only the id map names the row.
+ */
+const primaryKeyWhere = (model: PrimaryKeyModel, row: unknown): Record<string, unknown> | undefined => {
+  const metadata = model.getRepository().metadata;
+  // An update without a primary column would match every row the other criteria match
+  if (!metadata?.primaryColumns?.length) return undefined;
+  return metadata.getEntityIdMap?.(row);
+};
+
+/**
+ * The one dummy check every login path pays, so its duration only depends on the password, not the account. A rejected
+ * build answers as a wrong password and is dropped, so the next request builds it again.
+ */
+const payDummyCheck = async (password: string): Promise<void> => {
+  try {
+    await Hash.checkAsync(password, await dummyHash());
+  } catch {
+    // swallowed on purpose: the dummy check evens out the timing and never decides the login
+  }
 };
 
 /** Whether a token record's model is one the guard loads: the provider itself, or a subclass of it. */
@@ -160,7 +189,8 @@ export default class TokenGuard<User = any> {
    * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
    * only, and the password is then checked with `Hash.checkAsync()`, since a salted hash can't be matched in the
    * query and scrypt stays off the event loop. A hash from an older format (0.5's sha256) is replaced on a
-   * successful login.
+   * successful login. Every path costs at least one scrypt derivation: an unknown user, or a user whose stored hash is
+   * a 0.5 sha256 or unparseable, also runs a dummy check (see `payDummyCheck()`).
    */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
@@ -185,26 +215,35 @@ export default class TokenGuard<User = any> {
     const user: any = await model.createQueryBuilder(ALIAS).where(where).addSelect(`${ALIAS}.${column.propertyPath}`).getOne();
     if (!user) {
       // Concurrent unknown users share one derivation, and the check still costs one derivation, as a wrong password does
-      await Hash.checkAsync(password, await dummyHash());
+      await payDummyCheck(password);
       return null;
     }
 
     const hashed = user[passwordField];
+    const needsRehash = Hash.needsRehash(hashed);
     // The returned user has the shape a plain lookup gives: no hidden password column
     if (!column.isSelect) delete user[passwordField];
+    // A 0.5 sha256 or unparseable stored hash is checked without scrypt: pay one derivation, so a wrong password for
+    // such a user costs as much as an unknown user's, and the timing does not show the account's hash is a legacy one
+    if (needsRehash) await payDummyCheck(password);
     // Only an explicit boolean true logs in, so a custom Hasher cannot pass a truthy value off as a check
     if ((await Hash.checkAsync(password, hashed)) !== true) return null;
-    if (Hash.needsRehash(hashed)) {
+    if (needsRehash) {
       // A failed rehash must not fail the login: the stored hash still verifies, and this package has no logger to report it
       try {
-        const rehashed = await Hash.makeAsync(password);
-        // Only replace the hash that was checked: a password reset that commits while scrypt runs keeps its newer hash
-        const { affected } = await model.getRepository().update(
-          { [primaryKeyOf(model)]: model.getId(user), [passwordField]: hashed },
-          { [passwordField]: rehashed },
-        );
-        // Only a reported one-row update is persisted: drivers that leave `affected` undefined may not have matched
-        if (column.isSelect && affected === 1) user[passwordField] = rehashed;
+        // Every primary column names the row: a composite key's value is an object, which one column cannot hold
+        const key = primaryKeyWhere(model, user);
+        // An update without the whole key could rewrite another row, or fail to match this one
+        if (key) {
+          const rehashed = await Hash.makeAsync(password);
+          // Only replace the hash that was checked: a password reset that commits while scrypt runs keeps its newer hash
+          const { affected } = await model.getRepository().update(
+            { ...key, [passwordField]: hashed },
+            { [passwordField]: rehashed },
+          );
+          // Only a reported one-row update is persisted: drivers that leave `affected` undefined may not have matched
+          if (column.isSelect && affected === 1) user[passwordField] = rehashed;
+        }
       } catch {
         // swallowed on purpose
       }

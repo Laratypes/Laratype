@@ -16,16 +16,28 @@ export type FakeOptions = {
   failUpdate?: boolean;
   /** Runs when the rehash update arrives, to model a password change that committed while scrypt ran. */
   beforeUpdate?: () => void;
+  /** The model's primary columns: `id` by default; more than one is a composite key. */
+  primaryColumns?: string[];
 };
 
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
 export const fakeModel = (
   rows: Row[],
-  { column = "password", declared = column, select = false, failUpdate = false, beforeUpdate }: FakeOptions = {},
+  { column = "password", declared = column, select = false, failUpdate = false, beforeUpdate, primaryColumns = ["id"] }: FakeOptions = {},
 ) => {
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] };
   const builders = vi.fn();
   const findOneBy = vi.fn(async () => null);
+  /** typeorm's EntityMetadata.getEntityIdMap(): the primary columns' values, or undefined when one of them is missing. */
+  const getEntityIdMap = (row: unknown) => {
+    const id: Record<string, unknown> = {};
+    for (const propertyName of primaryColumns) {
+      const value = (row as Record<string, unknown> | null | undefined)?.[propertyName];
+      if (value === undefined || value === null) return undefined;
+      id[propertyName] = value;
+    }
+    return id;
+  };
   class User {
     /** The credential column the model declares: cast() hashes it and attempt() checks it. */
     static readonly passwordField = declared;
@@ -33,7 +45,8 @@ export const fakeModel = (
     static getRepository() {
       return {
         metadata: {
-          primaryColumns: [{ propertyName: "id" }],
+          primaryColumns: primaryColumns.map((propertyName) => ({ propertyName })),
+          getEntityIdMap,
           findColumnWithPropertyName: (name: string) =>
             name === column ? { propertyPath: column, isSelect: select } : undefined,
         },
@@ -73,7 +86,8 @@ export const fakeModel = (
       return qb;
     }
     static getId(user: Row) {
-      return user.id;
+      // typeorm's BaseEntity.getId(): the id map for a composite key, the value for a single one
+      return primaryColumns.length === 1 ? user[primaryColumns[0]!] : getEntityIdMap(user);
     }
   }
   return { User, calls, builders, findOneBy };

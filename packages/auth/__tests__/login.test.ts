@@ -88,8 +88,12 @@ describe('TokenGuard.attempt()', () => {
     const syncCheck = vi.spyOn(Hash, 'check')
     const syncMake = vi.spyOn(Hash, 'make')
     expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
-    expect(check).toHaveBeenCalledTimes(1)
-    expect(make).toHaveBeenCalledTimes(1)
+    // The legacy hash pays the dummy check first, then the real check reads the stored hash
+    expect(check).toHaveBeenCalledTimes(2)
+    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
+    expect(check.mock.calls[1]![1]).toBe(SHA256_SECRET)
+    // The dummy hash may already be cached by an earlier test; the new hash for this user is always derived
+    expect(make.mock.calls).toContainEqual(['secret'])
     expect(syncCheck).not.toHaveBeenCalled()
     expect(syncMake).not.toHaveBeenCalled()
     expect(calls.update).toHaveLength(1)
@@ -165,6 +169,35 @@ describe('TokenGuard.attempt()', () => {
     // The response does not carry a rehash of the old password
     expect(user.password).toBe(SHA256_SECRET)
     expect(Hash.check('newer', rows[0]!.password)).toBe(true)
+  })
+
+  it('rehashes a composite-key user by its whole key, and only that row', async () => {
+    // Two rows share the legacy hash; only the full key tells them apart, so a criteria over the first column alone
+    // would either miss the row (an object value) or match both
+    const rows = [
+      { tenant: 1, id: 7, email: 'old@example.com', password: SHA256_SECRET },
+      { tenant: 2, id: 7, email: 'other@example.com', password: SHA256_SECRET },
+    ]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['tenant', 'id'] })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({
+      tenant: 1,
+      id: 7,
+      email: 'old@example.com',
+    })
+    expect(calls.update).toHaveLength(1)
+    // Every primary column names the row: getId() is { tenant, id }, which one column cannot hold
+    expect(calls.update[0]![0]).toEqual({ tenant: 1, id: 7, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+    expect(rows[1]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('skips the rehash when the row is missing part of its composite key', async () => {
+    const rows = [{ tenant: 1, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    // `region` is a primary column the row does not carry: no update may be sent without the whole key
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
   it('never queries without a password or a lookup field', async () => {
