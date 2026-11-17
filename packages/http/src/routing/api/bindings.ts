@@ -72,7 +72,7 @@ export const checkBindingMap = (bindings: unknown): void => {
   if (typeof bindings !== "object" || bindings === null) {
     fail(`r.bind(): the bindings must be an object, one value per path param (got ${valueLabel(bindings)})`);
   }
-  const proto: unknown = Object.getPrototypeOf(bindings);
+  const proto = Object.getPrototypeOf(bindings) as object | null;
   if (proto !== Object.prototype && proto !== null) {
     if (typeof proto === "function") {
       fail(
