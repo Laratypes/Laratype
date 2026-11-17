@@ -10,6 +10,7 @@ export type { MissingValue, Resource, ResourceOutput, ResourcePage } from "./res
 export { default as Controller } from "./controller/Controller"
 export { default as Middleware } from "./middleware/Middleware"
 export { defineMiddleware, isTypedMiddleware } from "./middleware/defineMiddleware"
+export type { CorsConfig } from "./middleware/cors"
 export type {
   AnyTypedMiddleware, MiddlewareItem, TypedMiddleware, TypedMiddlewareHandler
 } from "./middleware/defineMiddleware"

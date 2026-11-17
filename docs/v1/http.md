@@ -35,7 +35,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` proposed: PR #<leader fills> @ [738fd55](https://github.com/Laratypes/Laratype/commit/738fd55) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR (leader fills) @ 524b7a3 |
 | [Route names and URLs](#route-names-and-urls) | proposed: PR (leader fills) @ 524b7a3 |
-| [CORS](#cors) | planned → #164 |
+| [CORS](#cors) | proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)) |
 | [Undeclared-error check](#undeclared-error-check) | planned → #157 |
 
 ---
@@ -1252,11 +1252,85 @@ redirect().route('users.posts.show', { user, post })                           /
 ## CORS
 
 ### Status
-planned → [#164](https://github.com/Laratypes/Laratype/issues/164) (H15, M3).
+proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)).
 
-### Design (non-binding)
-- **Middleware:** `cors()` wraps `hono/cors` and is registered as global middleware by default. It handles preflight for contract routes.
-- **Config:** a typed `config/cors.ts` (paths, origins, methods, headers, exposed headers, max age, credentials).
+### Public API
+`app/config/cors.ts`, an optional config file like any other (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)): a default-exported `defineConfig({...})`, read once at boot. `CorsConfig`, exported from `@laratype/http`, types it: the fields are Hono 4.9.6's `CORSOptions`, readonly, plus `paths`. Code: [`middleware/cors.ts` @ c40f616](https://github.com/Laratypes/Laratype/blob/c40f616/packages/http/src/middleware/cors.ts).
+
+```ts
+// @laratype/http
+export type CorsConfig = {
+  readonly paths?: readonly string[]
+  readonly origin: string | readonly string[] | ((origin: string, c: Context) => Promise<string | undefined | null> | string | undefined | null)
+  readonly allowMethods?: readonly string[] | ((origin: string, c: Context) => Promise<string[]> | string[])
+  readonly allowHeaders?: readonly string[]
+  readonly exposeHeaders?: readonly string[]
+  readonly maxAge?: number
+  readonly credentials?: boolean
+}
+```
+
+```ts
+// app/config/cors.ts
+import { defineConfig } from '@laratype/core'
+import type { CorsConfig } from '@laratype/http'
+
+export default defineConfig<CorsConfig>({
+  paths: ['/api/*'],                                       // Hono path patterns; default ['*'], every path
+  origin: ['https://app.example.com'],                     // required: a string, a list, or a function
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], // default GET, HEAD, PUT, POST, DELETE, PATCH
+  allowHeaders: ['Content-Type', 'Authorization'],         // default: echoes Access-Control-Request-Headers
+  exposeHeaders: ['X-Request-Id'],                         // default: none
+  maxAge: 600,                                             // seconds: a whole number of 0 or more; default none
+  credentials: true,                                       // default false
+})
+```
+
+Every key but `origin` is optional: a file that turns CORS on has to say who may call.
+
+### Invariants
+- **Opt-in:** no `app/config/cors.ts` means no CORS middleware and no CORS headers, so only same-origin calls work; that is the framework's default. The file's presence is the switch. There is no `false`: delete the file to turn CORS off.
+- **Hono does the CORS work.** The middleware is `cors()` from `hono/cors`, and the file maps onto its options (`origin`, `allowMethods`, `allowHeaders`, `exposeHeaders`, `maxAge`, `credentials`), so origin matching, the preflight answer (204, with `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers` and `Access-Control-Max-Age` as configured or requested) and every header set are Hono's. An origin is matched exactly against the browser's `Origin` header (no trailing slash); a list allows each of its entries; a function answers the origin to echo, or `null`/`undefined` to refuse. `'*'` is the whole-origin form: a list holding a `'*'` entry fails the boot, because Hono matches a list by `includes` and a browser never sends `'*'` as its origin.
+- **Mounted first, at boot.** `RequestKernel.boot()` registers the middleware on the Hono app before the app providers mount their routes (`Route.api(...).mount(app)`), so it runs before routing and before the pipeline reads the body ([Request pipeline](#request-pipeline)). A preflight is answered by the middleware itself, before any route matches: a contract, 0.5 or ad-hoc route needs no `OPTIONS` handler, and the body is never read on one.
+- **`paths`:** Hono path patterns (`'/api/*'`, `'*'`); the default `['*']` covers every path. One middleware serves the whole list, its path matched by a Hono `TrieRouter` built from it (a separate instance from the app's router, so a pattern reads as `TrieRouter` reads it), so a request under two overlapping patterns (`['/api/*', '/api/users/*']`) still runs `cors()` once. A request outside the list gets no CORS headers, and its preflight is the app's own `OPTIONS` answer or Hono's 404. `paths: []` is invalid at boot, not "no path".
+- **Every answer carries the headers, an error too.** Hono sets them on the context's header store before `next()`, and the exception filter keeps the context headers, so 401, 404 (Hono's and a contract error's), 413, 422, 429 (the contract's rate limit included, #319) and the exception filter's generic 500 carry them. Two answers do not: a request outside `paths`, and the generic 500 of a non-`Error` throw, built by the boot `fetch` wrapper ([Exceptions](#exceptions) › Non-`Error` throws).
+- **A refused origin is not an error.** The route still runs and answers its own response (the preflight its 204), without `Access-Control-Allow-Origin`: a browser hides the response and another client reads it, because CORS is enforced by the browser, not the server.
+- **A function origin must allowlist.** The function gets the request's `Origin` header (`""` when the request has none) and must compare it against an allowlist of its own, answering the origin to echo or `null`/`undefined` to refuse: returning the incoming value unchecked allows every site.
+- **`'null'` is refused.** As the string origin or as a list entry, `'null'` fails the boot: it is the origin a sandboxed iframe, a `data:` page and a `file:` page send, so it would allow every one of them.
+- **An origin must be serialized.** An entry that is not `http(s)://host[:port]` as a browser writes it (no path, trailing slash or query) fails the boot: Hono compares it to the `Origin` header by exact string, so it would silently never match.
+- **`Vary`:** for an origin that is not `*`, every answer's `Vary` lists `Origin`, appended to whatever the response already has (a handler's own `Vary`, a raw `Response` included, is kept) and never twice (`Vary: *` covers it), so a shared cache does not serve one origin's answer to another. Hono 4.9.6 builds `Vary` from the REQUEST's own header and drops `Origin` (`mountCors` appends it to the final response; the wrapper covers Hono < 4.10.3 and can go once the `hono` floor is `>= 4.10.3`: re-check on a Hono bump → B28 [#369](https://github.com/Laratypes/Laratype/issues/369)); a preflight also appends `Access-Control-Request-Headers` when it sets `Access-Control-Allow-Headers`.
+- **Wildcard and credentials:** `credentials: true` with `origin: '*'` fails the boot. Hono would send `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`, which a browser refuses on a credentialed request, so every call from the frontend would fail with no server-side sign. The function form is not checked at boot: it may answer a real origin.
+- **Read once:** the file is read at boot, so a dev restart picks up a change; nothing re-reads it per request.
+
+### Diagnostics
+A `cors` value the framework refuses fails the boot with one `TypeError` listing every problem, `[@laratype/http] Invalid CORS config (app/config/cors.ts), <n> problems:`, then one `- <key>: <problem>` line each:
+
+```
+[@laratype/http] Invalid CORS config (app/config/cors.ts), 2 problems:
+- maxAge: expected a whole number of seconds, 0 or more, got -1
+- credentials: true cannot pair with origin '*'; list the origins instead
+```
+
+- a file that is not an object: `- expected defineConfig({ ... }), got false`
+- `paths`: `- paths: expected a non-empty array of path patterns ('*' or a path starting with '/'), got []`, `- paths[0]: expected a path pattern ('*' or a path starting with '/'), got "api/*"`
+- `origin`: `- origin: required; name the origins, or '*'`, `- origin: expected '*' or an origin string, a list of them, or a function, got 42`, `- origin[1]: expected a non-empty origin string, got 7`, `- origin[0]: '*' cannot be a list entry; set origin: '*' for every origin, or list them`, `- origin: 'null' allows sandboxed and file: pages; list real origins`, `- origin[0]: expected a serialized origin (http(s)://host[:port]), got "https://app.example.com/"`
+- `allowMethods`: `- allowMethods: expected an array of HTTP method names or a function, got "GET"`, `- allowMethods[1]: expected an HTTP method name, got ""`
+- headers: `- allowHeaders: expected an array of header names, got "Content-Type"`, `- exposeHeaders[0]: expected a header name, got ""`
+- `maxAge`: `- maxAge: expected a whole number of seconds, 0 or more, got 1.5`
+- `credentials`: `- credentials: expected a boolean, got "true"`
+- an unknown key: `- 'credential': unknown key (expected paths, origin, allowMethods, allowHeaders, exposeHeaders, maxAge, credentials)`
+
+### Example
+[`examples/basic/app/config/cors.ts`](../../examples/basic/app/config/cors.ts) allows `http://localhost:5173`, the Vite dev server a separate frontend runs on, on `/api/*`, with credentials. Runtime tests: [`packages/http/__tests__/middleware/cors.test.ts`](../../packages/http/__tests__/middleware/cors.test.ts) (an allowed and a refused origin, the preflight and an actual request, credentials, exposed headers, 401/404/413/422/429/500 with the headers, the `Vary` fix on an actual, an error and a preflight answer, on a handler's own `Vary` and on a raw `Response`'s `Vary`, the `paths` scope and an overlap, no config, a throwing config read, every diagnostic). Type test: [`cors.test-d.ts`](../../packages/http/__tests__/middleware/cors.test-d.ts).
+
+### Non-goals
+- No per-route CORS options and no `cors()` of its own to mount on one route: the config is app-wide. An app that needs another policy on one route mounts Hono's `cors()` itself there.
+- No origin globbing (`https://*.example.com`): Hono compares strings exactly; the function form matches a pattern in app code.
+- No `credentials: true` with a `*` origin.
+- No re-read of the file per request.
+
+### Open questions
+- When can the `Vary` wrapper go, once the `hono` floor is >= 4.10.3? → B28 [#369](https://github.com/Laratypes/Laratype/issues/369)
 
 ### Acceptance
 [#164 Done when](https://github.com/Laratypes/Laratype/issues/164)
