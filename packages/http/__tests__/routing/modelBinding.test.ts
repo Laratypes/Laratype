@@ -377,6 +377,48 @@ describe('r.bind() validation at Route.api', () => {
       '[@laratype/http] Route.api: r.bind(): `comment` is not a path param of any endpoint under scope "users/[user]"',
     )
   })
+
+  it('refuses `__proto__` as a binding key', () => {
+    // Every object reads `__proto__` as its prototype: Hono drops such a path param, and `{ __proto__: User }` sets the
+    // prototype of the map. The key is refused before the path-param check, since no route could ever resolve it
+    expect(() => Route.api(appApi, (r) => [r.bind({ ['__proto__']: User }).contract(posts, UnboundController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `__proto__` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. ' +
+        'Fix: name the path param something else.',
+    )
+  })
+})
+
+describe('the bindings of an item built by hand (no r.contract() / r.scope())', () => {
+  class PlainController extends Controller {
+    index() { return {} }
+    show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params.user as User).id } }
+    latest() { return {} }
+  }
+  // An untyped caller builds the items itself: the array is cast, as its own would be
+  const items = (list: unknown[]) => list as never
+  const binderMessage =
+    '[@laratype/http] Route.api: r.bind(): `user` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver'
+
+  it('a contract item with a non-binder value throws at mount, as r.bind() does', () => {
+    expect(() => Route.api(appApi, () => items([
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: { user: 42 } },
+    ]))).toThrow(binderMessage)
+  })
+
+  it('a scope item with a non-binder value throws at mount, as r.bind() does', () => {
+    expect(() => Route.api(appApi, () => items([
+      { kind: 'scope', dir: 'users/[user]', policy: PostPolicy, middleware: [], bindings: { user: 42 } },
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: {} },
+    ]))).toThrow(binderMessage)
+  })
+
+  it('a hand-built item with a valid binder mounts and binds', async () => {
+    const routes = mount(Route.api(appApi, () => items([
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: { user: User } },
+    ])))
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
+    expect(lookups).toEqual(['user:7'])
+  })
 })
 
 describe('the 0.5 model binding paths', () => {

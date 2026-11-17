@@ -17,11 +17,28 @@ const isClass = (value: Function): boolean => /^class[\s{]/.test(Function.protot
 const isModelClass = (binder: Binder): binder is BindableModelClass => typeof (binder as { findByRouteKey?: unknown }).findByRouteKey === "function";
 
 /**
- * Checks one `r.bind()` value at `Route.api`: a model class with the `BindableModel` statics (`primaryKey`, optional
- * `routeKeyName`, `findByRouteKey`), or a resolver function. A class without `findByRouteKey` would be called without
- * `new` at request time, so it fails here instead.
+ * Refuses the one binding key an object cannot carry: `__proto__` names the prototype of every object. Hono drops a
+ * `:__proto__` path param from `param()` (it assigns the decoded key), and an object literal `{ __proto__: User }` sets
+ * the prototype of the bindings map instead of a key, so the handler would read `undefined` where its types say the
+ * model. `constructor` and `prototype` are ordinary keys: a bound one is an own property of the ctx params.
+ */
+const checkBindingKey = (key: string): void => {
+  if (key === "__proto__") {
+    fail(
+      `r.bind(): \`__proto__\` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. ` +
+        `Fix: name the path param something else.`,
+    );
+  }
+};
+
+/**
+ * Checks one `r.bind()` key and value at `Route.api`: the key is not `__proto__` (`checkBindingKey`), and the value is
+ * a model class with the `BindableModel` statics (`primaryKey`, optional `routeKeyName`, `findByRouteKey`), or a
+ * resolver function. A class without `findByRouteKey` would be called without `new` at request time, so it fails here
+ * instead.
  */
 export const checkBinder = (key: string, value: unknown): void => {
+  checkBindingKey(key);
   if (typeof value !== "function") {
     fail(`r.bind(): \`${key}\` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver`);
   }

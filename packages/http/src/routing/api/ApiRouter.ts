@@ -58,7 +58,7 @@ class RouteBuilder {
   /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
   bind(bindings: Record<string, Binder>) {
     for (const [key, binder] of Object.entries(bindings)) checkBinder(key, binder);
-    // A spread, not an assignment: an own `__proto__` key stays a key, as frozenCopy keeps it for the options
+    // A spread, not an assignment: no setter of the map (an inherited one included) runs for a copied key
     return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
   }
 
@@ -215,6 +215,8 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
+      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does
+      for (const [key, binder] of Object.entries(item.bindings ?? {})) checkBinder(key, binder);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
       const matched = mountedEntries(entries, item.contract);
@@ -233,6 +235,8 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
+      // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have checked
+      for (const [key, binder] of Object.entries(item.bindings ?? {})) checkBinder(key, binder);
       const stored = pinned !== undefined
         ? item
         : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, bindings: item.bindings ?? {}, options });
