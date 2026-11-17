@@ -2,7 +2,7 @@ import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, i
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, ProvidedHeaders } from "./types";
 import { checkResponseBody } from "./validate";
-import type { ResponseValidationError } from "./validate";
+import type { ResponseCheckFailure } from "./validate";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -69,7 +69,7 @@ interface Success {
   readonly status: number | undefined;
   readonly data: "json" | "none" | "any";
   /** The dev-mode response check (CL6 #159), set per call when `validateResponses` is on. */
-  readonly check?: (body: unknown) => Promise<ResponseValidationError | undefined>;
+  readonly check?: (body: unknown) => Promise<ResponseCheckFailure | undefined>;
 }
 
 /**
@@ -335,8 +335,8 @@ async function toResult(response: Response, success: Success, declared: () => De
     }
     // CL6 #159: dev-mode response validation, awaited before the call settles; the data stays the parsed JSON
     if (success.check) {
-      const error = await success.check(body);
-      if (error) return unexpected(status, error, response);
+      const failed = await success.check(body);
+      if (failed) return unexpected(status, failed.error, response);
     }
     return { ok: true, status, data: body, response };
   }

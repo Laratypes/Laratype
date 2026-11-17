@@ -117,7 +117,8 @@ export type ClientFailure<E extends EndpointShape> = Failure<E["errors"]>;
  * - a network failure or abort before the headers arrive: `status: 0`, no `response`, `error` is the thrown error;
  * - an error while the body is read (an abort or network error after the headers): the HTTP status, `response`, that error;
  * - a 2xx other than the declared status, or an empty body where a response schema is declared;
- * - with `validateResponses`, a success body that does not match the response schema: a `ResponseValidationError`;
+ * - with `validateResponses`, a success body that does not match the response schema: a `ResponseValidationError`,
+ *   or the error the schema threw;
  * - a status or code the endpoint doesn't declare, or a body that isn't JSON.
  * `error` is the thrown error or the parsed body.
  */
@@ -243,8 +244,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    * A body-carrying 2xx with a response schema is checked; a 204/205, an endpoint without a schema and a declared
    * error body (the contract has no schema for those) are not. A mismatch resolves as the unexpected result
    * (`client.md` › Result union) with a `ResponseValidationError` as `error`, as the server answers a dev mismatch with
-   * a 500. Only the schema's input is checked: `data` stays the parsed JSON body, typed with the schema's wire type
-   * (`Jsonify<output>`).
+   * a 500; a schema that throws or rejects resolves the same way, with that error. Only the schema's input is checked:
+   * `data` stays the parsed JSON body, typed with the schema's wire type (`Jsonify<output>`).
    *
    * The generated manifest carries no schemas, so the manifest client refuses this option at compile time and throws
    * at `createClient`.

@@ -119,13 +119,32 @@ describe('dev-mode response validation (CL6 #159)', () => {
     expect(order).toEqual(['onResponse', 'validate', 'settled'])
   })
 
-  it('a schema that throws rejects the call, like a failing hook', async () => {
-    const validate = vi.fn(async () => {
-      throw new Error('broken schema')
+  it('a schema that throws resolves as unexpected with that error, not a rejected call', async () => {
+    const thrown = new Error('broken schema')
+    const validate = vi.fn(() => {
+      throw thrown
     })
     const schema: StandardSchemaV1 = { '~standard': { version: 1, vendor: 'test', validate } }
     const things = defineContract()({ show: endpoint.get('/api/things').response(schema) })
-    await expect(createClient(things, { fetch: jsonFetch({ ok: true }), validateResponses: true }).show()).rejects.toThrow('broken schema')
+    const result = await createClient(things, { fetch: jsonFetch({ ok: true }), validateResponses: true }).show()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 200 })
+    if (result.ok) return
+    // the thrown error itself, not a ResponseValidationError: the schema broke, the response did not fail the check
+    expect(result.error).toBe(thrown)
+    expect(result.response?.status).toBe(200)
+    expect(validate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a schema that rejects resolves as unexpected with the rejection, not a rejected call', async () => {
+    const rejected = new Error('async broken schema')
+    const validate = vi.fn(() => Promise.reject(rejected))
+    const schema: StandardSchemaV1 = { '~standard': { version: 1, vendor: 'test', validate } }
+    const things = defineContract()({ show: endpoint.get('/api/things').response(schema) })
+    const result = await createClient(things, { fetch: jsonFetch({ ok: true }), validateResponses: true }).show()
+    expect(result).toMatchObject({ ok: false, unexpected: true, status: 200 })
+    if (result.ok) return
+    expect(result.error).toBe(rejected)
+    expect(validate).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the parsed JSON as data, not the schema output: only the input is checked', async () => {

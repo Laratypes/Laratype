@@ -417,6 +417,20 @@ describe('dev-mode response validation', () => {
     void createClient<Generated>(manifest, { validateResponses: false })
     // @ts-expect-error the manifest carries no response schemas
     void createClient<Generated>(manifest, { validateResponses: true })
+    // both manifest overloads take ManifestClientOptions (client.md › createClient), not ClientOptions: a
+    // ClientOptions value cannot prove validateResponses is off, so it is refused with or without headers
+    const plain: ClientOptions = { headers: {}, validateResponses: true }
+    // @ts-expect-error ClientOptions may set validateResponses: true
+    void createClient<Generated>(manifest, plain)
+    const plainKeyed = { headers: { 'x-api-key': 'k' }, validateResponses: true }
+    // the same value is a ClientOptions, a valid one; the manifest overload takes the narrowed type, so it is refused
+    expectTypeOf(plainKeyed).toMatchTypeOf<ClientOptions<{ 'x-api-key': string }>>()
+    // @ts-expect-error ClientOptions may set validateResponses: true
+    void createClient<Generated, { 'x-api-key': string }>(manifest, plainKeyed)
+    const off: ManifestClientOptions = { validateResponses: false }
+    void createClient<Generated>(manifest, off)
+    // the second overload takes ManifestClientOptions too: the same headers with the option off are accepted
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k' }, validateResponses: false })
   })
 
   test('ResponseValidationError carries the error bag and the Standard Schema issues', () => {

@@ -106,8 +106,8 @@ merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve
 
 ```ts
 // Hd: the type of options.headers (inferred; the second manifest overload takes it as a type argument)
-export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;   // separate-repo FE
-export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(manifest: Manifest, options: ClientOptions<Hd> & { headers: Hd & HeaderValues }): Client<T, ProvidedHeaders<Hd>>;
+export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ManifestClientOptions): Client<T>;   // separate-repo FE
+export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(manifest: Manifest, options: ManifestClientOptions<Hd> & { headers: Hd & HeaderValues }): Client<T, ProvidedHeaders<Hd>>;
 export function createClient<C extends AnyContract, const Hd extends HeadersInit = HeadersInit>(contract: C, options?: ClientOptions<Hd>): ClientOf<C, ProvidedHeaders<Hd>>;
 export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit = HeadersInit>(node: N, options?: ClientOptions<Hd>): ClientOf<N, ProvidedHeaders<Hd>>;
 export function createClient<A extends ApiRootShape, const Hd extends HeadersInit = HeadersInit>(api: A, options?: ClientOptions<Hd>): ClientOf<A, ProvidedHeaders<Hd>>;   // the appApi
@@ -119,8 +119,10 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   fetch?: FetchLike;                // default: the global fetch
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);   // sent with every call; a function provides no header to the types
   credentials?: RequestCredentials; redirect?: RequestRedirect; onRequest?: …; onResponse?: …      // see Options and hooks (CL3, CL9)
+  validateResponses?: boolean;      // CL6 #159; ManifestClientOptions narrows it to false for the manifest
   // every option is read from this object at each call
 }
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
@@ -227,7 +229,7 @@ switch (result.code) {
   - a cross-origin `mode: "no-cors"` request whose redirect mode isn't `"follow"` (the default `"manual"`, or `"error"`): the Fetch Standard makes it a network error before the request is sent, so it is the status-0 result without `response`, `error` is the thrown error. A same-origin no-cors request is sent, and a redirect gives the `opaqueredirect` above. A cross-origin no-cors call (a `mode` set by `onRequest`, or an injected `fetch`) needs `redirect: "follow"` to get an `opaque` response, which is the status-0 result with `response` set;
   - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
   - a 2xx other than the declared status, or an empty body where a response schema is declared;
-  - with `validateResponses`, a success body that does not match the response schema: the HTTP status, `response`, and `error` is a `ResponseValidationError` ([Dev-mode response validation](#dev-mode-response-validation));
+  - with `validateResponses`, a success body that does not match the response schema: the HTTP status, `response`, and `error` is a `ResponseValidationError`; a schema that throws or rejects gives the same result with that error ([Dev-mode response validation](#dev-mode-response-validation));
   - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
   - a body that isn't JSON, on any status: `error` is the `SyntaxError`, and `text` holds the raw body (an HTML 502 from a proxy), since the body is consumed.
 - **`response`** is the fetch `Response` on every variant except a failure before the headers. A status-0 `opaqueredirect` and a no-cors `opaque` response are the cases where status and headers aren't usable: the status is 0, the headers are empty and there is no `Location`. Otherwise the client reads its body once, so the body is consumed (`bodyUsed`); status and headers such as `Retry-After` stay usable. A body-less success (`data: undefined`) doesn't read the body; unless it is a 204 or 205, the client cancels it, so an unread body doesn't hold a connection open (undici).
@@ -409,7 +411,7 @@ proposed: PR (leader fills) @ def996f ([#159](https://github.com/Laratypes/Larat
 export interface ClientOptions {
   validateResponses?: boolean;                       // default false; CL6 #159
 }
-export type ManifestClientOptions = Omit<ClientOptions, "validateResponses"> & { validateResponses?: false };
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };
 
 export class ResponseValidationError extends Error {
   readonly errors: ErrorBag;                         // dot path -> messages; "" for an issue without a path
@@ -423,7 +425,7 @@ import { appApi } from '$api'
 
 const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
 const result = await api.users.show({ params: { user: 1 } })
-if (!result.ok && result.unexpected) console.warn(result.error)   // a ResponseValidationError in development
+if (!result.ok && result.unexpected) console.warn(result.error)   // a ResponseValidationError (or the schema's error) in development
 ```
 
 ### Invariants
@@ -431,14 +433,15 @@ if (!result.ok && result.unexpected) console.warn(result.error)   // a ResponseV
 - **What is checked:** the parsed JSON body of a body-carrying 2xx whose endpoint has a response schema, with [`validate()`](./contract.md#validation-adapter) from `@laratype/contract` (sync or async). The inputs with schemas are option (a): the `appApi`, an API node and a contract file. A 204/205 or an endpoint without a response schema is skipped, and so is every declared error body: the contract has no schema for those (`ErrorDef` carries the status, the code and the body type only), so a 401/403/404/409/422 answer is classified exactly as it is with the option off.
 - **The manifest input has no schemas:** `ManifestClientOptions` makes `validateResponses: true` a type error, and `createClient` throws the diagnostic below. It is not a silent no-op.
 - **The success keeps the wire value:** only the schema's input is validated. `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output: a transforming schema (`z.coerce.date()`, a `.transform`) passes and does not change `data`, and a schema whose input is not JSON (a `z.date()` field) fails, since the wire carries the ISO string: use `z.coerce.date()`.
-- **A mismatch is the unexpected result:** `ok: false`, `unexpected: true`, the HTTP status and `response`, and `error` is a `ResponseValidationError` whose `errors` is the schema's error bag (a null prototype) and whose `issues` are the Standard Schema issues. `code` is `undefined`, so `switch (result.code)`'s `case undefined` already covers it. This mirrors the server, which answers a development mismatch with a 500 instead of sending a value that does not match the contract: the client's loud equivalent is a failed call, since handing out data typed `Jsonify<output>` that does not match is the drift the check exists to catch.
-- **Async:** the body is already read when the check runs, so `onResponse` still precedes it; `toResult` awaits `validate()` before the call settles, so a sync or async schema is complete. A schema whose `~standard.validate` throws or rejects rejects the call, like a failing hook (a programming error).
+- **A mismatch is the unexpected result:** `ok: false`, `unexpected: true`, the HTTP status and `response`, and `error` is a `ResponseValidationError` whose `errors` is the schema's error bag (a null prototype) and whose `issues` are the Standard Schema issues. `code` is `undefined`, so `switch (result.code)`'s `case undefined` already covers it. This mirrors the server, which answers a development mismatch with a 500 instead of sending a value that does not match the contract: the client's loud equivalent is a failed call, since handing out data typed `Jsonify<output>` that does not match is the drift the check exists to catch. A schema that throws or rejects is the same result with the thrown error as `error`.
+- **Async:** the body is already read when the check runs, so `onResponse` still precedes it; `toResult` awaits `validate()` before the call settles, so a sync or async schema is complete. A schema whose `~standard.validate` throws or rejects resolves the call as the unexpected result with that error, caught in `checkResponseBody`: a broken schema is reported, not turned into a rejection, since only the client's own programming errors reject.
 - **Live option:** `validateResponses` is read from the options object when each call starts, like every option.
 - **Production cost:** with the option off or `false` the check is never reached: `validate()` is not called and no schema library is touched. The client imports the contract's `validate` regardless (measured +0.47 KiB gzip on the `createClient` runtime); a bundler that folds `import.meta.env.DEV` to `false` never reaches it but the library keeps the branch, since options are live. No schema library is imported by the client: the schemas come with the `appApi` or the contract, which option (a) already ships for client-side form validation.
-- **The message holds no response body:** the route name, the issue paths and the schema's own messages only. A schema whose message quotes the received value (a zod enum, say) quotes it here too: the server's received-value cut lives in `@laratype/http`, which the client may not import, and duplicating it here is out of this change's scope.
+- **The error can hold response values:** the message is the route name, the issue paths and the schema's own messages; it never reads the body. But an issue can carry the received value (a zod 3 enum's `received`) and an issue message can quote it, so the message, `errors` and `issues` can all hold response values: do not send the `ResponseValidationError` to an error tracker. The server's received-value cut lives in `@laratype/http`, which the client may not import, and duplicating it here is out of this change's scope.
 
 ### Diagnostics
 - `[@laratype/client] <route name>: the response body does not match the endpoint's response schema (<path>: <messages>; ...)` (a path is `(root)` when the issue has none; the call resolves as the unexpected result)
+- The error a schema throws or rejects with: the same unexpected result, as `error` (the check adds no message of its own)
 - `[@laratype/client] createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)`
 - Type-level: `validateResponses` that is not a boolean, and `validateResponses: true` on the manifest client.
 
