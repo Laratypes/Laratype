@@ -163,20 +163,35 @@ type PathsOf<A, M extends Method> = ApiEndpoints<A> extends infer E
     : never
   : never;
 
+/**
+ * The tree locations of the endpoints that answer method `M` at path `Path`, as a union of tuples: the keys from the
+ * API root down to each endpoint. `ApiEndpoints` is a union of shapes, so two endpoints with identical types merge into
+ * one member and look like one match; a location per endpoint keeps them apart, so ambiguity can be counted.
+ */
+type MatchingLocations<A, M extends Method, Path extends string, Prefix extends readonly PropertyKey[] = []> = {
+  [K in keyof A]: A[K] extends EndpointShape
+    ? A[K] extends { method: M; path: Path }
+      ? readonly [...Prefix, K]
+      : never
+    : MatchingLocations<A[K], M, Path, readonly [...Prefix, K]>;
+}[keyof A];
+
 /** Whether `T` is a union: a path that matches two endpoints is ambiguous. */
 type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
 
 /**
  * The type-level check of a path-style call: `unknown` when exactly one endpoint matches, otherwise an object whose
  * `error` property names the problem. Intersecting the path with it makes a bad path a type error that shows the text.
+ * Ambiguity is checked on the matched locations, before the endpoint's shape: two identical endpoint types at two
+ * places are still two matches.
  */
 type CheckPath<A, M extends Method, Path extends string> = [string] extends [Path]
   ? { error: "[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)" }
   : [Path] extends [PathsOf<A, M>]
-    ? [EndpointAt<A, M, Path>] extends [never]
-      ? { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` }
-      : true extends IsUnion<EndpointAt<A, M, Path>>
-        ? { error: `[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
+    ? true extends IsUnion<MatchingLocations<A, M, Path>>
+      ? { error: `[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"` }
+      : [EndpointAt<A, M, Path>] extends [never]
+        ? { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` }
         : unknown
     : { error: `[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"` };
 

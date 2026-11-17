@@ -145,11 +145,33 @@ describe("createPathClient", () => {
     void duplicate.get("/api/dup");
   });
 
+  test("two endpoints with identical types on one path are still ambiguous", () => {
+    // a union of endpoint shapes merges identical members; the locations keep both matches
+    const identical = createPathClient<{ a: { x: Shape<string> }; b: { y: Shape<string> } }>();
+    // @ts-expect-error more than one endpoint answers GET at path "/api/dup"
+    void identical.get("/api/dup");
+  });
+
   test("headers provided by options.headers are optional, with the headers type as the second type argument", () => {
     // A has no value to infer from, so Hd is explicit, as in the manifest overload of createClient
     const withTenant = createPathClient<Api, { "x-tenant": string }>({ headers: { "x-tenant": "t" } });
     expectTypeOf(withTenant).toEqualTypeOf<PathClient<Api, ProvidedHeaders<{ "x-tenant": string }>>>();
     void withTenant.post("/api/users", { body: { name: "A", email: "a@b.c" } });
+  });
+
+  test("the second type argument needs options.headers: no client claims a header it never sends", () => {
+    // @ts-expect-error options.headers is required with a headers type argument, since the client would claim it sends them
+    void createPathClient<Api, { "x-tenant": string }>();
+    // @ts-expect-error a headers function provides nothing statically, so it can't satisfy the type argument
+    void createPathClient<Api, { "x-tenant": string }>({ headers: () => ({ "x-tenant": "t" }) });
+  });
+
+  test("a headers function provides no header to the types: a schema header stays required in the call", () => {
+    const dynamic = createPathClient<Api>({ headers: () => ({ "x-tenant": "t" }) });
+    expectTypeOf(dynamic).toEqualTypeOf<PathClient<Api>>();
+    // @ts-expect-error the function sends x-tenant only at call time, so the call's headers are still required
+    void dynamic.post("/api/users", { body: { name: "A", email: "a@b.c" } });
+    void dynamic.post("/api/users", { body: { name: "A", email: "a@b.c" }, headers: { "x-tenant": "t" } });
   });
 
   test("the generated AppApi of a separate repo is a valid type argument", () => {

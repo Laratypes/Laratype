@@ -499,14 +499,21 @@ const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
  * const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://example.com' })
  * const result = await api.get('/api/users/:user', { params: { user: 1 } })
  */
-export function createPathClient<A extends ApiShape<A> = never, const Hd extends HeadersInit = HeadersInit>(
-  options?: ClientOptions<Hd>,
-): PathClient<A, ProvidedHeaders<Hd>> {
-  splitBaseUrl(options?.baseUrl ?? "");
-  const send = createSend(options ?? {});
+export function createPathClient<A extends ApiShape<A> = never>(options?: ClientOptions): PathClient<A>;
+/**
+ * The path client with the type of `options.headers` as the second type argument, as the manifest client: the headers
+ * it statically provides are optional in each call's `headers`. `options.headers` is required, so the client can't
+ * claim a header it never sends, and a `headers` function provides none to the types (it is called at each call).
+ */
+export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+): PathClient<A, ProvidedHeaders<Hd>>;
+export function createPathClient(options: ClientOptions = {}): object {
+  splitBaseUrl(options.baseUrl ?? "");
+  const send = createSend(options);
   const client: Record<string, unknown> = Object.create(null);
   for (const method of METHODS) {
     client[method] = (path: string, input?: RequestInput) => createCall(send, method, path, UNKNOWN_SUCCESS)(input);
   }
-  return Object.freeze(client) as unknown as PathClient<A, ProvidedHeaders<Hd>>;
+  return Object.freeze(client) as unknown as PathClient<never>;
 }
