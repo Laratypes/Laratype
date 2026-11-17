@@ -1,5 +1,5 @@
 import { validate } from "@laratype/contract";
-import type { ErrorBag, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
+import type { ErrorBag, StandardIssue, StandardSchemaV1, ValidationResult } from "@laratype/contract";
 
 /**
  * A dev-mode response mismatch (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159); `client.md` ›
@@ -38,15 +38,15 @@ export interface ResponseCheckFailure {
  * Validates a success body with the endpoint's response schema (`validate()` of `@laratype/contract`, sync or async).
  * `undefined` on a match, so the caller keeps the parsed body it already has; otherwise the error the call resolves
  * as unexpected: a `ResponseValidationError` for a mismatch, whose message names the route and the issues as http's
- * dev-mode output validation does for the server, or the error a schema threw or rejected with (the check never
- * rejects: only the client's own programming errors do).
+ * dev-mode output validation does for the server, or the error a schema threw or rejected with. The check never
+ * rejects: it reports the schema's own error as the result.
  */
 export const checkResponseBody = async (
   schema: StandardSchemaV1,
   body: unknown,
   route: string,
 ): Promise<ResponseCheckFailure | undefined> => {
-  let result: Awaited<ReturnType<typeof validate>>;
+  let result: ValidationResult<unknown>;
   try {
     result = await validate(schema, body);
   } catch (error) {
