@@ -54,31 +54,38 @@ const checkBinder = (key: string, value: unknown): void => {
   }
 };
 
+/** How a message names a prototype: `Foo.prototype` for a class or builtin, else the only honest label. */
+const protoLabel = (proto: object): string => {
+  const ctor = Object.getOwnPropertyDescriptor(proto, "constructor")?.value;
+  return typeof ctor === "function" && ctor.name ? `${ctor.name}.prototype` : "an object that is not Object.prototype";
+};
+
+/** How a message names a value that is not a bindings map: a function by kind, a string quoted, the rest as is. */
+const valueLabel = (value: unknown): string =>
+  value === null ? "null" : typeof value === "function" ? "a function" : typeof value === "string" ? JSON.stringify(value) : String(value);
+
 /**
- * Checks a `r.bind()` map at `Route.api`. The map must be plain: `Object.prototype` or `null` as its prototype (an
- * object literal `{ __proto__: User }` sets a class as the prototype instead of binding a key, and a map made with
- * `Object.create({ id: User })` carries inherited entries a spread would drop, so either would bind nothing while the
- * types say it binds). Every own string key must be enumerable (a spread copies enumerable own properties only), and
- * every entry passes `checkBinder`. An item built by hand is checked here too, its `bindings` whatever the caller wrote.
+ * Checks a `r.bind()` map at `Route.api`: a plain map (`Object.prototype` or `null` as its prototype) with enumerable
+ * own string keys, whose every entry passes `checkBinder`. A hand-built item's `bindings` is checked here too.
  */
 export const checkBindingMap = (bindings: unknown): void => {
   if (typeof bindings !== "object" || bindings === null) {
-    fail(`r.bind(): the bindings must be an object, one value per path param`);
+    fail(`r.bind(): the bindings must be an object, one value per path param (got ${valueLabel(bindings)})`);
   }
   const proto: unknown = Object.getPrototypeOf(bindings);
-  if (typeof proto === "function") {
-    fail(
-      `r.bind(): \`{ __proto__: ${proto.name || "the value"} }\` sets the prototype of the bindings map instead of binding a key. ` +
-        `Fix: name the path param something else.`,
-    );
-  }
   if (proto !== Object.prototype && proto !== null) {
+    if (typeof proto === "function") {
+      fail(
+        `r.bind(): \`{ __proto__: ${proto.name || "the value"} }\` sets the prototype of the bindings map instead of binding a key. ` +
+          `Fix: name the path param something else.`,
+      );
+    }
     fail(
-      `r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object`,
+      `r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object (got ${protoLabel(proto)})`,
     );
   }
   for (const key of Object.getOwnPropertyNames(bindings)) {
-    if (!Object.prototype.propertyIsEnumerable.call(bindings, key)) {
+    if (!Object.getOwnPropertyDescriptor(bindings, key)!.enumerable) {
       fail(
         `r.bind(): \`${key}\` is a non-enumerable property of the bindings map: r.bind() copies enumerable own properties only, so the binding would be dropped. ` +
           `Fix: declare it as a plain property, { ${key}: ... }.`,

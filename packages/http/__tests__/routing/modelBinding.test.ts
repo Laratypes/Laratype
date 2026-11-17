@@ -28,6 +28,10 @@ const appApi = defineApi({
 
 const lookups: string[] = []
 
+/** The `r.bind()` value diagnostic for one key, shared by the tests that check a bad binder. */
+const binderIssue = (key: string) =>
+  `[@laratype/http] Route.api: r.bind(): \`${key}\` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver`
+
 class User {
   static readonly primaryKey = 'id'
   static async findByRouteKey(key: string): Promise<User | null> {
@@ -334,7 +338,7 @@ describe('r.bind() validation at Route.api', () => {
     show() { return {} }
     latest() { return {} }
   }
-  const mountWith = (bindings: Record<string, unknown>) =>
+  const mountWith = (bindings: unknown) =>
     Route.api(appApi, (r) => {
       // The unchecked bindings reach the contract at runtime, while the proof keeps the unbound builder type
       const bound = r.bind(bindings as never) as unknown as typeof r
@@ -342,30 +346,25 @@ describe('r.bind() validation at Route.api', () => {
     })
 
   it('needs a function', () => {
-    expect(() => mountWith({ user: 42 })).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `user` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver',
-    )
+    expect(() => mountWith({ user: 42 })).toThrow(binderIssue('user'))
   })
 
   it('needs a map: a number, null, undefined or a string are refused before any entry is read', () => {
-    const message = '[@laratype/http] Route.api: r.bind(): the bindings must be an object, one value per path param'
-    expect(() => mountWith(42 as never)).toThrow(message)
-    expect(() => mountWith(null as never)).toThrow(message)
-    expect(() => mountWith(undefined as never)).toThrow(message)
-    expect(() => mountWith('user' as never)).toThrow(message)
+    const message = (got: string) => `[@laratype/http] Route.api: r.bind(): the bindings must be an object, one value per path param (got ${got})`
+    expect(() => mountWith(42)).toThrow(message('42'))
+    expect(() => mountWith(null)).toThrow(message('null'))
+    expect(() => mountWith(undefined)).toThrow(message('undefined'))
+    expect(() => mountWith('user')).toThrow(message('"user"'))
   })
 
   it('reads no `length` of the map: a { length: 1e9 } object is checked as one key named length', () => {
     // A loop sized by a length field would hang or allocate: the own names are read instead
-    expect(() => mountWith({ length: 1e9 })).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `length` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver',
-    )
+    expect(() => mountWith({ length: 1e9 })).toThrow(binderIssue('length'))
   })
 
   it('refuses NaN and Infinity as binders', () => {
-    const message = '[@laratype/http] Route.api: r.bind(): `user` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver'
-    expect(() => mountWith({ user: NaN })).toThrow(message)
-    expect(() => mountWith({ user: Infinity })).toThrow(message)
+    expect(() => mountWith({ user: NaN })).toThrow(binderIssue('user'))
+    expect(() => mountWith({ user: Infinity })).toThrow(binderIssue('user'))
   })
 
   it('a class needs a static findByRouteKey', () => {
@@ -426,7 +425,12 @@ describe('r.bind() validation at Route.api', () => {
     // The entry is inherited: the spread of r.bind() drops it, so the map would bind nothing while the types say it binds
     const map = Object.create({ user: User }) as Record<string, typeof User>
     expect(() => mountWith(map)).toThrow(
-      '[@laratype/http] Route.api: r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object',
+      '[@laratype/http] Route.api: r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object (got an object that is not Object.prototype)',
+    )
+    // The message names the prototype it got: a class instance map is refused the same way
+    class MapLike { user = User }
+    expect(() => mountWith(new MapLike())).toThrow(
+      '[@laratype/http] Route.api: r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object (got MapLike.prototype)',
     )
   })
 
@@ -463,20 +467,18 @@ describe('the bindings of an item built by hand (no r.contract() / r.scope())', 
   }
   // An untyped caller builds the items itself: the array is cast, as its own would be
   const items = (list: unknown[]) => list as never
-  const binderMessage =
-    '[@laratype/http] Route.api: r.bind(): `user` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver'
 
   it('a contract item with a non-binder value throws at mount, as r.bind() does', () => {
     expect(() => Route.api(appApi, () => items([
       { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: { user: 42 } },
-    ]))).toThrow(binderMessage)
+    ]))).toThrow(binderIssue('user'))
   })
 
   it('a scope item with a non-binder value throws at mount, as r.bind() does', () => {
     expect(() => Route.api(appApi, () => items([
       { kind: 'scope', dir: 'users/[user]', policy: PostPolicy, middleware: [], bindings: { user: 42 } },
       { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: {} },
-    ]))).toThrow(binderMessage)
+    ]))).toThrow(binderIssue('user'))
   })
 
   it('a hand-built item with a `__proto__` key is refused at mount too', () => {
@@ -492,7 +494,12 @@ describe('the bindings of an item built by hand (no r.contract() / r.scope())', 
     // 42 would otherwise pass planning (Object.entries(42) is empty) and bind nothing while the item says it binds
     expect(() => Route.api(appApi, () => items([
       { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: 42 },
-    ]))).toThrow('[@laratype/http] Route.api: r.bind(): the bindings must be an object, one value per path param')
+    ]))).toThrow('[@laratype/http] Route.api: r.bind(): the bindings must be an object, one value per path param (got 42)')
+    // null is not a map either; only an omitted `bindings` defaults to the empty one
+    expect(() => Route.api(appApi, () => items([
+      { kind: 'scope', dir: 'users/[user]', policy: PostPolicy, middleware: [], bindings: null },
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: {} },
+    ]))).toThrow('[@laratype/http] Route.api: r.bind(): the bindings must be an object, one value per path param (got null)')
   })
 
   it('a hand-built item with a valid binder mounts and binds', async () => {

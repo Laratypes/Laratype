@@ -215,8 +215,9 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
-      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does
-      checkBindingMap(item.bindings ?? {});
+      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does.
+      // Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
+      checkBindingMap(item.bindings === undefined ? {} : item.bindings);
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
       const matched = mountedEntries(entries, item.contract);
@@ -235,8 +236,9 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have checked
-      checkBindingMap(item.bindings ?? {});
+      // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have
+      // checked. An omitted `bindings` is the empty map; a null one is refused
+      checkBindingMap(item.bindings === undefined ? {} : item.bindings);
       const stored = pinned !== undefined
         ? item
         : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, bindings: item.bindings ?? {}, options });
