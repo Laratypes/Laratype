@@ -55,11 +55,16 @@ const checkBinder = (key: string, value: unknown): void => {
 };
 
 /**
- * Checks a `r.bind()` map at `Route.api`: its prototype is not a model class or resolver (an object literal
- * `{ __proto__: User }` sets one as the prototype instead of binding a key, so the map would bind nothing while the
- * types say it binds `__proto__`), and every entry passes `checkBinder`.
+ * Checks a `r.bind()` map at `Route.api`. The map must be plain: `Object.prototype` or `null` as its prototype (an
+ * object literal `{ __proto__: User }` sets a class as the prototype instead of binding a key, and a map made with
+ * `Object.create({ id: User })` carries inherited entries a spread would drop, so either would bind nothing while the
+ * types say it binds). Every own string key must be enumerable (a spread copies enumerable own properties only), and
+ * every entry passes `checkBinder`. An item built by hand is checked here too, its `bindings` whatever the caller wrote.
  */
-export const checkBindingMap = (bindings: object): void => {
+export const checkBindingMap = (bindings: unknown): void => {
+  if (typeof bindings !== "object" || bindings === null) {
+    fail(`r.bind(): the bindings must be an object, one value per path param`);
+  }
   const proto: unknown = Object.getPrototypeOf(bindings);
   if (typeof proto === "function") {
     fail(
@@ -67,7 +72,20 @@ export const checkBindingMap = (bindings: object): void => {
         `Fix: name the path param something else.`,
     );
   }
-  for (const [key, binder] of Object.entries(bindings)) checkBinder(key, binder);
+  if (proto !== Object.prototype && proto !== null) {
+    fail(
+      `r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object`,
+    );
+  }
+  for (const key of Object.getOwnPropertyNames(bindings)) {
+    if (!Object.prototype.propertyIsEnumerable.call(bindings, key)) {
+      fail(
+        `r.bind(): \`${key}\` is a non-enumerable property of the bindings map: r.bind() copies enumerable own properties only, so the binding would be dropped. ` +
+          `Fix: declare it as a plain property, { ${key}: ... }.`,
+      );
+    }
+    checkBinder(key, (bindings as Record<string, unknown>)[key]);
+  }
 };
 
 /**
