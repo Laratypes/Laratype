@@ -18,9 +18,13 @@ Facade.setFacadeApplication(app)
 
 // 0.5 call sites keep working: the unbound Hasher is autowired.
 expectTypeOf(Hash.make('secret')).toEqualTypeOf<string>()
+// The async pair has the same formats and delegates to an overridden make() / check().
+expectTypeOf(Hash.makeAsync('secret')).toEqualTypeOf<Promise<string>>()
+expectTypeOf(Hash.checkAsync('secret', 'hashed')).toEqualTypeOf<Promise<boolean>>()
 
-// A provider can bind another implementation. A custom format overrides all four methods together:
-// check(), needsRehash() and isHashed() only understand the scrypt format make() writes.
+// A provider can bind another implementation. A custom format overrides all four sync methods together:
+// needsRehash() and isHashed() only understand the format the overrides write, and the base async methods
+// delegate to the overridden make() / check(), so the custom format keeps working on the login path.
 class Bcrypt extends Hasher {
   override make(value: string) { return `bcrypt:${value}` }
   override check(value: string, hashed: string) { return hashed === this.make(value) }
