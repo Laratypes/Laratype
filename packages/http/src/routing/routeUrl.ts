@@ -239,7 +239,7 @@ export const buildRouteUrl = (
   options?: { readonly query?: object | undefined; readonly absolute?: boolean },
 ): string => {
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
-  // A JSON body value reaches here from untyped code: only its type is named, and a name is never iterated
+  // Untyped code can pass a JSON body value as the name: fail before truncateName's Array.from reads it
   if (typeof name !== "string") fail(`route: a route name is a string, got ${typeof name}`);
   const entry = registry.get(name);
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
@@ -255,8 +255,8 @@ export const buildRouteUrl = (
  *   included, and a param takes a model through `RouteKeyed`.
  * - `{ absolute: true }` prefixes `config('config.url')`. The config value is the only origin source: the request's
  *   `Host` header never reaches it.
- * - An unknown name, an object param that is not a model, and a missing absolute-URL config throw; params and query
- *   are encoded by `buildUrl`, whose diagnostics propagate.
+ * - A name that is not a string, an unknown name, an object param that is not a model, and a missing absolute-URL
+ *   config throw; params and query are encoded by `buildUrl`, whose diagnostics propagate.
  */
 export function route<const Name extends RouteName>(name: Name, ...args: RouteArgs<Name>): string {
   return buildRouteUrl(name, args[0], args[1]);
