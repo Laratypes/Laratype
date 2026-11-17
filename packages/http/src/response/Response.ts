@@ -303,10 +303,15 @@ export default class Response extends AppServiceProvider {
      * wraps the returned response in a new one that shares its body stream, and a middleware's `res.clone()`
      * (`etag()`) tees that stream and locks it, which would make the stored response unusable (`Response body object
      * should not be disturbed or locked`). The clone tees it first, so the stored body is its own readable branch; the
-     * scrub cancels that branch when it does not put it back, so nothing is ever queued on it (H29 #388)
+     * scrub cancels that branch when it does not put it back, so nothing is ever queued on it (H29 #388). A second
+     * answer for the same context cancels the clone it replaces: Hono calls onError again when a middleware throws
+     * after `await next()`, and that clone's branch would otherwise stay open (H29 #388)
      */
     const answer = (response: globalThis.Response | Promise<globalThis.Response>) => {
-      if (response instanceof globalThis.Response) errorResponses.set(c, response.clone());
+      if (response instanceof globalThis.Response) {
+        cancelBody(errorResponses.get(c)?.body);
+        errorResponses.set(c, response.clone());
+      }
       return response;
     };
     // On the context, not only on the response built below: Hono merges the context's headers into the error response

@@ -642,6 +642,36 @@ describe('cancelled bodies', () => {
     await vi.waitFor(() => expect(cancelled).toBe(1))
   })
 
+  // H29 #388: Hono calls onError again when a middleware throws after `await next()`, so a second answer replaces the
+  // stored clone; the one it replaces is cancelled instead of staying open on the context's tee source
+  it('cancels the first stored clone when a second error answers the same context', async () => {
+    quiet()
+    let cancelled = 0
+    const stream = new ReadableStream({
+      pull(controller) { controller.enqueue(new TextEncoder().encode('chunk')) },
+      cancel() { cancelled += 1 },
+    })
+    const res = new Response(stream, { status: 429, headers: { 'Content-Type': 'text/plain' } })
+    let firstAnswer: Response | undefined
+    class Limited extends Controller { index() { throw new HTTPException(429, { res }) } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      // the route's throw already answered; the next throw makes Hono call onError a second time on this context
+      firstAnswer = c.res
+      throw new HTTPException(401, { message: 'Unauthorized' })
+    })
+    route(app, '/limited', Limited)
+    const response = await app.request('/limited')
+    expect(response.status).toBe(401)
+    expect(await response.text()).toBe('Unauthorized')
+    expect(firstAnswer).toBeDefined()
+    // A tee cancels its source once both branches are cancelled: the second answer cancelled the stored clone, this the
+    // first answer's own branch
+    await firstAnswer!.body!.cancel()
+    await vi.waitFor(() => expect(cancelled).toBe(1), { timeout: 2_000 })
+  })
+
   // H29 #388: the stored clone is cancelled when it is not put back, so a client that stops reading does not leave an
   // unread tee branch holding the upstream body open
   it('cancels the stored clone of a streamed 4xx HTTPException once the client cancels', async () => {
