@@ -52,13 +52,16 @@ const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.R
 /**
  * Headers that no error response carries, whether set before the throw or on an HTTP error's own response (#272): a
  * failed request sets no cookie, and no cache (CDN-targeted ones included) keeps or revalidates an error. The vendor
- * headers are what proxies and CDNs read before `Cache-Control` (H29 #295). Cache-Control is replaced by `no-store`;
- * the `Set-Cookie` values that expire a cookie are kept (H29 #295). Exported for the test that asserts every entry
+ * headers are what proxies and CDNs read before `Cache-Control` (H29 #295), and the offload ones make the server send a
+ * file in place of the error body. The outermost scrub reads this list, so it drops one a middleware sets after
+ * `await next()` too (H29 #388). Cache-Control is replaced by `no-store`; the `Set-Cookie` values that expire a cookie
+ * are kept (H29 #295). Exported for the test that asserts every entry
  */
 export const DROPPED_ERROR_HEADERS = [
   "Set-Cookie", "ETag", "Last-Modified", "Expires", "Age", "Surrogate-Key", "Cache-Tag", "CDN-Cache-Control",
   "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "X-Accel-Expires", "Vercel-CDN-Cache-Control",
-  "Netlify-CDN-Cache-Control", "Edge-Control",
+  "Netlify-CDN-Cache-Control", "Edge-Control", "X-Accel-Redirect", "X-Sendfile", "X-Lighttpd-Send-File",
+  "X-LiteSpeed-Location",
 ];
 
 /** The context's header store loses the body headers too: an error re-serializes its own body (#272) */

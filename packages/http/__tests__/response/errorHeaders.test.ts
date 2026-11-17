@@ -452,6 +452,28 @@ describe('error response headers set after the throw', () => {
     expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/; HttpOnly'])
   })
 
+  // H29 #388: the scrub's own pass reads DROPPED_ERROR_HEADERS, so an offload header a proxy would honour must be in
+  // it, without taking the error body's own headers with it
+  it.each([
+    'X-Accel-Redirect', 'X-Sendfile', 'X-Lighttpd-Send-File', 'X-LiteSpeed-Location',
+  ])('drops %s a middleware sets after next() on a 500, keeping the error body headers', async (name) => {
+    quiet()
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      c.header(name, '/private/report.pdf')
+    })
+    route(app, '/offload', Failing)
+    const response = await app.request('/offload')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual(GENERIC)
+    expect(response.headers.get(name)).toBeNull()
+    // DROPPED_ERROR_HEADERS only: the error body's own Content-Type survives
+    expect(response.headers.get('Content-Type')).toContain('application/json')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
   it('is outermost when the kernel registers before the routes, as in the production boot', async () => {
     quiet()
     class Failing extends Controller { index() { throw new Error('secret detail') } }
