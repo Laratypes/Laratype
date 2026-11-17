@@ -148,44 +148,36 @@ describe('route()', () => {
   })
 })
 
-/**
- * The error a call throws, so a test pins its class too: `toThrow(new TypeError(...))` compares the message only.
- */
-const thrownBy = (call: () => unknown): unknown => {
-  try {
-    call()
-  } catch (error) {
-    return error
-  }
-  throw new Error('expected the call to throw')
-}
-
 /** `buildRouteUrl`'s name guard: a TypeError that names only the type of the name, never its value. */
 const expectNameTypeError = (call: () => unknown, type: string): void => {
-  const error = thrownBy(call)
+  let error: unknown
+  try {
+    call()
+  } catch (thrown) {
+    error = thrown
+  }
+  // the class too: `toThrow(new TypeError(...))` compares the message only
   expect(error).toBeInstanceOf(TypeError)
   expect((error as Error).message).toBe(`[@laratype/http] route: a route name is a string, got ${type}`)
 }
 
-/** Non-string names, as untyped code can pass them: a JSON body value first, then each `typeof` a name can have. */
+/** Non-string names, as untyped code can pass them: a JSON body value first, then each non-string `typeof`. */
 const nonStringNames = [
-  { label: 'a { length: 1e9 } object', value: { length: 1e9 }, type: 'object' },
-  {
-    label: 'an object with a non-enumerable length of 1e9',
-    value: Object.defineProperty({}, 'length', { value: 1e9, enumerable: false }),
-    type: 'object',
-  },
-  { label: '42', value: 42, type: 'number' },
-  { label: 'NaN', value: Number.NaN, type: 'number' },
-  { label: 'Infinity', value: Number.POSITIVE_INFINITY, type: 'number' },
-  { label: 'null', value: null, type: 'object' },
-  { label: 'undefined', value: undefined, type: 'undefined' },
-  { label: '1n', value: 1n, type: 'bigint' },
-  { label: 'a symbol', value: Symbol('name'), type: 'symbol' },
-  { label: 'true', value: true, type: 'boolean' },
-]
+  ['a { length: 1e9 } object', { length: 1e9 }, 'object'],
+  ['an object whose length read throws', { get length() { throw new Error('length read') } }, 'object'],
+  ['an object with a non-enumerable length of 1e9', Object.defineProperty({}, 'length', { value: 1e9, enumerable: false }), 'object'],
+  ['42', 42, 'number'],
+  ['NaN', Number.NaN, 'number'],
+  ['Infinity', Number.POSITIVE_INFINITY, 'number'],
+  ['null', null, 'object'],
+  ['undefined', undefined, 'undefined'],
+  ['1n', 1n, 'bigint'],
+  ['a symbol', Symbol('name'), 'symbol'],
+  ['true', true, 'boolean'],
+  ['a function', () => 'name', 'function'],
+] as const
 
-describe('route() name type', () => {
+describe('route() name guard', () => {
   it('refuses a non-string name at once, so a huge length never reaches Array.from', () => {
     mount()
     const began = performance.now()
@@ -194,7 +186,12 @@ describe('route() name type', () => {
     expect(performance.now() - began).toBeLessThan(50)
   })
 
-  it.each(nonStringNames)('refuses $label as a name, naming only its type', ({ value, type }) => {
+  it('refuses a non-string name before it reads the registry at all', () => {
+    // no Route.api() call: the name's type wins over "no routes are registered"
+    expectNameTypeError(() => route({ length: 1e9 } as never), 'object')
+  })
+
+  it.each(nonStringNames)('refuses %s as a name, naming only its type', (_label, value, type) => {
     mount()
     expectNameTypeError(() => route(value as never), type)
   })
@@ -220,7 +217,7 @@ describe('route() name type', () => {
     expect(route('users.posts.index', { user: 1 })).toBe('/api/users/1/posts')
   })
 
-  it('escapes a control character and a lone surrogate in the echoed name, as before', () => {
+  it('escapes a control character and a lone surrogate in the echoed name', () => {
     mount()
     expect(() => route('\u0000\u001f')).toThrow(
       new TypeError('[@laratype/http] route: unknown route name "\\u0000\\u001f"'),
@@ -230,9 +227,10 @@ describe('route() name type', () => {
     )
   })
 
-  it('resolves a string name as before', () => {
+  it('resolves a string name', () => {
     mount()
     expect(route('users.posts.index', { user: 1 })).toBe('/api/users/1/posts')
+    // a string still takes the lookup path: unknown, not the type guard
     expect(() => route('users.posts.nope')).toThrow(
       new TypeError('[@laratype/http] route: unknown route name "users.posts.nope"'),
     )
@@ -416,7 +414,7 @@ describe('redirect().route()', () => {
     expect(res.headers.get('location')).toBe('/api/users/1/posts/2')
   })
 
-  it.each(nonStringNames)('refuses $label as a name through the shared guard', ({ value, type }) => {
+  it.each(nonStringNames)('refuses %s as a name through the shared guard', (_label, value, type) => {
     mount()
     expectNameTypeError(() => redirect(301).route(value as never), type)
   })

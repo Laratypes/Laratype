@@ -1196,7 +1196,7 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 ```
 
 ### Invariants
-- **Names.** `route()` resolves a name against the routes `Route.api()` mounted in this process: every contract route (`users.posts.update`, the tree name plus the endpoint key, [contract.md › Contract folder tree](./contract.md#contract-folder-tree)) and every ad-hoc route named with `.name()`. `Route.api()` fills the registry, and a second call merges its names: a contract route mounts again without an error, its name pointing at the path the latest group mounts (the same tree, so the same path in an app), and a named ad-hoc route of another group is added. `route()` before any `Route.api()` throws. A name that is not a string throws before the registry lookup, naming only its type: untyped code passing a request value, a JSON body value such as `{ length: 1e9 }` included, never reaches the name's own encoding.
+- **Names.** `route()` resolves a name against the routes `Route.api()` mounted in this process: every contract route (`users.posts.update`, the tree name plus the endpoint key, [contract.md › Contract folder tree](./contract.md#contract-folder-tree)) and every ad-hoc route named with `.name()`. `Route.api()` fills the registry, and a second call merges its names: a contract route mounts again without an error, its name pointing at the path the latest group mounts (the same tree, so the same path in an app), and a named ad-hoc route of another group is added. `route()` before any `Route.api()` throws. A name must be a string: a non-string throws before the registry lookup, naming only its type. Untyped code passing a request value, a JSON body value such as `{ length: 1e9 }` included, never has its length read.
 - **One group in the types.** `Register.routes` holds one `Route.api()` group, whose contract names and ad-hoc `.name()`s type `route()`; the app registers the group it calls `route()` from. The runtime registry merges the other groups' names all the same.
 - **One name, one route.** An ad-hoc name maps to one method and path: a second ad-hoc route with the name and a different method or path (in this group or a later `Route.api()` call), or an ad-hoc name a contract route has, is an error; so is a contract route whose name an ad-hoc route of an earlier call took. The same group mounting again in one process (an `--hmr` restart) registers the same route, not a duplicate. `Route.api()` checks the whole group before it registers any of its names: a group that throws leaves nothing behind, so `route()` cannot build a URL for a route that never mounted.
 - **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` prefixes `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an http(s) URL whose origin and path are used (a `URL` value is accepted): no query, hash or credentials, and its trailing slashes are dropped. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
@@ -1210,8 +1210,8 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/http] `:
-- `route: no routes are registered (call Route.api(appApi, ...) first)`
 - `route: a route name is a string, got <typeof>` (the type alone, never the value)
+- `route: no routes are registered (call Route.api(appApi, ...) first)`
 - `route: unknown route name "<name>"` (a name longer than 100 characters is cut to 100 plus `…`)
 - `route: param "<name>" got an object that is not a model (no getRouteKey())`
 - `route: absolute URLs need config('config.url') (app.url), which is not set`

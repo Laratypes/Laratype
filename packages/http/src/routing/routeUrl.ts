@@ -238,9 +238,9 @@ export const buildRouteUrl = (
   params?: object,
   options?: { readonly query?: object | undefined; readonly absolute?: boolean },
 ): string => {
-  if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   // Untyped code can pass a JSON body value as the name: fail before truncateName's Array.from reads it
   if (typeof name !== "string") fail(`route: a route name is a string, got ${typeof name}`);
+  if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   const entry = registry.get(name);
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
   // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams
