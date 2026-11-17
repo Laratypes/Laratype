@@ -17,10 +17,10 @@ const isClass = (value: Function): boolean => /^class[\s{]/.test(Function.protot
 const isModelClass = (binder: Binder): binder is BindableModelClass => typeof (binder as { findByRouteKey?: unknown }).findByRouteKey === "function";
 
 /**
- * Refuses the one binding key an object cannot carry: `__proto__` names the prototype of every object. Hono drops a
- * `:__proto__` path param from `param()` (it assigns the decoded key), and an object literal `{ __proto__: User }` sets
- * the prototype of the bindings map instead of a key, so the handler would read `undefined` where its types say the
- * model. `constructor` and `prototype` are ordinary keys: a bound one is an own property of the ctx params.
+ * Refuses the one binding key an object cannot carry: `__proto__` names the prototype of every object, and Hono drops a
+ * `:__proto__` path param from `param()` (it assigns the decoded key), so the handler would read `undefined` where its
+ * types say the model. `constructor` and `prototype` are ordinary keys: a bound one is an own property of the ctx
+ * params. The literal form, `{ __proto__: User }`, sets the prototype of the map instead of a key: `checkBindingMap`.
  */
 const checkBindingKey = (key: string): void => {
   if (key === "__proto__") {
@@ -37,7 +37,7 @@ const checkBindingKey = (key: string): void => {
  * resolver function. A class without `findByRouteKey` would be called without `new` at request time, so it fails here
  * instead.
  */
-export const checkBinder = (key: string, value: unknown): void => {
+const checkBinder = (key: string, value: unknown): void => {
   checkBindingKey(key);
   if (typeof value !== "function") {
     fail(`r.bind(): \`${key}\` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver`);
@@ -52,6 +52,22 @@ export const checkBinder = (key: string, value: unknown): void => {
   if (isClass(value as Function)) {
     fail(`r.bind(): \`${key}\` is a model class without a static findByRouteKey (BindableModel: primaryKey, optional routeKeyName, findByRouteKey(key))`);
   }
+};
+
+/**
+ * Checks a `r.bind()` map at `Route.api`: its prototype is not a model class or resolver (an object literal
+ * `{ __proto__: User }` sets one as the prototype instead of binding a key, so the map would bind nothing while the
+ * types say it binds `__proto__`), and every entry passes `checkBinder`.
+ */
+export const checkBindingMap = (bindings: object): void => {
+  const proto: unknown = Object.getPrototypeOf(bindings);
+  if (typeof proto === "function") {
+    fail(
+      `r.bind(): \`{ __proto__: ${proto.name || "the value"} }\` sets the prototype of the bindings map instead of binding a key. ` +
+        `Fix: name the path param something else.`,
+    );
+  }
+  for (const [key, binder] of Object.entries(bindings)) checkBinder(key, binder);
 };
 
 /**
@@ -81,7 +97,7 @@ export const resolveBindings = async (
   const resolved: [string, unknown][] = [];
   // In order: a miss stops the lookups after it, so a 404 never waits on (or runs) the rest of the bindings
   for (const [key, binder] of Object.entries(bindings)) {
-    // Own key: an absent optional param must not read a member of Object.prototype (`:constructor?`, `:__proto__?`)
+    // Own key: an absent optional param must not read a member of Object.prototype (`:constructor?`)
     const raw = Object.hasOwn(params, key) ? params[key] : undefined;
     if (raw === undefined) {
       resolved.push([key, undefined]);
@@ -91,6 +107,6 @@ export const resolveBindings = async (
     if (value === null || value === undefined) throw errors.notFound();
     resolved.push([key, value]);
   }
-  // fromEntries, not an assignment: an own `__proto__` key would swap the prototype of a plain object
+  // fromEntries, not an assignment: a resolved key is always an own data property, never a prototype swap
   return Object.fromEntries(resolved);
 };

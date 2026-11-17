@@ -379,10 +379,18 @@ describe('r.bind() validation at Route.api', () => {
   })
 
   it('refuses `__proto__` as a binding key', () => {
-    // Every object reads `__proto__` as its prototype: Hono drops such a path param, and `{ __proto__: User }` sets the
-    // prototype of the map. The key is refused before the path-param check, since no route could ever resolve it
+    // Every object reads `__proto__` as its prototype: Hono drops such a path param. The key is refused before the
+    // path-param check, since no route could ever resolve it
     expect(() => Route.api(appApi, (r) => [r.bind({ ['__proto__']: User }).contract(posts, UnboundController)])).toThrow(
       '[@laratype/http] Route.api: r.bind(): `__proto__` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. ' +
+        'Fix: name the path param something else.',
+    )
+  })
+
+  it('refuses an object literal `{ __proto__: User }`, which sets the prototype of the map', () => {
+    // Object.entries() is empty for that literal: the map would bind nothing while the types say it binds `__proto__`
+    expect(() => Route.api(appApi, (r) => [r.bind({ __proto__: User }).contract(posts, UnboundController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `{ __proto__: User }` sets the prototype of the bindings map instead of binding a key. ' +
         'Fix: name the path param something else.',
     )
   })
@@ -410,6 +418,15 @@ describe('the bindings of an item built by hand (no r.contract() / r.scope())', 
       { kind: 'scope', dir: 'users/[user]', policy: PostPolicy, middleware: [], bindings: { user: 42 } },
       { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: {} },
     ]))).toThrow(binderMessage)
+  })
+
+  it('a hand-built item with a `__proto__` key is refused at mount too', () => {
+    expect(() => Route.api(appApi, () => items([
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: { ['__proto__']: User } },
+    ]))).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `__proto__` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. ' +
+        'Fix: name the path param something else.',
+    )
   })
 
   it('a hand-built item with a valid binder mounts and binds', async () => {

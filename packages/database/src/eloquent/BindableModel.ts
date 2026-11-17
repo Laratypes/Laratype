@@ -1,10 +1,8 @@
 /**
  * The static side of a model class `r.bind({ user: User })` takes (docs/v1/database.md › BindableModel): the lookup is
- * `User.findByRouteKey(key)`, and `routeKeyName` defaults to `primaryKey`. `null` / `undefined` is a miss, which the
- * route answers with its 404 (H7 #118).
- *
- * Type-only and structural: any class with these three statics fits, with no `implements` clause. `@laratype/http`
- * types its binders against the same shape without importing this package.
+ * `User.findByRouteKey(key)`, `routeKeyName` defaults to `primaryKey`, and a `null` / `undefined` miss answers the
+ * route's 404 (H7 #118). Type-only and structural, so `@laratype/http` types its binders against the same shape
+ * without importing this package, and any class with these three statics fits without an `implements` clause.
  */
 export interface BindableModel<M extends object = object> {
   new (...args: any[]): M;

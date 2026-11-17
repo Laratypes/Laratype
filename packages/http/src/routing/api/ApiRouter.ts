@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBinder, pathParamNames } from "./bindings";
+import { checkBindingMap, pathParamNames } from "./bindings";
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 
@@ -57,8 +57,8 @@ class RouteBuilder {
 
   /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
   bind(bindings: Record<string, Binder>) {
-    for (const [key, binder] of Object.entries(bindings)) checkBinder(key, binder);
-    // A spread, not an assignment: no setter of the map (an inherited one included) runs for a copied key
+    checkBindingMap(bindings);
+    // A spread, not Object.assign: a spread defines own data properties, so no setter (an inherited one included) runs
     return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
   }
 
@@ -216,7 +216,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
       // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does
-      for (const [key, binder] of Object.entries(item.bindings ?? {})) checkBinder(key, binder);
+      checkBindingMap(item.bindings ?? {});
       scopes.set(item.dir, item);
     } else if (item?.kind === "contract") {
       const matched = mountedEntries(entries, item.contract);
@@ -236,7 +236,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have checked
-      for (const [key, binder] of Object.entries(item.bindings ?? {})) checkBinder(key, binder);
+      checkBindingMap(item.bindings ?? {});
       const stored = pinned !== undefined
         ? item
         : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, bindings: item.bindings ?? {}, options });
