@@ -1,7 +1,8 @@
 import process, { cwd } from "node:process";
 import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
-import { ConfigImportError, DEFAULT_OUT, ScanError, generateTypes, readApiTreeConfig, resolveApiTree } from "../../typegen";
+import { DEFAULT_OUT, ScanError, generateTypes, resolveApiTree } from "../../typegen";
+import { readApiTreeConfigOrDefaults } from "../../typegen/config";
 import type { ApiTreeConfig } from "../../typegen";
 
 export default class TypesGenerateCommand extends Command {
@@ -65,13 +66,12 @@ export interface TypesGenerateFlags {
  * that loads but is invalid still fails.
  */
 async function readConfigOrDefaults(projectDir: string, load?: (url: string) => Promise<unknown>): Promise<ApiTreeConfig> {
-  try {
-    return await readApiTreeConfig(projectDir, load);
-  } catch (error) {
-    if (!(error instanceof ConfigImportError)) throw error;
-    Console.warn(`[sauf types:generate] ${error.message}; using --root / --base and the defaults (app/api, /api) instead of config api`);
-    return {};
-  }
+  return readApiTreeConfigOrDefaults(
+    projectDir,
+    (message) =>
+      Console.warn(`[sauf types:generate] ${message}; using --root / --base and the defaults (app/api, /api) instead of config api`),
+    load,
+  );
 }
 
 /** `sauf types:generate` without the console: config `api.root` / `api.base`, overridden by `--root` / `--base`. */

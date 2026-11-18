@@ -80,6 +80,25 @@ export async function readApiTreeConfig(projectDir: string, load: (url: string) 
   return apiTreeConfig(mod.default);
 }
 
+/**
+ * `readApiTreeConfig`, but a config that cannot be imported on its own (a Vite or tsconfig path alias, a module that
+ * needs Vite transforms, a `$api` import) is reported through `onImportError` and read as `{}`: the command goes on
+ * with its flags and the defaults, as it did before the config key. An `api` key that loads but is invalid still throws.
+ */
+export async function readApiTreeConfigOrDefaults(
+  projectDir: string,
+  onImportError: (message: string) => void,
+  load?: (url: string) => Promise<unknown>,
+): Promise<ApiTreeConfig> {
+  try {
+    return await readApiTreeConfig(projectDir, load);
+  } catch (error) {
+    if (!(error instanceof ConfigImportError)) throw error;
+    onImportError(error.message);
+    return {};
+  }
+}
+
 /** Flags first, then the config, then the defaults. `rootSource` names where the root came from, for error messages. */
 export const resolveApiTree = (flags: ApiTreeConfig, config: ApiTreeConfig): Required<ApiTreeConfig> & { rootSource: string } => ({
   root: flags.root ?? config.root ?? DEFAULT_ROOT,
