@@ -43,10 +43,12 @@ export const fakeModel = (
   );
   /** The value at a primary column's property path: an embed nests its columns (`data.region`). */
   const readPath = (row: unknown, propertyPath: string): unknown =>
-    propertyPath.split(".").reduce<unknown>(
-      (value, key) => (value === null || value === undefined ? undefined : (value as Record<string, unknown>)[key]),
-      row,
-    );
+    propertyPath.split(".").reduce<unknown>((value, key) => {
+      // typeorm's getEntityValueMap() reads a null embed and throws; a missing one drops the map instead
+      if (value === null) throw new TypeError(`Cannot read properties of null (reading '${key}')`);
+      if (value === undefined) return undefined;
+      return (value as Record<string, unknown>)[key];
+    }, row);
   /**
    * typeorm 0.3.26's `EntityMetadata.getEntityIdMap()`: every primary column's value, nested for an embed, `undefined`
    * when a column's property is missing (its `getValueMap()` drops the map then), but a null part stays in the map.

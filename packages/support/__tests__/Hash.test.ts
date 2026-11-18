@@ -223,10 +223,10 @@ describe('Hash facade', () => {
     expect(Hash.make('secret')).toBe('SECRET')
   })
 
-  it('resolves one unbound Hasher per facade application, so a per-instance cache sticks', () => {
+  it('resolves one unbound Hasher for the facade application', () => {
     const app = new Container()
     Facade.setFacadeApplication(app)
-    // Transient by default: without the singleton scope the login's per-instance dummy hash would be rebuilt per check
+    // Transient by default: without the singleton scope a per-instance cache (the login's dummy hash) rebuilds per check
     expect(app.make(Hasher)).toBe(app.make(Hasher))
   })
 

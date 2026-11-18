@@ -1,10 +1,14 @@
 // The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Facade } from '@laratype/core'
 import { Model } from '@laratype/database'
 import { Hash, Hasher } from '@laratype/support'
 import { Auth, PassportGuard } from '../src'
 import { SHA256_SECRET, attempt, configOf, fakeModel, inApp, type Row } from './fixtures/login'
+
+// A cold facade application per test: the Hasher singleton and its dummy hash do not carry over
+afterEach(() => Facade.setFacadeApplication(undefined))
 
 /** The local strategy's verify callback, through `PassportGuard.verifyLocal()`. */
 const verifyLocal = (provider: unknown, username: any, password: any, custom: Record<string, unknown> = {}) =>
@@ -40,7 +44,7 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
-  // First unknown-user login of the file: the Hasher's dummy hash is still cold, so this pins its async build too
+  // This test starts with a cold facade application, so it pins the dummy hash's async build too
   it('runs one async check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     // The guard builds and checks the dummy hash on the Hasher the facade resolves, not through the Hash statics
@@ -242,6 +246,18 @@ describe('TokenGuard.attempt()', () => {
     // An embed's id map is nested, so the part is read by property path, not by the bare column name
     expect(calls.update[0]![0]).toEqual({ data: { region: 1, id: 7 }, password: SHA256_SECRET })
     expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+  })
+
+  it('logs in when a null embed stops the id map from being read', async () => {
+    const rows = [{ data: null, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [{ propertyName: 'region', propertyPath: 'data.region' }],
+    })
+    // typeorm throws while reading a null embed: the guard's rehash catch must still log the user in
+    expect(() => User.getRepository().metadata.getEntityIdMap(rows[0])).toThrow(TypeError)
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
   it('skips the rehash when an embedded composite-key part is null', async () => {
