@@ -300,6 +300,9 @@ describe('ModelQueryBuilder.where', () => {
       'posts',
       'street',
       'address.street',
+      // A lone surrogate and a control character are not a column either, and the diagnostic never echoes one raw
+      '\uD800',
+      'a\u0000b',
     ]
     for (const column of hostile) {
       const { query, UserQuery } = builder()
@@ -498,6 +501,16 @@ describe('ModelQueryBuilder.where', () => {
       )
     }
     expect(query.conditions).toEqual([])
+  })
+
+  it('ignores inherited and non-enumerable keys in the object form', () => {
+    const where = Object.create({ email: 'ada@example.com' }) as Record<string, unknown>
+    Object.defineProperty(where, 'isActive', { value: true, enumerable: false })
+    where.id = 1
+    const { query, UserQuery } = builder()
+    UserQuery.where(where as never)
+    // Only own enumerable keys reach the condition; an inherited or hidden key is not a column filter
+    expect(query.conditions).toEqual([{ sql: { id: 1 }, parameters: undefined }])
   })
 
   it('refuses a hostile own key in the object form', () => {
