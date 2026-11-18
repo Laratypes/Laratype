@@ -1,7 +1,8 @@
-import type { EntityMetadata } from "typeorm";
+import { types } from "node:util";
+import type { EntityMetadata, ValueTransformer } from "typeorm";
 
 /** The column type of `EntityMetadata.columns`, which TypeORM does not export from its root entry. */
-type ColumnMetadata = EntityMetadata["columns"][number];
+export type ColumnMetadata = EntityMetadata["columns"][number];
 
 /**
  * A top-level column of the entity whose property is `name` (docs/v1/database.md › Model: own column property
@@ -24,12 +25,28 @@ export const formatValue = (value: unknown): string => {
   return text.length > MAX_VALUE_LENGTH ? `${text.slice(0, MAX_VALUE_LENGTH)}…` : text;
 };
 
+/**
+ * A real `Date`, including one from another realm or a subclass: `util.types.isDate` reads the internal slot, so an
+ * object with `Date.prototype` but no slot is not one. It never calls the overridable `getTime()`.
+ */
+export const isValidDate = (value: unknown): value is Date =>
+  types.isDate(value) && Number.isFinite(Date.prototype.getTime.call(value));
+
 /** The type a diagnostic names for a refused value, never the value itself. */
 export const valueType = (value: unknown): string => {
   if (Array.isArray(value)) return "array";
   if (value === null) return "null";
   if (value === undefined) return "undefined";
   if (typeof value === "number") return Number.isFinite(value) ? "number" : "non-finite number";
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "invalid Date" : "Date";
+  if (types.isDate(value)) return isValidDate(value) ? "Date" : "invalid Date";
   return typeof value;
 };
+
+/**
+ * Applies a column's `transformer.to` the way TypeORM's `find` does: a transformer array runs in declaration order
+ * (docs/v1/database.md › Model).
+ */
+export const transformTo = (transformer: ValueTransformer | ValueTransformer[], value: unknown): unknown =>
+  Array.isArray(transformer)
+    ? transformer.reduce<unknown>((transformed, entry) => entry.to(transformed), value)
+    : transformer.to(value);

@@ -6,20 +6,26 @@ import { format } from 'mysql2'
 import {
   DataSource,
   EntitySchema,
-  type FindOperator,
   type ObjectLiteral,
   type Repository,
   type SelectQueryBuilder,
+  type ValueTransformer,
 } from 'typeorm'
 import ModelError from '../src/exceptions/ModelError'
 import ModelQueryBuilder from '../src/eloquent/ModelQueryBuilder'
 
 type Row = Record<string, any>
 
+/** One `andWhere()` call the facade made: its condition (a SQL string or an object form) and its parameters. */
+interface Condition {
+  readonly sql: string | ObjectLiteral
+  readonly parameters?: ObjectLiteral
+}
+
 /** The slice of a TypeORM SelectQueryBuilder the facade reaches, over arrays in memory, so the test needs no database. */
 class FakeQueryBuilder {
   readonly alias = 'User'
-  readonly wheres: ObjectLiteral[] = []
+  readonly conditions: Condition[] = []
   readonly orderBys: [string, string][] = []
   readonly limits: number[] = []
   readonly offsets: number[] = []
@@ -29,8 +35,8 @@ class FakeQueryBuilder {
     private readonly total = rows.length,
   ) {}
 
-  andWhere(where: ObjectLiteral) {
-    this.wheres.push(where)
+  andWhere(where: string | ObjectLiteral, parameters?: ObjectLiteral) {
+    this.conditions.push({ sql: where, parameters })
     return this
   }
 
@@ -62,6 +68,21 @@ class FakeQueryBuilder {
   }
 }
 
+/** A transformer that lower-cases a string, as an app's email column does. */
+const lower: ValueTransformer = {
+  to: (value: unknown) => (typeof value === 'string' ? value.toLowerCase() : value),
+  from: (value: unknown) => value,
+}
+
+/** A transformer array: its `to()` functions run in declaration order. */
+const prefix: ValueTransformer = {
+  to: (value: unknown) => (typeof value === 'string' ? `id-${value}` : value),
+  from: (value: unknown) => value,
+}
+
+/** A transformer that returns an object, which mysql2 would escape as SQL text. */
+const toObject: ValueTransformer = { to: () => ({ email: 1 }), from: (value: unknown) => value }
+
 /** A model query over `rows`, with the entity metadata the facade resolves columns against. */
 const builder = (rows: Row[] = [], total = rows.length) => {
   const columns = [
@@ -70,6 +91,11 @@ const builder = (rows: Row[] = [], total = rows.length) => {
     { propertyName: 'age', propertyPath: 'age', type: Number },
     { propertyName: 'isActive', propertyPath: 'isActive', type: Boolean },
     { propertyName: 'deletedAt', propertyPath: 'deletedAt', type: Date },
+    // A column with a value transformer, and one whose transformer array runs in declaration order
+    { propertyName: 'lowerEmail', propertyPath: 'lowerEmail', type: String, transformer: lower },
+    { propertyName: 'serial', propertyPath: 'serial', type: String, transformer: [lower, prefix] },
+    { propertyName: 'prefixed', propertyPath: 'prefixed', type: String, transformer: prefix },
+    { propertyName: 'hostile', propertyPath: 'hostile', type: String, transformer: toObject },
     // An embedded column: its leaf `street` is not an own model property
     { propertyName: 'street', propertyPath: 'address.street', type: String },
     // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
@@ -85,14 +111,17 @@ const builder = (rows: Row[] = [], total = rows.length) => {
   return { query, UserQuery: new ModelQueryBuilder<Row>(repository) }
 }
 
-/** The FindOperator a where object holds for its only column. */
-const operator = (query: FakeQueryBuilder): FindOperator<unknown> => {
-  const [where] = query.wheres
-  if (where === undefined) throw new Error("the where() call did not reach the query builder")
-  const value = Object.values(where)[0]
-  if (value === undefined) throw new Error("the where() call set no column")
-  return value as FindOperator<unknown>
+/** The SQL string of the `index`th condition. */
+const condition = (query: FakeQueryBuilder, index = 0): string => {
+  const entry = query.conditions[index]
+  if (entry === undefined) throw new Error("the where() call did not reach the query builder")
+  if (typeof entry.sql !== 'string') throw new Error('the where() call used the object form')
+  return entry.sql
 }
+
+/** The parameters of the `index`th condition. */
+const parameters = (query: FakeQueryBuilder, index = 0): ObjectLiteral | undefined =>
+  query.conditions[index]?.parameters
 
 /** The scalar kinds the facade's diagnostics list. */
 const SCALAR_KINDS = 'a string, a finite number, a bigint, a boolean, a valid Date or a Buffer'
@@ -110,6 +139,9 @@ const NON_SCALARS: [unknown, string][] = [
   [Number.NaN, 'non-finite number'],
   [Number.POSITIVE_INFINITY, 'non-finite number'],
   [new Date('nope'), 'invalid Date'],
+  // An object with Date.prototype has no Date slot: valueType() reads the slot, not the prototype
+  [Object.create(Date.prototype), 'object'],
+  [new Proxy(new Date('2026-01-02'), {}), 'object'],
   // mysql2 binds only a Buffer as one value: it expands these into SQL text, so the facade refuses every one
   [new Uint8Array([1, 2]), 'object'],
   [new Uint16Array([1, 2]), 'object'],
@@ -132,58 +164,116 @@ describe('ModelQueryBuilder.where', () => {
   it('adds an equality condition for the two-argument form', () => {
     const { query, UserQuery } = builder()
     expect(UserQuery.where('email', 'ada@example.com')).toBe(UserQuery)
-    expect(query.wheres).toEqual([{ email: 'ada@example.com' }])
+    expect(query.conditions).toEqual([{ sql: { email: 'ada@example.com' }, parameters: undefined }])
   })
 
   it('adds every column of the object form in one condition', () => {
     const { query, UserQuery } = builder()
     UserQuery.where({ email: 'ada@example.com', isActive: true })
-    expect(query.wheres).toEqual([{ email: 'ada@example.com', isActive: true }])
+    expect(query.conditions).toEqual([{ sql: { email: 'ada@example.com', isActive: true }, parameters: undefined }])
   })
 
-  it('maps every comparison to its FindOperator, so the value is a parameter', () => {
+  it('maps every comparison to its SQL comparison, with the value bound as a parameter', () => {
     const cases = [
-      ['=', 'equal'],
-      ['!=', 'not'],
-      ['<', 'lessThan'],
-      ['<=', 'lessThanOrEqual'],
-      ['>', 'moreThan'],
-      ['>=', 'moreThanOrEqual'],
-      ['like', 'like'],
-      ['not like', 'not'],
+      ['=', '='],
+      ['!=', '!='],
+      ['<', '<'],
+      ['<=', '<='],
+      ['>', '>'],
+      ['>=', '>='],
+      ['like', 'LIKE'],
+      ['not like', 'NOT LIKE'],
     ] as const
-    for (const [comparison, type] of cases) {
+    for (const [comparison, sql] of cases) {
       const { query, UserQuery } = builder()
       UserQuery.where('age', comparison, 21)
-      expect(operator(query).type).toBe(type)
+      expect(condition(query), comparison).toBe(`User.age ${sql} :where_0`)
+      expect(parameters(query), comparison).toEqual({ where_0: 21 })
     }
   })
 
-  it('maps in / not in to the array operators', () => {
+  it('maps in / not in to a bound list parameter', () => {
     const included = builder()
     included.UserQuery.where('id', 'in', [1, 2])
-    expect(operator(included.query).type).toBe('in')
-    expect(operator(included.query).value).toEqual([1, 2])
+    expect(condition(included.query)).toBe('User.id IN (:...where_0)')
+    expect(parameters(included.query)).toEqual({ where_0: [1, 2] })
 
     const excluded = builder()
     excluded.UserQuery.where('id', 'not in', [1, 2])
-    const notIn = operator(excluded.query)
-    expect(notIn.type).toBe('not')
-    expect(notIn.child?.type).toBe('in')
+    expect(condition(excluded.query)).toBe('User.id NOT IN (:...where_0)')
+    expect(parameters(excluded.query)).toEqual({ where_0: [1, 2] })
+  })
+
+  it('gives every condition its own parameter, so ANDed where() calls keep their values', () => {
+    const { query, UserQuery } = builder()
+    UserQuery.where('id', '>', 1).where('age', '<', 9)
+    expect(query.conditions.map((entry) => entry.sql)).toEqual(['User.id > :where_0', 'User.age < :where_1'])
+    expect(query.conditions.map((entry) => entry.parameters)).toEqual([{ where_0: 1 }, { where_1: 9 }])
+  })
+
+  it('keeps an empty in / not in list matching none / all', () => {
+    const included = builder()
+    included.UserQuery.where('id', 'in', [])
+    expect(condition(included.query)).toBe('0=1')
+
+    const excluded = builder()
+    excluded.UserQuery.where('id', 'not in', [])
+    expect(condition(excluded.query)).toBe('1=1')
   })
 
   it('refuses an operator outside the allowlist instead of passing it to TypeORM', () => {
     const { query, UserQuery } = builder()
     expect(() => UserQuery.where('id', '~~' as never, 1)).toThrow(
-      '[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got "~~"',
+      '[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got string',
     )
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
+  })
+
+  it('names the type of a refused operator, never the value', () => {
+    const cases: [unknown, string][] = [
+      [1, 'number'],
+      [Number.NaN, 'non-finite number'],
+      [null, 'null'],
+      [undefined, 'undefined'],
+      ['__proto__', 'string'],
+      [{ length: 1e9 }, 'object'],
+      [['in'], 'array'],
+      [new Date('nope'), 'invalid Date'],
+    ]
+    for (const [value, type] of cases) {
+      const { query, UserQuery } = builder()
+      const message = `[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got ${type}`
+      expect(() => UserQuery.where('id', value as never, 1)).toThrow(message)
+      expect(query.conditions).toEqual([])
+    }
+    // A hostile string never reaches the message: only its type is named
+    const hostile = 'id, id; DROP TABLE users'
+    expect(() => builder().UserQuery.where('id', hostile as never, 1))
+      .toThrow('[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got string')
+  })
+
+  it('names the type of a refused in / not in operand, never the value', () => {
+    const cases: [unknown, string][] = [
+      [1, 'number'],
+      [Number.POSITIVE_INFINITY, 'non-finite number'],
+      [{ length: 1e9 }, 'object'],
+      [new Date('nope'), 'invalid Date'],
+      [new Date('2026-01-02'), 'Date'],
+      ['id; DROP TABLE users', 'string'],
+    ]
+    for (const [value, type] of cases) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where('id', 'in', value as never)).toThrow(
+        `[@laratype/database] where() takes an array for "in", got ${type}`,
+      )
+      expect(query.conditions).toEqual([])
+    }
   })
 
   it('refuses a non-array value for in / not in', () => {
     const { UserQuery } = builder()
     expect(() => UserQuery.where('id', 'in', 1 as never)).toThrow(
-      '[@laratype/database] where() takes an array for "in", got 1',
+      '[@laratype/database] where() takes an array for "in", got number',
     )
   })
 
@@ -204,7 +294,7 @@ describe('ModelQueryBuilder.where', () => {
       expect(() => UserQuery.where(column as never, 1)).toThrow(
         `[@laratype/database] User has no column ${JSON.stringify(column)}: where() takes a column property of the model`,
       )
-      expect(query.wheres).toEqual([])
+      expect(query.conditions).toEqual([])
     }
   })
 
@@ -221,7 +311,7 @@ describe('ModelQueryBuilder.where', () => {
         `[@laratype/database] User has no column ${JSON.stringify(column)}: orderBy() takes a column property of the model`,
       )
     }
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
     expect(query.orderBys).toEqual([])
   })
 
@@ -232,7 +322,7 @@ describe('ModelQueryBuilder.where', () => {
         `[@laratype/database] where() cannot filter "email" with ${String(value)}: IS NULL filters are not part of the v1 surface`,
       )
     }
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
   })
 
   it('refuses a null or undefined value in the object form', () => {
@@ -242,7 +332,7 @@ describe('ModelQueryBuilder.where', () => {
         `[@laratype/database] where() cannot filter "email" with ${String(value)}: IS NULL filters are not part of the v1 surface`,
       )
     }
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
   })
 
   it('refuses a null or undefined value for every comparison operator', () => {
@@ -255,14 +345,14 @@ describe('ModelQueryBuilder.where', () => {
         )
       }
     }
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
   })
 
   it('refuses a value that mysql2 would escape as key = value pairs in the two-argument form', () => {
     for (const [value, type] of NON_SCALARS) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where('email', value as never)).toThrow(scalarMessage('email', type))
-      expect(query.wheres).toEqual([])
+      expect(query.conditions).toEqual([])
     }
   })
 
@@ -270,7 +360,7 @@ describe('ModelQueryBuilder.where', () => {
     for (const [value, type] of NON_SCALARS) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where({ email: value } as never)).toThrow(scalarMessage('email', type))
-      expect(query.wheres).toEqual([])
+      expect(query.conditions).toEqual([])
     }
   })
 
@@ -279,7 +369,7 @@ describe('ModelQueryBuilder.where', () => {
       for (const [value, type] of NON_SCALARS) {
         const { query, UserQuery } = builder()
         expect(() => UserQuery.where('email', operator, value as never)).toThrow(scalarMessage('email', type))
-        expect(query.wheres).toEqual([])
+        expect(query.conditions).toEqual([])
       }
     }
   })
@@ -288,15 +378,27 @@ describe('ModelQueryBuilder.where', () => {
     for (const value of SCALAR_VALUES) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where('email', value as never)).not.toThrow()
-      expect(query.wheres).toHaveLength(1)
+      expect(query.conditions).toHaveLength(1)
     }
+  })
+
+  it('accepts a Date subclass whose getTime throws, reading the Date slot instead', () => {
+    const sneaky = new Date('2026-01-02')
+    Object.defineProperty(sneaky, 'getTime', {
+      value: () => {
+        throw new Error('getTime() must not be called')
+      },
+    })
+    const { query, UserQuery } = builder()
+    expect(() => UserQuery.where('deletedAt', sneaky as never)).not.toThrow()
+    expect(query.conditions).toHaveLength(1)
   })
 
   it('accepts a Buffer, but no other typed array, as an in / not in element', () => {
     for (const operator of ['in', 'not in'] as const) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where('email', operator, [Buffer.from('ada')] as never)).not.toThrow()
-      expect(query.wheres).toHaveLength(1)
+      expect(query.conditions).toHaveLength(1)
     }
   })
 
@@ -315,7 +417,7 @@ describe('ModelQueryBuilder.where', () => {
         expect(() => UserQuery.where('email', operator, [element] as never)).toThrow(
           inElementMessage('email', operator, type),
         )
-        expect(query.wheres).toEqual([])
+        expect(query.conditions).toEqual([])
       }
     }
   })
@@ -338,7 +440,7 @@ describe('ModelQueryBuilder.where', () => {
       expect(() => UserQuery.where('email', operator, list as never)).toThrow(
         `[@laratype/database] where() takes at most 1000 elements for "email" in ${JSON.stringify(operator)}, got 1001`,
       )
-      expect(query.wheres).toEqual([])
+      expect(query.conditions).toEqual([])
     }
   })
 
@@ -370,15 +472,74 @@ describe('ModelQueryBuilder.where', () => {
         '[@laratype/database] where() takes a column name or a where object, got',
       )
     }
-    expect(query.wheres).toEqual([])
+    expect(query.conditions).toEqual([])
   })
 
   it('refuses a hostile own key in the object form', () => {
     for (const column of ['__proto__', 'constructor', 'id; DROP TABLE users']) {
       const { query, UserQuery } = builder()
       expect(() => UserQuery.where(JSON.parse(`{"${column}": 1}`))).toThrow('has no column')
-      expect(query.wheres).toEqual([])
+      expect(query.conditions).toEqual([])
     }
+  })
+})
+
+describe('ModelQueryBuilder.where transformers', () => {
+  it('applies the column transformer to =, != and like values, exactly once', () => {
+    const cases = [
+      ['=', '='],
+      ['!=', '!='],
+      ['like', 'LIKE'],
+    ] as const
+    for (const [operator, sql] of cases) {
+      const { query, UserQuery } = builder()
+      UserQuery.where('lowerEmail', operator, 'ADA@EXAMPLE.COM')
+      expect(condition(query), operator).toBe(`User.lowerEmail ${sql} :where_0`)
+      expect(parameters(query), operator).toEqual({ where_0: 'ada@example.com' })
+    }
+    // A non-idempotent transformer proves the value goes through it once, not twice
+    const prefixed = builder()
+    prefixed.UserQuery.where('prefixed', '=', 'ADA')
+    expect(parameters(prefixed.query)).toEqual({ where_0: 'id-ADA' })
+  })
+
+  it('applies the transformer to every in / not in element', () => {
+    for (const operator of ['in', 'not in'] as const) {
+      const { query, UserQuery } = builder()
+      UserQuery.where('lowerEmail', operator, ['ADA@EXAMPLE.COM', 'BOB@EXAMPLE.COM'])
+      expect(parameters(query), operator).toEqual({ where_0: ['ada@example.com', 'bob@example.com'] })
+    }
+  })
+
+  it('runs a transformer array in declaration order', () => {
+    const { query, UserQuery } = builder()
+    UserQuery.where('serial', '=', 'ADA')
+    expect(parameters(query)).toEqual({ where_0: 'id-ada' })
+  })
+
+  it('refuses a transformer that returns an object, so mysql2 never gets one', () => {
+    const { query, UserQuery } = builder()
+    expect(() => UserQuery.where('hostile', '=', 'ada')).toThrow(
+      '[@laratype/database] where() transformer for "hostile" returned object:'
+      + ' a transformer must return a scalar value (a string, a finite number, a bigint, a boolean, a valid Date or a Buffer)',
+    )
+    expect(query.conditions).toEqual([])
+  })
+
+  it('refuses an in element a transformer turns into an object, naming its index', () => {
+    const { query, UserQuery } = builder()
+    expect(() => UserQuery.where('hostile', 'in', ['ada', 'bob'])).toThrow(
+      '[@laratype/database] where() transformer for "hostile" returned object at index 0 in "in":'
+      + ' a transformer must return a scalar value (a string, a finite number, a bigint, a boolean, a valid Date or a Buffer)',
+    )
+    expect(query.conditions).toEqual([])
+  })
+
+  it('leaves a column without a transformer, and the object form, to TypeORM', () => {
+    const { query, UserQuery } = builder()
+    UserQuery.where('email', '=', 'ADA@EXAMPLE.COM').where({ lowerEmail: 'ADA@EXAMPLE.COM' })
+    expect(parameters(query, 0)).toEqual({ where_0: 'ADA@EXAMPLE.COM' })
+    expect(query.conditions[1]?.sql).toEqual({ lowerEmail: 'ADA@EXAMPLE.COM' })
   })
 })
 
@@ -511,6 +672,7 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
       columns: {
         id: { type: Number, primary: true, generated: true },
         email: { type: String },
+        lowerEmail: { type: String, transformer: lower },
       },
     })
     const dataSource = new DataSource({
@@ -534,6 +696,38 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
     const [sql, parameters] = builder.getQueryAndParameters()
     expect(sql).toContain('WHERE `User`.`email` = ?')
+    expect(parameters).toEqual(['ada@example.com'])
+  })
+
+  it('applies a column transformer to a comparison value once, before TypeORM sees it', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    query.where('lowerEmail', '=', 'ADA@EXAMPLE.COM').where('lowerEmail', '!=', 'BOB@EXAMPLE.COM')
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    // TypeORM 0.3.26 transforms the FindOperator wrapper an object-form andWhere() receives, so the facade builds
+    // the comparison itself: the value reaches the driver transformed and once, never as a wrapper
+    expect(sql).toContain('WHERE `User`.`lowerEmail` = ? AND `User`.`lowerEmail` != ?')
+    expect(parameters).toEqual(['ada@example.com', 'bob@example.com'])
+  })
+
+  it('applies a column transformer to every in value', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    query.where('lowerEmail', 'in', ['ADA@EXAMPLE.COM', 'BOB@EXAMPLE.COM'])
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).toContain('WHERE `User`.`lowerEmail` IN (?, ?)')
+    expect(parameters).toEqual(['ada@example.com', 'bob@example.com'])
+  })
+
+  it('keeps the two-argument form to TypeORM, which applies the transformer once', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    query.where('lowerEmail', 'ADA@EXAMPLE.COM')
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).toContain('WHERE `User`.`lowerEmail` = ?')
     expect(parameters).toEqual(['ada@example.com'])
   })
 

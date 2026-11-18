@@ -1,19 +1,6 @@
-import {
-  Equal,
-  In,
-  LessThan,
-  LessThanOrEqual,
-  Like,
-  MoreThan,
-  MoreThanOrEqual,
-  Not,
-  type FindOperator,
-  type ObjectLiteral,
-  type Repository,
-  type SelectQueryBuilder,
-} from "typeorm";
+import type { ObjectLiteral, Repository, SelectQueryBuilder } from "typeorm";
 import ModelError from "../exceptions/ModelError";
-import { formatValue, ownColumn, valueType } from "./internal";
+import { type ColumnMetadata, formatValue, isValidDate, ownColumn, transformTo, valueType } from "./internal";
 
 /**
  * A property of `T` that holds data, not a method: the columns `where()` and `orderBy()` accept at the type level,
@@ -29,8 +16,20 @@ export type ModelWhere<T> = { [K in ColumnKey<T>]?: Exclude<T[K], undefined> };
 /** The comparisons the three-argument `where()` accepts. */
 const COMPARISONS = ["=", "!=", "<", "<=", ">", ">=", "like", "not like"] as const;
 
-/** A comparison `where()` maps to a TypeORM `FindOperator`, so a value can never become SQL text. */
+/** A comparison `where()` maps to a SQL comparison, so a value can never become SQL text. */
 export type WhereComparison = (typeof COMPARISONS)[number];
+
+/** The SQL comparison of each operator: a closed table, never caller text (docs/v1/database.md › Model). */
+const SQL_COMPARISONS: Record<WhereComparison, string> = {
+  "=": "=",
+  "!=": "!=",
+  "<": "<",
+  "<=": "<=",
+  ">": ">",
+  ">=": ">=",
+  like: "LIKE",
+  "not like": "NOT LIKE",
+};
 
 /** The runtime allowlist behind `WhereOperator`, a tuple so the type derives from it. */
 const OPERATORS = [...COMPARISONS, "in", "not in"] as const;
@@ -73,7 +72,7 @@ const isScalarValue = (value: unknown): value is ScalarValue =>
   typeof value === "bigint" ||
   typeof value === "boolean" ||
   (typeof value === "number" && Number.isFinite(value)) ||
-  (value instanceof Date && !Number.isNaN(value.getTime())) ||
+  isValidDate(value) ||
   Buffer.isBuffer(value);
 
 /** The scalar kinds a diagnostic lists. */
@@ -87,9 +86,9 @@ const errors = {
     `[@laratype/database] ${model} has no column ${formatValue(name)}: ${method}() takes a column property`
     + " of the model",
   operator: (operator: unknown): string =>
-    `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${formatValue(operator)}`,
+    `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${valueType(operator)}`,
   arrayOperand: (operator: string, value: unknown): string =>
-    `[@laratype/database] where() takes an array for ${formatValue(operator)}, got ${formatValue(value)}`,
+    `[@laratype/database] where() takes an array for ${formatValue(operator)}, got ${valueType(value)}`,
   nullishValue: (column: string, value: unknown): string =>
     `[@laratype/database] where() cannot filter ${formatValue(column)} with ${formatValue(value)}:`
     + " IS NULL filters are not part of the v1 surface",
@@ -99,6 +98,12 @@ const errors = {
   inElement: (column: string, operator: string, value: unknown, index: number): string =>
     `[@laratype/database] where() takes scalar elements for ${formatValue(column)} in ${formatValue(operator)}`
     + ` (${SCALAR_KINDS}), got ${valueType(value)} at index ${index}`,
+  transformerValue: (column: string, type: string): string =>
+    `[@laratype/database] where() transformer for ${formatValue(column)} returned ${type}:`
+    + ` a transformer must return a scalar value (${SCALAR_KINDS})`,
+  transformerInElement: (column: string, operator: string, type: string, index: number): string =>
+    `[@laratype/database] where() transformer for ${formatValue(column)} returned ${type} at index ${index}`
+    + ` in ${formatValue(operator)}: a transformer must return a scalar value (${SCALAR_KINDS})`,
   inLength: (column: string, operator: string, length: number): string =>
     `[@laratype/database] where() takes at most ${MAX_IN_VALUES} elements for ${formatValue(column)}`
     + ` in ${formatValue(operator)}, got ${length}`,
@@ -115,32 +120,6 @@ const errors = {
     + ` got page ${formatValue(page)} and perPage ${formatValue(perPage)}`,
 };
 
-/** Maps the 3-argument `where()` operator to the `FindOperator` TypeORM parameterizes (never SQL text). */
-const toFindOperator = (operator: WhereOperator, value: unknown): FindOperator<unknown> => {
-  switch (operator) {
-    case "=":
-      return Equal(value);
-    case "!=":
-      return Not(value);
-    case "<":
-      return LessThan(value);
-    case "<=":
-      return LessThanOrEqual(value);
-    case ">":
-      return MoreThan(value);
-    case ">=":
-      return MoreThanOrEqual(value);
-    case "like":
-      return Like(value);
-    case "not like":
-      return Not(Like(value));
-    case "in":
-      return In(value as readonly unknown[]);
-    case "not in":
-      return Not(In(value as readonly unknown[]));
-  }
-};
-
 /**
  * The typed query `Model.query()` returns: a thin facade over one TypeORM `SelectQueryBuilder`, not a second query
  * builder (docs/v1/database.md › Model). Every column, operator and direction is resolved against the entity's
@@ -149,6 +128,7 @@ const toFindOperator = (operator: WhereOperator, value: unknown): FindOperator<u
 export default class ModelQueryBuilder<T extends object = object> {
   private readonly repository: Repository<T>;
   private readonly query: SelectQueryBuilder<T>;
+  private parameterCount = 0;
 
   constructor(repository: Repository<T>) {
     this.repository = repository;
@@ -169,8 +149,8 @@ export default class ModelQueryBuilder<T extends object = object> {
       const conditions: Record<string, unknown> = {};
       for (const [name, value] of Object.entries(columnOrWhere as Record<string, unknown>)) {
         const property = this.column(name, "where");
-        this.assertValue(property, value);
-        conditions[property] = value;
+        this.assertValue(property.propertyName, value);
+        conditions[property.propertyName] = value;
       }
       this.query.andWhere(conditions as ObjectLiteral);
       return this;
@@ -178,8 +158,8 @@ export default class ModelQueryBuilder<T extends object = object> {
 
     const column = this.column(columnOrWhere, "where");
     if (rest.length === 1) {
-      this.assertValue(column, rest[0]);
-      this.query.andWhere({ [column]: rest[0] } as ObjectLiteral);
+      this.assertValue(column.propertyName, rest[0]);
+      this.query.andWhere({ [column.propertyName]: rest[0] } as ObjectLiteral);
       return this;
     }
 
@@ -188,19 +168,20 @@ export default class ModelQueryBuilder<T extends object = object> {
     if (!isWhereOperator(operator)) {
       throw new ModelError(errors.operator(operator));
     }
-    this.assertDefined(column, value);
+    this.assertDefined(column.propertyName, value);
     if (operator === "in" || operator === "not in") {
-      this.assertInOperand(column, operator, value);
+      this.assertInOperand(column.propertyName, operator, value);
+      this.pushIn(column, operator, value);
     } else {
-      this.assertValue(column, value);
+      this.assertValue(column.propertyName, value);
+      this.pushComparison(column.propertyName, operator, this.transformed(column, value));
     }
-    this.query.andWhere({ [column]: toFindOperator(operator, value) } as ObjectLiteral);
     return this;
   }
 
   /** Orders by a column property; the direction is checked at runtime, and only `asc` / `desc` reach TypeORM. */
   orderBy<K extends ColumnKey<T>>(column: K, direction: OrderDirection = "asc"): this {
-    const property = this.column(column, "orderBy");
+    const property = this.column(column, "orderBy").propertyName;
     const order = typeof direction === "string" ? direction.toLowerCase() : direction;
     if (order !== "asc" && order !== "desc") {
       throw new ModelError(errors.direction(direction));
@@ -266,7 +247,7 @@ export default class ModelQueryBuilder<T extends object = object> {
   }
 
   /** An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined. */
-  private assertInOperand(column: string, operator: "in" | "not in", value: unknown): void {
+  private assertInOperand(column: string, operator: "in" | "not in", value: unknown): asserts value is readonly unknown[] {
     if (!Array.isArray(value)) {
       throw new ModelError(errors.arrayOperand(operator, value));
     }
@@ -282,12 +263,50 @@ export default class ModelQueryBuilder<T extends object = object> {
     }
   }
 
+  /** An operator value with the column's `transformer.to` applied, which must still be a scalar. */
+  private transformed(column: ColumnMetadata, value: unknown): unknown {
+    if (column.transformer === undefined) return value;
+    const transformed = transformTo(column.transformer, value);
+    if (!isScalarValue(transformed)) {
+      throw new ModelError(errors.transformerValue(column.propertyName, valueType(transformed)));
+    }
+    return transformed;
+  }
+
+  /** Adds `column <comparison> :parameter`; the operator comes from the closed table and the value is bound. */
+  private pushComparison(column: string, operator: WhereComparison, value: unknown): void {
+    const name = `where_${this.parameterCount++}`;
+    this.query.andWhere(`${this.query.alias}.${column} ${SQL_COMPARISONS[operator]} :${name}`, { [name]: value });
+  }
+
+  /** Adds `column IN / NOT IN (:...parameter)` with every element transformed once; an empty list matches none/all. */
+  private pushIn(column: ColumnMetadata, operator: "in" | "not in", value: readonly unknown[]): void {
+    const values = value.map((element, index) => {
+      const transformed = column.transformer === undefined ? element : transformTo(column.transformer, element);
+      if (!isScalarValue(transformed)) {
+        throw new ModelError(
+          errors.transformerInElement(column.propertyName, operator, valueType(transformed), index),
+        );
+      }
+      return transformed;
+    });
+    if (values.length === 0) {
+      this.query.andWhere(operator === "in" ? "0=1" : "1=1");
+      return;
+    }
+    const name = `where_${this.parameterCount++}`;
+    this.query.andWhere(
+      `${this.query.alias}.${column.propertyName} ${operator === "in" ? "IN" : "NOT IN"} (:...${name})`,
+      { [name]: values },
+    );
+  }
+
   /** Resolves a caller's column name against the entity metadata; an own column property, or it throws. */
-  private column(name: string, method: "where" | "orderBy"): string {
+  private column(name: string, method: "where" | "orderBy"): ColumnMetadata {
     const column = ownColumn(this.repository.metadata, name);
     if (column === undefined) {
       throw new ModelError(errors.noColumn(this.repository.metadata.targetName, name, method));
     }
-    return column.propertyName;
+    return column;
   }
 }
