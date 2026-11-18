@@ -74,6 +74,17 @@ describe('route()', () => {
     )
   })
 
+  it('truncates a 10 MB name from a bounded prefix, without reading the whole name', () => {
+    mount()
+    // 10 MB of UTF-16 in each direction: BMP units and astral code points (2 units each)
+    expect(() => route('x'.repeat(10_000_000))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`),
+    )
+    expect(() => route('😀'.repeat(5_000_000))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(100)}…"`),
+    )
+  })
+
   it('ignores .domain(): the URL is a path, not the host the route is served on', () => {
     mount().domain('api.example.com')
     expect(route('users.posts.show', { user: 1, post: 2 })).toBe('/api/users/1/posts/2')
@@ -178,12 +189,18 @@ const nonStringNames = [
 ] as const
 
 describe('route() name guard', () => {
-  it('refuses a non-string name at once, so a huge length never reaches Array.from', () => {
+  it('refuses a non-string name without reading its length, so a huge length never reaches Array.from', () => {
     mount()
-    const began = performance.now()
-    expectNameTypeError(() => route({ length: 1e9 } as never), 'object')
-    // Array.from({ length: 1e9 }) blocked the event loop for seconds: the guard is before any read of the name
-    expect(performance.now() - began).toBeLessThan(50)
+    let reads = 0
+    const value = {
+      get length() {
+        reads += 1
+        throw new Error('length read')
+      },
+    }
+    expectNameTypeError(() => route(value as never), 'object')
+    // the guard is the first read of the name: a length of 1e9 (or a getter) is never reached
+    expect(reads).toBe(0)
   })
 
   it('refuses a non-string name before it reads the registry at all', () => {
@@ -250,6 +267,23 @@ describe('route() absolute URLs', () => {
     expect(route('users.posts.show', input, { absolute: true })).toBe('https://url-instance.test/sub/api/users/1/posts/2')
   })
 
+  it('keeps the config path prefix for every route, the root route "/" included', () => {
+    Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/', () => 'ok').name('root')])
+    const cases = [
+      // "/sub" and "/sub/" are the same base: the trailing slashes are dropped
+      { url: 'https://app.test/sub', root: 'https://app.test/sub/', index: 'https://app.test/sub/api/users/1/posts' },
+      { url: 'https://app.test/sub/', root: 'https://app.test/sub/', index: 'https://app.test/sub/api/users/1/posts' },
+      { url: 'https://app.test', root: 'https://app.test/', index: 'https://app.test/api/users/1/posts' },
+    ]
+    for (const { url, root, index } of cases) {
+      setConfigs({ config: { url } })
+      // the root route keeps the base path, and a query never changes the pathname
+      expect(route('root', {}, { absolute: true })).toBe(root)
+      expect(route('root', {}, { absolute: true, query: { page: 2 } })).toBe(`${root}?page=2`)
+      expect(route('users.posts.index', { user: 1 }, { absolute: true })).toBe(index)
+    }
+  })
+
   it('never takes the origin from the request Host or X-Forwarded-Host header', async () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(posts, PostController),
@@ -270,15 +304,55 @@ describe('route() absolute URLs', () => {
     expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
       new TypeError("[@laratype/http] route: absolute URLs need config('config.url') (app.url), which is not set"),
     )
-    for (const url of ['localhost:3000', '/api', 'ftp://app.test', 'https://app.test/?x=1', 'https://app.test/#h', 'https://user:pass@app.test']) {
+    for (const [url, problem] of [
+      ['localhost:3000', 'must be an absolute http(s) URL'],
+      ['/api', 'must be an absolute http(s) URL'],
+      ['ftp://app.test', 'must be an absolute http(s) URL'],
+      ['https://app.test/?x=1', 'must not contain a query'],
+      ['https://app.test/#h', 'must not contain a hash'],
+    ] as const) {
       setConfigs({ config: { url } })
-      const message = `[@laratype/http] route: config('config.url') must be an absolute http(s) URL without a query, hash or credentials, got "${url}"`
-      expect(() => route('users.posts.show', input, { absolute: true })).toThrow(new TypeError(message))
+      expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
+        new TypeError(`[@laratype/http] route: config('config.url') ${problem}`),
+      )
     }
     setConfigs({ config: { url: '' } })
     expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
       /absolute URLs need config\('config.url'\)/,
     )
+  })
+
+  it('names the credentials rule without echoing the configured URL', () => {
+    mount()
+    const input = { user: 1, post: 2 }
+    // a URL value carries the same userinfo: neither the string nor the URL is echoed
+    for (const url of ['https://alice:hunter2@app.test', 'https://alice:hunter2@app.test/sub/', new URL('https://alice:hunter2@app.test')]) {
+      setConfigs({ config: { url } })
+      let error: unknown
+      try {
+        route('users.posts.show', input, { absolute: true })
+      } catch (thrown) {
+        error = thrown
+      }
+      expect(error).toBeInstanceOf(TypeError)
+      const message = (error as Error).message
+      expect(message).toBe("[@laratype/http] route: config('config.url') must not contain credentials")
+      // never the URL, nor any part of the userinfo
+      expect(message).not.toContain('alice')
+      expect(message).not.toContain('hunter2')
+    }
+  })
+
+  it('treats a config value that is not a string or a URL as not set, never echoing it', () => {
+    mount()
+    const input = { user: 1, post: 2 }
+    const values = [42, Number.NaN, Number.POSITIVE_INFINITY, null, undefined, { length: 1e9 }, {}, Symbol('url'), true, 1n]
+    for (const value of values) {
+      setConfigs({ config: { url: value as never } })
+      expect(() => route('users.posts.show', input, { absolute: true })).toThrow(
+        new TypeError("[@laratype/http] route: absolute URLs need config('config.url') (app.url), which is not set"),
+      )
+    }
   })
 })
 

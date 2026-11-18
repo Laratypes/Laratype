@@ -1,5 +1,5 @@
 import type { API_ROOT, ApiEndpoint, ApiRouteName, EndpointTypes, NodeContext, PathParams } from "@laratype/contract";
-import { buildUrl, joinPath } from "@laratype/contract";
+import { buildUrl } from "@laratype/contract";
 import { config } from "@laratype/core";
 import type { ApiRoutes } from "./api/ApiRouter";
 import type { AdHocRouteEntry, MountedRoute, RouteEntry } from "./api/types";
@@ -43,8 +43,8 @@ type ContractRouteName<A> = A extends { readonly [API_ROOT]: true } ? ApiRouteNa
 /** A path param value: a string, a number or a bigint, or a model whose route key is used (see `RouteKeyed`). */
 export type RouteParamValue = string | number | bigint | RouteKeyed;
 
-/** Every value of a path, widened to what `route()` accepts. */
-type WidenParams<P> = { [K in keyof P]: RouteParamValue };
+/** Every value of a path, widened to what `route()` accepts; a path without params takes no key at all. */
+type WidenParams<P> = keyof P extends never ? Record<string, never> : { [K in keyof P]: RouteParamValue };
 
 /** The params and query of a route name: the contract endpoint's, or the ad-hoc route's `object` query. */
 type RouteInputs<R, Name extends string> = [RegisteredRoutes<R>] extends [never]
@@ -162,10 +162,20 @@ function fail(message: string): never {
   throw new TypeError(`[@laratype/http] ${message}`);
 }
 
-/** A name echoed in a diagnostic: a 100 KB name must not build a 100 KB message. Counts characters, not UTF-16 units. */
+/** How many code points a name echoed in a diagnostic keeps. */
+const NAME_LIMIT = 100;
+
+/**
+ * A name echoed in a diagnostic: a 10 MB name must not build a 10 MB message. Reads a bounded prefix only (2 UTF-16
+ * units per code point, plus one unit so the 100th code point of a surrogate pair is complete), then cuts at the
+ * 100th code point without splitting a pair. A name of 100 code points or fewer is returned as is.
+ */
 const truncateName = (name: string): string => {
-  const characters = Array.from(name);
-  return characters.length > 100 ? `${characters.slice(0, 100).join("")}…` : name;
+  if (name.length <= NAME_LIMIT) return name;
+  const prefix = name.slice(0, NAME_LIMIT * 2 + 1);
+  const characters = Array.from(prefix);
+  if (name.length === prefix.length && characters.length <= NAME_LIMIT) return name;
+  return `${characters.slice(0, NAME_LIMIT).join("")}…`;
 };
 
 /**
@@ -184,21 +194,19 @@ const appUrl = (): string => {
   } catch {
     parsed = undefined;
   }
-  // The config value is the only origin source: the request's Host header never reaches an absolute URL
-  const problem =
-    parsed === undefined ||
-    !/^https?:$/.test(parsed.protocol) ||
-    parsed.search !== "" ||
-    parsed.hash !== "" ||
-    parsed.username !== "" ||
-    parsed.password !== "";
-  if (problem) {
-    const got = JSON.stringify(url);
-    fail(`route: config('config.url') must be an absolute http(s) URL without a query, hash or credentials, got ${got}`);
+  // The config value is the only origin source: the request's Host header never reaches an absolute URL. Never echo the
+  // value: a URL an operator put credentials in must not reach a log through the exception (only the rule it breaks does)
+  if (parsed === undefined || !/^https?:$/.test(parsed.protocol)) {
+    fail("route: config('config.url') must be an absolute http(s) URL");
   }
+  // Credentials first: the most sensitive part of a URL, and the one an operator must remove
+  if (parsed.username !== "" || parsed.password !== "") {
+    fail("route: config('config.url') must not contain credentials");
+  }
+  if (parsed.search !== "") fail("route: config('config.url') must not contain a query");
+  if (parsed.hash !== "") fail("route: config('config.url') must not contain a hash");
   // The parsed origin and path, so a trailing "?", "#", a credential or a space in the config never reaches a URL
-  // (`problem` above proves `parsed` is defined here)
-  const base = parsed!;
+  const base = parsed;
   return `${base.origin}${base.pathname}`.replace(/\/+$/, "");
 };
 
@@ -245,7 +253,10 @@ export const buildRouteUrl = (
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
   // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams
   const path = buildUrl(entry.path, { params: paramValues(params), query: options?.query });
-  return options?.absolute ? joinPath(appUrl(), path) : path;
+  // The path is appended to the config's origin and base path, the root "/" included: joinPath drops a bare "/", which
+  // made a query alone decide the pathname ("https://app.test/sub" with no query, "https://app.test/sub/?page=2" with
+  // one). `buildUrl` always returns a path that starts with "/".
+  return options?.absolute ? `${appUrl()}${path}` : path;
 };
 
 /**
@@ -253,9 +264,10 @@ export const buildRouteUrl = (
  * `route('users.posts.update', { user, post }, { query: { page: 2 } })` → `"/api/users/1/posts/2?page=2"`.
  * - Names come from the app's `Register` augmentation; params are typed from the full path, folder `[x]` params
  *   included, and a param takes a model through `RouteKeyed`.
- * - `{ absolute: true }` prefixes `config('config.url')`. The config value is the only origin source: the request's
- *   `Host` header never reaches it.
- * - A name that is not a string, an unknown name, an object param that is not a model, and a missing absolute-URL
+ * - `{ absolute: true }` prefixes `config('config.url')`, its path prefix included (`https://app.test/sub/`). The
+ *   config value is the only origin source: the request's `Host` header never reaches it, and a value that is not an
+ *   absolute http(s) URL without a query, hash or credentials throws without echoing the value.
+ * - A name that is not a string, an unknown name, an object param that is not a model, and an invalid absolute-URL
  *   config throw; params and query are encoded by `buildUrl`, whose diagnostics propagate.
  */
 export function route<const Name extends RouteName>(name: Name, ...args: RouteArgs<Name>): string {

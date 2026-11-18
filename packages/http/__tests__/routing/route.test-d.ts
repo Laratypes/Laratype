@@ -84,6 +84,12 @@ describe('route() params', () => {
     route('users.posts.update', { post: 2 })
     // @ts-expect-error not a param of the path
     route('users.show', { user: 1, slug: 'x' })
+    // @ts-expect-error a path without params takes no key at all
+    route('health', { typo: 'x' })
+    // @ts-expect-error a contract route without params takes no key either
+    route('users.index', { typo: 'x' })
+    // an omitted params argument and an explicit {} stay valid
+    expectTypeOf(route('health', {})).toEqualTypeOf<string>()
     // @ts-expect-error a param takes a string, a number, a bigint or a model
     route('users.show', { user: true })
   })
