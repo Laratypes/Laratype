@@ -171,6 +171,7 @@ if (result.ok) result.data.title                     // see Result union
 - `[@laratype/client] route path "<path>" would leave the page's origin: "<joined path>"` (the call rejects: a same-origin `baseUrl` and a route path that URL parsing reads as another host)
 - `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them` (from [buildUrl](./contract.md#url-builder))
 - Type-level: a missing required param, body or schema header (unless `options.headers` names it), an unknown param, a body that doesn't match the schema input, or a body value JSON can't carry (`bigint`, `Map`, `Set`, a function) (`packages/client/__tests__/client.test-d.ts`).
+- Type-level, `ManifestClientOptions`: both manifest overloads take `ManifestClientOptions`, which narrows `validateResponses` to `false`. An options variable declared `ClientOptions` no longer matches either overload, even when its value is `{ baseUrl: "/api" }` and validation is off: a compile-time break from CL6 [#159](https://github.com/Laratypes/Laratype/issues/159). Declare such a variable as `ManifestClientOptions`, or with `satisfies ClientOptions`, which keeps its inferred literal type.
 
 ### Example
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
@@ -490,19 +491,23 @@ export class ResponseValidationError extends Error {
 ```
 
 ```ts
-import { createClient } from '@laratype/client'
+import { createClient, ResponseValidationError } from '@laratype/client'
 import { appApi } from '$api'
 
 const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
 const result = await api.users.show({ params: { user: 1 } })
-if (!result.ok && result.unexpected) console.warn(result.error)   // a ResponseValidationError (or the schema's error) in development
+// the guard names a schema mismatch only: a network failure, a non-JSON body or a schema that threw is not one
+if (!result.ok && result.unexpected && result.error instanceof ResponseValidationError) {
+  // a fixed message: the error can hold response values, so it is not logged or sent to an error tracker
+  console.warn('[@laratype/client] the development response check failed: the server response does not match the contract')
+}
 ```
 
 ### Invariants
 - **Opt-in, off by default; no dev detection.** The client cannot tell a development build from a production one: `process` does not exist in a browser bundle, `import.meta.env` is Vite's and not standard, the package also builds CJS and ESM for Node, and the server's `__PROD__` is not set in a browser. The app wires the option to its bundler's dev flag, `validateResponses: import.meta.env.DEV` (Vite) or `NODE_ENV !== "production"` on SSR; a production build passes `false` and never runs the check.
 - **What is checked:** the parsed JSON body of a body-carrying 2xx whose endpoint has a response schema, with [`validate()`](./contract.md#validation-adapter) from `@laratype/contract` (sync or async). The inputs with schemas are option (a): the `appApi`, an API node and a contract file. A 204/205 or an endpoint without a response schema is skipped, and so is every declared error body: the contract has no schema for those (`ErrorDef` carries the status, the code and the body type only), so a 401/403/404/409/422 answer is classified exactly as it is with the option off.
 - **The manifest and the path-style client have no schemas:** `ManifestClientOptions` and `PathClientOptions` make `validateResponses: true` a type error, and `createClient` / `createPathClient` throw the diagnostics below. Neither is a silent no-op: the generated manifest carries no response schemas, and a [path-style call](#path-style-calls) has no contract at runtime.
-- **The success keeps the wire value:** only the schema's input is validated. `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output: a transforming schema (`z.coerce.date()`, a `.transform`) passes and does not change `data`, and a schema whose input is not JSON (a `z.date()` field) fails, since the wire carries the ISO string: use `z.coerce.date()`.
+- **The success keeps the wire value:** only the schema's input side is checked (Standard Schema has no output validation). `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output. This assumes the response schema's output is a value its own parse accepts, which holds when output equals input. A transform whose output its parse rejects (`{ raw: string }` → `{ count: number }`, a `z.string().transform()` field) makes a correct server response fail the check with a `ResponseValidationError`: leave `validateResponses` off for such a response schema (see Open questions). A leaf coercion (`z.coerce.date()`) parses the wire string and does not change `data`; a `z.date()` field fails, since the wire carries the ISO string.
 - **A mismatch is the unexpected result:** `ok: false`, `unexpected: true`, the HTTP status and `response`, and `error` is a `ResponseValidationError` whose `errors` is the schema's error bag (a null prototype) and whose `issues` are the Standard Schema issues. `code` is `undefined`, so `switch (result.code)`'s `case undefined` already covers it. This mirrors the server, which answers a development mismatch with a 500 instead of sending a value that does not match the contract: the client's loud equivalent is a failed call, since handing out data typed `Jsonify<output>` that does not match is the drift the check exists to catch. A schema that throws or rejects is the same result with the thrown error as `error`.
 - **Async:** the body is already read when the check runs, so `onResponse` still precedes it; `toResult` awaits `validate()` before the call settles, so a sync or async schema is complete. A schema whose `~standard.validate` throws or rejects resolves the call as the unexpected result with that error, caught in `checkResponseBody`: a broken schema is reported, not turned into a rejection (a failing hook still rejects the call).
 - **Live option:** `validateResponses` is read from the options object when each call starts, like every option.
@@ -529,6 +534,9 @@ if (result.unexpected && result.error instanceof ResponseValidationError) {
   throw result.error   // development: the server broke the contract; error.errors and error.issues name it
 }
 ```
+
+### Open questions
+- A response schema whose output differs from its input (a shape-changing `.transform`) gives a false `ResponseValidationError`, since Standard Schema has no output validation: the client checks the server's output with the schema's input side. Leave the check off for such a schema until a contained way to skip it or to validate the output side exists ([#159](https://github.com/Laratypes/Laratype/issues/159)).
 
 ### Acceptance
 [#159 Done when](https://github.com/Laratypes/Laratype/issues/159)
