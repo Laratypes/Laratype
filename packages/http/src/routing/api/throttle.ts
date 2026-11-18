@@ -126,25 +126,25 @@ export const ipBucket = (ip: string | undefined): string | undefined => {
  */
 const NO_CONN_INFO_WARNED = Symbol.for("laratype.http.throttleNoConnInfoWarned");
 
-const warnNoConnInfo = (name: string) => {
-  const store = globalThis as { [NO_CONN_INFO_WARNED]?: true };
-  if (store[NO_CONN_INFO_WARNED]) return;
-  store[NO_CONN_INFO_WARNED] = true;
-  console.warn(`[@laratype/http] Route.api: no getConnInfo is registered, so .throttle() routes serve requests without a limit: a Bun or custom entry must call mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo) before the routes are mounted (first: ${name})`);
-};
-
 /**
  * Set once the found-no-address warning printed, per process for the same reason as `NO_CONN_INFO_WARNED`: a registered
  * getter that finds no address can be a deployment fact (a unix socket) or a getter for another runtime.
  */
 const NO_ADDRESS_WARNED = Symbol.for("laratype.http.throttleNoAddressWarned");
 
-const warnNoAddress = (name: string) => {
-  const store = globalThis as { [NO_ADDRESS_WARNED]?: true };
-  if (store[NO_ADDRESS_WARNED]) return;
-  store[NO_ADDRESS_WARNED] = true;
-  console.warn(`[@laratype/http] Route.api: the registered getConnInfo found no client address (a unix socket or named pipe, or a getter for another runtime), so .throttle() routes serve such requests without a limit; behind a proxy or a unix socket the limit needs the trusted-proxy setting (#320) (first: ${name})`);
+/** Prints `text` the first time this process reaches the warning flagged by `flag`. */
+const warnOnce = (flag: symbol, text: string) => {
+  const store = globalThis as { [key: symbol]: true | undefined };
+  if (store[flag]) return;
+  store[flag] = true;
+  console.warn(text);
 };
+
+const warnNoConnInfo = (name: string) =>
+  warnOnce(NO_CONN_INFO_WARNED, `[@laratype/http] Route.api: no getConnInfo is registered, so .throttle() routes serve requests without a limit: a Bun or custom entry must call mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo) before the routes are mounted (first: ${name})`);
+
+const warnNoAddress = (name: string) =>
+  warnOnce(NO_ADDRESS_WARNED, `[@laratype/http] Route.api: the registered getConnInfo found no client address (a unix socket or named pipe, or a getter for another runtime), so .throttle() routes serve such requests without a limit; behind a proxy or a unix socket the limit needs the trusted-proxy setting (#320) (first: ${name})`);
 
 /** The catalog 429 on the wire (`{ code, ...body }`, http.md › Exceptions), built once: it never changes. */
 const TOO_MANY_REQUESTS = (() => {
