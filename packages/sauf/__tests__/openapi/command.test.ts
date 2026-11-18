@@ -1,4 +1,14 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +44,20 @@ const project = (name: string, config?: string): string => {
   }
   return dir;
 };
+
+// A Windows file symlink needs a privilege the CI account may lack: the case says why it is skipped
+const canSymlinkFile = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "laratype-symlink-"));
+  try {
+    writeFileSync(join(dir, "target.json"), "{}");
+    symlinkSync(join(dir, "target.json"), join(dir, "link.json"), "file");
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 beforeAll(() => {
   tmp = mkdtempSync(join(tmpdir(), "laratype-openapi-"));
@@ -126,6 +150,86 @@ describe("sauf openapi:generate", () => {
       generateOpenApiFile({ projectDir: dir, out: "docs", load, contract: contractRuntime }),
     ).rejects.toThrow('the output file "docs" (--out) is a directory');
     expect(existsSync(join(dir, ".laratype"))).toBe(false);
+  }, 60_000);
+
+  it("refuses to overwrite a file that is not an OpenAPI document this command wrote", async () => {
+    const dir = project("out-unsafe");
+    const packageFile = join(dir, "package.json");
+    const sourceFile = join(dir, "app", "api", "users.ts");
+    const notOpenApi = join(dir, "not-openapi.json");
+    const brokenJson = join(dir, "broken.json");
+    writeFileSync(notOpenApi, JSON.stringify({ openapi: 1 }));
+    writeFileSync(brokenJson, "not json");
+    const files = [
+      ["package.json", packageFile],
+      ["app/api/users.ts", sourceFile],
+      ["not-openapi.json", notOpenApi],
+      ["broken.json", brokenJson],
+    ] as const;
+    const before = files.map(([, file]) => readFileSync(file, "utf8"));
+
+    for (const [out] of files) {
+      await expect(generateOpenApiFile({ projectDir: dir, out, load, contract: contractRuntime })).rejects.toThrow(
+        `the output file "${out}" (--out) already exists and is not an OpenAPI document this command wrote; refusing to overwrite it`,
+      );
+    }
+    files.forEach(([, file], index) => expect(readFileSync(file, "utf8")).toBe(before[index]));
+    // the refusal comes before the scan, so the generated folder was not written either
+    expect(existsSync(join(dir, ".laratype"))).toBe(false);
+  }, 60_000);
+
+  it("overwrites an OpenAPI document a previous run wrote", async () => {
+    const dir = project("out-own");
+    const first = await generateOpenApiFile({ projectDir: dir, load, contract: contractRuntime });
+    const file = join(dir, "openapi.json");
+    const edited = { ...first.document, info: { title: "edited by hand", version: "0.0.0" } };
+    writeFileSync(file, `${JSON.stringify(edited, null, 2)}\n`);
+
+    const again = await generateOpenApiFile({ projectDir: dir, load, contract: contractRuntime });
+    expect(again.changed).toBe(true);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(again.document);
+  }, 60_000);
+
+  it("refuses a --out reached through a junction that points outside the project", async () => {
+    const dir = project("out-junction");
+    const outside = join(tmp, "outside-junction");
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(dir, "docs"), "junction");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "docs/openapi.json", load, contract: contractRuntime }),
+    ).rejects.toThrow(
+      'the output file "docs/openapi.json" (--out) is reached through a folder that resolves outside the project; refusing to write through it',
+    );
+    expect(existsSync(join(outside, "openapi.json"))).toBe(false);
+    expect(existsSync(join(dir, ".laratype"))).toBe(false);
+  }, 60_000);
+
+  it("refuses a symlinked --out target", async (context) => {
+    if (!canSymlinkFile) {
+      context.skip("the OS refused to create a file symlink (a Windows privilege)");
+      return;
+    }
+    const dir = project("out-symlink");
+    const real = join(dir, "real.json");
+    writeFileSync(real, JSON.stringify({ openapi: "3.1.0" }));
+    symlinkSync(real, join(dir, "openapi.json"), "file");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "openapi.json", load, contract: contractRuntime }),
+    ).rejects.toThrow(
+      'the output file "openapi.json" (--out) is a symbolic link or junction; refusing to write through it',
+    );
+    // the target itself (inside the project, a valid OpenAPI JSON) is untouched
+    expect(readFileSync(real, "utf8")).toBe(JSON.stringify({ openapi: "3.1.0" }));
+  }, 60_000);
+
+  it("refuses a --gen folder inside the contract tree root", async () => {
+    const dir = project("gen-in-root");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, gen: "app/api/x", load, contract: contractRuntime }),
+    ).rejects.toThrow(
+      'the generated folder "app/api/x" (--gen) must not be inside the contract tree root "app/api" (--root or config api.root)',
+    );
+    expect(existsSync(join(dir, "app", "api", "x"))).toBe(false);
   }, 60_000);
 
   it("rejects wrong-typed options with one diagnostic", async () => {

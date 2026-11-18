@@ -51,6 +51,11 @@ export function errorReason(error: unknown): string {
   }
 }
 
+/** One line, no stack: a jiti import failure and the circular-structure message both print their stack in the
+ * message of some errors. Warnings and the load diagnostics go through this, so a terminal line stays one line. */
+export const oneLine = (error: unknown): string =>
+  errorReason(error).replace(/\s+/g, " ").trim() || "an unknown error";
+
 /**
  * `schema` as JSON Schema through the Standard JSON Schema extension: `input` for a request slot (what the FE sends,
  * what the server validates), `output` for a response (what the server serializes). A schema without the extension,

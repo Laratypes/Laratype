@@ -4,6 +4,7 @@ import {
   hasLocalRefs,
   isJsonObject,
   isParentRef,
+  oneLine,
   rebaseRefs,
   standardJsonSchema,
   withParentDefs,
@@ -276,7 +277,11 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   const convert = (route: string, label: string, schema: unknown, io: JsonSchemaIo): JsonSchema => {
     const result = standardJsonSchema(schema, io);
     if (!result.ok) {
-      warnings.push(`${route}: the ${label} schema has no JSON Schema (${result.reason}); it is documented as {}`);
+      warnings.push(
+        oneLine(
+          `${JSON.stringify(route)}: the ${label} schema has no JSON Schema (${result.reason}); it is documented as {}`,
+        ),
+      );
       return {};
     }
     // A root $id makes the schema its own resource: its refs already resolve, so it stays inline.
@@ -298,7 +303,9 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     if (!result.ok) {
       const notDocumented = `the ${label} parameters are not documented`;
       warnings.push(
-        `${route.name}: the ${label} schema has no JSON Schema (${result.reason}); ${notDocumented}`,
+        oneLine(
+          `${JSON.stringify(route.name)}: the ${label} schema has no JSON Schema (${result.reason}); ${notDocumented}`,
+        ),
       );
       return [];
     }
@@ -313,12 +320,14 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
       let json: JsonSchema;
       if (!isJsonObject(property)) {
         warnings.push(
-          `${route.name}: the ${label} property "${name}" is not a JSON Schema object; it is documented as {}`,
+          oneLine(
+            `${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} is not a JSON Schema object; it is documented as {}`,
+          ),
         );
         json = {};
       } else if (isParentRef(property)) {
         const itself = `only refers to the ${label} schema itself; it is documented as {}`;
-        warnings.push(`${route.name}: the ${label} property "${name}" ${itself}`);
+        warnings.push(oneLine(`${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} ${itself}`));
         json = {};
       } else if (hasLocalRefs(property)) {
         json = component(`${route.name}.${label}.${name}`, (key) => rebaseRefs(withParentDefs(root, property), key));
@@ -455,7 +464,9 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
       if (first !== undefined) {
         // Hono answers with the first of two routes with the same method and path: keep it, as the router does.
         warnings.push(
-          `${route.name} and ${first} both answer ${route.method.toUpperCase()} ${group.template}; keeping ${first}`,
+          oneLine(
+            `${JSON.stringify(route.name)} and ${JSON.stringify(first)} both answer ${route.method.toUpperCase()} ${group.template}; keeping ${JSON.stringify(first)}`,
+          ),
         );
         continue;
       }

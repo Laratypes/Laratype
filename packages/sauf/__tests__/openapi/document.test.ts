@@ -250,7 +250,7 @@ describe("JSON Schema fallbacks", () => {
     const show = result.document.paths["/api/plain"]!.get!.responses["200"]!;
     expect(content(show)).toEqual({});
     expect(result.warnings[0]).toMatch(
-      /^plain\.show: the response schema has no JSON Schema \(it has no Standard JSON Schema extension/,
+      /^"plain\.show": the response schema has no JSON Schema \(it has no Standard JSON Schema extension/,
     );
   });
 
@@ -261,7 +261,7 @@ describe("JSON Schema fallbacks", () => {
     const result = openApi(defineApi({ dated: { contract, path: "/api/dated", scopes: [] } }));
     expect(content(result.document.paths["/api/dated"]!.get!.responses["200"]!)).toEqual({});
     expect(result.warnings).toEqual([
-      "dated.show: the response schema has no JSON Schema (Date cannot be represented in JSON Schema); " +
+      '"dated.show": the response schema has no JSON Schema (Date cannot be represented in JSON Schema); ' +
         "it is documented as {}",
     ]);
   });
@@ -301,6 +301,8 @@ describe("JSON Schema fallbacks", () => {
     const cyclicResult = openApi(defineApi({ cyclic: { contract: cyclicContract, path: "/api/c", scopes: [] } }));
     expect(content(cyclicResult.document.paths["/api/c"]!.get!.responses["200"]!)).toEqual({});
     expect(cyclicResult.warnings[0]).toContain("Converting circular structure to JSON");
+    // the V8 message is multi-line: the warning is printed on one line
+    expect(cyclicResult.warnings[0]).not.toContain("\n");
 
     const throwing = Object.defineProperty({}, "~standard", {
       get() {
@@ -328,7 +330,7 @@ describe("JSON Schema fallbacks", () => {
       { name: "bad", in: "query", required: false, schema: {} },
     ]);
     expect(result.warnings).toEqual([
-      'broken.index: the query property "bad" is not a JSON Schema object; it is documented as {}',
+      '"broken.index": the query property "bad" is not a JSON Schema object; it is documented as {}',
     ]);
 
     const missing = {
@@ -338,8 +340,76 @@ describe("JSON Schema fallbacks", () => {
     const noSchemaResult = openApi(defineApi({ missing: { contract: noSchema, path: "/api/missing", scopes: [] } }));
     expect(noSchemaResult.document.paths["/api/missing"]!.get!.parameters).toBeUndefined();
     expect(noSchemaResult.warnings[0]).toMatch(
-      /^missing\.index: the query schema has no JSON Schema .* the query parameters are not documented$/,
+      /^"missing\.index": the query schema has no JSON Schema .* the query parameters are not documented$/,
     );
+  });
+});
+
+describe("warning hygiene", () => {
+  it("keeps a multi-line conversion error on one line", () => {
+    const multiline = {
+      "~standard": {
+        version: 1,
+        vendor: "multiline",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => {
+            throw new Error("first line\nsecond line\tthird");
+          },
+          output: () => {
+            throw new Error("first line\nsecond line");
+          },
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ show: endpoint.get("/").response(multiline) });
+    const result = openApi(defineApi({ ml: { contract, path: "/api/ml", scopes: [] } }));
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("(first line second line)");
+    expect(result.warnings[0]).not.toContain("\n");
+  });
+
+  it("escapes control characters and ANSI escapes in route and property names", () => {
+    const route = `evil.\u0001route\u001b[31m`;
+    const control = "\u0001prop";
+    const ansi = "\u001b[31mred\u001b[0m";
+    const hostile = {
+      "~standard": {
+        version: 1,
+        vendor: "hostile-names",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({ type: "object", properties: { [control]: 5, [ansi]: 5 } }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ ["\u0001route\u001b[31m"]: endpoint.get("/").query(hostile) });
+    const result = openApi(defineApi({ evil: { contract, path: "/api/evil", scopes: [] } }));
+    expect(result.warnings).toHaveLength(2);
+    for (const warning of result.warnings) {
+      expect(warning).toContain(JSON.stringify(route));
+      expect(warning).not.toContain("\u0001");
+      expect(warning).not.toContain("\u001b");
+    }
+    expect(result.warnings[0]).toContain(JSON.stringify(control));
+    expect(result.warnings[1]).toContain(JSON.stringify(ansi));
+  });
+
+  it("escapes control characters in a duplicate-route warning", () => {
+    const control = "\u0001one";
+    const ansi = "\u001b[32mtwo";
+    const first = defineContract()({ [control]: endpoint.get("/:a") });
+    const second = defineContract()({ [ansi]: endpoint.get("/:b") });
+    const api = defineApi({
+      first: { contract: first, path: "/api/x", scopes: [] },
+      second: { contract: second, path: "/api/x", scopes: [] },
+    });
+    const result = openApi(api);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(JSON.stringify(`second.${ansi}`));
+    expect(result.warnings[0]).toContain(JSON.stringify(`first.${control}`));
+    expect(result.warnings[0]).not.toContain("\u0001");
+    expect(result.warnings[0]).not.toContain("\u001b");
   });
 });
 
@@ -455,7 +525,9 @@ describe("paths OpenAPI cannot tell apart", () => {
     const result = openApi(api);
     expect(Object.keys(result.document.paths["/api/x/{a}"]!)).toEqual(["get"]);
     expect(result.document.paths["/api/x/{a}"]!.get!.operationId).toBe("first.one");
-    expect(result.warnings).toEqual(["second.two and first.one both answer GET /api/x/{a}; keeping first.one"]);
+    expect(result.warnings).toEqual([
+      '"second.two" and "first.one" both answer GET /api/x/{a}; keeping "first.one"',
+    ]);
   });
 
   it("drops a same-method route whose param differs only by a regex", () => {
@@ -466,7 +538,7 @@ describe("paths OpenAPI cannot tell apart", () => {
     const result = openApi(defineApi({ pattern: { contract, path: "/api/x", scopes: [] } }));
     expect(result.document.paths["/api/x/{id}"]!.get!.operationId).toBe("pattern.plain");
     expect(result.warnings).toEqual([
-      "pattern.patterned and pattern.plain both answer GET /api/x/{id}; keeping pattern.plain",
+      '"pattern.patterned" and "pattern.plain" both answer GET /api/x/{id}; keeping "pattern.plain"',
     ]);
   });
 });

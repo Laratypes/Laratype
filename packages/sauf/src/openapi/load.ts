@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +9,7 @@ import type { ApiTreeConfig } from "../typegen";
 import { generateOpenApiDocument } from "./document";
 import type { GeneratedOpenApi, OpenApiContract, OpenApiDocument } from "./document";
 import { OpenApiGenerationError } from "./errors";
-import { errorReason, isJsonObject } from "./schema";
+import { isJsonObject, oneLine } from "./schema";
 
 /**
  * `sauf openapi:generate` (G3 #143): the same contract folder tree as `sauf types:generate`, written as an OpenAPI 3.1
@@ -88,8 +88,9 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   const config: ApiTreeConfig =
     options.root !== undefined && options.base !== undefined
       ? {}
-      : await readApiTreeConfigOrDefaults(projectDir, (message) => warnings.push(message), load);
+      : await readApiTreeConfigOrDefaults(projectDir, (message) => warnings.push(oneLine(message)), load);
   const tree = resolveApiTree({ root: options.root, base: options.base }, config);
+  checkGeneratedFolder(projectDir, tree.root, gen);
   const scan = syncContractTree({
     projectDir,
     root: tree.root,
@@ -116,14 +117,91 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   return { document: generated.document, warnings, file: out, changed };
 }
 
-/** `--out` is a file of its own inside the project: a command never writes outside it or over a directory. */
+/** `--out` is a file of its own inside the project: a command never writes outside it, over a directory, over a
+ * file it did not write, or through a symlink or junction. */
 function checkOutputFile(projectDir: string, out: string): void {
   const target = resolve(projectDir, out);
   if (out === "" || isAbsolute(out) || /^[a-zA-Z]:/.test(out) || !inside(projectDir, target)) {
     throw new OpenApiGenerationError(`the output file "${out}" (--out) must be a file inside the project`);
   }
-  if (existsSync(target) && statSync(target).isDirectory()) {
-    throw new OpenApiGenerationError(`the output file "${out}" (--out) is a directory`);
+  // lstat, not existsSync: a broken symlink is a target too, and writeFileSync would create the file it points at
+  const info = lstatSync(target, { throwIfNoEntry: false });
+  if (info !== undefined) {
+    if (info.isSymbolicLink()) {
+      throw new OpenApiGenerationError(
+        `the output file "${out}" (--out) is a symbolic link or junction; refusing to write through it`,
+      );
+    }
+    if (info.isDirectory()) {
+      throw new OpenApiGenerationError(`the output file "${out}" (--out) is a directory`);
+    }
+    if (!info.isFile()) {
+      throw new OpenApiGenerationError(`the output file "${out}" (--out) is not a file`);
+    }
+    if (!isOpenApiDocument(target)) {
+      throw new OpenApiGenerationError(
+        `the output file "${out}" (--out) already exists and is not an OpenAPI document this command wrote; refusing to overwrite it`,
+      );
+    }
+  }
+  checkOutputFolder(projectDir, out, target);
+}
+
+/** Whether an existing target is a document this command wrote: JSON with a string `openapi` key. Its content is
+ * never printed: a JSON parse error quotes the input. */
+function isOpenApiDocument(target: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
+    return isJsonObject(parsed) && Object.hasOwn(parsed, "openapi") && typeof parsed.openapi === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The folder the write goes through must resolve inside the project: `realpath` of the nearest existing parent
+ * follows a symlink or junction anywhere above the target (the target itself is refused above). A project folder
+ * that does not exist is left to the scan, which reports the missing contract tree.
+ */
+function checkOutputFolder(projectDir: string, out: string, target: string): void {
+  let realProject: string;
+  try {
+    realProject = realpathSync(projectDir);
+  } catch {
+    return;
+  }
+  let folder = dirname(target);
+  while (lstatSync(folder, { throwIfNoEntry: false }) === undefined) {
+    const parent = dirname(folder);
+    if (parent === folder) break;
+    folder = parent;
+  }
+  let realFolder: string;
+  try {
+    realFolder = realpathSync(folder);
+  } catch {
+    throw new OpenApiGenerationError(
+      `the output file "${out}" (--out) is below a folder that cannot be resolved; refusing to write through it`,
+    );
+  }
+  if (realFolder !== realProject && !inside(realProject, realFolder)) {
+    throw new OpenApiGenerationError(
+      `the output file "${out}" (--out) is reached through a folder that resolves outside the project; refusing to write through it`,
+    );
+  }
+  if (!statSync(realFolder).isDirectory()) {
+    throw new OpenApiGenerationError(`the output file "${out}" (--out) is below a path that is not a folder`);
+  }
+}
+
+/** The generated folder is apart from the tree it describes: the reverse of typegen's "gen contains root" rule. A
+ * project root (`--root .`) is exempt, since the documented `<project>/.laratype` is inside that root. */
+function checkGeneratedFolder(projectDir: string, root: string, gen: string): void {
+  const rootDir = resolve(projectDir, root);
+  if (rootDir !== projectDir && inside(rootDir, resolve(projectDir, gen))) {
+    throw new OpenApiGenerationError(
+      `the generated folder "${gen}" (--gen) must not be inside the contract tree root "${root}" (--root or config api.root)`,
+    );
   }
 }
 
@@ -198,6 +276,3 @@ function writeDocument(projectDir: string, out: string, document: OpenApiDocumen
   writeFileSync(target, content);
   return true;
 }
-
-/** One line, no stack: a jiti import failure prints its stack in the message of some errors. */
-const oneLine = (error: unknown): string => errorReason(error).replace(/\s+/g, " ").trim() || "an unknown error";
