@@ -368,7 +368,7 @@ const result = await api.get('/api/users/:user', { params: { user: 1 } })
   - `[@laratype/client] createPathClient: more than one endpoint answers GET at path "/api/dup"` (two contracts with the same method and path, even when their endpoint types are identical: the check counts endpoint locations, not the members of their type union);
   - `[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)`;
   - the missing or wrong `params`, `query`, `body` and schema `headers` of the matched endpoint, as in [createClient](#createclient) › Diagnostics.
-  - `validateResponses: true` on the path client's options: `PathClientOptions` narrows it to `false | undefined`, and a `ClientOptions`-typed value is refused with the manifest client's rule.
+- Type-level, from `PathClientOptions`: `validateResponses: true` on the path client's options is refused (`false | undefined` only), and so is a `ClientOptions`-typed value, with the manifest client's rule.
 - Runtime, from the shared request path (with the named style's text): `[@laratype/client] createClient: baseUrl …` (the shared `createClient:` prefix), `[@laratype/client] route path "…" would leave the page's origin: "…"`, `[@laratype/contract] buildUrl: …` and `[@laratype/client] a GET request cannot have a body: "…"`. There is no unknown-path runtime error: the runtime has no route table.
 - `[@laratype/client] createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)` (at `createPathClient`, when an untyped caller passes a truthy `validateResponses`).
 
@@ -531,12 +531,14 @@ const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
 const result = await api.users.store({ body })
 if (result.ok) return result.data
 if (result.unexpected && result.error instanceof ResponseValidationError) {
-  throw result.error   // development: the server broke the contract; error.errors and error.issues name it
+  // development: the server broke the contract. The fields are on result.error for a debugger, but the message and
+  // issues can hold response values, so a fixed message is what goes to the console or an error tracker.
+  throw new Error('[@laratype/client] the server response does not match the contract')
 }
 ```
 
 ### Open questions
-- A response schema whose output differs from its input (a shape-changing `.transform`) gives a false `ResponseValidationError`, since Standard Schema has no output validation: the client checks the server's output with the schema's input side. Leave the check off for such a schema until a contained way to skip it or to validate the output side exists ([#159](https://github.com/Laratypes/Laratype/issues/159)).
+- Whether a shape-changing response transform (its output differs from its input) should skip the check or have its output validated, since Standard Schema has no output validation: [#159](https://github.com/Laratypes/Laratype/issues/159).
 
 ### Acceptance
 [#159 Done when](https://github.com/Laratypes/Laratype/issues/159)

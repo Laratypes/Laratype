@@ -121,16 +121,17 @@ describe("createPathClient", () => {
 
   it("refuses validateResponses at creation: a path-style call has no contract at runtime", () => {
     // an untyped caller bypasses PathClientOptions, so the refusal is also a runtime check
+    const createUntyped = createPathClient as (options: ClientOptions) => object;
     const refusal =
       "[@laratype/client] createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)";
     for (const truthy of [true, 1, "yes", {}, Infinity]) {
       const options = { validateResponses: truthy } as unknown as ClientOptions;
-      expect(() => createPathClient<Api>(options)).toThrow(refusal);
+      expect(() => createUntyped(options)).toThrow(refusal);
     }
     // off, unset and every other falsy value is the same as no option: no schema is ever consulted
     for (const falsy of [false, 0, "", null, undefined, Number.NaN]) {
       const options = { fetch: fakeFetch().fetch, validateResponses: falsy } as unknown as ClientOptions;
-      expect(() => createPathClient<Api>(options)).not.toThrow();
+      expect(() => createUntyped(options)).not.toThrow();
     }
   });
 
