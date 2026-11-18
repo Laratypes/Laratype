@@ -391,6 +391,8 @@ describe('hand-built gates: exact true (#394)', () => {
       1, 0, -0, NaN, Infinity, -Infinity, 'true', '', 'yes', {}, [], [true],
       { valueOf: () => true }, { toString: () => 'true' }, Object(true), Object(Symbol('true')),
       Symbol('true'), false, null, undefined, () => true, { length: 1e9 },
+      // A null prototype and an own "__proto__" key: neither is true
+      Object.create(null), JSON.parse('{"__proto__": true}'),
       // Unicode and control characters: none coerces to true
       '\uD800', '\u0000', 'true'.repeat(100_000),
     ]
