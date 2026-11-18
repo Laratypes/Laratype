@@ -54,20 +54,39 @@ describe("standardJsonSchema", () => {
     expect(standardJsonSchema(throwing, "output")).toEqual({ ok: false, reason: "a string" });
 
     const returns = (value: unknown) => ({
-      "~standard": { version: 1, vendor: "returns", validate: () => ({ value: 1 }), jsonSchema: { input: () => value } },
+      "~standard": {
+        version: 1,
+        vendor: "returns",
+        validate: () => ({ value: 1 }),
+        jsonSchema: { input: () => value },
+      },
     });
-    expect(standardJsonSchema(returns(null), "input")).toEqual({ ok: false, reason: "it is not a JSON Schema object (null)" });
-    expect(standardJsonSchema(returns([1]), "input")).toEqual({ ok: false, reason: "it is not a JSON Schema object (an array)" });
-    expect(standardJsonSchema(returns("x"), "input")).toEqual({ ok: false, reason: "it is not a JSON Schema object (string)" });
+    expect(standardJsonSchema(returns(null), "input")).toEqual({
+      ok: false,
+      reason: "it is not a JSON Schema object (null)",
+    });
+    expect(standardJsonSchema(returns([1]), "input")).toEqual({
+      ok: false,
+      reason: "it is not a JSON Schema object (an array)",
+    });
+    expect(standardJsonSchema(returns("x"), "input")).toEqual({
+      ok: false,
+      reason: "it is not a JSON Schema object (string)",
+    });
     expect(standardJsonSchema(returns(() => "x"), "input")).toEqual({ ok: false, reason: "it is not JSON (function)" });
 
     const cyclic: Record<string, unknown> = { type: "object" };
     cyclic.self = cyclic;
-    expect(standardJsonSchema(returns(cyclic), "input")).toMatchObject({ ok: false, reason: expect.stringContaining("circular") });
+    expect(standardJsonSchema(returns(cyclic), "input")).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("circular"),
+    });
   });
 
   it("reports a non-function converter", () => {
-    const value = { "~standard": { version: 1, vendor: "weird", validate: () => ({ value: 1 }), jsonSchema: { input: 1 } } };
+    const value = {
+      "~standard": { version: 1, vendor: "weird", validate: () => ({ value: 1 }), jsonSchema: { input: 1 } },
+    };
     expect(standardJsonSchema(value, "input").ok).toBe(false);
   });
 });

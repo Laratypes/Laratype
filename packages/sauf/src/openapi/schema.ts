@@ -10,8 +10,10 @@
 /** A JSON Schema, as the extension returns it: a JSON object with unknown keywords. */
 export type JsonSchema = Record<string, unknown>;
 
+/** Which half of a schema is wanted: `input` for a request slot, `output` for a response. */
 export type JsonSchemaIo = "input" | "output";
 
+/** The conversion result: the JSON Schema, or the one-line reason the schema is documented as `{}` instead. */
 export type JsonSchemaResult =
   | { readonly ok: true; readonly schema: JsonSchema }
   | { readonly ok: false; readonly reason: string };
@@ -35,7 +37,8 @@ export const isJsonObject = (value: unknown): value is JsonSchema =>
 const jsonKind = (value: unknown): string =>
   value === null ? "null" : Array.isArray(value) ? "an array" : value === undefined ? "undefined" : typeof value;
 
-/** A thrown value's message; a non-Error (a string, an object with a throwing accessor) is printed as safely as possible. */
+/** A thrown value's message; a non-Error (a string, an object with a throwing accessor) is printed as safely as
+ * possible. */
 export function errorReason(error: unknown): string {
   try {
     if (typeof error === "object" && error !== null) {

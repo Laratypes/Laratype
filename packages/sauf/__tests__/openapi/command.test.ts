@@ -71,6 +71,8 @@ describe("sauf openapi:generate", () => {
 
     const written = readFileSync(join(dir, "openapi.json"), "utf8");
     expect(JSON.parse(written)).toEqual(result.document);
+    // nothing but the contract and the documented metadata: no project path, source file or controller
+    expect(written).not.toContain(slash(dir));
     await expect(written).toMatchFileSnapshot("__snapshots__/fixture-openapi.json");
   }, 60_000);
 
@@ -102,11 +104,12 @@ describe("sauf openapi:generate", () => {
     expect(existsSync(join(dir, "docs", "openapi.json"))).toBe(true);
   }, 60_000);
 
-  it("reads api.root / api.base from app/config/config.ts, warning and falling back when it cannot be imported alone", async () => {
+  it("reads api.root / api.base from app/config/config.ts, with a fallback warning", async () => {
     const dir = project("config", "import { base } from '@app/base'\nexport default { api: { base } }\n");
     const result = await generateOpenApiFile({ projectDir: dir, load, contract: contractRuntime });
-    expect(result.warnings[0]).toMatch(
-      /^app\/config\/config\.ts could not be imported on its own .*@app\/base.*; using --root \/ --base and the defaults \(app\/api, \/api\) instead of config api$/s,
+    expect(result.warnings[0]).toMatch(/^app\/config\/config\.ts could not be imported on its own .*@app\/base/);
+    expect(result.warnings[0]).toContain(
+      "using --root / --base and the defaults (app/api, /api) instead of config api",
     );
     expect(Object.keys(result.document.paths)[0]).toBe("/api/users");
   }, 60_000);
@@ -119,9 +122,9 @@ describe("sauf openapi:generate", () => {
       );
     }
     mkdirSync(join(dir, "docs"), { recursive: true });
-    await expect(generateOpenApiFile({ projectDir: dir, out: "docs", load, contract: contractRuntime })).rejects.toThrow(
-      'the output file "docs" (--out) is a directory',
-    );
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "docs", load, contract: contractRuntime }),
+    ).rejects.toThrow('the output file "docs" (--out) is a directory');
     expect(existsSync(join(dir, ".laratype"))).toBe(false);
   }, 60_000);
 
@@ -135,6 +138,8 @@ describe("sauf openapi:generate", () => {
       [{ projectDir: { length: 1e9 } }, "projectDir must be the project folder"],
       [{ projectDir: tmp, out: 1 }, "--out must be a string"],
       [{ projectDir: tmp, gen: null }, "--gen must be a string"],
+      [{ projectDir: tmp, root: 1 }, "--root must be a string"],
+      [{ projectDir: tmp, base: null }, "--base must be a string"],
       [{ projectDir: tmp, load: 1 }, "load must be a module loader"],
     ];
     for (const [options, message] of cases) {
@@ -150,7 +155,8 @@ describe("sauf openapi:generate", () => {
     const error = await generateOpenApiFile({ projectDir: dir, load }).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(OpenApiGenerationError);
     expect((error as Error).message).toBe(
-      `[sauf openapi:generate] the project at ${slash(dir)} has no resolvable @laratype/contract dependency: add it to the project's dependencies`,
+      `[sauf openapi:generate] the project at ${slash(dir)} has no resolvable @laratype/contract dependency: ` +
+        "add it to the project's dependencies",
     );
     expect((error as Error).message).not.toContain("\n");
     expect((error as Error).message).not.toContain("Cannot find module");

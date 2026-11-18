@@ -3,7 +3,7 @@ import { defineApi, defineContract, defineError, defineScope, endpoint } from "@
 import type { StandardSchemaV1 } from "@laratype/contract";
 import { describe, expect, it } from "vitest";
 import { OpenApiGenerationError, generateOpenApiDocument } from "../../src/openapi";
-import type { JsonSchema, OpenApiOperation, OpenApiParameter } from "../../src/openapi";
+import type { JsonSchema, OpenApiContract, OpenApiOperation, OpenApiParameter } from "../../src/openapi";
 import { openApi, refs } from "./support";
 
 const User = z.object({ id: z.number(), name: z.string() });
@@ -162,7 +162,19 @@ describe("generateOpenApiDocument", () => {
     const destroy = operation("/api/users/{id}", "delete").responses["202"]!;
     expect(destroy).toEqual({ description: "Accepted" });
     expect(operation("/api/v1/health", "get").responses).toEqual({
-      "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false } } } },
+      "200": {
+        description: "OK",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { ok: { type: "boolean" } },
+              required: ["ok"],
+              additionalProperties: false,
+            },
+          },
+        },
+      },
     });
   });
 
@@ -237,7 +249,9 @@ describe("JSON Schema fallbacks", () => {
     const result = openApi(defineApi({ plain: { contract, path: "/api/plain", scopes: [] } }));
     const show = result.document.paths["/api/plain"]!.get!.responses["200"]!;
     expect(content(show)).toEqual({});
-    expect(result.warnings[0]).toMatch(/^plain\.show: the response schema has no JSON Schema \(it has no Standard JSON Schema extension/);
+    expect(result.warnings[0]).toMatch(
+      /^plain\.show: the response schema has no JSON Schema \(it has no Standard JSON Schema extension/,
+    );
   });
 
   it("reports the reason a converter throws (zod cannot represent a Date)", () => {
@@ -247,7 +261,8 @@ describe("JSON Schema fallbacks", () => {
     const result = openApi(defineApi({ dated: { contract, path: "/api/dated", scopes: [] } }));
     expect(content(result.document.paths["/api/dated"]!.get!.responses["200"]!)).toEqual({});
     expect(result.warnings).toEqual([
-      "dated.show: the response schema has no JSON Schema (Date cannot be represented in JSON Schema); it is documented as {}",
+      "dated.show: the response schema has no JSON Schema (Date cannot be represented in JSON Schema); " +
+        "it is documented as {}",
     ]);
   });
 
@@ -312,7 +327,9 @@ describe("JSON Schema fallbacks", () => {
     expect(result.document.paths["/api/broken"]!.get!.parameters).toEqual([
       { name: "bad", in: "query", required: false, schema: {} },
     ]);
-    expect(result.warnings).toEqual(['broken.index: the query property "bad" is not a JSON Schema object; it is documented as {}']);
+    expect(result.warnings).toEqual([
+      'broken.index: the query property "bad" is not a JSON Schema object; it is documented as {}',
+    ]);
 
     const missing = {
       "~standard": { version: 1, vendor: "missing", validate: () => ({ value: 1 }) },
@@ -320,7 +337,9 @@ describe("JSON Schema fallbacks", () => {
     const noSchema = defineContract()({ index: endpoint.get("/").query(missing) });
     const noSchemaResult = openApi(defineApi({ missing: { contract: noSchema, path: "/api/missing", scopes: [] } }));
     expect(noSchemaResult.document.paths["/api/missing"]!.get!.parameters).toBeUndefined();
-    expect(noSchemaResult.warnings[0]).toMatch(/^missing\.index: the query schema has no JSON Schema .* the query parameters are not documented$/);
+    expect(noSchemaResult.warnings[0]).toMatch(
+      /^missing\.index: the query schema has no JSON Schema .* the query parameters are not documented$/,
+    );
   });
 });
 
@@ -437,18 +456,30 @@ describe("paths OpenAPI cannot tell apart", () => {
     });
     const result = openApi(defineApi({ pattern: { contract, path: "/api/x", scopes: [] } }));
     expect(result.document.paths["/api/x/{id}"]!.get!.operationId).toBe("pattern.plain");
-    expect(result.warnings).toEqual(["pattern.patterned and pattern.plain both answer GET /api/x/{id}; keeping pattern.plain"]);
+    expect(result.warnings).toEqual([
+      "pattern.patterned and pattern.plain both answer GET /api/x/{id}; keeping pattern.plain",
+    ]);
   });
 });
 
 describe("hostile contract input", () => {
-  it.each([null, undefined, 1, 0, Number.NaN, Number.POSITIVE_INFINITY, "x", [], { length: 1e9 }, Object.fromEntries([["__proto__", 1]])])(
-    "rejects an appApi that is not a defineApi root (%#)",
-    (api) => {
-      expect(() => openApi(api as unknown as object)).toThrow(OpenApiGenerationError);
-      expect(() => openApi(api as unknown as object)).toThrow("[sauf openapi:generate] the appApi must be the root that defineApi returns");
-    },
-  );
+  it.each([
+    null,
+    undefined,
+    1,
+    0,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "x",
+    [],
+    { length: 1e9 },
+    Object.fromEntries([["__proto__", 1]]),
+  ])("rejects an appApi that is not a defineApi root (%#)", (api) => {
+    expect(() => openApi(api as unknown as object)).toThrow(OpenApiGenerationError);
+    expect(() => openApi(api as unknown as object)).toThrow(
+      "[sauf openapi:generate] the appApi must be the root that defineApi returns",
+    );
+  });
 
   it("rejects a missing contract runtime instead of a TypeError", () => {
     expect(() => generateOpenApiDocument({}, {} as never)).toThrow(
@@ -488,18 +519,25 @@ describe("hostile contract input", () => {
     const contract = defineContract()({ forged });
     const result = openApi(defineApi({ forged: { contract, path: "/api/x", scopes: [] } }));
     expect(content(result.document.paths["/api/x/forged"]!.get!.responses["200"]!)).toEqual({});
-    expect(result.warnings[0]).toContain("the response schema has no JSON Schema (it has no Standard JSON Schema extension");
+    expect(result.warnings[0]).toContain(
+      "the response schema has no JSON Schema (it has no Standard JSON Schema extension",
+    );
 
     const numbers = {
       "~standard": {
         version: 1,
         vendor: "numbers",
         validate: () => ({ value: 1 }),
-        jsonSchema: { input: () => ({ type: "number" }), output: () => ({ type: "number", minimum: Number.NaN, maximum: Number.POSITIVE_INFINITY }) },
+        jsonSchema: {
+          input: () => ({ type: "number" }),
+          output: () => ({ type: "number", minimum: Number.NaN, maximum: Number.POSITIVE_INFINITY }),
+        },
       },
     } as unknown as StandardSchemaV1;
     const numbersContract = defineContract()({ show: endpoint.get("/").response(numbers) });
-    const numbersResult = openApi(defineApi({ numbers: { contract: numbersContract, path: "/api/numbers", scopes: [] } }));
+    const numbersResult = openApi(
+      defineApi({ numbers: { contract: numbersContract, path: "/api/numbers", scopes: [] } }),
+    );
     // JSON cannot hold NaN or Infinity: the round trip makes them null, so the document stays JSON
     expect(content(numbersResult.document.paths["/api/numbers"]!.get!.responses["200"]!)).toEqual({
       type: "number",
@@ -521,9 +559,50 @@ describe("hostile contract input", () => {
       enumerable: false,
     });
     const contract = defineContract()({ show: endpoint.get("/").response(hidden as unknown as StandardSchemaV1) });
-    expect(content(openApi(defineApi({ hidden: { contract, path: "/api/hidden", scopes: [] } })).document.paths["/api/hidden"]!.get!.responses["200"]!)).toEqual({
-      type: "string",
+    const hiddenResult = openApi(defineApi({ hidden: { contract, path: "/api/hidden", scopes: [] } }));
+    expect(content(hiddenResult.document.paths["/api/hidden"]!.get!.responses["200"]!)).toEqual({ type: "string" });
+  });
+
+  it("gives colliding sanitized component keys the same names in any definition order", () => {
+    type Node = { name: string; children: Node[] };
+    const NodeDto: z.ZodType<Node> = z.object({
+      name: z.string(),
+      get children() {
+        return z.array(NodeDto);
+      },
     });
+    const contract = defineContract()({ show: endpoint.get("/").response(NodeDto) });
+    const one = defineApi({
+      ["a b"]: { contract, path: "/api/one", scopes: [] },
+      ["a_b"]: { contract, path: "/api/two", scopes: [] },
+    });
+    const two = defineApi({
+      ["a_b"]: { contract, path: "/api/two", scopes: [] },
+      ["a b"]: { contract, path: "/api/one", scopes: [] },
+    });
+    const first = openApi(one).document;
+    const second = openApi(two).document;
+    expect(Object.keys(first.components.schemas)).toEqual(["a_b.show.response", "a_b.show.response_2"]);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it("handles a very long regex pattern and a wrong contract runtime with one diagnostic", () => {
+    const pattern = "a".repeat(10_000);
+    const contract = defineContract()({ show: endpoint.get(`/:id{${pattern}}`) });
+    const result = openApi(defineApi({ re: { contract, path: "/api/re", scopes: [] } }));
+    expect(result.document.paths["/api/re/{id}"]!.get!.parameters![0]!.schema).toEqual({
+      type: "string",
+      pattern: `^(?:${pattern})$`,
+    });
+
+    const notArray = { apiRoutes: () => ({}), isApiRoot: () => true } as unknown as OpenApiContract;
+    expect(() => generateOpenApiDocument({}, { contract: notArray })).toThrow(
+      "[sauf openapi:generate] apiRoutes() must return an array of routes",
+    );
+    const badRoute = { apiRoutes: () => [{}], isApiRoot: () => true } as unknown as OpenApiContract;
+    expect(() => generateOpenApiDocument({}, { contract: badRoute })).toThrow(
+      "[sauf openapi:generate] apiRoutes() returned an invalid route",
+    );
   });
 
   it("keeps a trailing slash and a wildcard as written", () => {

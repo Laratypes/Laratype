@@ -82,8 +82,9 @@ export async function readApiTreeConfig(projectDir: string, load: (url: string) 
 
 /**
  * `readApiTreeConfig`, but a config that cannot be imported on its own (a Vite or tsconfig path alias, a module that
- * needs Vite transforms, a `$api` import) is reported through `onImportError` and read as `{}`: the command goes on
- * with its flags and the defaults, as it did before the config key. An `api` key that loads but is invalid still throws.
+ * needs Vite transforms, a `$api` import) is reported through `onImportError`, with the fallback the commands print,
+ * and read as `{}`: they go on with their flags and the defaults, as before the config key. An `api` key that loads
+ * but is invalid still throws.
  */
 export async function readApiTreeConfigOrDefaults(
   projectDir: string,
@@ -94,7 +95,7 @@ export async function readApiTreeConfigOrDefaults(
     return await readApiTreeConfig(projectDir, load);
   } catch (error) {
     if (!(error instanceof ConfigImportError)) throw error;
-    onImportError(error.message);
+    onImportError(`${error.message}; using --root / --base and the defaults (app/api, /api) instead of config api`);
     return {};
   }
 }

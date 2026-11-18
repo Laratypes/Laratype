@@ -3,10 +3,12 @@ import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
 import { generateOpenApiFile } from "../../openapi";
 import type { GeneratedOpenApiFile } from "../../openapi";
+import { errorReason } from "../../openapi/schema";
 import { ScanError } from "../../typegen";
 
-const SIGNATURE =
-  "openapi:generate {--root=} {--base=} {--gen=.laratype} {--out=openapi.json} : Generate an OpenAPI 3.1 document from the contract tree" as const;
+const PREFIX = "[sauf openapi:generate] ";
+
+const SIGNATURE = "openapi:generate {--root=} {--base=} {--gen=.laratype} {--out=openapi.json}" as const;
 
 /**
  * `sauf openapi:generate`: scans the contract tree, imports the generated `appApi` and the project's own
@@ -38,18 +40,19 @@ export default class OpenApiGenerateCommand extends Command<typeof SIGNATURE> {
         out: this.option("out"),
       });
     } catch (error) {
-      Console.error(
-        error instanceof ScanError ? `[sauf openapi:generate] ${error.message}` : error instanceof Error ? error.message : error,
-      );
+      // A ScanError has no prefix of its own; every message is printed once with this command's prefix (an
+      // OpenApiGenerationError already carries it, and a contract error keeps its own after it).
+      const message = error instanceof ScanError ? error.message : errorReason(error);
+      Console.error(message.startsWith(PREFIX) ? message : `${PREFIX}${message}`);
       process.exitCode = 1;
       return 1;
     }
 
-    for (const warning of result.warnings) Console.warn(`[sauf openapi:generate] ${warning}`);
+    for (const warning of result.warnings) Console.warn(`${PREFIX}${warning}`);
 
     const paths = Object.keys(result.document.paths).length;
-    const outcome = result.changed ? `wrote ${result.file}` : `${result.file} is unchanged`;
-    Console.success(green(`${paths} paths, ${outcome} in ${(performance.now() - startTime).toFixed(2)}ms`));
+    const outcome = result.changed ? `Wrote ${result.file}` : `${result.file} is unchanged`;
+    Console.success(green(`${outcome} (${paths} paths) in ${(performance.now() - startTime).toFixed(2)}ms`));
     return 0;
   }
 }

@@ -66,12 +66,7 @@ export interface TypesGenerateFlags {
  * that loads but is invalid still fails.
  */
 async function readConfigOrDefaults(projectDir: string, load?: (url: string) => Promise<unknown>): Promise<ApiTreeConfig> {
-  return readApiTreeConfigOrDefaults(
-    projectDir,
-    (message) =>
-      Console.warn(`[sauf types:generate] ${message}; using --root / --base and the defaults (app/api, /api) instead of config api`),
-    load,
-  );
+  return readApiTreeConfigOrDefaults(projectDir, (message) => Console.warn(`[sauf types:generate] ${message}`), load);
 }
 
 /** `sauf types:generate` without the console: config `api.root` / `api.base`, overridden by `--root` / `--base`. */

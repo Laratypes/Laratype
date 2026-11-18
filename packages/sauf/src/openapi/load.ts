@@ -23,6 +23,7 @@ const DEFAULT_OPENAPI = "openapi.json";
 
 export type LoadFunction = (url: string) => Promise<unknown>;
 
+/** The command's flags; each is a string when present (the wrapper validates the type). */
 export interface OpenApiFlags {
   /** Contract tree root, relative to the project (default: config api.root, else app/api). */
   readonly root?: string;
@@ -66,7 +67,9 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
     ["gen", options.gen],
     ["out", options.out],
   ] as const) {
-    if (value !== undefined && typeof value !== "string") throw new OpenApiGenerationError(`--${flag} must be a string`);
+    if (value !== undefined && typeof value !== "string") {
+      throw new OpenApiGenerationError(`--${flag} must be a string`);
+    }
   }
   if (options.load !== undefined && typeof options.load !== "function") {
     throw new OpenApiGenerationError("load must be a module loader");
@@ -83,15 +86,18 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   const config: ApiTreeConfig =
     options.root !== undefined && options.base !== undefined
       ? {}
-      : await readApiTreeConfigOrDefaults(
-          projectDir,
-          (message) =>
-            warnings.push(`${message}; using --root / --base and the defaults (app/api, /api) instead of config api`),
-          load,
-        );
+      : await readApiTreeConfigOrDefaults(projectDir, (message) => warnings.push(message), load);
   const tree = resolveApiTree({ root: options.root, base: options.base }, config);
-  const scan = syncContractTree({ projectDir, root: tree.root, base: tree.base, outDir: gen, rootSource: tree.rootSource });
-  if (scan === undefined) throw new ScanError(`the contract tree root "${tree.root}" does not exist (set it with --root or config api.root)`);
+  const scan = syncContractTree({
+    projectDir,
+    root: tree.root,
+    base: tree.base,
+    outDir: gen,
+    rootSource: tree.rootSource,
+  });
+  if (scan === undefined) {
+    throw new ScanError(`the contract tree root "${tree.root}" does not exist (set it with --root or config api.root)`);
+  }
 
   const contract = options.contract ?? (await loadContract(projectDir, load));
   const indexFile = slash(join(gen, "api", "index.gen.ts"));
@@ -130,7 +136,8 @@ async function loadContract(projectDir: string, load: LoadFunction): Promise<Ope
     entry = require.resolve(CONTRACT);
   } catch (error) {
     throw new OpenApiGenerationError(
-      `the project at ${slash(projectDir)} has no resolvable ${CONTRACT} dependency: add it to the project's dependencies`,
+      `the project at ${slash(projectDir)} has no resolvable ${CONTRACT} dependency: ` +
+        "add it to the project's dependencies",
       { cause: error },
     );
   }
@@ -138,7 +145,10 @@ async function loadContract(projectDir: string, load: LoadFunction): Promise<Ope
   try {
     loaded = await load(pathToFileURL(entry).href);
   } catch (error) {
-    throw new OpenApiGenerationError(`could not load ${CONTRACT} from ${slash(entry)}: ${oneLine(error)}`, { cause: error });
+    throw new OpenApiGenerationError(
+      `could not load ${CONTRACT} from ${slash(entry)}: ${oneLine(error)}`,
+      { cause: error },
+    );
   }
   const candidates = [loaded, isJsonObject(loaded) ? loaded.default : undefined];
   const contract = candidates.find(
@@ -155,7 +165,10 @@ async function loadIndex(projectDir: string, indexFile: string, load: LoadFuncti
   try {
     return await load(pathToFileURL(resolve(projectDir, indexFile)).href);
   } catch (error) {
-    throw new OpenApiGenerationError(`could not load the generated appApi from ${indexFile}: ${oneLine(error)}`, { cause: error });
+    throw new OpenApiGenerationError(
+      `could not load the generated appApi from ${indexFile}: ${oneLine(error)}`,
+      { cause: error },
+    );
   }
 }
 
