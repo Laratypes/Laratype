@@ -378,7 +378,7 @@ describe('hand-built gates: exact true (#394)', () => {
   const handBuilt = (answer: unknown) => gate(() => answer)
 
   /** The value of an `expect()` message: the answers include symbols, symbol wrappers and huge strings. */
-  const label = (answer: unknown): string => {
+  const answerLabel = (answer: unknown): string => {
     try {
       return String(answer).slice(0, 40)
     } catch {
@@ -395,9 +395,9 @@ describe('hand-built gates: exact true (#394)', () => {
       '\uD800', '\u0000', 'true'.repeat(100_000),
     ]
     for (const answer of answers) {
-      expect(await Gate.allows(user, handBuilt(answer)), label(answer)).toBe(false)
-      expect(await Gate.denies(user, handBuilt(answer)), label(answer)).toBe(true)
-      await expect(Gate.authorize(user, handBuilt(answer)), label(answer)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(await Gate.allows(user, handBuilt(answer)), answerLabel(answer)).toBe(false)
+      expect(await Gate.denies(user, handBuilt(answer)), answerLabel(answer)).toBe(true)
+      await expect(Gate.authorize(user, handBuilt(answer)), answerLabel(answer)).rejects.toBeInstanceOf(ForbiddenException)
     }
   })
 
@@ -414,6 +414,30 @@ describe('hand-built gates: exact true (#394)', () => {
     expect(await Gate.allows(user, handBuilt(thenable(1)))).toBe(false)
     expect(await Gate.denies(user, handBuilt(thenable(1)))).toBe(true)
     expect(await Gate.allows(user, handBuilt(thenable(true)))).toBe(true)
+  })
+
+  it('reads check from a prototype, a non-enumerable own property or an accessor, and still allows only true', async () => {
+    // A class instance: check is inherited from the prototype
+    class PrototypeGate {
+      check() {
+        return 1
+      }
+    }
+    expect(await Gate.allows(user, new PrototypeGate() as unknown as GateAbility<readonly unknown[]>)).toBe(false)
+    class AllowingPrototypeGate {
+      check() {
+        return true
+      }
+    }
+    expect(await Gate.allows(user, new AllowingPrototypeGate() as unknown as GateAbility<readonly unknown[]>)).toBe(true)
+
+    // A non-enumerable own check is still a callable
+    const hidden = Object.defineProperty({}, 'check', { value: () => 1, enumerable: false })
+    expect(await Gate.allows(user, hidden as never)).toBe(false)
+
+    // An accessor that returns a function is read by asGate; its answer is not true
+    expect(await Gate.allows(user, { get check() { return () => 1 } } as never)).toBe(false)
+    expect(await Gate.allows(user, { get check() { return () => true } } as never)).toBe(true)
   })
 
   it('propagates a thrown or rejected check instead of turning it into a denial', async () => {
@@ -542,7 +566,7 @@ describe('InternalException for a missing policy', () => {
     expect((error as InternalException).getHttpCode()).toBe(500)
   })
 
-  it('rejects GateManager.allows and Authenticated.can, instead of throwing before a promise (#394)', async () => {
+  it('rejects instead of throwing before a promise (#394)', async () => {
     // A caller that uses `.catch()` / `.then()` sees the error; `can()` returns the promise rather than throwing
     let pending: Promise<boolean> | undefined
     expect(() => {
