@@ -133,6 +133,19 @@ const warnNoConnInfo = (name: string) => {
   console.warn(`[@laratype/http] Route.api: no getConnInfo is registered, so .throttle() routes serve requests without a limit: a Bun or custom entry must call mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo) before the routes are mounted (first: ${name})`);
 };
 
+/**
+ * Set once the found-no-address warning printed, per process for the same reason as `NO_CONN_INFO_WARNED`: a registered
+ * getter that finds no address can be a deployment fact (a unix socket) or a getter for another runtime.
+ */
+const NO_ADDRESS_WARNED = Symbol.for("laratype.http.throttleNoAddressWarned");
+
+const warnNoAddress = (name: string) => {
+  const store = globalThis as { [NO_ADDRESS_WARNED]?: true };
+  if (store[NO_ADDRESS_WARNED]) return;
+  store[NO_ADDRESS_WARNED] = true;
+  console.warn(`[@laratype/http] Route.api: the registered getConnInfo found no client address (a unix socket or named pipe, or a getter for another runtime), so .throttle() routes serve such requests without a limit; behind a proxy or a unix socket the limit needs the trusted-proxy setting (#320) (first: ${name})`);
+};
+
 /** The catalog 429 on the wire (`{ code, ...body }`, http.md › Exceptions), built once: it never changes. */
 const TOO_MANY_REQUESTS = (() => {
   const error = errors.tooManyRequests();
@@ -176,8 +189,10 @@ export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handl
     const source = connInfoSource(c);
     const bucket = ipBucket(source.address);
     if (bucket === undefined) {
-      // No registered source is app wiring, fixed once for every route; a source that found no address is per request
-      if (!source.registered) warnNoConnInfo(route.name);
+      // A missing source is app wiring; a registered getter that found no address can be a unix socket or another runtime's
+      // getter, and both leave every throttled route without a limit, so each logs once per process
+      if (source.registered) warnNoAddress(route.name);
+      else warnNoConnInfo(route.name);
       return handle(c, next);
     }
     const { hits, resetAt } = await store.hit(`${scope} ${bucket}`, windowMs);

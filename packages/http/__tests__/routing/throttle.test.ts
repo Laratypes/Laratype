@@ -67,9 +67,10 @@ const from = (address: string) => ({ address })
 
 let app: Hono
 
-/** The missing-source warning is remembered per process: start each test as a fresh process would. */
+/** The warnings are remembered per process: start each test as a fresh process would. */
 const forgetWarned = () => {
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoConnInfoWarned')]
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoAddressWarned')]
 }
 
 beforeEach(() => {
@@ -134,30 +135,53 @@ describe('rate limit from the contract', () => {
     expect((await app.request('/api/posts/1', {}, from('::ffff:198.51.100.7'))).status).toBe(429)
   })
 
-  it('a request with no client address is not limited (no shared "" bucket) and does not warn', async () => {
+  it('a registered getter that finds no address warns once per process, across routes, and leaves the request unthrottled', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // The mounted getter finds no address: a unix socket or a gone connection, not a missing adapter
-    for (let i = 0; i < 5; i++) expect((await app.request('/api/posts/1')).status).toBe(200)
-    expect(warn).not.toHaveBeenCalled()
+    // The mounted getter finds no address: a unix socket behind nginx, not a missing adapter
+    for (let i = 0; i < 5; i++) expect((await app.request('/api/posts')).status).toBe(200)
+    expect((await app.request('/api/posts/1')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('the registered getConnInfo found no client address')
+    expect(message).toContain('a unix socket or named pipe, or a getter for another runtime')
+    expect(message).toContain('the limit needs the trusted-proxy setting (#320)')
+    expect(message).toContain('first: posts.index')
   })
 
-  it('a registered getter that throws is no address either, and does not warn', async () => {
+  it('a registered getter that throws counts the same way', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const throwing = bootAppWith(() => { throw new Error('no socket') })
     for (let i = 0; i < 5; i++) expect((await throwing.request('/api/posts/1')).status).toBe(200)
-    expect(warn).not.toHaveBeenCalled()
+    expect((await throwing.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('the registered getConnInfo found no client address')
+    expect(message).toContain('first: posts.show')
   })
 
-  it('a throttled route with no registered getConnInfo warns once per process, across routes', async () => {
+  it('a throttled route with no registered getConnInfo warns only the missing-source warning, once per process', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const bare = bootAppWithoutConnInfo()
     for (let i = 0; i < 5; i++) expect((await bare.request('/api/posts')).status).toBe(200)
     expect((await bare.request('/api/posts/1')).status).toBe(200)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no getConnInfo is registered'))
     const [message] = warn.mock.calls[0]!
+    expect(message).toContain('no getConnInfo is registered, so .throttle() routes serve requests without a limit')
     expect(message).toContain('mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo)')
     expect(message).toContain('first: posts.index')
+    expect(message).not.toContain('found no client address')
+  })
+
+  it('the missing-source and no-address warnings are remembered separately', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    expect((await bare.request('/api/posts')).status).toBe(200)
+    // A registered getter that finds no address is a different cause, so it warns too
+    expect((await app.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(2)
+    const messages = warn.mock.calls.map(([message]) => message)
+    expect(messages[0]).toContain('no getConnInfo is registered')
+    expect(messages[1]).toContain('found no client address')
   })
 
   it('a registered getter with an address does not warn', async () => {
