@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import { errors } from "@laratype/contract";
 import type { Duration, ThrottleOptions } from "@laratype/contract";
 import { clientIp } from "../../supports/Request";
+import { hextets } from "../../supports/ip";
 
 /** The hits counted in a key's current window, and when that window ends (epoch ms). */
 export interface ThrottleHit {
@@ -94,37 +95,24 @@ const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const;
 export const durationMs = (per: Duration): number =>
   (typeof per === "number" ? per : Number.parseFloat(per) * UNIT_SECONDS[per.slice(-1) as keyof typeof UNIT_SECONDS]) * 1000;
 
-/** The eight 16-bit groups of a valid IPv6 address (zone id removed), an embedded IPv4 counting as two. */
-const hextets = (ip: string): number[] => {
-  const groups = (part: string) =>
-    part === ""
-      ? []
-      : part.split(":").flatMap((group) => {
-          if (!group.includes(".")) return [Number.parseInt(group, 16)];
-          const [a, b, c, d] = group.split(".").map(Number) as [number, number, number, number];
-          return [(a << 8) | b, (c << 8) | d];
-        });
-  const [head = "", tail] = ip.split("::");
-  const left = groups(head);
-  const right = tail === undefined ? [] : groups(tail);
-  return [...left, ...Array<number>(8 - left.length - right.length).fill(0), ...right];
-};
+/** The IPv4 address two hextets carry, as `a.b.c.d`. */
+const ipv4 = (high: number, low: number): string => [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
 
 /**
  * The client's bucket from `request.ip()` (the socket peer, never `X-Forwarded-For`), or `undefined` when there is no
- * address: a shared `""` bucket would let one client throttle every other client without one. An IPv4 address carried
- * in IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) is
+ * address: a shared bucket would let one client throttle every other client without one. An IPv4 address carried in
+ * IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) is
  * that IPv4 address, and any other IPv6 client is its /64, the block one client can rotate addresses in.
  */
-export const ipBucket = (ip: string): string | undefined => {
-  if (ip === "") return undefined;
+export const ipBucket = (ip: string | undefined): string | undefined => {
+  if (ip === undefined || ip === "") return undefined;
   const address = ip.split("%")[0]!;
   if (isIP(address) !== 6) return address;
   const groups = hextets(address);
   const mapped = groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
   const translated = groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0);
   if (mapped || translated) {
-    return [groups[6]! >> 8, groups[6]! & 0xff, groups[7]! >> 8, groups[7]! & 0xff].join(".");
+    return ipv4(groups[6]!, groups[7]!);
   }
   return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`;
 };

@@ -1,4 +1,5 @@
 export { default as Request } from "./supports/Request"
+export { mountConnInfo } from "./supports/Request"
 export { default as Response } from "./supports/Response"
 export { default as Route } from "./supports/Route"
 export { default as RequestKernel } from "./request/Request"

@@ -3,11 +3,12 @@
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import { Controller, mountConnInfo, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import { MemoryThrottleStore, durationMs, ipBucket, throttled } from '../../src/routing/api/throttle'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -36,10 +37,14 @@ class UserController extends Controller {
 
 const routes = () => Route.api(appApi, (r) => [r.contract(posts, PostController), r.contract(users, UserController)])
 
+/** The getter the serving adapter registers: this test's request env carries the client address. */
+const addressFromEnv = (c: Context) => ({ remote: { address: (c.env as { address?: string }).address } })
+
 /** An app booted like `sauf dev`: ResponseKernel's resolveException answers thrown errors. */
 const bootApp = () => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
+  mountConnInfo(app, addressFromEnv)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
@@ -47,8 +52,8 @@ const bootApp = () => {
   return app
 }
 
-/** The Bun adapter's env: `request.ip()` reads `server.requestIP()`. */
-const from = (address: string) => ({ requestIP: () => ({ address }) })
+/** The env of a request from `address`, read by the registered getter, as a Bun-style adapter's would be. */
+const from = (address: string) => ({ address })
 
 let app: Hono
 
@@ -126,6 +131,7 @@ describe('rate limit from the contract', () => {
 
   it('answers 429 without the response kernel too (Hono error handler)', async () => {
     const bare = new Hono()
+    mountConnInfo(bare, addressFromEnv)
     routes().mount(bare)
     await bare.request('/api/posts/1', {}, from('203.0.113.9'))
     const limited = await bare.request('/api/posts/1', {}, from('203.0.113.9'))
@@ -136,6 +142,7 @@ describe('rate limit from the contract', () => {
 
   it('a .domain() route counts only requests for its host', async () => {
     const onHost = new Hono()
+    mountConnInfo(onHost, addressFromEnv)
     routes().domain('api.example.test').mount(onHost)
     onHost.get('/api/posts/:id', (c) => c.text('fallback'))
     expect((await onHost.request('http://other.test/api/posts/1', {}, from('203.0.113.10'))).status).toBe(200)
@@ -146,6 +153,7 @@ describe('rate limit from the contract', () => {
 
   it('same-named routes of two domains count separately', async () => {
     const both = new Hono()
+    mountConnInfo(both, addressFromEnv)
     routes().domain('a.example.test').mount(both)
     routes().domain('b.example.test').mount(both)
     expect((await both.request('http://a.example.test/api/posts/1', {}, from('203.0.113.11'))).status).toBe(200)
@@ -163,6 +171,7 @@ describe('rate limit from the contract', () => {
 
 describe('ipBucket', () => {
   it('keys IPv4 as is, IPv4-mapped as IPv4 and IPv6 by its /64', () => {
+    expect(ipBucket(undefined)).toBeUndefined()
     expect(ipBucket('')).toBeUndefined()
     expect(ipBucket('203.0.113.1')).toBe('203.0.113.1')
     expect(ipBucket('::ffff:203.0.113.1')).toBe('203.0.113.1')
