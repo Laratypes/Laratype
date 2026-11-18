@@ -133,6 +133,9 @@
         "@laratype/support": "workspace:*",
         "reflect-metadata": "^0.2.2",
       },
+      "devDependencies": {
+        "mysql2": "^3.15.0",
+      },
       "peerDependencies": {
         "typeorm": "^0.3.20",
       },

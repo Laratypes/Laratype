@@ -503,7 +503,7 @@ describe('ModelQueryBuilder.paginate', () => {
 })
 
 describe('ModelQueryBuilder over the real TypeORM builder', () => {
-  /** A mysql DataSource needs no connection to build its metadata and the SQL: mysql2 is already a workspace package. */
+  /** A mysql DataSource needs no connection to build its metadata and the SQL: mysql2 is a devDependency. */
   const realRepository = async () => {
     const User = new EntitySchema({
       name: 'User',
