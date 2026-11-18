@@ -4,6 +4,8 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { Container, depsRegistry, setConfigs } from "@laratype/core";
 import { HTTP_APP, UnauthorizedException } from "@laratype/support";
@@ -185,6 +187,31 @@ describe("CORS headers on error responses", () => {
     const failure = await from(app, "/api/posts/boom");
     expect(failure.status).toBe(500);
     expect(allowOrigin(failure)).toBe(APP);
+  });
+
+  // H15 #164 + H29 #295: the outermost error scrub drops the headers it names and leaves the rest; the CORS headers
+  // Hono sets before and after the throw survive, and `Vary` still names `Origin`
+  it("keeps the CORS headers of a thrown contract error, a 4xx HTTPException and a plain Error", async () => {
+    const app = bootApp();
+    const throwing = (error: unknown) => (c: Context) => {
+      c.header("ETag", '"v1"');
+      throw error;
+    };
+    app.get("/api/contract", throwing(errors.notFound("No such post.")));
+    app.get("/api/http", throwing(new HTTPException(401, { message: "Unauthorized" })));
+    app.get("/api/plain", throwing(new Error("secret detail")));
+    for (const [path, status] of [["/api/contract", 404], ["/api/http", 401], ["/api/plain", 500]] as const) {
+      const response = await from(app, path);
+      expect(response.status, path).toBe(status);
+      expect(response.headers.get("Access-Control-Allow-Origin"), path).toBe(APP);
+      expect(response.headers.get("Access-Control-Allow-Credentials"), path).toBe("true");
+      expect(response.headers.get("Access-Control-Expose-Headers"), path).toBe("X-Request-Id");
+      const vary = (response.headers.get("Vary") ?? "").split(",").map((token) => token.trim().toLowerCase());
+      expect(vary, path).toContain("origin");
+      // the scrub still dropped what was set before the throw, and the error is not cached
+      expect(response.headers.get("ETag"), path).toBeNull();
+      expect(response.headers.get("Cache-Control"), path).toBe("no-store");
+    }
   });
 
   it("the 413 of the default body limit keeps them", async () => {

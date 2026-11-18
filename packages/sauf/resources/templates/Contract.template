@@ -4,7 +4,7 @@ import type { Prefix } from "./$types";
 
 // The folder tree gives this contract its URL prefix and name (docs/v1/contract.md › Contract folder tree).
 const IndexQuery = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number<number>().int().min(1).default(1),
 });
 
 export default defineContract<Prefix>()({

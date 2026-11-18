@@ -13,8 +13,8 @@ export type AppApi = {
       body: undefined;
       headers: undefined;
       response: {
-        name: string;
         id: number;
+        name: string;
         role: 'admin' | 'member';
         address: {
           street: string;
@@ -57,8 +57,8 @@ export type AppApi = {
       body: undefined;
       headers: undefined;
       response: {
-        name: string;
         id: number;
+        name: string;
         role: 'admin' | 'member';
         address: {
           street: string;
@@ -101,8 +101,8 @@ export type AppApi = {
       };
       headers: undefined;
       response: {
-        name: string;
         id: number;
+        name: string;
         role: 'admin' | 'member';
         address: {
           street: string;

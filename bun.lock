@@ -40,7 +40,7 @@
         "passport-local": "^1.0.0",
         "reflect-metadata": "^0.2.2",
         "sauf": "workspace:*",
-        "zod": "^3.23.8",
+        "zod": "^4.6.6",
       },
       "devDependencies": {
         "@faker-js/faker": "^10.1.0",
@@ -155,7 +155,7 @@
       "peerDependencies": {
         "@laratype/auth": "workspace:*",
         "hono": "^4.8.0",
-        "zod": "^3.25.0",
+        "zod": "^4.6.6",
       },
       "optionalPeers": [
         "@laratype/auth",
@@ -300,14 +300,14 @@
         "zod": "catalog:",
       },
       "peerDependencies": {
-        "zod": "^3.25.0",
+        "zod": "^4.6.6",
       },
     },
   },
   "catalog": {
     "hono": "^4.8.0",
     "vite": "^7.1.9",
-    "zod": "^3.25",
+    "zod": "^4.6.6",
   },
   "packages": {
     "@andrewbranch/untar.js": ["@andrewbranch/untar.js@1.0.4", "", {}, "sha512-pVXSwPsLuw8IGLo2Di0EaOfsk+ntVvpkk942J/sHYIkwvtKUakEcPh7HBgZ6tuimgzKSEHgCvO4XgQ05DEbwDw=="],
@@ -1250,7 +1250,7 @@
 
     "yn": ["yn@3.1.1", "", {}, "sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q=="],
 
-    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+    "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "@arethetypeswrong/cli/commander": ["commander@10.0.1", "", {}, "sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug=="],
 

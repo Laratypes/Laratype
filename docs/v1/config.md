@@ -101,7 +101,7 @@ export class EnvValidationError extends Error {
 ```
 
 ### Invariants
-- **Schema:** any Standard Schema (zod 3.25+, valibot, arktype, ...), validated with `@laratype/contract`'s `validate`, sync or async.
+- **Schema:** any Standard Schema (zod 4.6.6+, valibot, arktype, ...), validated with `@laratype/contract`'s `validate`, sync or async.
 - **File (Q18):** `app/config/env.ts` default-exports `defineEnv(schema)`. The manifest already collects it with the configs; no build change.
 - **Boot:** `EnvLoadServiceProvider` loads the env file (`.env`, ...), then validates a copy of `process.env` with the schema, before any config file loads. `app/config/auth.ts` is the exception: `PassportServiceProvider.register()` loads it (and the env file) before the providers boot, so a value it reads has not been validated yet, but an invalid env still fails the boot ([auth.md › Guards in the container](./auth.md#guards-in-the-container)). An app without `env.ts` is not validated. The schema's output is not written back: `process.env` keeps its strings.
 - **Error (Q19):** an invalid env throws one `EnvValidationError` listing every failing variable once (its name + a fixed message), and boot fails. The vendor issues are not kept.
@@ -117,7 +117,7 @@ export class EnvValidationError extends Error {
   `<n>` is the number of failing variables, plus the `(environment)` line when issues have no path; a name is listed once however many of its checks failed.
 - Runtime, the schema throws: `[@laratype/support] the schema of app/config/env.ts threw while validating the environment; the error is withheld since it may hold a value`.
 - Runtime, `env.ts` without `defineEnv`: `TypeError: [@laratype/support] app/config/env.ts must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)`.
-- Runtime, not a schema: `TypeError: [@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 3.25+, valibot, arktype, ...)`.
+- Runtime, not a schema: `TypeError: [@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 4.6.6+, valibot, arktype, ...)`.
 - Type-only (`core/__tests__/config.test-d.ts`), a value that is not a Standard Schema:
   - `defineEnv({ PORT: 'number' })`: `error TS2353: Object literal may only specify known properties, and 'PORT' does not exist in type 'StandardSchemaV1<unknown, unknown>'.`
   - `defineEnv((value: unknown) => value)`: `error TS2345: Argument of type '(value: unknown) => unknown' is not assignable to parameter of type 'StandardSchemaV1<unknown, unknown>'.`
