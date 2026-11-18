@@ -1,6 +1,6 @@
 // The per-Hasher dummy-hash cache and the async check with custom Hashers
 import "reflect-metadata";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Container, Facade, depsRegistry } from "@laratype/core";
 import { Hash, Hasher } from "@laratype/support";
 import { SHA256_SECRET, attempt, fakeModel } from "./fixtures/login";
@@ -112,6 +112,19 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     await expect(attempt(User, { email: "eve@example.com", password: "secret" })).resolves.toBeNull();
     expect(first.makes).toEqual([""]);
     expect(first.checks).toHaveLength(2);
+  });
+
+  it("shares one dummy hash between unknown users under the default binding", async () => {
+    const make = vi.spyOn(Hasher.prototype, "makeAsync");
+    const check = vi.spyOn(Hasher.prototype, "checkAsync");
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    // An unbound Hasher is a singleton: the second request reuses the dummy the first built, so it costs one derivation
+    expect(make.mock.calls.filter(([value]) => value === "")).toHaveLength(1);
+    expect(check).toHaveBeenCalledTimes(2);
+    make.mockRestore();
+    check.mockRestore();
   });
 
   it("denies a checkAsync answer that is truthy but not true", async () => {

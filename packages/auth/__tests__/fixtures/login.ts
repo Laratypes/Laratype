@@ -40,7 +40,7 @@ export const fakeModel = (
   const findOneBy = vi.fn(async () => null);
   const columns = primaryColumns.map((column) =>
     typeof column === "string" ? { propertyName: column, propertyPath: column } : column,
-  ) as { propertyName: string; propertyPath?: string }[];
+  );
   /** The value at a primary column's property path: an embed nests its columns (`data.region`). */
   const readPath = (row: unknown, propertyPath: string): unknown =>
     propertyPath.split(".").reduce<unknown>(
@@ -72,7 +72,7 @@ export const fakeModel = (
   /** Whether a row matches an update criteria, whose composite key nests an embed's columns. */
   const matches = (value: unknown, criteria: Record<string, unknown>): boolean =>
     Object.entries(criteria).every(([key, expected]) =>
-      expected !== null && typeof expected === "object" && !(expected instanceof Date)
+      expected !== null && typeof expected === "object"
         ? matches((value as Record<string, unknown> | null | undefined)?.[key], expected as Record<string, unknown>)
         : (value as Record<string, unknown> | null | undefined)?.[key] === expected,
     );
@@ -115,7 +115,7 @@ export const fakeModel = (
         },
         async getOne() {
           // A typeorm entity: the login reads the column and the caller keeps the model's identity
-          const row = rows.find((r) => Object.entries(where).every(([key, value]) => r[key as keyof Row] === value));
+          const row = rows.find((r) => matches(r, where));
           return row ? Object.assign(new User(), row) : null;
         },
       };

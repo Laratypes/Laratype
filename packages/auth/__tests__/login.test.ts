@@ -270,6 +270,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a lookup value that is not a string, a boolean or a finite number, before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // An operator object, an array-like, an array, null, undefined, NaN or an infinity: none is a lookup value
     for (const email of [{ $ne: null }, { length: 1e9 }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(await attempt(User, { email, password: 'secret' })).toBeNull()
     }
@@ -294,6 +295,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a password that is not a string before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // An operator object, an array-like, an array, a number, null or a boolean: none is a string
     for (const password of [{ $ne: null }, { length: 1e9 }, ['secret'], 42, null, true]) {
       expect(await attempt(User, { email: 'ada@example.com', password })).toBeNull()
     }

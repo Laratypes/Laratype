@@ -59,15 +59,11 @@ const primaryKeyOf = (model: PrimaryKeyModel): string => {
   return primaryKey;
 };
 
-/** A primary column's value in the id map: an embed nests its columns under the embed's property (`{ data: { region } }`). */
-const idPart = (id: Record<string, unknown>, column: PrimaryColumn): unknown => {
-  let value: unknown = id;
-  for (const key of (column.propertyPath ?? column.propertyName).split(".")) {
-    if (value === null || value === undefined) return undefined;
-    value = (value as Record<string, unknown>)[key];
-  }
-  return value;
-};
+/** A primary column's value in the id map: an embed nests it under the embed's property (`{ data: { region } }`). */
+const idPart = (id: Record<string, unknown>, column: PrimaryColumn): unknown =>
+  (column.propertyPath ?? column.propertyName)
+    .split(".")
+    .reduce<unknown>((value, key) => (value as Record<string, unknown> | null | undefined)?.[key], id);
 
 /**
  * The criteria naming one row by every primary column, or `undefined` when the model has no primary key, the row is

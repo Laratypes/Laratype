@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { Facade } from '@laratype/core';
+import { Facade, Injectable } from '@laratype/core';
 
 /** scrypt cost of new hashes (16 MiB per hash). */
 const COST = { N: 16384, r: 8, p: 1 } as const;
@@ -40,7 +40,11 @@ const checkLegacy = (value: string, hashed: string) =>
 /** The stored format `check()` can verify: the scrypt hash, the 0.5 sha256 marker, or undefined. */
 const stored = (hashed: string) => parse(hashed) ?? (LEGACY_HASH.test(hashed) ? 'legacy' : undefined);
 
-/** The implementation behind the `Hash` facade: salted scrypt, stored as `$scrypt$N=<n>,r=<r>,p=<p>$<salt>$<key>` (base64). */
+/**
+ * The implementation behind the `Hash` facade: salted scrypt, stored as `$scrypt$N=<n>,r=<r>,p=<p>$<salt>$<key>` (base64).
+ * A singleton, so a caller that caches per instance (the login's dummy hash) keeps its cache across calls.
+ */
+@Injectable({ scope: 'singleton' })
 export class Hasher {
   /** A new salted hash of `value`: two calls give two different strings. */
   public make(value: string): string {
