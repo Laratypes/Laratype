@@ -1061,7 +1061,7 @@ export default defineContract<Prefix>()({
 })
 ```
 
-Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (requests through `app.request()` with a Bun-style env for the client address).
+Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (requests through `app.request()`, with a mounted getter that reads the client address from the request's env).
 
 ### Non-goals
 - No stacked limits on one endpoint (named limiters, later).
