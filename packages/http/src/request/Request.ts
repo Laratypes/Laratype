@@ -449,8 +449,10 @@ export default class Request extends AppServiceProvider {
           if(pipelineResult instanceof Error) {
             throw pipelineResult;
           }
+          // `await`ed inside the try: a contract response resolution that rejects (a `JsonResource` whose `toJson()`
+          // throws) is a route error too, and must be checked, not escape the catch as a rejected promise
           return routeOption.endpoint
-            ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+            ? await resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
             : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
         }
         catch (error) {

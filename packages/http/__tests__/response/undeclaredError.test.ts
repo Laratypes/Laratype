@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, UnauthorizedException } from '@laratype/support'
 import { defineApi, defineContract, defineError, endpoint, errors } from '@laratype/contract'
-import { Controller, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import { Controller, JsonResource, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { MiddlewareClass } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -32,12 +32,19 @@ const users = defineContract()({
   unknown: endpoint.get('/unknown').response(anything),
   failing: endpoint.get('/failing').response(anything),                              // a 0.5 Exception with a 5xx status
   broken: endpoint.get('/broken').response(anything),                                // a 5xx contract error, kept coded
+  resource: endpoint.get('/resource').response(anything),                            // a JsonResource whose toJson() throws
+  resourceOk: endpoint.get('/resource-ok').response(anything),                       // a JsonResource that resolves
 }, { throws: [AtContract] })
 
 const usersApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
 
 /** The error the controller throws last, so a test can check the filter received that very object. */
 let thrown: Error
+
+/** A `JsonResource` whose serialization throws a coded error, as a resource body that fails on a getter would. */
+class ThrowingResource extends JsonResource<unknown> {
+  override toJson(): unknown { throw (thrown = Undeclared()) }
+}
 
 class Users extends Controller {
   show() { throw errors.notFound() }
@@ -54,6 +61,8 @@ class Users extends Controller {
   unknown() { throw (thrown = new Error('secret detail')) }
   failing() { throw (thrown = new UnauthorizedException({ httpCode: 503 })) }
   broken() { throw (thrown = ServerFailure()) }
+  resource() { return new ThrowingResource(undefined) }
+  resourceOk() { return new JsonResource({ id: 1 }) }
 }
 
 /** A 0.5 route middleware that throws `error()`, not the handler: the check covers it the same way. */
@@ -230,6 +239,31 @@ describe('an undeclared contract error', () => {
       undeclaredLine('users.open', 401, 'UNAUTHORIZED'),
       expect.any(UnauthorizedException),
     )
+  })
+})
+
+describe('the contract response resolution', () => {
+  it('a JsonResource whose toJson() throws is reported in dev, and a successful one keeps its body', async () => {
+    const app = bootApp()
+    const ok = await app.request('/api/users/resource-ok')
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ id: 1 })
+    expect(logged).not.toHaveBeenCalled()
+
+    const response = await app.request('/api/users/resource')
+    expect(response.status).toBe(418)                                // the filter answers the coded error it threw
+    expect(await response.json()).toEqual({ code: 'TEAPOT', message: 'TEAPOT' })
+    expect(logged).toHaveBeenCalledWith(undeclaredLine('users.resource', 418, 'TEAPOT'), thrown)
+  })
+
+  it('a JsonResource whose toJson() throws fails the test with the generic 500', async () => {
+    vi.stubEnv('NODE_ENV', 'test')
+    const response = await bootApp().request('/api/users/resource')
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ message: 'Server Error' })
+    const diagnostic = logged.mock.calls[0]![0] as Error
+    expect(diagnostic.message).toBe(undeclaredLine('users.resource', 418, 'TEAPOT'))
+    expect(diagnostic.cause).toBe(thrown)
   })
 })
 
