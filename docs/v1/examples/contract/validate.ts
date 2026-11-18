@@ -9,7 +9,7 @@ const StoreBody = z.object({ name: z.string().min(1), address: z.object({ zip: z
 export const store = endpoint.post('/users').body(StoreBody)
 
 export async function check(input: unknown): Promise<ValidationErrorBody | { name: string }> {
-  // Works with any Standard Schema (zod 3.25+, valibot, arktype). The value type comes from the schema output.
+  // Works with any Standard Schema (zod 4.6.6+, valibot, arktype). The value type comes from the schema output.
   // (The router validates with the untyped runtime slot `store.def.body`.)
   const result = await validate(StoreBody, input)
   if (result.ok) {
@@ -21,6 +21,6 @@ export async function check(input: unknown): Promise<ValidationErrorBody | { nam
 }
 
 // Sync variant: throws a TypeError when the schema is async.
-const Page = z.object({ page: z.coerce.number().default(1) })
+const Page = z.object({ page: z.coerce.number<number>().default(1) })
 export const page = validateSync(Page, { page: '2' })
 if (page.ok) expectTypeOf(page.value.page).toEqualTypeOf<number>()
