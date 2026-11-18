@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { setConfigs } from '@laratype/core'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
@@ -74,14 +74,45 @@ describe('route()', () => {
     )
   })
 
-  it('truncates a 10 MB name from a bounded prefix, without reading the whole name', () => {
+  it('truncates a 10 MB name from a bounded prefix: Array.from never sees the whole name', () => {
     mount()
-    // 10 MB of UTF-16 in each direction: BMP units and astral code points (2 units each)
-    expect(() => route('x'.repeat(10_000_000))).toThrow(
-      new TypeError(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`),
+    const from = vi.spyOn(Array, 'from')
+    let seen: string[] = []
+    try {
+      // 10 MB of UTF-16 in each direction: BMP units and astral code points (2 units each)
+      expect(() => route('x'.repeat(10_000_000))).toThrow(
+        new TypeError(`[@laratype/http] route: unknown route name "${'x'.repeat(100)}…"`),
+      )
+      expect(() => route('😀'.repeat(5_000_000))).toThrow(
+        new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(100)}…"`),
+      )
+    } finally {
+      // read the calls before mockRestore clears them
+      seen = from.mock.calls.map(([value]) => value).filter((value): value is string => typeof value === 'string')
+      from.mockRestore()
+    }
+    // Array.from got the bounded prefix only (at most 200 UTF-16 units), never the 10 MB name
+    expect(seen).toContain('x'.repeat(200))
+    expect(seen).toContain('😀'.repeat(100))
+    expect(seen.every((value) => value.length <= 200)).toBe(true)
+  })
+
+  it('cuts at exactly 100 code points, keeping a whole emoji and never splitting a pair', () => {
+    mount()
+    // 100 code points: no ellipsis (an astral name is 200 UTF-16 units)
+    expect(() => route('a'.repeat(100))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'a'.repeat(100)}"`),
     )
-    expect(() => route('😀'.repeat(5_000_000))).toThrow(
-      new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(100)}…"`),
+    expect(() => route('😀'.repeat(100))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(100)}"`),
+    )
+    // 101 code points: the first 100 plus the ellipsis
+    expect(() => route('a'.repeat(101))).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'a'.repeat(100)}…"`),
+    )
+    // a surrogate pair whose units straddle the 200-unit prefix is dropped whole, never split
+    expect(() => route(`${'😀'.repeat(99)}a${'😀'.repeat(2)}`)).toThrow(
+      new TypeError(`[@laratype/http] route: unknown route name "${'😀'.repeat(99)}a…"`),
     )
   })
 

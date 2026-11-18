@@ -167,15 +167,15 @@ const NAME_LIMIT = 100;
 
 /**
  * A name echoed in a diagnostic: a 10 MB name must not build a 10 MB message. Reads a bounded prefix only (2 UTF-16
- * units per code point, plus one unit so the 100th code point of a surrogate pair is complete), then cuts at the
- * 100th code point without splitting a pair. A name of 100 code points or fewer is returned as is.
+ * units per code point at most, so it always holds the first 100 code points whole), then cuts at the 100th code
+ * point. A name of 100 code points or fewer is returned as is.
  */
 const truncateName = (name: string): string => {
   if (name.length <= NAME_LIMIT) return name;
-  const prefix = name.slice(0, NAME_LIMIT * 2 + 1);
-  const characters = Array.from(prefix);
-  if (name.length === prefix.length && characters.length <= NAME_LIMIT) return name;
-  return `${characters.slice(0, NAME_LIMIT).join("")}…`;
+  const prefix = name.slice(0, NAME_LIMIT * 2);
+  const codePoints = Array.from(prefix);
+  if (name.length === prefix.length && codePoints.length <= NAME_LIMIT) return name;
+  return `${codePoints.slice(0, NAME_LIMIT).join("")}…`;
 };
 
 /**
@@ -206,8 +206,7 @@ const appUrl = (): string => {
   if (parsed.search !== "") fail("route: config('config.url') must not contain a query");
   if (parsed.hash !== "") fail("route: config('config.url') must not contain a hash");
   // The parsed origin and path, so a trailing "?", "#", a credential or a space in the config never reaches a URL
-  const base = parsed;
-  return `${base.origin}${base.pathname}`.replace(/\/+$/, "");
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
 };
 
 /**
@@ -246,7 +245,7 @@ export const buildRouteUrl = (
   params?: object,
   options?: { readonly query?: object | undefined; readonly absolute?: boolean },
 ): string => {
-  // Untyped code can pass a JSON body value as the name: fail before truncateName's Array.from reads it
+  // Untyped code can pass a JSON body value as the name: fail before truncateName reads the name at all
   if (typeof name !== "string") fail(`route: a route name is a string, got ${typeof name}`);
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   const entry = registry.get(name);

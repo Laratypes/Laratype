@@ -9,7 +9,7 @@ export const response = (content: any, httpStatusCode?: StatusCode) => new Respo
 
 /**
  * `redirect().route(name, params)` (H13 #162): the 0.5 response that redirects to the URL of a mounted route name.
- * Relative by default, like `route()`; `{ absolute: true }` prefixes `config('config.url')`.
+ * Relative by default, like `route()`; `{ absolute: true }` appends the path to `config('config.url')`.
  */
 export interface RedirectRouteBuilder {
   route<const Name extends RouteName>(name: Name, ...args: RouteArgs<Name>): Response;
