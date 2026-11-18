@@ -192,6 +192,16 @@ describe('Model.find and findOrFail', () => {
     }
   })
 
+  it('takes a hostile, long or unicode string key as a bound value', async () => {
+    const keys = ['__proto__', 'id; DROP TABLE users', 'x'.repeat(10_000), '\uD800', 'a\u0000b']
+    for (const key of keys) {
+      const { User, findOneCalls } = model({ rows: [{ id: key }] })
+      await expect(User.findOrFail(key)).resolves.toMatchObject({ id: key })
+      // The key is a value in the where object, never SQL text
+      expect(findOneCalls).toEqual([{ where: { id: key } }])
+    }
+  })
+
   it('keeps the model name and the key off the wire: the 404 body is the generic one', async () => {
     const { User } = model()
     const failure = (await User.findOrFail(99).catch((error: unknown) => error)) as ModelNotFoundException
@@ -297,6 +307,13 @@ describe('Model.getRouteKey', () => {
     const { User } = model({ routeKeyName: 'isActive' })
     const user = Object.assign(new User(), { isActive: true })
     expect(user.getRouteKey()).toBe(true)
+  })
+
+  it('returns a long unicode slug unchanged', () => {
+    const slug = '\uD800a\u0000b'.repeat(500)
+    const { User } = model({ routeKeyName: 'slug' })
+    const user = Object.assign(new User(), { slug })
+    expect(user.getRouteKey()).toBe(slug)
   })
 
   it('returns a Date route key as the same Date, the type findByRouteKey() converts a path string to', () => {

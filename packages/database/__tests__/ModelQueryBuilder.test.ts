@@ -250,6 +250,18 @@ describe('ModelQueryBuilder.where', () => {
     const hostile = 'id, id; DROP TABLE users'
     expect(() => builder().UserQuery.where('id', hostile as never, 1))
       .toThrow('[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got string')
+    // Neither does a very long one, nor one with a lone surrogate: the message is the same short text
+    for (const value of ['x'.repeat(10_000), '\uD800', 'a\u0000b']) {
+      const { UserQuery } = builder()
+      try {
+        UserQuery.where('id', value as never, 1)
+        throw new Error('the call did not throw')
+      } catch (error) {
+        expect((error as Error).message).toBe(
+          '[@laratype/database] where() takes one of =, !=, <, <=, >, >=, like, not like, in, not in, got string',
+        )
+      }
+    }
   })
 
   it('names the type of a refused in / not in operand, never the value', () => {
@@ -380,6 +392,19 @@ describe('ModelQueryBuilder.where', () => {
       expect(() => UserQuery.where('email', value as never)).not.toThrow()
       expect(query.conditions).toHaveLength(1)
     }
+  })
+
+  it('binds a very long, unicode or control-character string unchanged', () => {
+    const values = ['x'.repeat(10_000), '\uD800', 'a\u0000b', '\u{1F600}\u0301', 'line\nbreak']
+    for (const value of values) {
+      const { query, UserQuery } = builder()
+      UserQuery.where('email', '=', value)
+      expect(parameters(query)).toEqual({ where_0: value })
+    }
+    // The same values pass through a transformer and an in list unchanged
+    const inList = builder()
+    inList.UserQuery.where('lowerEmail', 'in', values.map((value) => value.toUpperCase()))
+    expect(parameters(inList.query)).toEqual({ where_0: values })
   })
 
   it('accepts a Date subclass whose getTime throws, reading the Date slot instead', () => {

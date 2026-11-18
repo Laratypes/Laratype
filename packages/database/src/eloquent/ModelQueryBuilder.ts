@@ -246,8 +246,14 @@ export default class ModelQueryBuilder<T extends object = object> {
     }
   }
 
-  /** An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined. */
-  private assertInOperand(column: string, operator: "in" | "not in", value: unknown): asserts value is readonly unknown[] {
+  /**
+   * An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined.
+   */
+  private assertInOperand(
+    column: string,
+    operator: "in" | "not in",
+    value: unknown,
+  ): asserts value is readonly unknown[] {
     if (!Array.isArray(value)) {
       throw new ModelError(errors.arrayOperand(operator, value));
     }
@@ -282,7 +288,8 @@ export default class ModelQueryBuilder<T extends object = object> {
   /** Adds `column IN / NOT IN (:...parameter)` with every element transformed once; an empty list matches none/all. */
   private pushIn(column: ColumnMetadata, operator: "in" | "not in", value: readonly unknown[]): void {
     const values = value.map((element, index) => {
-      const transformed = column.transformer === undefined ? element : transformTo(column.transformer, element);
+      if (column.transformer === undefined) return element;
+      const transformed = transformTo(column.transformer, element);
       if (!isScalarValue(transformed)) {
         throw new ModelError(
           errors.transformerInElement(column.propertyName, operator, valueType(transformed), index),
