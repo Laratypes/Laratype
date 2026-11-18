@@ -60,10 +60,14 @@ export default class GateManager {
     return this.policies.get(model as AbstractNewable<object>);
   }
 
-  /** Whether `user` may run `ability` on `subject`: a guest denies without the policy running, a missing policy throws. */
-  allows(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<boolean> {
+  /**
+   * Whether `user` may run `ability` on `subject`: a guest denies without the policy running, and a missing policy
+   * rejects.
+   */
+  async allows(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<boolean> {
     // A guest never reaches a policy: a policy written for a signed-in user must not decide on `undefined`
-    if (user === undefined || user === null) return Promise.resolve(false);
+    if (user === undefined || user === null) return false;
+    // Async on purpose: a missing policy rejects instead of throwing before a promise exists (#394)
     return policyAllows(this.instance("Gate.allows", subject), user, ability, subject, ...args);
   }
 

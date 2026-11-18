@@ -7,7 +7,7 @@ import { Model } from '@laratype/database'
 import { ContextApi, InternalException } from '@laratype/support'
 import { ForbiddenException, Gate, GateManager, policyAllows, policyAuthorize, policyCheck } from '../src'
 import { Authenticated } from '../src/verifications/AuthVerification'
-import type { HasPolicy } from '../src'
+import type { GateAbility, HasPolicy } from '../src'
 
 class User extends Model {
   id!: number
@@ -364,6 +364,81 @@ describe('gates: Gate.define', () => {
   })
 })
 
+/**
+ * #394: `asGate()` accepts any object with a callable `check`, so the exact-`true` rule is applied on the three
+ * `Gate` call sites, not only inside the `check` that `Gate.define()` builds. A thrown or rejected check is not a
+ * denial: it propagates, as docs/v1/auth.md › Invariants says.
+ */
+describe('hand-built gates: exact true (#394)', () => {
+  /** A gate that is not from Gate.define(): asGate() only requires a non-null object with a callable check. */
+  const gate = (check: (user: unknown, ...args: unknown[]) => unknown): GateAbility<readonly unknown[]> =>
+    ({ name: 'hand-built', check } as unknown as GateAbility<readonly unknown[]>)
+
+  /** A gate whose check answers with `answer`. */
+  const handBuilt = (answer: unknown) => gate(() => answer)
+
+  /** The value of an `expect()` message: the answers include symbols, symbol wrappers and huge strings. */
+  const label = (answer: unknown): string => {
+    try {
+      return String(answer).slice(0, 40)
+    } catch {
+      return Object.prototype.toString.call(answer)
+    }
+  }
+
+  it('denies every answer that is not exactly true, through allows, denies and authorize', async () => {
+    const answers = [
+      1, 0, -0, NaN, Infinity, -Infinity, 'true', '', 'yes', {}, [], [true],
+      { valueOf: () => true }, { toString: () => 'true' }, Object(true), Object(Symbol('true')),
+      Symbol('true'), false, null, undefined, () => true, { length: 1e9 },
+      // Unicode and control characters: none coerces to true
+      '\uD800', '\u0000', 'true'.repeat(100_000),
+    ]
+    for (const answer of answers) {
+      expect(await Gate.allows(user, handBuilt(answer)), label(answer)).toBe(false)
+      expect(await Gate.denies(user, handBuilt(answer)), label(answer)).toBe(true)
+      await expect(Gate.authorize(user, handBuilt(answer)), label(answer)).rejects.toBeInstanceOf(ForbiddenException)
+    }
+  })
+
+  it('allows exactly true', async () => {
+    expect(await Gate.allows(user, handBuilt(true))).toBe(true)
+    expect(await Gate.denies(user, handBuilt(true))).toBe(false)
+    await expect(Gate.authorize(user, handBuilt(true))).resolves.toBeUndefined()
+  })
+
+  it('awaits a promise or a thenable and still allows only true', async () => {
+    expect(await Gate.allows(user, handBuilt(Promise.resolve(1)))).toBe(false)
+    expect(await Gate.allows(user, handBuilt(Promise.resolve(true)))).toBe(true)
+    const thenable = (value: unknown) => ({ then(resolve: (settled: unknown) => void) { resolve(value) } })
+    expect(await Gate.allows(user, handBuilt(thenable(1)))).toBe(false)
+    expect(await Gate.denies(user, handBuilt(thenable(1)))).toBe(true)
+    expect(await Gate.allows(user, handBuilt(thenable(true)))).toBe(true)
+  })
+
+  it('propagates a thrown or rejected check instead of turning it into a denial', async () => {
+    const thrown = gate(() => {
+      throw new Error('the check threw')
+    })
+    await expect(Gate.allows(user, thrown)).rejects.toThrow('the check threw')
+    await expect(Gate.denies(user, thrown)).rejects.toThrow('the check threw')
+    await expect(Gate.authorize(user, thrown)).rejects.toThrow('the check threw')
+
+    const rejected = gate(() => Promise.reject(new Error('the check rejected')))
+    await expect(Gate.allows(user, rejected)).rejects.toThrow('the check rejected')
+    await expect(Gate.denies(user, rejected)).rejects.toThrow('the check rejected')
+    await expect(Gate.authorize(user, rejected)).rejects.toThrow('the check rejected')
+
+    // A thenable whose `then` accessor throws rejects the await, rather than answering false
+    const badThen = gate(() => ({
+      get then(): never {
+        throw new Error('the then accessor threw')
+      },
+    }))
+    await expect(Gate.allows(user, badThen)).rejects.toThrow('the then accessor threw')
+  })
+})
+
 describe('Gate.allows: a value that is neither an ability nor a gate', () => {
   it('throws instead of denying', async () => {
     await expect(Gate.allows(user, 42 as never, post)).rejects.toThrow(
@@ -465,6 +540,27 @@ describe('InternalException for a missing policy', () => {
     const error = await allows(user, 'update', new Comment()).catch((thrown: unknown) => thrown)
     expect(error).toBeInstanceOf(InternalException)
     expect((error as InternalException).getHttpCode()).toBe(500)
+  })
+
+  it('rejects GateManager.allows and Authenticated.can, instead of throwing before a promise (#394)', async () => {
+    // A caller that uses `.catch()` / `.then()` sees the error; `can()` returns the promise rather than throwing
+    let pending: Promise<boolean> | undefined
+    expect(() => {
+      pending = GateManager.current().allows(user, 'update', new Comment())
+    }).not.toThrow()
+    await expect(pending).rejects.toBeInstanceOf(InternalException)
+
+    await expect(GateManager.current().denies(user, 'update', new Comment()))
+      .rejects.toBeInstanceOf(InternalException)
+    await expect(GateManager.current().authorize(user, 'update', new Comment()))
+      .rejects.toBeInstanceOf(InternalException)
+
+    const authenticated = new Authenticated<User>(user, undefined as never)
+    let pendingCan: Promise<boolean> | undefined
+    expect(() => {
+      pendingCan = can(authenticated, 'update', new Comment())
+    }).not.toThrow()
+    await expect(pendingCan).rejects.toBeInstanceOf(InternalException)
   })
 })
 

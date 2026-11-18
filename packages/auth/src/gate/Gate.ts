@@ -54,7 +54,9 @@ export default abstract class Gate {
       const [subject, ...args] = rest;
       return GateManager.current().allows(user, ability, subject, ...args);
     }
-    return asGate("Gate.allows", ability).check(user, ...rest);
+    // Only an explicit true allows, as Gate.define() and the policy checks do: a hand-built gate's truthy value,
+    // object or promise of one denies (#394)
+    return (await asGate("Gate.allows", ability).check(user, ...rest)) === true;
   }
 
   /** The inverse of `allows()`: `true` only when the policy or gate denies. */
@@ -72,7 +74,7 @@ export default abstract class Gate {
   static async denies(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
     if (user === undefined || user === null) return true;
     if (typeof ability !== "string") {
-      return !(await asGate("Gate.denies", ability).check(user, ...rest));
+      return (await asGate("Gate.denies", ability).check(user, ...rest)) !== true;
     }
     const [subject, ...args] = rest;
     return GateManager.current().denies(user, ability, subject, ...args);
@@ -96,7 +98,7 @@ export default abstract class Gate {
       const [subject, ...args] = rest;
       return GateManager.current().authorize(user, ability, subject, ...args);
     }
-    if (!(await asGate("Gate.authorize", ability).check(user, ...rest))) {
+    if ((await asGate("Gate.authorize", ability).check(user, ...rest)) !== true) {
       throw new ForbiddenException();
     }
   }
