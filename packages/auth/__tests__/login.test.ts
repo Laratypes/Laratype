@@ -2,7 +2,7 @@
 import 'reflect-metadata'
 import { describe, expect, it, vi } from 'vitest'
 import { Model } from '@laratype/database'
-import { Hash } from '@laratype/support'
+import { Hash, Hasher } from '@laratype/support'
 import { Auth, PassportGuard } from '../src'
 import { SHA256_SECRET, attempt, configOf, fakeModel, inApp, type Row } from './fixtures/login'
 
@@ -40,11 +40,12 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
-  // First unknown-user login of the file: the module-level dummy hash is still cold, so this pins its async build too
+  // First unknown-user login of the file: the Hasher's dummy hash is still cold, so this pins its async build too
   it('runs one async check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'checkAsync')
-    const make = vi.spyOn(Hash, 'makeAsync')
+    // The guard builds and checks the dummy hash on the Hasher the facade resolves, not through the Hash statics
+    const check = vi.spyOn(Hasher.prototype, 'checkAsync')
+    const make = vi.spyOn(Hasher.prototype, 'makeAsync')
     const syncCheck = vi.spyOn(Hash, 'check')
     const syncMake = vi.spyOn(Hash, 'make')
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
@@ -83,8 +84,8 @@ describe('TokenGuard.attempt()', () => {
   it('checks and rehashes through the async Hasher methods only', async () => {
     const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
     const { User, calls } = fakeModel(rows)
-    const check = vi.spyOn(Hash, 'checkAsync')
-    const make = vi.spyOn(Hash, 'makeAsync')
+    const check = vi.spyOn(Hasher.prototype, 'checkAsync')
+    const make = vi.spyOn(Hasher.prototype, 'makeAsync')
     const syncCheck = vi.spyOn(Hash, 'check')
     const syncMake = vi.spyOn(Hash, 'make')
     expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })

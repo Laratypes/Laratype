@@ -1,22 +1,30 @@
 import type { Request } from "@laratype/http";
 import type { Model } from "@laratype/database";
-import { Hash, ModelManagement, InternalException } from "@laratype/support";
+import { Facade } from "@laratype/core";
+import { Hash, Hasher, ModelManagement, InternalException } from "@laratype/support";
 import JWTVerification from "../verifications/jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
 import type { GuardConfig } from "./tokens";
 
 const ALIAS = "user";
 
-/** The pending dummy hash checked when no user matches, so an unknown user takes as long as a wrong password. */
-let unknownUserHash: Promise<string> | undefined;
+/** The pending dummy hash of each Hasher, so an unknown user takes as long as a wrong password on the bound Hasher. */
+const dummyHashes = new WeakMap<Hasher, Promise<string>>();
 
-/** The dummy hash, built once; a rejected build is dropped so the next unknown-user request retries it. */
-const dummyHash = () => {
-  unknownUserHash ??= Hash.makeAsync("").catch((error) => {
-    unknownUserHash = undefined;
-    throw error;
-  });
-  return unknownUserHash;
+/** The Hasher the `Hash` facade forwards to for this check, so its dummy and its real checks run the same binding. */
+const activeHasher = (): Hasher => Facade.getFacadeApplication().make(Hash.accessor);
+
+/** The dummy hash of `hasher`, built once; a rejected build is dropped so the next unknown-user request retries it. */
+const dummyHash = (hasher: Hasher): Promise<string> => {
+  let pending = dummyHashes.get(hasher);
+  if (!pending) {
+    pending = hasher.makeAsync("").catch((error) => {
+      dummyHashes.delete(hasher);
+      throw error;
+    });
+    dummyHashes.set(hasher, pending);
+  }
+  return pending;
 };
 
 /** A value a lookup can compare in the query: a string, a boolean, or a finite number. */
@@ -82,12 +90,14 @@ const primaryKeyWhere = (model: PrimaryKeyModel, row: unknown): Record<string, u
 };
 
 /**
- * The one dummy check every login path pays, so its duration only depends on the password, not the account. A rejected
- * build answers as a wrong password and is dropped, so the next request builds it again.
+ * The one dummy check a login that reaches a password check pays, so its duration only depends on the password, not the
+ * account. The bound Hasher builds and checks it, so a rebind runs the new algorithm and cost. A rejected build answers
+ * as a wrong password and is dropped, so the next request builds it again.
  */
 const payDummyCheck = async (password: string): Promise<void> => {
   try {
-    await Hash.checkAsync(password, await dummyHash());
+    const hasher = activeHasher();
+    await hasher.checkAsync(password, await dummyHash(hasher));
   } catch {
     // swallowed on purpose: the dummy check evens out the timing and never decides the login
   }
@@ -215,8 +225,11 @@ export default class TokenGuard<User = any> {
    * `passwordField` (the model's `passwordField`, `password` by default): the user is looked up by the other fields
    * only, and the password is then checked with `Hash.checkAsync()`, since a salted hash can't be matched in the
    * query and scrypt stays off the event loop. A hash from an older format (0.5's sha256) is replaced on a
-   * successful login. Every path costs at least one scrypt derivation: an unknown user, or a user whose stored hash is
-   * a 0.5 sha256 or unparseable, also runs a dummy check (see `payDummyCheck()`).
+   * successful login. A lookup that reaches the password check costs at least one scrypt derivation: an unknown user,
+   * or a user whose stored hash is a 0.5 sha256 or unparseable, also runs a dummy check (see `payDummyCheck()`). That
+   * padding is best effort: a password that is not a string, fields with no lookup value left, or a lookup value that is
+   * not a string, a boolean or a finite number answer `null` before any query and pay none, and a rejected dummy build
+   * answers `null` without a completed check.
    */
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;

@@ -1,4 +1,4 @@
-// The dummy-hash cache and the async check with custom Hashers; this file's guard module starts with a cold cache
+// The per-Hasher dummy-hash cache and the async check with custom Hashers
 import "reflect-metadata";
 import { afterEach, describe, expect, it } from "vitest";
 import { Container, Facade, depsRegistry } from "@laratype/core";
@@ -70,6 +70,48 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(first).toBeNull();
     expect(second).toBeNull();
     expect(hasher.calls).toBe(1);
+  });
+
+  it("builds and checks the dummy hash with the Hasher bound for that check, after a swap", async () => {
+    /** A Hasher whose dummy hashes carry its mark, so a check shows which binding built the hash it checked. */
+    class Marked extends Hasher {
+      checks: [string, string][] = [];
+      makes: string[] = [];
+
+      constructor(private readonly mark: string) {
+        super();
+      }
+
+      override async makeAsync(value: string): Promise<string> {
+        this.makes.push(value);
+        return `${this.mark}:${value}`;
+      }
+
+      override async checkAsync(value: string, hashed: string): Promise<boolean> {
+        this.checks.push([value, hashed]);
+        return hashed === `${this.mark}:${value}`;
+      }
+    }
+    const first = new Marked("first");
+    const second = new Marked("second");
+    usingHasher(first);
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    expect(first.makes).toEqual([""]);
+    expect(first.checks).toEqual([["secret", "first:"]]);
+
+    // A swap must not reuse the old dummy: the next check builds and checks with the new binding
+    usingHasher(second);
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(second.makes).toEqual([""]);
+    expect(second.checks).toEqual([["secret", "second:"]]);
+    expect(first.checks).toHaveLength(1);
+
+    // The cache is per binding: swapping back reuses the first binding's dummy instead of building another
+    usingHasher(first);
+    await expect(attempt(User, { email: "eve@example.com", password: "secret" })).resolves.toBeNull();
+    expect(first.makes).toEqual([""]);
+    expect(first.checks).toHaveLength(2);
   });
 
   it("denies a checkAsync answer that is truthy but not true", async () => {
