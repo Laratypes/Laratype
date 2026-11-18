@@ -42,10 +42,10 @@ const routes = () => Route.api(appApi, (r) => [r.contract(posts, PostController)
 const addressFromEnv = (c: Context) => ({ remote: { address: (c.env as { address?: string }).address } })
 
 /** An app booted like `sauf dev`: ResponseKernel's resolveException answers thrown errors. */
-const bootApp = () => {
+const boot = (mount: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
-  mountConnInfo(app, addressFromEnv)
+  mount(app)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
@@ -53,28 +53,14 @@ const bootApp = () => {
   return app
 }
 
-/** The same app with another getter: what an adapter without an address source leaves mounted. */
-const bootAppWith = (getConnInfo: GetConnInfo) => {
-  const container = new Container({ deps: depsRegistry })
-  const app = new Hono()
-  mountConnInfo(app, getConnInfo)
-  container.instance(HTTP_APP, app)
-  new RequestKernel(container).boot()
-  new ResponseKernel(container).boot()
-  routes().mount(app)
-  return app
-}
+/** The app `sauf dev` boots: the adapter's getter reads the client address from the request's env. */
+const bootApp = () => boot((app) => mountConnInfo(app, addressFromEnv))
+
+/** The same app with another getter: a throwing one, or one that finds no address. */
+const bootAppWith = (getConnInfo: GetConnInfo) => boot((app) => mountConnInfo(app, getConnInfo))
 
 /** An app like a Bun or custom entry that never calls `mountConnInfo`: no getConnInfo is registered. */
-const bootAppWithoutConnInfo = () => {
-  const container = new Container({ deps: depsRegistry })
-  const app = new Hono()
-  container.instance(HTTP_APP, app)
-  new RequestKernel(container).boot()
-  new ResponseKernel(container).boot()
-  routes().mount(app)
-  return app
-}
+const bootAppWithoutConnInfo = () => boot(() => {})
 
 /** The env of a request from `address`, read by the registered getter, as a Bun-style adapter's would be. */
 const from = (address: string) => ({ address })
