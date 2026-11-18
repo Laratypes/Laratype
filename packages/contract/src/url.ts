@@ -22,23 +22,24 @@ type Segments<P extends string> =
 type HasWildcard<P extends string> = string extends P ? false : "*" extends Segments<P> ? true : false;
 
 /** The `params` of a path with a `*` segment: an error instead of keys, since `buildUrl` refuses to build the path. */
-type WildcardPath<P extends string> = {
+type WildcardParams<P extends string> = {
   readonly error: `buildUrl: path "${P}" has a "*" segment, which buildUrl cannot fill`;
 };
+
+/** Whether `buildUrl` takes its input: a required param, or a `*` segment, needs it. */
+type HasRequiredParams<P extends string> = HasWildcard<P> extends true ? true : {} extends PathParams<P> ? false : true;
 
 /** Param values for a path: each key of `PathParams<P>` takes a string or a number (optional keys stay optional). */
 export type UrlParams<P extends string> = string extends P
   ? Record<string, string | number>
   : HasWildcard<P> extends true
-    ? WildcardPath<P>
+    ? WildcardParams<P>
     : { [K in keyof PathParams<P>]: string | number };
 
 /** `params` is required when the path has a required param, or a `*` segment (whose `params` is the error type above). */
-export type UrlInput<P extends string> = (HasWildcard<P> extends true
+export type UrlInput<P extends string> = (HasRequiredParams<P> extends true
   ? { params: UrlParams<P> }
-  : {} extends PathParams<P>
-    ? { params?: UrlParams<P> | undefined }
-    : { params: UrlParams<P> }) & {
+  : { params?: UrlParams<P> | undefined }) & {
   query?: UrlQuery | undefined;
 };
 
@@ -119,7 +120,7 @@ function encodeParam(name: string, text: string, path: string): string {
  * encoded per segment. An empty segment, or one that is exactly "." or "..", would add a segment or be resolved as a
  * dot segment, so it is refused; the diagnostic names the param, never the value.
  */
-function encodeSegments(name: string, text: string, path: string): string {
+function encodePerSegment(name: string, text: string, path: string): string {
   let out = "";
   for (const [index, segment] of text.split("/").entries()) {
     if (segment === "") fail(`buildUrl: param "${name}" for "${path}" has an empty segment`);
@@ -186,7 +187,7 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
       // a param whose pattern can match "/" keeps its "/" as separators, each segment encoded on its own
       out +=
         pattern !== undefined && text.includes("/") && patternCanMatchSlash(pattern)
-          ? encodeSegments(name, text, path)
+          ? encodePerSegment(name, text, path)
           : encodeParam(name, text, path);
     }
     i = j;
@@ -225,11 +226,7 @@ function serializeQuery(query: UrlQuery): string {
  */
 export function buildUrl<P extends string>(
   path: P,
-  ...[input]: HasWildcard<P> extends true
-    ? [input: UrlInput<P>]
-    : {} extends PathParams<P>
-      ? [input?: UrlInput<P>]
-      : [input: UrlInput<P>]
+  ...[input]: HasRequiredParams<P> extends true ? [input: UrlInput<P>] : [input?: UrlInput<P>]
 ): string {
   if (typeof path !== "string") fail(`buildUrl: path must be a string, got ${typeof path}`);
   const params: unknown = input?.params;
