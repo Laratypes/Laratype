@@ -73,6 +73,10 @@ const BOOLEAN_TYPES: readonly ColumnType[] = [Boolean, "boolean", "bool"];
 /** An integer string: no sign but `-`, no leading zero, no exponent, no space, no decimal point. */
 const INTEGER_KEY = /^-?(?:0|[1-9][0-9]*)$/;
 
+/** A primary key `find()` and `findOrFail()` accept: a string, a bigint or a finite number. */
+const isPrimaryKeyValue = (value: unknown): value is PrimaryKeyValue =>
+  typeof value === "string" || typeof value === "bigint" || (typeof value === "number" && Number.isFinite(value));
+
 /** The Model's message text, in one place (errors-and-comments.md › Errors). */
 const errors = {
   noPrimaryKey: (model: string): string =>
@@ -215,8 +219,8 @@ export default class Model extends BaseEntity {
 
   /**
    * Finds one model by its primary key, or throws `ModelNotFoundException` (an HTTP 404 through the existing
-   * exception filter) instead of resolving `null`. A non-primitive key is refused: unlike `find()`, it never falls
-   * through to the 0.5 list form, so request input can go here (docs/v1/database.md › Model).
+   * exception filter) instead of resolving `null`. A non-primitive key or a non-finite number is refused: unlike
+   * `find()`, it never falls through to the 0.5 list form, so request input can go here (docs/v1/database.md › Model).
    */
   static findOrFail<T extends BaseEntity>(
     this: ModelClass<T>,
@@ -224,7 +228,7 @@ export default class Model extends BaseEntity {
   ): Promise<T>;
 
   static async findOrFail(id: PrimaryKeyValue): Promise<any> {
-    if (typeof id !== "string" && typeof id !== "number" && typeof id !== "bigint") {
+    if (!isPrimaryKeyValue(id)) {
       throw new ModelError(errors.findOrFailId(this.getRepository().metadata.targetName, id));
     }
     const found = await this.find(id);
@@ -325,9 +329,14 @@ export default class Model extends BaseEntity {
     return super.findOneBy(where);
   }
 
-  /** The value of this model's route key (docs/v1/database.md › BindableModel): `static routeKeyName`, or the primary key. */
-  getRouteKey(): string | number | bigint {
+  /**
+   * The value of this model's route key (docs/v1/database.md › BindableModel): `static routeKeyName`, or the primary
+   * key, in the type the column declares.
+   */
+  getRouteKey(): string | number | bigint | boolean | Date {
     const model = this.constructor as typeof Model;
-    return (this as unknown as Record<string, string | number | bigint>)[model.routeKeyName ?? model.primaryKey];
+    return (this as unknown as Record<string, string | number | bigint | boolean | Date>)[
+      model.routeKeyName ?? model.primaryKey
+    ];
   }
 }

@@ -155,6 +155,10 @@ describe('Model.find and findOrFail', () => {
       [[1], 'array'],
       [null, 'null'],
       [true, 'boolean'],
+      // A number that cannot be a key: TypeORM would bind NaN / Infinity and match nothing, or the driver rejects it
+      [Number.NaN, 'non-finite number'],
+      [Number.POSITIVE_INFINITY, 'non-finite number'],
+      [Number.NEGATIVE_INFINITY, 'non-finite number'],
     ]
     for (const [id, type] of ids) {
       const { User, findCalls, findOneCalls } = model()
@@ -164,6 +168,27 @@ describe('Model.find and findOrFail', () => {
       // The strict guard throws before the lookup: neither find() nor findOne() runs
       expect(findCalls).toEqual([])
       expect(findOneCalls).toEqual([])
+    }
+  })
+
+  it('names a Date, and an object that only inherits Date.prototype, without calling getTime()', async () => {
+    // `valueType()` reads the Date internal slot, so an object with Date.prototype is "object" and an overridden
+    // getTime() is never called (a real Date subclass keeps its valid time)
+    const fake = Object.create(Date.prototype) as Date
+    const sneaky = new Date('2026-01-02')
+    Object.defineProperty(sneaky, 'getTime', {
+      value: () => {
+        throw new Error('getTime() must not be called')
+      },
+    })
+    for (const [id, type] of [
+      [fake, 'object'],
+      [sneaky, 'Date'],
+    ] as const) {
+      const { User } = model()
+      await expect(User.findOrFail(id as never)).rejects.toThrow(
+        `[@laratype/database] User.findOrFail() takes a string, number or bigint primary key, got ${type}`,
+      )
     }
   })
 
@@ -266,6 +291,21 @@ describe('Model.getRouteKey', () => {
     const { User } = model({ routeKeyName: 'slug' })
     const user = Object.assign(new User(), { id: 7, slug: 'ada' })
     expect(user.getRouteKey()).toBe('ada')
+  })
+
+  it('returns a boolean route key as the column declares it', () => {
+    const { User } = model({ routeKeyName: 'isActive' })
+    const user = Object.assign(new User(), { isActive: true })
+    expect(user.getRouteKey()).toBe(true)
+  })
+
+  it('returns a Date route key as the same Date, the type findByRouteKey() converts a path string to', () => {
+    const createdAt = new Date('2026-01-02T03:04:05.678Z')
+    const { User } = model({ routeKeyName: 'createdAt' })
+    const user = Object.assign(new User(), { createdAt })
+    expect(user.getRouteKey()).toBe(createdAt)
+    // The ISO string keeps the milliseconds findByRouteKey()'s new Date(key) reads back
+    expect(new Date(createdAt.toISOString()).getTime()).toBe(createdAt.getTime())
   })
 })
 

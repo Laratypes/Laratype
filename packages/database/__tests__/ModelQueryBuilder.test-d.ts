@@ -102,7 +102,7 @@ describe('Model and ModelQueryBuilder types', () => {
     expectTypeOf(User.findByRouteKey('1')).toEqualTypeOf<Promise<User | null>>()
     // The raw 0.5 form keeps TypeORM's `any` return, so an existing `const rows: User[] = await User.query(sql)` compiles
     expectTypeOf(User.query('SELECT 1')).toEqualTypeOf<Promise<any>>()
-    expectTypeOf(new User().getRouteKey()).toEqualTypeOf<string | number | bigint>()
+    expectTypeOf(new User().getRouteKey()).toEqualTypeOf<string | number | bigint | boolean | Date>()
     expectTypeOf<PrimaryKeyValue>().toEqualTypeOf<string | number | bigint>()
     expectTypeOf(User).toExtend<ModelClass<User>>()
   })
