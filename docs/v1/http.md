@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 336, 341, 342]
+issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 288, 299, 336, 341, 342]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -30,6 +30,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Model binding](#model-binding) | planned → #118, #163 |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
+| [Request.ip()](#requestip) | proposed: PR <leader fills> @ <sha> (H30 [#299](https://github.com/Laratypes/Laratype/issues/299)) |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
@@ -935,6 +936,96 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
 
 ---
 
+## Request.ip()
+
+### Status
+proposed: PR <leader fills> @ <sha> (H30 [#299](https://github.com/Laratypes/Laratype/issues/299), M2). A5 [#288](https://github.com/Laratypes/Laratype/issues/288) added `ip()` on the Node and Bun adapters; this round registers the adapter's `getConnInfo`, drops `@hono/node-server` from `@laratype/http` and normalizes the address. Trusted proxy headers are H35 [#320](https://github.com/Laratypes/Laratype/issues/320), a later round.
+
+### Public API
+`request.ip(): string | undefined`, a method of the 0.5 `Request` (`RequestInterface`) and every request class that extends it. Code: [`supports/Request.ts`](https://github.com/Laratypes/Laratype/blob/master/packages/http/src/supports/Request.ts), [`supports/ip.ts`](https://github.com/Laratypes/Laratype/blob/master/packages/http/src/supports/ip.ts).
+
+The serving adapter registers its runtime's Hono `getConnInfo` with `mountConnInfo()`, which mounts one middleware on the Hono app:
+
+```ts
+// @laratype/http
+export type GetConnInfo = (c: Context) => ConnInfo   // hono/conninfo
+export function mountConnInfo(app: Hono, getConnInfo: GetConnInfo): void
+```
+
+```ts
+// A node entry, before the routes are mounted
+import { mountConnInfo } from "@laratype/http"
+import { getConnInfo } from "@hono/node-server/conninfo"
+
+mountConnInfo(app, getConnInfo)
+```
+
+```ts
+// A Bun entry
+import { getConnInfo } from "hono/bun"
+
+mountConnInfo(app, getConnInfo)
+```
+
+`sauf`'s node adapter (`sauf build`'s node entry) and `sauf dev` mount the node one themselves, before the app's providers boot. An adapter that mounts none leaves `ip()` `undefined`.
+
+### Invariants
+- **Source: the registered getter, nothing else.** `ip()` calls the `getConnInfo` the adapter mounted with the request's Hono context and reads `remote.address`. `@laratype/http` has no per-runtime branch and never reads the shape of `ctx.env` (`incoming`, `requestIP`, `server`): an adapter registers what its runtime offers, and `sauf`'s node entry is the only place that knows about the node server.
+- **No adapter, no address.** With no `mountConnInfo()` (an in-process `app.request()` in a test, a Hono app a bare kernel served, another runtime) `ip()` answers `undefined`. It also answers `undefined` when the getter throws (a Bun `requestIP()` returning null for a unix socket, a socket gone) or answers no `remote.address`: it never throws, so a route that reads it cannot turn a missing socket into a 500.
+- **Normalized.** An IPv4-mapped IPv6 address (`::ffff:203.0.113.7`, any case, and the expanded `0:0:0:0:0:ffff:203.0.113.7`) is the IPv4 address it carries: the dual-stack listener Node opens reports an IPv4 client that way (checked on Node 20: it emits `::ffff:127.0.0.1` and family `IPv6`; it does not emit the `::ffff:0:` IPv4-translated form, which stays IPv6). An IPv6 zone id (`fe80::1%eth0`, `fe80::1%3`) is stripped. A plain IPv4 or IPv6 address is returned as the runtime wrote it.
+- **Anything else is no address.** An empty string, `null`, `undefined`, a non-string (an object, a number, `NaN`, an array), a string that is not an IPv4/IPv6 address (a blank one, a very long one, one with control characters, a header value) all answer `undefined`. `ip()` never turns text no socket produced into a client address.
+- **Never a proxy header.** `X-Forwarded-For` and `X-Real-IP` are never read: behind a proxy `ip()` is the proxy's address until the trusted-proxy setting (H35 [#320](https://github.com/Laratypes/Laratype/issues/320)) names the proxies it may skip. Spoofing either header changes nothing.
+- **Mounted before the routes.** Hono runs a middleware registered after a route only after that route, so `mountConnInfo()` must run before the routes are mounted. `sauf`'s node entry and `sauf dev` mount it before `Serve.bootProvider()` boots the app's providers. Calling it twice only stores the getter twice; the last mount wins.
+- **The rate limit reads it.** `Route.api`'s contract throttle keys its window on `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): `undefined` is an unthrottled request, never a shared bucket ([Rate limiting](#rate-limiting)).
+
+### Diagnostics
+`mountConnInfo()` fails the boot with a `TypeError` on a wrong argument:
+
+- `[@laratype/http] mountConnInfo(): expected the runtime's getConnInfo(context) function, got <typeof>` (a missing or non-function `getConnInfo`)
+- `[@laratype/http] mountConnInfo(): expected a Hono app, got <null|typeof>` (an `app` with no `use()`)
+
+A getConnInfo that throws at request time logs nothing: `ip()` answers `undefined`.
+
+### Example
+```ts
+// app/http/controllers/WhoAmIController.ts
+import { Controller } from "@laratype/http"
+import type { Request } from "@laratype/http"
+
+class WhoAmIController extends Controller {
+  index(request: Request) {
+    return { ip: request.ip() ?? null }
+  }
+}
+```
+
+A node entry mounts the getter before the routes (what `sauf`'s node entry does):
+
+```ts
+import { Hono } from "hono"
+import { mountConnInfo } from "@laratype/http"
+import { getConnInfo } from "@hono/node-server/conninfo"
+
+const app = new Hono()
+mountConnInfo(app, getConnInfo)
+```
+
+Tests: [`packages/http/__tests__/support/bearerTokenAndIp.test.ts`](../../packages/http/__tests__/support/bearerTokenAndIp.test.ts) (a node-shaped and a Bun-shaped getter, no registration, a throwing getter, non-string and invalid addresses, mapped upper/lower/expanded, a zone id, a plain IPv6, a very long string, control characters, spoofed proxy headers, the two diagnostics) and [`packages/sauf/__tests__/requestIp.test.ts`](../../packages/sauf/__tests__/requestIp.test.ts) (a real node server, a dual-stack listener's IPv4-mapped address).
+
+### Non-goals
+- No trusted-proxy setting and no `X-Forwarded-For` / `X-Real-IP` fallback: H35 [#320](https://github.com/Laratypes/Laratype/issues/320).
+- No runtime detection inside `@laratype/http`: the adapter registers its getter.
+- No asynchronous `getConnInfo`: Hono's is sync, and an async one answers a `Promise`, which is no address.
+- No port, family, hostname or DNS lookup: the address only.
+
+### Open questions
+- None recorded.
+
+### Acceptance
+[#299 Done when](https://github.com/Laratypes/Laratype/issues/299)
+
+---
+
 ## Rate limiting
 
 ### Status
@@ -947,8 +1038,8 @@ None: `ApiRoutes.mount()` applies the rate limit of each route whose resolved `t
 - **Declared in the contract:** `.throttle({ limit, per })` on a scope, a contract or an endpoint. The nearest level wins, and `.throttle(false)` opts out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). A route whose resolved `throttle` is unset is never limited and never counted.
 - **Applied when routes are registered,** with no route middleware: `mount()` wraps the route's handler, so the limit runs before the route middleware and the request parsing. On a `.domain()` route, only requests for that host are counted.
 - **Fixed window per route and client.** Each route (its method, `.domain()` host and path, so same-named routes of two groups or domains never share a counter) counts its own hits per client in windows of `per` (seconds, or `"<n>s|m|h|d"`; from 1 second to `Number.MAX_SAFE_INTEGER` ms, as the contract checks). The window starts at the client's first hit; the hit past `limit` in a window, and every hit after it in that window, answers 429.
-- **Key:** the IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): the socket address (`getConnInfo` of `@hono/node-server` on Node, the server's `requestIP()` on Bun), never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists. An IPv4 address carried in IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) counts as that IPv4 address, and an IPv6 client is counted by its /64, the block one client can rotate addresses in. Keying by the user id when one is signed in is planned → [#120](https://github.com/Laratypes/Laratype/issues/120): no contract auth guard runs before the limit yet.
-- **No address, no limit.** A request with no client address (`request.ip()` is `""`: another runtime, an in-process `app.request()` without an env, a socket gone) is served unthrottled, so clients without an address never share one bucket. The first such request logs one warning per process.
+- **Key:** the IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288), H30 [#299](https://github.com/Laratypes/Laratype/issues/299)): the socket address the serving adapter registers through `getConnInfo` ([Request.ip()](#requestip)), never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists. `request.ip()` has already normalized an IPv4-mapped IPv6 address (`::ffff:203.0.113.5` from a dual-stack listener) to its IPv4 address, and this bucket also maps `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator to it; any other IPv6 client is counted by its /64, the block one client can rotate addresses in. Keying by the user id when one is signed in is planned → [#120](https://github.com/Laratypes/Laratype/issues/120): no contract auth guard runs before the limit yet.
+- **No address, no limit.** A request with no client address (`request.ip()` is `undefined`: no adapter registered a getter, an in-process `app.request()` without one, a socket gone) is served unthrottled, so clients without an address never share one bucket. The first such request logs one warning per process.
 - **Response:** 429 with the catalog error body `{ code: "TOO_MANY_REQUESTS", message: "Too Many Requests." }` ([Exceptions](#exceptions)) and `Retry-After`, the whole seconds until the window ends (at least 1). It is thrown as a Hono `HTTPException`, so the exception path of `ResponseKernel` (or Hono's own error handler) answers it.
 - **Store:** an in-memory store, one per process, until the cache ([#166](https://github.com/Laratypes/Laratype/issues/166)) implements the store interface. Counters are not shared between processes, and two Hono apps of one process share them. Ended windows are dropped at most once a minute, and past 100,000 windows a full store drops the window that ends first: an ended one if there is one, else the live one nearest its end (its client starts a new window early). It finds it among the oldest window of each window length, with no scan of the store. `mount()` checks the window again before it registers any route.
 

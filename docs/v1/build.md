@@ -94,7 +94,7 @@ Package manifests, build configuration and scripts:
   - support also has `passport` and `@types/passport` as optional peers (the auth config type).
 - **Dependencies** that were devDependencies:
   - support: `dotenv`, `glob`, `mlly`, `ts-toolbelt`;
-  - http: `es-toolkit`, and `@hono/node-server` since A5 [#288](https://github.com/Laratypes/Laratype/issues/288) (`getConnInfo` for `Request.ip()` on Node);
+  - http: `es-toolkit`;
   - auth: `jsonwebtoken`, `@types/jsonwebtoken`, `@types/passport`, plus the workspace packages it imports (`@laratype/console`, `@laratype/database`);
   - database: `reflect-metadata`;
   - console: `@laratype/support`;
