@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, PathClient, ProvidedHeaders } from "./types";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
 import { checkResponseBody } from "./validate";
 import type { ResponseCheckFailure } from "./validate";
 
@@ -518,23 +518,29 @@ const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
 /**
  * The type-only path-style client: `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then
  * `api.get('/api/users/:user', { params })`. It takes no contract value, so the API type comes from `import type` and
- * the path types the call's input, result and errors (see `client.md › Path-style calls`).
+ * the path types the call's input, result and errors (see `client.md › Path-style calls`). It has no contract at
+ * runtime, so `validateResponses` (CL6 #159) is refused: use `createClient` with the appApi, an API node or a contract.
  *
  * @example
  * const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://example.com' })
  * const result = await api.get('/api/users/:user', { params: { user: 1 } })
  */
-export function createPathClient<A extends ApiShape<A> = never>(options?: ClientOptions): PathClient<A>;
+export function createPathClient<A extends ApiShape<A> = never>(options?: PathClientOptions): PathClient<A>;
 /**
  * The path client with the type of `options.headers` as the second type argument, as the manifest client: the headers
  * it statically provides are optional in each call's `headers`. `options.headers` is required, so the client can't
  * claim a header it never sends, and a `headers` function provides none to the types (it is called at each call).
  */
 export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
-  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+  options: PathClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): PathClient<A, ProvidedHeaders<Hd>>;
 export function createPathClient(options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
+  if (options.validateResponses) {
+    fail(
+      "createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)",
+    );
+  }
   const send = createSend(options);
   const client: Record<string, unknown> = Object.create(null);
   for (const method of METHODS) {

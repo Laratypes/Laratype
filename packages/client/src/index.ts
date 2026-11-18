@@ -20,6 +20,7 @@ export type {
   ManifestRoute,
   PathCall,
   PathClient,
+  PathClientOptions,
   ProvidedHeaders,
   ResponseData,
   UnexpectedResult,

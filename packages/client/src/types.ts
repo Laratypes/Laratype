@@ -364,3 +364,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
 export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & {
   validateResponses?: false;
 };
+
+/** The path client's options: a path-style call has no contract runtime, so it can't validate responses (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)). */
+export type PathClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & {
+  validateResponses?: false;
+};
