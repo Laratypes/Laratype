@@ -14,7 +14,7 @@ last-verified: 2026-10-13
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
-| [OpenAPI](#openapi) | proposed: PR <leader fills> @ e9a53248 ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
+| [OpenAPI](#openapi) | proposed: PR <leader fills> @ c940739f ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
 | [Detective](#detective) | planned → #144 |
 
 ---
@@ -136,10 +136,10 @@ planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, M3).
 ## OpenAPI
 
 ### Status
-proposed: PR <leader fills> @ e9a53248 ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
+proposed: PR <leader fills> @ c940739f ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
 
 ### Public API
-[`packages/sauf/src/openapi/` @ e9a53248](https://github.com/Laratypes/Laratype/blob/e9a53248b95b3b6e667e49cee9625ddd6f8fd129/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ e9a53248](https://github.com/Laratypes/Laratype/blob/e9a53248b95b3b6e667e49cee9625ddd6f8fd129/packages/sauf/src/commands/openapi/generate.ts)
+[`packages/sauf/src/openapi/` @ c940739f](https://github.com/Laratypes/Laratype/blob/c940739f31d3ee32d44c24569c5b47847bc8039c/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ c940739f](https://github.com/Laratypes/Laratype/blob/c940739f31d3ee32d44c24569c5b47847bc8039c/packages/sauf/src/commands/openapi/generate.ts)
 
 ```
 sauf openapi:generate [--root <dir>] [--base <path>] [--gen .laratype] [--out openapi.json]
@@ -157,7 +157,7 @@ export interface OpenApiOptions {
   readonly version?: string;                        // info.version; default "0.0.0"
 }
 export interface GeneratedOpenApi { readonly document: OpenApiDocument; readonly warnings: readonly string[] }
-export function generateOpenApiDocument(api: object, options?: OpenApiOptions): GeneratedOpenApi;   // pure, no Node import
+export function generateOpenApiDocument(api: object, options: OpenApiOptions): GeneratedOpenApi;   // pure, no Node import
 
 export interface OpenApiFlags { readonly root?: string; readonly base?: string; readonly gen?: string; readonly out?: string }
 export interface OpenApiProjectOptions extends OpenApiFlags {
@@ -168,6 +168,7 @@ export interface OpenApiProjectOptions extends OpenApiFlags {
 export type LoadFunction = (url: string) => Promise<unknown>;
 export interface GeneratedOpenApiFile extends GeneratedOpenApi { readonly file: string; readonly changed: boolean }
 export async function generateOpenApiFile(options: OpenApiProjectOptions): Promise<GeneratedOpenApiFile>;
+export function errorReason(error: unknown): string;   // a safe one-line message for an import/write error
 export class OpenApiGenerationError extends Error {}
 
 export interface OpenApiDocument { readonly openapi: "3.1.0"; readonly info: { title: string; version: string };
@@ -175,9 +176,9 @@ export interface OpenApiDocument { readonly openapi: "3.1.0"; readonly info: { t
 // and OpenApiOperation, OpenApiParameter, OpenApiRequestBody, OpenApiResponse, OpenApiPathItem, OpenApiComponents,
 // OpenApiSecurityScheme, JsonSchema, JsonSchemaIo and JsonSchemaResult
 
-// internal to sauf (the tests import the module directly), not exported from openapi/index.ts:
-// document.ts: the mapping above; schema.ts: standardJsonSchema, hasLocalRefs, rebaseRefs, withParentDefs, isParentRef,
-// isSchemaResource and errorReason; load.ts: readPackageMetadata, the loaders and the writer.
+// internal to sauf (the tests import the modules directly), not exported from openapi/index.ts:
+// document.ts: the mapping above; schema.ts: standardJsonSchema, hasLocalRefs, rebaseRefs, withParentDefs, isParentRef
+// and isSchemaResource; load.ts keeps the project load, the package metadata and the writer private.
 ```
 
 ### Invariants
@@ -211,7 +212,7 @@ Warnings, printed and returned in `warnings`; the document is still valid:
 - `app/config/config.ts could not be imported on its own ...; using --root / --base and the defaults (app/api, /api) instead of config api` (shared with `types:generate`)
 
 ### Example
-[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/e9a53248b95b3b6e667e49cee9625ddd6f8fd129/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, fallbacks, recursion, collisions, hostile names), `command.test.ts` (scan, import, `--out`, the missing contract), `types.test-d.ts` (the exported types) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
+[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/c940739f31d3ee32d44c24569c5b47847bc8039c/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, fallbacks, recursion, collisions, hostile names), `command.test.ts` (scan, import, `--out`, the missing contract), `types.test-d.ts` (the exported types) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
 ```
 $ sauf openapi:generate
 ... Wrote openapi.json (3 paths) in 12.34ms
