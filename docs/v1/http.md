@@ -1287,7 +1287,7 @@ export default defineContract<Prefix>()({
 throw EmailTaken(input.email)
 ```
 
-Tests: [`packages/http/__tests__/response/undeclaredError.test.ts`](../../packages/http/__tests__/response/undeclaredError.test.ts) (each derived error, a `throws` of each level, a middleware's error, dev, test, production, an unknown error, a non-contract 5xx `Exception`, a check that throws, a 0.5 route).
+Tests: [`packages/http/__tests__/response/undeclaredError.test.ts`](../../packages/http/__tests__/response/undeclaredError.test.ts) (each derived error, a `throws` of each level, a middleware's error, dev, test, production, an unknown error, a non-contract 5xx `Exception`, a 5xx contract error, a check that throws, a 0.5 route).
 
 ### Non-goals
 - The `sauf test` coverage report, which lists declared errors that no test triggers: [#387](https://github.com/Laratypes/Laratype/issues/387).

@@ -15,6 +15,7 @@ const Declared = defineError(409, 'EMAIL_TAKEN', () => ({ message: 'The email is
 const AtContract = defineError(402, 'PAYMENT_REQUIRED')
 const AtEndpoint = defineError(410, 'GONE')
 const Undeclared = defineError(418, 'TEAPOT')
+const ServerFailure = defineError(503, 'UNAVAILABLE')
 
 const users = defineContract()({
   show: endpoint.get('/:id').response(anything),                                    // derived 404
@@ -30,6 +31,7 @@ const users = defineContract()({
   undeclared: endpoint.get('/undeclared').response(anything),
   unknown: endpoint.get('/unknown').response(anything),
   failing: endpoint.get('/failing').response(anything),                              // a 0.5 Exception with a 5xx status
+  broken: endpoint.get('/broken').response(anything),                                // a 5xx contract error, kept coded
 }, { throws: [AtContract] })
 
 const usersApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
@@ -51,6 +53,7 @@ class Users extends Controller {
   undeclared() { throw (thrown = Undeclared()) }
   unknown() { throw (thrown = new Error('secret detail')) }
   failing() { throw (thrown = new UnauthorizedException({ httpCode: 503 })) }
+  broken() { throw (thrown = ServerFailure()) }
 }
 
 /** A 0.5 route middleware that throws `error()`, not the handler: the check covers it the same way. */
@@ -166,6 +169,19 @@ describe('an undeclared contract error', () => {
     expect(diagnostic.message).toBe(undeclaredLine('users.undeclared', 418, 'TEAPOT'))
     expect(diagnostic.cause).toBe(thrown)
     expect(received.mock.calls[0]![0]).toBe(diagnostic)
+  })
+
+  it('a 5xx contract error keeps its code: it is checked like any other contract error', async () => {
+    const dev = await bootApp().request('/api/users/broken')
+    expect(dev.status).toBe(503)
+    expect(await dev.json()).toEqual({ code: 'UNAVAILABLE', message: 'UNAVAILABLE' })
+    expect(logged).toHaveBeenCalledWith(undeclaredLine('users.broken', 503, 'UNAVAILABLE'), thrown)
+
+    logged.mockClear()
+    vi.stubEnv('NODE_ENV', 'test')
+    const test = await bootApp().request('/api/users/broken')
+    expect(test.status).toBe(500)                                    // the test wrapper, as for any undeclared error
+    expect((logged.mock.calls[0]![0] as Error).message).toBe(undeclaredLine('users.broken', 503, 'UNAVAILABLE'))
   })
 
   it('is reported in dev when a route middleware throws it, not the handler', async () => {
