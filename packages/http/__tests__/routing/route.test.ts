@@ -149,6 +149,20 @@ describe('route()', () => {
     expect(await res.json()).toEqual({ file })
   })
 
+  it('builds a request-derived value its pattern rejects as one encoded segment: a bad id is a 404, not a 500', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/posts/:id{[0-9]+}', (req, { id }) => ({ id })).name('post.show'),
+    ])
+    // neither form can match ":id{[0-9]+}" (a "1//2" request value, say): the encoded one is kept and the route 404s
+    const url = route('post.show', { id: '1//2' })
+    expect(url).toBe('/posts/1%2F%2F2')
+    expect(route('post.show', { id: '1/../2' })).toBe('/posts/1%2F..%2F2')
+    const app = new Hono()
+    routes.mount(app)
+    expect((await app.request(url)).status).toBe(404)
+  })
+
   it('refuses a named wildcard route through buildUrl, naming the path', () => {
     Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/files/*', () => 'ok').name('files.all')])
     expect(() => route('files.all')).toThrow(

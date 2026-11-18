@@ -89,35 +89,37 @@ function matchPattern(pattern: string, value: string): PatternAnswer {
 /**
  * Encodes one param value: the whole value by default, so a `/` is `%2F` and a value like `admin/all` cannot pick the
  * static `admin/all` sibling route. Only a value with a `/` that its pattern rejects in that form is examined per
- * segment: its empty and `.`/`..` segments are refused, as `:file{.+/.+}` (a literal `/`, where `%2F` would 404)
- * needs a real split, and the split is used when the pattern matches it. A pattern that matches neither form (the
- * value cannot reach the route) and an unusable pattern keep the encoded value, so it 404s as one segment instead of
- * becoming another route's path.
+ * segment: the segments joined with `/`, as `:file{.+/.+}` (a literal `/`, where `%2F` would 404) needs a real split.
+ * The split is used when the pattern accepts it, and only then are its empty and `.`/`..` segments refused, since a
+ * split that is actually sent must not add a segment or be resolved as a dot segment. A pattern that rejects the split
+ * too (the value cannot reach the route) and an unusable pattern keep the encoded value, so it 404s as one segment
+ * instead of throwing in a server `route()` over a request-derived value.
  */
 function encodeParam(name: string, text: string, path: string, pattern: string | undefined): string {
   const encoded = encodeValue(name, text, path);
   // without a "/" in the value both forms are the same string: only a "/" (sent as %2F) can change which route matches
   if (pattern === undefined || !text.includes("/") || matchPattern(pattern, encoded) !== "rejects") return encoded;
-  const perSegment = encodePerSegment(name, text, path);
-  return matchPattern(pattern, perSegment) === "accepts" ? perSegment : encoded;
+  // each "/" stays a path separator, every other character is encoded per segment
+  const segments = text.split("/");
+  const perSegment = segments.map((segment) => encodeValue(name, segment, path)).join("/");
+  // A split the pattern rejects would never be sent, and refusing one of its segments would turn a URL that 404s into a
+  // 500: the check runs only on a split that is used
+  if (matchPattern(pattern, perSegment) !== "accepts") return encoded;
+  refuseUnsendableSegments(name, segments, path);
+  return perSegment;
 }
 
 /**
- * A value of a param whose pattern rejects its encoded form: each "/" stays a path separator, and every other
- * character is encoded per segment. An empty segment, or one that is exactly "." or "..", would add a segment or be
- * resolved as a dot segment, so it is refused; the diagnostic names the param, never the value.
+ * Refuses a segment of a split that would be sent and is empty or exactly "." or "..": it would add a segment or be
+ * resolved as a dot segment. The diagnostic names the param and the path, never the value.
  */
-function encodePerSegment(name: string, text: string, path: string): string {
-  let out = "";
-  for (const [index, segment] of text.split("/").entries()) {
+function refuseUnsendableSegments(name: string, segments: readonly string[], path: string): void {
+  for (const segment of segments) {
     if (segment === "") fail(`buildUrl: param "${name}" for "${path}" has an empty segment`);
     if (segment === "." || segment === "..") {
       fail(`buildUrl: param "${name}" for "${path}" has a "." or ".." segment (a dot segment)`);
     }
-    if (index > 0) out += "/";
-    out += encodeValue(name, segment, path);
   }
-  return out;
 }
 
 /** Replaces each `:name`, `:name?` and `:name{regex}` segment (Hono syntax, see `PathParams`). */
@@ -206,8 +208,9 @@ function serializeQuery(query: UrlQuery): string {
  * - Param values are a `string` or a finite `number`, encoded with `encodeURIComponent`, so a `/` in a value is `%2F`. A
  *   missing required param throws; an absent optional one drops its segment. When the param's pattern rejects the
  *   encoded value (it needs a literal `/`, as `:file{.+/.+}` does: `%2F` would 404), the value is split on `/` and each
- *   segment is encoded, refusing an empty, `.` or `..` segment; the split is used when the pattern matches it, so its
- *   segments then become path segments. A `*` segment throws: there is no value to fill it with.
+ *   segment is encoded; the split is used when the pattern matches it, so its segments then become path segments, and
+ *   a split that is used refuses an empty, `.` or `..` segment. A pattern that rejects both forms keeps the encoded
+ *   value (the URL then 404s as one segment). A `*` segment throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
  * - Query: flat values only. `undefined` and `null` are skipped, an array repeats its key, a `Date` is sent as ISO 8601.

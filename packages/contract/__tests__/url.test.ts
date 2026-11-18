@@ -123,9 +123,9 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/codes/:code{[a-z]{2,3}}', { params: { code: 'a/b' } })).toBe('/codes/a%2Fb')
   })
 
-  it('refuses an empty segment, naming the param and the path, never the value', () => {
+  it('refuses an empty segment of a split the pattern accepts, naming the param and the path, never the value', () => {
     const path = '/files/:file{.+/.+}/raw'
-    for (const value of ['/a', 'a/', 'a//b', '/', 'a b//c']) {
+    for (const value of ['a//b', 'a b//c', '/a//b']) {
       let error: unknown
       try {
         buildUrl(path, { params: { file: value } })
@@ -136,7 +136,12 @@ describe('buildUrl regex params and "/"', () => {
       expect((error as Error).message).toBe(
         '[@laratype/contract] buildUrl: param "file" for "/files/:file{.+/.+}/raw" has an empty segment',
       )
+      expect((error as Error).message).not.toContain(value)
     }
+    // an empty segment the pattern makes unsendable keeps the encoded value: the split never reaches the route
+    expect(buildUrl(path, { params: { file: '/a' } })).toBe('/files/%2Fa/raw')
+    expect(buildUrl(path, { params: { file: 'a/' } })).toBe('/files/a%2F/raw')
+    expect(buildUrl(path, { params: { file: '/' } })).toBe('/files/%2F/raw')
   })
 
   it('refuses a "." or ".." segment, which URL parsing would resolve, without echoing the value', () => {
@@ -157,12 +162,23 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a../.../b' } })).toBe('/files/a../.../b/raw')
   })
 
-  it('refuses an empty or dot segment of any value whose pattern rejects the encoded form, even when no split matches', () => {
-    // the segment check runs before the split is chosen, for a pattern that needs no "/" too
-    expect(() => buildUrl('/posts/:id{[0-9]+}', { params: { id: '1//2' } })).toThrow(/param "id" for "\/posts\/:id\{\[0-9\]\+\}" has an empty segment/)
-    expect(() => buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/./2' } })).toThrow(/param "id" .* has a "\." or "\.\." segment/)
+  it('refuses an empty or dot segment only when the pattern accepts the split, which is when it would be sent', () => {
+    // :id{[0-9]+} matches neither form: the value is sent encoded and the route 404s, so a server route() over a
+    // request-derived value is not a 500
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1//2' } })).toBe('/posts/1%2F%2F2')
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/../2' } })).toBe('/posts/1%2F..%2F2')
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/./2' } })).toBe('/posts/1%2F.%2F2')
     // no empty or dot segment: the value keeps the encoded form, which the pattern rejects too
     expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/a' } })).toBe('/posts/1%2Fa')
+    // a control character in the same form stays encoded too, never throwing
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/\u0000/2' } })).toBe('/posts/1%2F%00%2F2')
+    // the split is accepted here, so its segments would be sent: the same forms are refused
+    expect(() => buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a//b' } })).toThrow(
+      /param "file" for "\/files\/:file\{\.\+\/\.\+\}\/raw" has an empty segment/,
+    )
+    expect(() => buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a/../b' } })).toThrow(
+      /param "file" .* has a "\." or "\.\." segment/,
+    )
   })
 
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {
@@ -196,6 +212,10 @@ describe('buildUrl regex params and "/"', () => {
     const big = `${'a'.repeat(500_000)}/${'b'.repeat(500_000)}`
     expect(buildUrl('/files/:file{.+}', { params: { file: big } })).toBe(`/files/${'a'.repeat(500_000)}%2F${'b'.repeat(500_000)}`)
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: big } })).toBe(`/files/${big}/raw`)
+    // a 1 MB value neither form of the pattern accepts stays encoded: the split is built and tested, its empty
+    // segments are never checked, and the value is not refused
+    const unsendable = '1/'.repeat(500_000)
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: unsendable } })).toBe(`/posts/${unsendable.replaceAll('/', '%2F')}`)
   })
 })
 
