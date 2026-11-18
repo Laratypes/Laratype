@@ -95,4 +95,9 @@ describe("mountNodeConnInfo", () => {
     await expect(mountNodeConnInfo(new Hono(), async () => ({}))).resolves.toBeUndefined();
     await expect(mountNodeConnInfo(new Hono(), async () => ({ mountConnInfo: 42 }))).resolves.toBeUndefined();
   });
+
+  it("lets @laratype/http refuse a value that is not a Hono app", async () => {
+    await expect(mountNodeConnInfo(null, loadHttp)).rejects.toThrow(TypeError);
+    await expect(mountNodeConnInfo(42, loadHttp)).rejects.toThrow(TypeError);
+  });
 });
