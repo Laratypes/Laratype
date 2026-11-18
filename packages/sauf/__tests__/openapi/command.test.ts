@@ -149,6 +149,10 @@ describe("sauf openapi:generate", () => {
     await expect(
       generateOpenApiFile({ projectDir: dir, out: "docs", load, contract: contractRuntime }),
     ).rejects.toThrow('the output file "docs" (--out) is a directory');
+    writeFileSync(join(dir, "file.json"), "{}");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "file.json/nested.json", load, contract: contractRuntime }),
+    ).rejects.toThrow('the output file "file.json/nested.json" (--out) is below a path that is not a folder');
     expect(existsSync(join(dir, ".laratype"))).toBe(false);
   }, 60_000);
 

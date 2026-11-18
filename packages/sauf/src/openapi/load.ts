@@ -124,6 +124,9 @@ function checkOutputFile(projectDir: string, out: string): void {
   if (out === "" || isAbsolute(out) || /^[a-zA-Z]:/.test(out) || !inside(projectDir, target)) {
     throw new OpenApiGenerationError(`the output file "${out}" (--out) must be a file inside the project`);
   }
+  // Path safety first: a folder that resolves outside the project, or a parent that is a file, is refused before
+  // the target is read (an existing target may be a symlink through such a folder).
+  checkOutputFolder(projectDir, out, target);
   // lstat, not existsSync: a broken symlink is a target too, and writeFileSync would create the file it points at
   const info = lstatSync(target, { throwIfNoEntry: false });
   if (info !== undefined) {
@@ -144,7 +147,6 @@ function checkOutputFile(projectDir: string, out: string): void {
       );
     }
   }
-  checkOutputFolder(projectDir, out, target);
 }
 
 /** Whether an existing target is a document this command wrote: JSON with a string `openapi` key. Its content is
