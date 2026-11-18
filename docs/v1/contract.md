@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 80274d3d ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 59b818c9 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -898,7 +898,7 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 80274d3d ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 59b818c9 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
