@@ -99,13 +99,12 @@ function encodeParam(name: string, text: string, path: string, pattern: string |
   const encoded = encodeValue(name, text, path);
   // without a "/" in the value both forms are the same string: only a "/" (sent as %2F) can change which route matches
   if (pattern === undefined || !text.includes("/") || matchPattern(pattern, encoded) !== "rejects") return encoded;
-  // each "/" stays a path separator, every other character is encoded per segment
   const segments = text.split("/");
   const perSegment = segments.map((segment) => encodeValue(name, segment, path)).join("/");
   // A split the pattern rejects would never be sent, and refusing one of its segments would turn a URL that 404s into a
   // 500: the check runs only on a split that is used
   if (matchPattern(pattern, perSegment) !== "accepts") return encoded;
-  refuseUnsendableSegments(name, segments, path);
+  refuseEmptyOrDotSegments(name, segments, path);
   return perSegment;
 }
 
@@ -113,7 +112,7 @@ function encodeParam(name: string, text: string, path: string, pattern: string |
  * Refuses a segment of a split that would be sent and is empty or exactly "." or "..": it would add a segment or be
  * resolved as a dot segment. The diagnostic names the param and the path, never the value.
  */
-function refuseUnsendableSegments(name: string, segments: readonly string[], path: string): void {
+function refuseEmptyOrDotSegments(name: string, segments: readonly string[], path: string): void {
   for (const segment of segments) {
     if (segment === "") fail(`buildUrl: param "${name}" for "${path}" has an empty segment`);
     if (segment === "." || segment === "..") {
