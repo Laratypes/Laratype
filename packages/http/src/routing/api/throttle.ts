@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { isIP } from "node:net";
 import { errors } from "@laratype/contract";
 import type { Duration, ThrottleOptions } from "@laratype/contract";
-import { clientIp } from "../../supports/Request";
+import { connInfoSource } from "../../supports/Request";
 import { hextets, ipv4FromHextets } from "../../supports/ip";
 
 /** The hits counted in a key's current window, and when that window ends (epoch ms). */
@@ -98,30 +98,39 @@ export const durationMs = (per: Duration): number =>
 /**
  * The client's bucket from `request.ip()` (the socket peer, never `X-Forwarded-For`), or `undefined` when there is no
  * address: a shared bucket would let one client throttle every other client without one. An IPv4 address carried in
- * IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) is
- * that IPv4 address, and any other IPv6 client is its /64, the block one client can rotate addresses in.
+ * IPv6 is that IPv4 address: `::ffff:203.0.113.5` (a dual-stack listener), `64:ff9b::203.0.113.5` (NAT64),
+ * `::ffff:0:203.0.113.5` (SIIT) and `::203.0.113.5` (IPv4-compatible, except `::` and `::1`). Any other IPv6 client is
+ * its /64, the block one client can rotate addresses in.
  */
 export const ipBucket = (ip: string | undefined): string | undefined => {
   if (ip === undefined || ip === "") return undefined;
   const address = ip.split("%")[0]!;
   if (isIP(address) !== 6) return address;
   const groups = hextets(address);
-  const mapped = groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
-  const translated = groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0);
-  if (mapped || translated) {
+  const leadingZeros = (count: number) => groups.slice(0, count).every((group) => group === 0);
+  const mapped = leadingZeros(5) && groups[5] === 0xffff;
+  const siit = leadingZeros(4) && groups[4] === 0xffff && groups[5] === 0;
+  const nat64 = groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0);
+  // ::a.b.c.d, whose embedded 0.0.0.0 and 0.0.0.1 are :: and ::1, the unspecified and loopback addresses
+  const compatible = leadingZeros(6) && !(groups[6] === 0 && (groups[7] === 0 || groups[7] === 1));
+  if (mapped || siit || nat64 || compatible) {
     return ipv4FromHextets(groups[6]!, groups[7]!);
   }
   return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`;
 };
 
-/** Set once the missing-address warning printed: per process, as dev restarts and a second copy of the module re-import this one. */
-const NO_ADDRESS_WARNED = Symbol.for("laratype.http.throttleNoAddressWarned");
+/**
+ * Set once the missing-source warning printed: per process, as the throttle has no handle on the Hono app instance and
+ * a dev restart or a second copy of the module re-imports this one. The flag is per process, so a second app that also
+ * mounts nothing is covered by the first warning.
+ */
+const NO_CONN_INFO_WARNED = Symbol.for("laratype.http.throttleNoConnInfoWarned");
 
-const warnNoAddress = (name: string) => {
-  const store = globalThis as { [NO_ADDRESS_WARNED]?: true };
-  if (store[NO_ADDRESS_WARNED]) return;
-  store[NO_ADDRESS_WARNED] = true;
-  console.warn(`[@laratype/http] Route.api: a request has no client address (another runtime, or an in-process app.request()), so rate-limited routes serve such requests without a limit (first: ${name})`);
+const warnNoConnInfo = (name: string) => {
+  const store = globalThis as { [NO_CONN_INFO_WARNED]?: true };
+  if (store[NO_CONN_INFO_WARNED]) return;
+  store[NO_CONN_INFO_WARNED] = true;
+  console.warn(`[@laratype/http] Route.api: no getConnInfo is registered, so .throttle() routes serve requests without a limit: a Bun or custom entry must call mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo) before the routes are mounted (first: ${name})`);
 };
 
 /** The catalog 429 on the wire (`{ code, ...body }`, http.md › Exceptions), built once: it never changes. */
@@ -164,9 +173,11 @@ export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handl
   // The limit and window are part of the key: a dev restart that changes them doesn't keep the old window
   const scope = `${route.method.toUpperCase()} ${route.domain ?? "*"} ${route.path} ${options.limit}/${windowMs}`;
   return async (c, next) => {
-    const bucket = ipBucket(clientIp(c));
+    const source = connInfoSource(c);
+    const bucket = ipBucket(source.address);
     if (bucket === undefined) {
-      warnNoAddress(route.name);
+      // No registered source is app wiring, fixed once for every route; a source that found no address is per request
+      if (!source.registered) warnNoConnInfo(route.name);
       return handle(c, next);
     }
     const { hits, resetAt } = await store.hit(`${scope} ${bucket}`, windowMs);

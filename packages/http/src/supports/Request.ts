@@ -55,25 +55,37 @@ export const mountConnInfo = (app: Hono, getConnInfo: GetConnInfo): void => {
 }
 
 /**
+ * What the serving adapter's `getConnInfo` answered (A5 #288, H30 #299): whether one is registered at all, and the
+ * client address it found. `registered: false` is the app-wiring gap the rate limit warns about once per process; a
+ * registered getter that finds no address (a unix socket, a gone connection) is a per-request fact and logs nothing.
+ */
+export type ConnInfoSource =
+  | { readonly registered: false, readonly address: undefined }
+  | { readonly registered: true, readonly address: string | undefined }
+
+/**
  * The client address `request.ip()` answers, read from the getConnInfo the serving adapter registered on the context
  * (A5 #288, H30 #299), or `undefined` when none is registered or it has no address. A getConnInfo that throws (a Bun
  * server's `requestIP()` answering null, a socket gone) is no address either: it never fails the request.
  */
-export const clientIp = (ctx: Context | undefined): string | undefined => {
-  if (!ctx) return undefined;
+export const connInfoSource = (ctx: Context | undefined): ConnInfoSource => {
+  if (ctx === undefined) return { registered: false, address: undefined };
   const getConnInfo = (ctx as unknown as Partial<ConnInfoContext>).get?.(CONN_INFO)
-  if (typeof getConnInfo !== "function") return undefined;
+  if (typeof getConnInfo !== "function") return { registered: false, address: undefined };
   try {
     const info: unknown = getConnInfo(ctx);
     const address = typeof info === "object" && info !== null
       ? (info as { remote?: { address?: unknown } }).remote?.address
       : undefined;
-    return normalizeIp(address)
+    return { registered: true, address: normalizeIp(address) }
   }
   catch {
-    return undefined
+    return { registered: true, address: undefined }
   }
 }
+
+/** The address `ip()` answers: `connInfoSource(ctx).address`, `undefined` for every reason it can be unknown. */
+export const clientIp = (ctx: Context | undefined): string | undefined => connInfoSource(ctx).address
 
 export default class Request implements RequestInterface {
 

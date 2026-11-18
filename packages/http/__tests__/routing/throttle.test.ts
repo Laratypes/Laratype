@@ -4,6 +4,7 @@ import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import type { GetConnInfo } from 'hono/conninfo'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
@@ -52,20 +53,51 @@ const bootApp = () => {
   return app
 }
 
+/** The same app with another getter: what an adapter without an address source leaves mounted. */
+const bootAppWith = (getConnInfo: GetConnInfo) => {
+  const container = new Container({ deps: depsRegistry })
+  const app = new Hono()
+  mountConnInfo(app, getConnInfo)
+  container.instance(HTTP_APP, app)
+  new RequestKernel(container).boot()
+  new ResponseKernel(container).boot()
+  routes().mount(app)
+  return app
+}
+
+/** An app like a Bun or custom entry that never calls `mountConnInfo`: no getConnInfo is registered. */
+const bootAppWithoutConnInfo = () => {
+  const container = new Container({ deps: depsRegistry })
+  const app = new Hono()
+  container.instance(HTTP_APP, app)
+  new RequestKernel(container).boot()
+  new ResponseKernel(container).boot()
+  routes().mount(app)
+  return app
+}
+
 /** The env of a request from `address`, read by the registered getter, as a Bun-style adapter's would be. */
 const from = (address: string) => ({ address })
 
 let app: Hono
 
+/** The missing-source warning is remembered per process: start each test as a fresh process would. */
+const forgetWarned = () => {
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoConnInfoWarned')]
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.spyOn(console, 'log').mockImplementation(() => {})
+  forgetWarned()
   app = bootApp()
 })
 
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 // Each test uses its own addresses: the memory store is one per process
@@ -116,12 +148,52 @@ describe('rate limit from the contract', () => {
     expect((await app.request('/api/posts/1', {}, from('::ffff:198.51.100.7'))).status).toBe(429)
   })
 
-  it('a request with no client address is not limited (no shared "" bucket), with one warning', async () => {
-    delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoAddressWarned')]
+  it('a request with no client address is not limited (no shared "" bucket) and does not warn', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The mounted getter finds no address: a unix socket or a gone connection, not a missing adapter
     for (let i = 0; i < 5; i++) expect((await app.request('/api/posts/1')).status).toBe(200)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a registered getter that throws is no address either, and does not warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const throwing = bootAppWith(() => { throw new Error('no socket') })
+    for (let i = 0; i < 5; i++) expect((await throwing.request('/api/posts/1')).status).toBe(200)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a throttled route with no registered getConnInfo warns once per process, across routes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    for (let i = 0; i < 5; i++) expect((await bare.request('/api/posts')).status).toBe(200)
+    expect((await bare.request('/api/posts/1')).status).toBe(200)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('a request has no client address'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no getConnInfo is registered'))
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo)')
+    expect(message).toContain('first: posts.index')
+  })
+
+  it('a registered getter with an address does not warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (let i = 0; i < 3; i++) expect((await app.request('/api/posts', {}, from('203.0.113.20'))).status).toBe(200)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns in production, where the rate limit runs the same', async () => {
+    vi.stubGlobal('__PROD__', true)
+    vi.stubEnv('NODE_ENV', 'production')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    for (let i = 0; i < 2; i++) expect((await bare.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('mountConnInfo(app, getConnInfo'))
+  })
+
+  it('clients behind a SIIT translator (::ffff:0:a.b.c.d) get their own counter', async () => {
+    for (let i = 0; i < 3; i++) await app.request('/api/posts', {}, from('::ffff:0:198.51.100.1'))
+    expect((await app.request('/api/posts', {}, from('::ffff:0:198.51.100.1'))).status).toBe(429)
+    expect((await app.request('/api/posts', {}, from('::ffff:0:198.51.100.2'))).status).toBe(200)
   })
 
   it('never reads X-Forwarded-For', async () => {
@@ -183,6 +255,20 @@ describe('ipBucket', () => {
     expect(ipBucket('::1')).toBe('0:0:0:0::/64')
     expect(ipBucket('64:ff9b::203.0.113.1')).toBe('203.0.113.1')
     expect(ipBucket('64:ff9b:1::203.0.113.1')).toBe('64:ff9b:1:0::/64')
+  })
+
+  it('keys the IPv4 address a SIIT or IPv4-compatible form carries, keeping :: and ::1', () => {
+    expect(ipBucket('::ffff:0:203.0.113.1')).toBe('203.0.113.1')
+    expect(ipBucket('0:0:0:0:ffff:0:cb00:7101')).toBe('203.0.113.1')
+    expect(ipBucket('::203.0.113.1')).toBe('203.0.113.1')
+    // Two clients behind such a translator never share one bucket
+    expect(ipBucket('::ffff:0:1.2.3.4')).not.toBe(ipBucket('::ffff:0:5.6.7.8'))
+    expect(ipBucket('::1.2.3.4')).not.toBe(ipBucket('::5.6.7.8'))
+    // :: and ::1 embed 0.0.0.0 and 0.0.0.1: they keep their own /64, never an IPv4 client's bucket
+    expect(ipBucket('::')).toBe('0:0:0:0::/64')
+    expect(ipBucket('::0.0.0.1')).toBe('0:0:0:0::/64')
+    expect(ipBucket('::1')).not.toBe(ipBucket('0.0.0.1'))
+    expect(ipBucket('::0.0.0.2')).toBe('0.0.0.2')
   })
 })
 
