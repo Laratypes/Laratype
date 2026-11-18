@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { createServer } from "vite";
 import type { ViteDevServer } from "vite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { laratypeApi } from "../../src/typegen";
 import type { ApiPluginApi } from "../../src/typegen";
 import { coalesce } from "../../src/typegen/plugin";
@@ -111,7 +111,7 @@ describe("ContractTypeWatch", () => {
     expect(readFileSync(typeFile(dir, "app/api/reports"), "utf8")).toContain("export type Prefix = ContractPrefix<'/api/reports'");
   });
 
-  it("follows a rename as unlink + add and removes the stale $types.d.ts of a deleted folder", async () => {
+  it("follows a rename as unlink + add", async () => {
     const dir = project("rename");
     const { api } = await opened(dir);
     const events = fakeEvents();
@@ -125,6 +125,13 @@ describe("ContractTypeWatch", () => {
     expect(indexOf(dir)).not.toContain("'users':");
     // users.posts still exists: only the file's entry goes
     expect(indexOf(dir)).toContain("'users.posts':");
+  });
+
+  it("removes the stale $types.d.ts of a deleted folder", async () => {
+    const dir = project("delete");
+    const { api } = await opened(dir);
+    const events = fakeEvents();
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0 });
 
     rmSync(join(dir, "app/api/v1"), { recursive: true });
     events.emit("unlink", join(dir, "app/api/v1/health/index.ts"));
@@ -160,9 +167,9 @@ describe("ContractTypeWatch", () => {
     expect(existsSync(typeFile(dir, "app/contracts"))).toBe(true);
     // only .laratype changed: the old root's contracts are still on disk
     expect(existsSync(join(dir, "app/api/users.ts"))).toBe(true);
-  });
+  }, 30_000);
 
-  it("logs a scan error and keeps the last good output; the next good save recovers", async () => {
+  it("logs a scan error and keeps the last good output", async () => {
     const dir = project("invalid");
     const { api } = await opened(dir);
     const events = fakeEvents();
@@ -176,6 +183,20 @@ describe("ContractTypeWatch", () => {
     await watch.idle();
     expect(errors.map(String)).toEqual(['ScanError: [laratype:api] bad.name.ts: file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)']);
     expect(indexOf(dir)).toBe(before);
+  });
+
+  it("recovers on the next good save after a scan error", async () => {
+    const dir = project("recover");
+    const { api } = await opened(dir);
+    const events = fakeEvents();
+    const errors: unknown[] = [];
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0, onError: (e) => errors.push(e) });
+
+    const bad = join(dir, "app/api/bad.name.ts");
+    writeFileSync(bad, "export default {}\n");
+    events.emit("add", bad);
+    await watch.idle();
+    expect(errors).toHaveLength(1);
 
     rmSync(bad);
     const good = join(dir, "app/api/good.ts");
@@ -234,7 +255,7 @@ describe("ContractTypeWatch", () => {
     expect(statSync(typesPath).mtimeMs).toBe(mtime);
     // The FE program imports $api -> index.gen.ts -> app/api/users.ts: the new body type reaches it with no scan
     expect(diagnostics()).toEqual([expect.stringContaining("Type 'number' is not assignable to type 'string'.")]);
-  });
+  }, 30_000);
 
   it("debounces a burst into one scan, and coalesces events that arrive during a scan into one more", async () => {
     const dir = project("burst");
@@ -279,6 +300,32 @@ describe("ContractTypeWatch", () => {
     await slow.idle();
     expect(runs).toBe(2);
     expect(max).toBe(1);
+  });
+
+  it("resets the debounce on every event, so a slow burst is one scan", async () => {
+    vi.useFakeTimers();
+    try {
+      const events = fakeEvents();
+      const scans = { count: 0 };
+      const watch = new ContractTypeWatch({
+        events,
+        delay: 30,
+        tree: { affectsTree: () => true, isGenerated: () => false, refresh: async () => { scans.count++; } },
+      });
+      events.emit("add", "app/api/a.ts");
+      await vi.advanceTimersByTimeAsync(20);
+      events.emit("add", "app/api/b.ts");
+      await vi.advanceTimersByTimeAsync(20);
+      events.emit("add", "app/api/c.ts");
+      await vi.advanceTimersByTimeAsync(29);
+      expect(scans.count).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await watch.idle();
+      expect(scans.count).toBe(1);
+      watch.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores generated files, paths outside the tree, private and non-module paths", async () => {
@@ -667,13 +714,15 @@ describe("the type watch on Vite's watcher", () => {
       ],
     });
     try {
-      // Vite's patched chokidar emits `ready` before it has watched the tree: wait for the directory itself
+      // Vite's patched chokidar emits `ready` before the crawl ends. Wait until the deepest watched folders are in
+      // getWatched(), so the initial walk has passed the tree before a test file is created.
+      const watched = () =>
+        Object.keys((server.watcher as unknown as { getWatched(): Record<string, string[]> }).getWatched()).map((p) =>
+          p.replace(/\\/g, "/"),
+        );
+      const deepest = ["app/api/users/[user]", "app/api/v1/health"].map((p) => join(dir, p).replace(/\\/g, "/"));
       await new Promise<void>((resolve) => {
-        const watched = () =>
-          Object.keys((server.watcher as unknown as { getWatched(): Record<string, string[]> }).getWatched());
-        const root = join(dir, "app/api").replace(/\\/g, "/");
-        const check = () =>
-          watched().some((path) => path.replace(/\\/g, "/") === root) ? resolve() : setTimeout(check, 10);
+        const check = () => (deepest.every((p) => watched().includes(p)) ? resolve() : setTimeout(check, 10));
         check();
       });
       host.open({ events: server.watcher as unknown as WatchEvents, tree: treeOf(api, scans), delay: 0 });

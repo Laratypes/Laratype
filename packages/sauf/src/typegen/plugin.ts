@@ -56,7 +56,7 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   const indexId = slash(indexFile);
   const configFile = resolve(projectDir, 'app', 'config', 'config.ts');
   const outPath = resolve(projectDir, outDir);
-  let current: Promise<void> | undefined;
+  let lastScan: Promise<void> | undefined;
   let used = false;
   // The default root until a scan has read the config, so a first scan that fails still restarts on contract adds
   let rootPath = resolve(projectDir, DEFAULT_ROOT);
@@ -96,10 +96,10 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
       // The original's cause (the jiti import error and its stack) is kept
       throw error instanceof ScanError ? new ScanError(`[${API_PLUGIN_NAME}] ${error.message}`, { cause: error.cause }) : error;
     });
-    current = run;
+    lastScan = run;
     // A rejected scan is not cached: the next import or watcher event retries
     void run.catch(() => {
-      if (current === run) current = undefined;
+      if (lastScan === run) lastScan = undefined;
     });
     return run;
   };
@@ -137,7 +137,7 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     async resolveId(source) {
       if (source !== API_ALIAS) return null;
       used = true;
-      await (current ?? rescan());
+      await (lastScan ?? rescan());
       checkRoot();
       return existsSync(indexFile) ? indexFile : null;
     },
@@ -165,7 +165,7 @@ export interface CoalescedTask {
  * so a call that arrives during a failed run is not dropped and a failing scan is not cached.
  */
 export function coalesce(task: () => Promise<void>): CoalescedTask {
-  let current: Promise<void> | undefined;
+  let running: Promise<void> | undefined;
   let requested = false;
   const drain = async (): Promise<void> => {
     let failed = false;
@@ -183,13 +183,13 @@ export function coalesce(task: () => Promise<void>): CoalescedTask {
       }
       if (failed) throw failure;
     } finally {
-      current = undefined;
+      running = undefined;
     }
   };
   return {
     run() {
       requested = true;
-      const run = current ?? (current = drain());
+      const run = running ?? (running = drain());
       return run;
     },
   };

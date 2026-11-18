@@ -23,7 +23,7 @@ type TreeSource = Pick<ApiPluginApi, "affectsTree" | "isGenerated" | "refresh">;
 export interface ContractTypeWatchOptions {
   /** The file watcher: Vite's `server.watcher` in `sauf dev`. */
   readonly events: WatchEvents;
-  /** The `laratype:api` plugin API: which events can change the tree, and `refresh()`. */
+  /** What the watch reads from `laratype:api` and how it refreshes the generated files. */
   readonly tree: TreeSource;
   /** Debounce after the last relevant event before one scan, in ms. Default 30; finite and 0 or more. */
   readonly delay?: number;
@@ -42,10 +42,10 @@ const checkDelay = (delay: number | undefined): number => {
 };
 
 /**
- * Watches the [contract folder tree](../../../../docs/v1/contract.md#contract-folder-tree) and refreshes the generated
- * files without restarting the app: an add or delete of a contract or `_scope.ts`, or a config change, is debounced
- * into one `refresh()`; a failed scan is reported and the last good output stays. Events on the generated output and
- * outside the tree are ignored, so the watch's own writes never loop.
+ * Watches the contract folder tree (docs/v1/contract.md › Contract folder tree) and refreshes the generated files
+ * without restarting the app: an add or delete of a contract or `_scope.ts`, or a config change, is debounced into one
+ * `refresh()`; a failed scan is reported and the last good output stays. Events on the generated output and outside
+ * the tree are ignored, so the watch's own writes never loop.
  */
 export class ContractTypeWatch {
   private readonly delay: number;
@@ -103,11 +103,12 @@ export class ContractTypeWatch {
     this.request();
   }
 
-  /** A relevant event: debounce, then one scan; an event during a scan queues exactly one more scan. */
+  /** A relevant event: reset the debounce, then one scan; an event during a scan queues exactly one more scan. */
   private request(): void {
     if (this.disposed) return;
     this.requested = true;
-    if (this.timer || this.running) return;
+    if (this.running) return;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.running = this.drain().finally(() => {
