@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus } from '@laratype/contract'
+import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus, isFailureStatus } from '@laratype/contract'
 import type { AnyEndpoint, AnyErrorDef } from '@laratype/contract'
 
 const notFound = defineError(404, 'POST_NOT_FOUND')
@@ -15,6 +15,15 @@ describe('@laratype/contract', () => {
 describe('endpoint builder', () => {
   it('isBodylessStatus: 204 and 205 only', () => {
     expect([200, 201, 202, 204, 205, 206].map(isBodylessStatus)).toEqual([false, false, false, true, true, false])
+  })
+
+  it('isFailureStatus: 400 to 599 integers, the one rule `@laratype/http` uses too', () => {
+    expect([200, 399, 400, 401, 499, 500, 599, 600].map(isFailureStatus)).toEqual([
+      false, false, true, true, true, true, true, false,
+    ])
+    expect([NaN, 401.5, '401', null, undefined].map((status) => isFailureStatus(status))).toEqual([
+      false, false, false, false, false,
+    ])
   })
 
   it('.response(schema) keeps a status set by .status(n); .response(schema, 204) throws (a 204 has no body)', () => {

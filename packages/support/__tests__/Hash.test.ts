@@ -16,6 +16,16 @@ const replacing = (make: (value: string) => string) =>
     }
   })()
 
+/** A Hasher of another format, to prove the async pair delegates to the overridden sync pair. */
+class Bcrypt extends Hasher {
+  override make(value: string) {
+    return `bcrypt:${value}`
+  }
+  override check(value: string, hashed: string) {
+    return hashed === `bcrypt:${value}`
+  }
+}
+
 describe('Hasher', () => {
   const hasher = new Hasher()
 
@@ -82,6 +92,97 @@ describe('Hasher', () => {
   })
 })
 
+describe('Hasher async methods', () => {
+  const hasher = new Hasher()
+
+  it('makes a salted scrypt hash, as make() does', async () => {
+    const first = await hasher.makeAsync('secret')
+    expect(first).toMatch(SCRYPT)
+    expect(await hasher.makeAsync('secret')).not.toBe(first)
+  })
+
+  it('accepts a hash from either method, both ways', async () => {
+    const sync = hasher.make('secret')
+    const asyncHash = await hasher.makeAsync('secret')
+    expect(hasher.check('secret', asyncHash)).toBe(true)
+    expect(await hasher.checkAsync('secret', sync)).toBe(true)
+    expect(hasher.check('wrong', asyncHash)).toBe(false)
+    expect(await hasher.checkAsync('wrong', sync)).toBe(false)
+    // A makeAsync() hash is a current hash: Model stores it as is and the login does not rehash it
+    expect(hasher.isHashed(asyncHash)).toBe(true)
+    expect(hasher.needsRehash(asyncHash)).toBe(false)
+  })
+
+  it('accepts a 0.5 sha256 hash', async () => {
+    expect(await hasher.checkAsync('secret', SHA256_SECRET)).toBe(true)
+    expect(await hasher.checkAsync('other', SHA256_SECRET)).toBe(false)
+  })
+
+  it('answers a wrong password false and never throws', async () => {
+    expect(await hasher.checkAsync('wrong', hasher.make('secret'))).toBe(false)
+    // The malformed values the sync check refuses, as a login can read them from the database
+    for (const malformed of ['secret', '', SHA256_SECRET.toUpperCase(), '$scrypt$N=16384,r=8,p=1$']) {
+      expect(await hasher.checkAsync('secret', malformed)).toBe(false)
+    }
+    expect(await hasher.checkAsync(undefined as any, SHA256_SECRET)).toBe(false)
+    expect(await hasher.checkAsync('secret', null as any)).toBe(false)
+  })
+
+  it('refuses a stored hash at another cost, or a shorter salt or key, without running scrypt', async () => {
+    const [, , , salt, key] = hasher.make('secret').split('$')
+    const shortSalt = Buffer.from(salt, 'base64').subarray(0, 8).toString('base64')
+    const shortKey = Buffer.from(key, 'base64').subarray(0, 16).toString('base64')
+    const spy = vi.spyOn(crypto, 'scrypt')
+    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2']) {
+      expect(await hasher.checkAsync('secret', `$scrypt$${cost}$${salt}$${key}`)).toBe(false)
+    }
+    expect(await hasher.checkAsync('secret', `$scrypt$N=16384,r=8,p=1$${shortSalt}$${key}`)).toBe(false)
+    expect(await hasher.checkAsync('secret', `$scrypt$N=16384,r=8,p=1$${salt}$${shortKey}`)).toBe(false)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('derives with crypto.scrypt, not scryptSync', async () => {
+    const hashed = hasher.make('secret')
+    const asyncSpy = vi.spyOn(crypto, 'scrypt')
+    const syncSpy = vi.spyOn(crypto, 'scryptSync')
+    expect(await hasher.checkAsync('secret', hashed)).toBe(true)
+    expect(await hasher.makeAsync('secret')).toMatch(SCRYPT)
+    expect(asyncSpy).toHaveBeenCalledTimes(2)
+    expect(syncSpy).not.toHaveBeenCalled()
+    asyncSpy.mockRestore()
+    syncSpy.mockRestore()
+  })
+
+  it('delegates to a custom Hasher that overrides make() and check(): its format keeps working', async () => {
+    const custom = new Bcrypt()
+    const hashed = await custom.makeAsync('secret')
+    expect(hashed).toBe('bcrypt:secret')
+    expect(await custom.checkAsync('secret', hashed)).toBe(true)
+    expect(await custom.checkAsync('wrong', hashed)).toBe(false)
+  })
+
+  it('delegates to an overridden check()', async () => {
+    class Refusing extends Hasher {
+      override check() {
+        return false
+      }
+    }
+    expect(await new Refusing().checkAsync('secret', hasher.make('secret'))).toBe(false)
+  })
+
+  it('does not infer a check() from an overridden make(), so a custom format overrides both', async () => {
+    class Upper extends Hasher {
+      override make(value: string) {
+        return value.toUpperCase()
+      }
+    }
+    expect(await new Upper().makeAsync('secret')).toBe('SECRET')
+    // The base checkAsync only understands the format the base make() writes
+    expect(await new Upper().checkAsync('secret', 'SECRET')).toBe(false)
+  })
+})
+
 describe('Hash facade', () => {
   afterEach(() => Facade.setFacadeApplication(undefined))
 
@@ -91,6 +192,20 @@ describe('Hash facade', () => {
     expect(Hash.check('secret', hashed)).toBe(true)
     expect(Hash.needsRehash(hashed)).toBe(false)
     expect(Hash.isHashed(hashed)).toBe(true)
+  })
+
+  it('hashes and checks asynchronously with Hasher by default', async () => {
+    const hashed = await Hash.makeAsync('secret')
+    expect(hashed).toMatch(SCRYPT)
+    expect(await Hash.checkAsync('secret', hashed)).toBe(true)
+    expect(await Hash.checkAsync('wrong', hashed)).toBe(false)
+  })
+
+  it('resolves the async methods on a custom Hasher bound in the facade application', async () => {
+    Facade.setFacadeApplication(new Container().bind(Hasher, Bcrypt))
+    const hashed = await Hash.makeAsync('secret')
+    expect(hashed).toBe('bcrypt:secret')
+    expect(await Hash.checkAsync('secret', hashed)).toBe(true)
   })
 
   it('works detached from the class, as in 0.5', () => {

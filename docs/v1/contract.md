@@ -132,10 +132,10 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. `isFailureStatus` is proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)).
 
 ### Public API
-[`packages/contract/src/endpoint.ts`](../../packages/contract/src/endpoint.ts)
+[`packages/contract/src/endpoint.ts` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts) · [`isFailureStatus` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts#L41-L42)
 
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
@@ -189,6 +189,7 @@ export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
 export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 export const isBodylessStatus: (status: number) => boolean;   // 204 or 205
+export const isFailureStatus: (status: unknown) => status is number;   // an integer from 400 to 599, the one error-status rule (H29 #295)
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
@@ -303,7 +304,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
 - A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives. `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
-- **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date()` (zod 3) or `z.coerce.date<Date>()` (zod 4). A handler that wants the ISO string itself uses `z.string().datetime()` (zod 3) or `z.iso.datetime()` (zod 4). A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
+- **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date<Date>()`. A handler that wants the ISO string itself uses `z.iso.datetime()`. A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
 - `TypeError: validateSync: the <vendor> schema is async, use validate() instead` (for example `the zod schema`).

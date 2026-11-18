@@ -128,8 +128,8 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E
 - **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A sub-path is kept (`users/posts` -> `app/api/users/posts.ts`, and `[param]` folders are allowed); a trailing `.ts` and `\` path separators in the argument are normalized. A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only. A segment outside the tree's naming rules (`.`, `..`, an absolute path) is rejected by the generator, and so is an `index` with no named folder: a root `index` (any case, with or without `.ts`, which a lowercase `index.ts` would fail the scan on) and an index under only `[param]` folders, because neither has a contract name. A named folder's `index.ts` is allowed and names its folder (`users/index.ts` -> `/api/users`); a duplicate contract name fails that scan.
 - **The stubs type-check** in `examples/basic`. The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
-  - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
-  - on the repo's zod 3.25 `zod` entry, contract and request stubs write `z.coerce.number()`. With zod 4's default entry the input type of plain `z.coerce.number()` is `unknown`, so the stub then needs `z.coerce.number<number>()`;
+  - stubs import `import * as z from "zod"`: with zod 4, `import { z } from "zod"` defeats tree-shaking (about 47 KiB vs 16 KiB gzip in an FE entry);
+  - contract and request stubs write `z.coerce.number<number>()`: with zod 4 the input type of plain `z.coerce.number()` is `unknown`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 - **`make:request` stays 0.5** until FormRequest v2 ([#137](https://github.com/Laratypes/Laratype/issues/137)): the class extends `Request` and declares `rules()`. A contract route validates the contract's schemas and takes no request class ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 - **`make:resource` maps plain data:** `defineResource(model, fn)` returns `make`, `collection` and `paginate`; the contract checks the returned data at `r.contract()` ([http.md › Resources](./http.md#resources)). The placeholder model class in the stub is replaced by the app's model.
@@ -158,7 +158,7 @@ import { defineContract, endpoint } from "@laratype/contract";
 import * as z from "zod";
 import type { Prefix } from "./$types";
 
-const IndexQuery = z.object({ page: z.coerce.number().int().min(1).default(1) });
+const IndexQuery = z.object({ page: z.coerce.number<number>().int().min(1).default(1) });
 
 export default defineContract<Prefix>()({
   index: endpoint.get("/").query(IndexQuery),
