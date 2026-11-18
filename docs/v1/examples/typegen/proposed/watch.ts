@@ -1,22 +1,25 @@
 // docs/v1/typegen.md › Watch mode in sauf dev (G2 #142, proposed).
-// The watch belongs to `sauf dev`, not to app code: this is the wiring in packages/sauf/src/commands/dev.ts.
-import { ContractTypeWatchHost, laratypeApi } from 'sauf/src/typegen'
-import type { ApiPluginApi, WatchEvents } from 'sauf/src/typegen'
+// A sketch of the wiring in packages/sauf/src/commands/dev.ts, not app code.
+import { ContractTypeWatchHost, contractTreePlugin } from 'sauf/src/typegen'
+import type { WatchEvents } from 'sauf/src/typegen'
 
-const plugin = laratypeApi()
-const tree = plugin.api as ApiPluginApi
-declare const watcher: WatchEvents
+declare const vite: {
+  config: { plugins: { name: string; api?: unknown }[] }
+  watcher: WatchEvents
+}
 
+// the same published plugin `sauf dev` configures; a fresh laratypeApi() would never have scanned
+const tree = contractTreePlugin(vite.config.plugins)
 const host = new ContractTypeWatchHost()
-// the first boot and every --hmr restart replace the live watch; a burst of add/unlink events becomes one scan
-host.open({ events: watcher, tree, delay: 30, onError: (error) => console.error(error) })
+// a new app instance (first boot, every --hmr restart) replaces the live watch; a burst of events becomes one scan
+if (tree) host.open({ events: vite.watcher, tree, onError: (error) => console.error(error) })
 
 export function close() {
-  // the Vite server's closeBundle() calls this
+  // the laratype:dev-server plugin's closeBundle() calls this when the Vite server closes
   host.close()
 }
 
 export async function refresh() {
-  // rescans when the app has imported $api; a no-op before that
-  await tree.refresh()
+  // refresh() rescans only after the app has imported $api
+  await tree?.refresh()
 }

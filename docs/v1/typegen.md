@@ -13,7 +13,7 @@ last-verified: 2026-10-13
 | Section | Status |
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ e1633581 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
 
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ e1633581 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ 4387e215 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -122,10 +122,10 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-proposed: PR <leader fills> @ e1633581 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), M3).
+proposed: PR <leader fills> @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha).
 
 ### Public API
-[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/commands/dev.ts)
+[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/commands/dev.ts)
 
 ```ts
 // ApiPluginApi (laratype:api), used by sauf dev
@@ -156,7 +156,7 @@ export class ContractTypeWatchHost {                       // one live watch for
 
 ### Invariants
 - **Always on.** `sauf dev` opens the watch on the first boot and on every `--hmr` restart (`appStart`); `--hmr` is not required. Vite's `server.watcher` (chokidar, already a Vite dependency) is the only watcher: no `package.json` or lockfile change.
-- **Triggers.** An `add` or `unlink` of a contract or `_scope.ts` under the contract root, and a `change`, `add` or `unlink` of `app/config/config.ts` (the `api.root` / `api.base` source). A rename is `unlink` + `add`. `affectsTree()` is the one rule, shared with `--hmr` restarts. An event outside the tree, on the generated output, or on a private/test file is ignored.
+- **Triggers.** An `add` or `unlink` of a contract or `_scope.ts` under the contract root, and a `change`, `add` or `unlink` of `app/config/config.ts` (the `api.root` / `api.base` source). A rename is `unlink` + `add`. `affectsTree()` is the shared rule, and the watch drops an `isGenerated()` path first. An event outside the tree, on the generated output, or on a private/test file is ignored.
 - **A content edit needs no regeneration: the generated files import the contract file.** The scan reads names only; `index.gen.ts` imports every contract and `$types.d.ts` imports its scope files. An FE program that imports `$api` (or a contract file) therefore sees an edited body or response schema immediately, with no scan and no write. The content-edit test type-checks the same FE program before and after editing `app/api/users.ts`, asserts the type changes, and asserts zero scans and unchanged generated files.
 - **Coalescing.** A 30 ms debounce after the last relevant event, then one `refresh()`. `laratype:api` serializes scans (`coalesce`): a call during a scan queues exactly one follow-up, and two generations never overlap. A burst of 1,000 events runs one generation. `idle()` resolves when the debounce and the scan are done, so tests await it instead of sleeping.
 - **H1 gate.** Like `restart()`, `refresh()` rescans only after the app has imported `$api`: an app that never imports it is never scanned, so a 0.5 app with helpers in `app/api` still boots. The first `$api` import is the first scan.
@@ -187,7 +187,7 @@ export class ContractTypeWatchHost {                       // one live watch for
 - No unconditional scan at start (H1 gate above), no watch outside the contract root and the config file, and no new dependency.
 
 ### Open questions
-- Follow-up: reload the server's routes without a restart (invalidate the SSR modules and rebuild the route registry). Not in this PR and no issue yet.
+- None.
 
 ### Acceptance
 [#142 Done when](https://github.com/Laratypes/Laratype/issues/142)
