@@ -13,7 +13,7 @@ last-verified: 2026-10-13
 | Section | Status |
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ 9dec290f (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ b4015c6a (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
 
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ 9dec290f ([#142](https://github.com/Laratypes/Laratype/issues/142)).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ b4015c6a ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -122,10 +122,10 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-proposed: PR <leader fills> @ 9dec290f (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), M3).
+proposed: PR <leader fills> @ b4015c6a (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), M3).
 
 ### Public API
-[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/9dec290f2e263f7f9aab52e022ba0ef5eed73c06/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/9dec290f2e263f7f9aab52e022ba0ef5eed73c06/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/9dec290f2e263f7f9aab52e022ba0ef5eed73c06/packages/sauf/src/commands/dev.ts)
+[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/commands/dev.ts)
 
 ```ts
 // ApiPluginApi (laratype:api), used by sauf dev
@@ -187,10 +187,9 @@ export class ContractTypeWatchHost {                       // one live watch for
 
 ### Open questions
 - Follow-up: reload the server's routes without a restart (invalidate the SSR modules and rebuild the route registry). Not in this PR and no issue yet.
-- A user-tunable debounce stays a constant (30 ms) until there is a real need.
 
 ### Acceptance
-[#142 Done when](https://github.com/Laratypes/Laratype/issues/142) is "editing a contract updates FE types without a restart". The content-edit test proves it: an existing `app/api/users.ts` body schema changes from `string` to `number`, the same FE program that imports `$api` fails the `string` check afterwards, the scan counter is 0, and `index.gen.ts` / `$types.d.ts` are untouched. The add, rename and delete cases are covered by the watch tests.
+[#142 Done when](https://github.com/Laratypes/Laratype/issues/142)
 
 ---
 
