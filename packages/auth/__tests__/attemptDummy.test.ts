@@ -72,7 +72,7 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(hasher.calls).toBe(1);
   });
 
-  it("uses the Hasher bound at check time for the dummy hash", async () => {
+  it("uses the Hasher class bound at check time for the dummy hash", async () => {
     /** A Hasher whose dummy hashes carry its mark, so a check shows which binding built the hash it checked. */
     class Marked extends Hasher {
       checks: [string, string][] = [];
@@ -92,26 +92,85 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
         return hashed === `${this.mark}:${value}`;
       }
     }
-    const first = new Marked("first");
-    const second = new Marked("second");
+    class First extends Marked {
+      constructor() {
+        super("first");
+      }
+    }
+    class Second extends Marked {
+      constructor() {
+        super("second");
+      }
+    }
+    const first = new First();
+    const second = new Second();
     usingHasher(first);
     const { User } = fakeModel([]);
     await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
     expect(first.makes).toEqual([""]);
     expect(first.checks).toEqual([["secret", "first:"]]);
 
-    // A swap must not reuse the old dummy: the next check builds and checks with the new binding
+    // Another class must not reuse the old dummy: the next check builds and checks with the new binding
     usingHasher(second);
     await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
     expect(second.makes).toEqual([""]);
     expect(second.checks).toEqual([["secret", "second:"]]);
     expect(first.checks).toHaveLength(1);
 
-    // The cache is per binding: swapping back reuses the first binding's dummy instead of building another
+    // The cache is per class: swapping back reuses the first class's dummy instead of building another
     usingHasher(first);
     await expect(attempt(User, { email: "eve@example.com", password: "secret" })).resolves.toBeNull();
     expect(first.makes).toEqual([""]);
     expect(first.checks).toHaveLength(2);
+  });
+
+  it("shares one dummy hash when a custom Hasher class is bound transient", async () => {
+    class Custom extends Hasher {
+      override async makeAsync(value: string): Promise<string> {
+        return super.makeAsync(value);
+      }
+
+      override async checkAsync(value: string, hashed: string): Promise<boolean> {
+        return super.checkAsync(value, hashed);
+      }
+    }
+    const app = new Container({ deps: depsRegistry });
+    // bind() is transient unless scoped: every resolve builds a new instance of the same class
+    app.bind(Hasher, Custom);
+    Facade.setFacadeApplication(app);
+    const make = vi.spyOn(Custom.prototype, "makeAsync");
+    const check = vi.spyOn(Custom.prototype, "checkAsync");
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    expect(make).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledTimes(1);
+    // The class is the cache key, so the second request neither builds another dummy nor misses
+    expect(app.make(Hasher)).not.toBe(app.make(Hasher));
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(make).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches the dummy of an instance whose constructor is not a function", async () => {
+    const calls = { makes: [] as string[], checks: [] as [string, string][] };
+    // Object.create(null) has no constructor: the instance itself is the cache key
+    const bare = Object.assign(Object.create(null), {
+      makeAsync: async (value: string) => {
+        calls.makes.push(value);
+        return `bare:${value}`;
+      },
+      checkAsync: async (value: string, hashed: string) => {
+        calls.checks.push([value, hashed]);
+        return hashed === `bare:${value}`;
+      },
+    }) as Hasher;
+    usingHasher(bare);
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(bare.constructor).toBeUndefined();
+    expect(calls.makes).toEqual([""]);
+    expect(calls.checks).toEqual([["secret", "bare:"], ["secret", "bare:"]]);
   });
 
   it("shares one dummy hash between unknown users under the default binding", async () => {
@@ -120,7 +179,7 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     const { User } = fakeModel([]);
     await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
     await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
-    // An unbound Hasher is a singleton: the second request reuses the dummy the first built, so it costs one derivation
+    // The class is the cache key: the second request reuses the dummy the first built, so it costs one derivation
     expect(make.mock.calls.filter(([value]) => value === "")).toHaveLength(1);
     expect(check).toHaveBeenCalledTimes(2);
     make.mockRestore();
@@ -170,7 +229,7 @@ describe("TokenGuard.attempt() with a legacy stored hash", () => {
       id: 1,
       email: "old@example.com",
     });
-    // One dummy check, then the real one; makeAsync() builds the dummy hash once and the new hash once
+    // One dummy check, then the real one; the rehash derives the new hash (this class's dummy is already cached)
     expect(hasher.checks).toHaveLength(2);
     expect(Hash.isHashed(hasher.checks[0]![1])).toBe(true);
     expect(hasher.checks[1]).toEqual(["secret", SHA256_SECRET]);

@@ -9,21 +9,30 @@ import type { GuardConfig } from "./tokens";
 
 const ALIAS = "user";
 
-/** The pending dummy hash of each Hasher, so an unknown user takes as long as a wrong password on the bound Hasher. */
-const dummyHashes = new WeakMap<Hasher, Promise<string>>();
+/** The pending dummy hash of each Hasher class, so an unknown user takes as long as a wrong password on it. */
+const dummyHashes = new WeakMap<object, Promise<string>>();
 
 /** The Hasher the `Hash` facade resolves for this dummy check, so its build and its check run the same instance. */
 const activeHasher = (): Hasher => Facade.getFacadeApplication().make(Hash.accessor);
 
-/** The dummy hash of `hasher`, built once; a rejected build is dropped so the next unknown-user request retries it. */
+/**
+ * The dummy hash's cache key: the Hasher's class, not the instance, so a transient binding of one class (a provider's
+ * `bind(Hasher, CustomHasher)`) shares one dummy instead of building one per check. An instance without a constructor
+ * function (a null-prototype object) is its own key.
+ */
+const hasherKey = (hasher: Hasher): object =>
+  typeof hasher.constructor === "function" ? hasher.constructor : hasher;
+
+/** The dummy hash of `hasher`'s key, built once; a rejected build is dropped so the next request retries it. */
 const dummyHash = (hasher: Hasher): Promise<string> => {
-  let pending = dummyHashes.get(hasher);
+  const key = hasherKey(hasher);
+  let pending = dummyHashes.get(key);
   if (!pending) {
     pending = hasher.makeAsync("").catch((error) => {
-      dummyHashes.delete(hasher);
+      dummyHashes.delete(key);
       throw error;
     });
-    dummyHashes.set(hasher, pending);
+    dummyHashes.set(key, pending);
   }
   return pending;
 };

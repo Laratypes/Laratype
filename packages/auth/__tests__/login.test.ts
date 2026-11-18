@@ -1,13 +1,13 @@
 // The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Facade } from '@laratype/core'
+import { Container, Facade, depsRegistry } from '@laratype/core'
 import { Model } from '@laratype/database'
 import { Hash, Hasher } from '@laratype/support'
 import { Auth, PassportGuard } from '../src'
 import { SHA256_SECRET, attempt, configOf, fakeModel, inApp, type Row } from './fixtures/login'
 
-// A cold facade application per test: the Hasher singleton and its dummy hash do not carry over
+// A fresh facade application per test, so a bound Hasher and its container do not carry over
 afterEach(() => Facade.setFacadeApplication(undefined))
 
 /** The local strategy's verify callback, through `PassportGuard.verifyLocal()`. */
@@ -44,10 +44,12 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
-  // This test starts with a cold facade application, so it pins the dummy hash's async build too
   it('runs one async check against the dummy hash when the user is unknown', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    // The guard builds and checks the dummy hash on the Hasher the facade resolves, not through the Hash statics
+    // A Hasher class of its own, so its dummy is cold and this pins the async build too
+    class Fresh extends Hasher {}
+    Facade.setFacadeApplication(new Container({ deps: depsRegistry }).instance(Hasher, new Fresh()))
+    // The guard builds and checks the dummy hash on the class the facade resolves, not through the Hash statics
     const check = vi.spyOn(Hasher.prototype, 'checkAsync')
     const make = vi.spyOn(Hasher.prototype, 'makeAsync')
     const syncCheck = vi.spyOn(Hash, 'check')
