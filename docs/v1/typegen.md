@@ -14,7 +14,7 @@ last-verified: 2026-10-13
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
-| [OpenAPI](#openapi) | planned → #143 |
+| [OpenAPI](#openapi) | proposed: PR <leader fills> @ b1f1064a ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
 | [Detective](#detective) | planned → #144 |
 
 ---
@@ -136,12 +136,98 @@ planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, M3).
 ## OpenAPI
 
 ### Status
-planned → [#143](https://github.com/Laratypes/Laratype/issues/143) (G3, M3).
+proposed: PR <leader fills> @ b1f1064a ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
 
-### Design (non-binding)
-- **Generation:** `openapi.json` comes from the route registry (H1 [#104](https://github.com/Laratypes/Laratype/issues/104)), with each schema converted to JSON Schema. Done when it passes `redocly lint`.
-- **Exclusions:** ad-hoc routes without a contract are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
-- **Errors and security:** each operation's error responses are the endpoint's derived errors, and `auth` maps to the operation's security requirement ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
+### Public API
+[`packages/sauf/src/openapi/` @ b1f1064a](https://github.com/Laratypes/Laratype/blob/b1f1064a43224469f5c613fd5431385462e119ff/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ b1f1064a](https://github.com/Laratypes/Laratype/blob/b1f1064a43224469f5c613fd5431385462e119ff/packages/sauf/src/commands/openapi/generate.ts)
+
+```
+sauf openapi:generate [--root <dir>] [--base <path>] [--gen .laratype] [--out openapi.json]
+```
+
+```ts
+// packages/sauf/src/openapi (the command uses it; also exported for tests and tools)
+export interface OpenApiContract {                  // the project's own @laratype/contract (see Invariants)
+  readonly apiRoutes: (api: object) => ReadonlyArray<ApiRoute>;
+  readonly isApiRoot: (value: unknown) => value is object;
+}
+export interface OpenApiOptions {
+  readonly contract: OpenApiContract;
+  readonly title?: string;                          // info.title; default "Laratype API"
+  readonly version?: string;                        // info.version; default "0.0.0"
+}
+export interface GeneratedOpenApi { readonly document: OpenApiDocument; readonly warnings: readonly string[] }
+export function generateOpenApiDocument(api: object, options: OpenApiOptions): GeneratedOpenApi;   // pure, no Node import
+
+export interface OpenApiProjectOptions {
+  readonly projectDir: string;
+  readonly root?: string;
+  readonly base?: string;
+  readonly gen?: string;                            // the generated folder (default .laratype)
+  readonly out?: string;                            // the document, a file inside the project (default openapi.json)
+  readonly load?: (url: string) => Promise<unknown>;   // jiti by default; a caller (tests) may pass its own
+  readonly contract?: OpenApiContract;              // skip the project load for a caller that already has it
+}
+export async function generateOpenApiFile(options: OpenApiProjectOptions): Promise<GeneratedOpenApi & { readonly file: string; readonly changed: boolean }>;
+export class OpenApiGenerationError extends Error {}
+
+export interface OpenApiDocument { readonly openapi: "3.1.0"; readonly info: { title: string; version: string };
+  readonly servers: ReadonlyArray<{ url: string }>; readonly paths: Record<string, OpenApiPathItem>; readonly components: OpenApiComponents }
+// and the OpenApiOperation / OpenApiParameter / OpenApiResponse / OpenApiRequestBody / OpenApiComponents / OpenApiSecurityScheme types
+
+// packages/sauf/src/openapi/schema.ts: the Standard JSON Schema adapter (internal to sauf, exported for tests)
+export function standardJsonSchema(schema: unknown, io: "input" | "output"): JsonSchemaResult;
+export function hasLocalRefs(schema: JsonSchema): boolean;
+export function rebaseRefs(schema: JsonSchema, key: string): JsonSchema;
+```
+
+### Invariants
+- **Source.** `appApi` from `<gen>/api/index.gen.ts`, the module `sauf types:generate` writes. The command runs the same scan first (`syncContractTree`: `$types.d.ts` and `index.gen.ts`, no TS checker and no `api.ts`), then imports the index and checks `isApiRoot`. `--root`, `--base`, config `api.root` / `api.base` and `--gen` are the typegen ones (flags, then config, then `app/api` / `/api` / `.laratype`); `--out` is a file inside the project (default `openapi.json`) and is refused for an absolute path, `..` leading outside, the project itself, or a directory. Nothing boots: `bootsApp = false` and `providers()` returns `[]`, so no `register()`, no provider, no database or auth env.
+- **The project's own contract runtime.** The command resolves `@laratype/contract` from the project root (`createRequire` from `<project>/package.json`) and imports it with jiti, like the config read; `sauf` takes no dependency on the contract package, and the document uses the app's own copy (`Symbol.for` brands make the copies agree anyway). An unresolvable package is one diagnostic naming the package and the project, never a raw resolution stack.
+- **The tree is imported on its own.** jiti imports `index.gen.ts` and the contract modules with no Vite transform, so a contract module must use resolvable specifiers (no Vite- or tsconfig-only path alias) and must import `./$types` with `import type` (the generated file has no runtime counterpart). A failing import is reported with the index path and one line of the reason.
+- **Schemas use the Standard JSON Schema extension.** A slot is converted with `schema["~standard"].jsonSchema.output({ target: "draft-2020-12" })` for a response and `.input(...)` for query/headers/body (what the FE sends and the server validates). zod 4 implements it; a schema without it (valibot 1.x today), or one whose conversion throws or does not return a JSON object, is documented as `{}` with a warning naming the route and slot (`z.date()` and `z.custom()` throw in zod). The result is JSON round-tripped before use: a cyclic or BigInt-bearing conversion falls back, non-JSON values are dropped, `NaN`/`Infinity` become `null`, and the root `$schema` is removed (the document declares 2020-12).
+- **A schema that refers to itself is hoisted.** A JSON Schema with a `$ref` starting with `#` is put in `components.schemas.<key>` and its refs are rebased on it (`#` → the component, `#/$defs/x` → `<component>/$defs/x`); a recursive schema stays valid and the component is directly `$ref`-erenced (no unused component). `<key>` is `<route name>.<slot>`, sanitized to `[A-Za-z0-9._-]` and made unique with `_2`, `_3` in tree order. A query/header property with refs is hoisted on its own (`<route>.query.<prop>`) with the parent schema's `$defs`, since a parameter's schema resolves against the document; a property that is only `{ "$ref": "#" }` has nothing to complete it and is documented as `{}` with a warning. A schema with a root `$id` is its own JSON Schema resource: it is inlined and its refs are left alone.
+- **Paths.** Path params follow [contract.md › Path params](./contract.md#path-params): `:name` and `:name{re}` become `{name}` with `schema.pattern: "^(?:<re>)$"` (the router matches the whole segment), `:name?` too, with `required: true` and a description because OpenAPI has no optional path parameters. A literal `{`, `}`, `?` or `#` is percent-encoded so it is not read as templating; `*` stays literal; a brace in a param name becomes `_`. A trailing slash is kept.
+- **Mapping.** The query and headers schemas' `properties` become `in: query` / `in: header` parameters in declaration order, with `required` from the schema's `required` list; a schema without `properties` adds no parameters (the runtime validation still applies). A body is a required `application/json` request body. The success response is `endpoint.def.status` (reason phrase, `Success` for an unknown 2xx), with an `application/json` schema only when the endpoint has a response schema. The errors are `apiRoutes()`' resolved `errors`: grouped by status (ascending), description = their codes, body schema `{ type: "object", required: ["code"], properties: { code: { enum: [...codes] } }, additionalProperties: true }` (an `ErrorDef` carries status and code at run time only; the wire body is `{ code, ...body }`). `auth` becomes the operation's `security`: `[]` for a public endpoint (the rule needs it on every operation), `[{ guard_default: [] }]` for `true`, `[{ guard_<name>: [] }]` for a named guard, each scheme `{ type: "http", scheme: "bearer" }` (see Open questions). `operationId` is the route name; `summary` is `"<METHOD> <path template>"` (`operation-summary` needs one; the contract has no summary). `info.title`/`version` come from the project's `package.json` (`Laratype API`/`0.0.0`), `servers` is `[{ "url": "/" }]` (a relative server is honest for a document that describes one app's paths), and there is no `license` (app metadata belongs to deployment).
+- **Paths OpenAPI cannot tell apart.** OpenAPI identifies a path by its template: `/x/{a}` and `/x/{b}` are the same path, and redocly's `no-identical-paths` rule fails a document that has both. Different methods merge into one path item under the first route's parameter names, and the later operation's path parameters are renamed by position (its own regex/optional schemas are kept). Two routes with the same method and such a template keep the first in tree order and warn. `Route.api()` does not refuse two contract routes with the same method and path (Hono serves the first), so this is a warning, not an error.
+- **Determinism and safety.** Paths (keyed by template), component keys and security schemes are sorted; methods have a fixed order (`get, post, put, patch, delete`) and statuses ascend. Every map is built with `Object.fromEntries`, so a route name, property or component key named `__proto__` is an own key and never a prototype. The document holds the contract only: no source path, controller, middleware, policy, domain or env value. `--out` is written as UTF-8 JSON (2 spaces, a trailing newline) only when its content changed, so a second run leaves the file untouched.
+- **Browser purity.** `@laratype/contract` is untouched. `document.ts` and `schema.ts` import no Node module and no schema library (the JSON Schema extension is duck-typed); only `load.ts` and the command touch the filesystem and jiti.
+- **Headers are documented, not enforced.** The router validates query and body only (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)); a headers schema is still the contract and is documented.
+
+### Diagnostics
+The command exits with code 1 on an error, prefixed `[sauf openapi:generate] `. Scan, config and `--root` / `--base` / `--gen` errors are the [typegen ones](#diagnostics) with that prefix. Its own errors:
+- `the project at <dir> has no resolvable @laratype/contract dependency: add it to the project's dependencies`
+- `could not load @laratype/contract from <file>: <reason>` and `@laratype/contract (<file>) does not export apiRoutes() and isApiRoot()`
+- `could not load the generated appApi from <gen>/api/index.gen.ts: <reason>`
+- `the generated appApi in <gen>/api/index.gen.ts must be the root that defineApi returns`
+- `the output file "<file>" (--out) must be a file inside the project` and `the output file "<file>" (--out) is a directory`
+- `projectDir must be the project folder`, `--root|--base|--gen|--out must be a string` and `load must be a module loader` (the programmatic API; a caller passing a wrong type)
+
+Warnings, printed and returned in `warnings`; the document is still valid:
+- `<route>: the <slot> schema has no JSON Schema (<reason>); it is documented as {}` (`<slot>`: `response`, `body`, `query`, `headers`, `query.<prop>`, `headers.<prop>`; `<reason>` is the converter's message)
+- `<route>: the query|headers schema has no JSON Schema (<reason>); the query|headers parameters are not documented`
+- `<route>: the query|headers property "<name>" is not a JSON Schema object; it is documented as {}` and `<route>: the ... property "<name>" only refers to the ... schema itself; it is documented as {}`
+- `<later> and <first> both answer <METHOD> <template>; keeping <first>`
+- `app/config/config.ts could not be imported on its own ...; using --root / --base and the defaults (app/api, /api) instead of config api` (shared with `types:generate`)
+
+### Example
+[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/b1f1064a43224469f5c613fd5431385462e119ff/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, fallbacks, recursion, collisions, hostile names), `command.test.ts` (scan, import, `--out`, the missing contract), and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
+```
+$ sauf openapi:generate
+... 3 paths, wrote openapi.json in 12.34ms
+```
+The generated document is `/api/posts`, `/api/users` and `/api/users/{id}`, and it passes `redocly lint` (4 warnings: no `license`, and no derived 4xx on three public endpoints). No redocly dependency is added: the check is one-off, outside the repository.
+
+### Non-goals
+- No ad-hoc routes ([#139](https://github.com/Laratypes/Laratype/issues/139)), no controller, middleware, policy or `.domain()` in the document: none of them is in the contract value.
+- No request/response examples, no per-schema titles or descriptions (the contract has none), no error-body schema beyond `{ code, ... }` (an `ErrorDef` is type-level).
+- No watch or `sauf dev` integration (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)), no Detective UI (G4 [#144](https://github.com/Laratypes/Laratype/issues/144)).
+- No real security scheme per guard until A2 [#120](https://github.com/Laratypes/Laratype/issues/120), no `license` field, no config keys beyond `api.root` / `api.base`.
+- No redocly in `package.json`, the lockfile, scripts or CI.
+
+### Open questions
+- A2 [#120](https://github.com/Laratypes/Laratype/issues/120): every resolved guard is documented as `http`/`bearer` today, but a session or cookie guard is not a bearer token. A2 decides the real scheme per guard.
+- [#244](https://github.com/Laratypes/Laratype/issues/244): a folder syntax for optional path params. Until then an optional `:id?` is a required OpenAPI path parameter with a description.
 
 ### Acceptance
 [#143 Done when](https://github.com/Laratypes/Laratype/issues/143)
