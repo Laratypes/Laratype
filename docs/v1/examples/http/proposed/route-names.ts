@@ -58,6 +58,8 @@ route('users.nope')
 route('users.posts.show')
 // @ts-expect-error users.posts.show has no query schema
 route('users.posts.show', { user, post }, { query: { page: 2 } })
+// @ts-expect-error health has no path params, so it takes no key
+route('health', { typo: 'x' })
 
 // Location: "/api/users/ada/posts/7" (relative, like route())
 export const login = redirect().route('users.posts.show', { user, post })

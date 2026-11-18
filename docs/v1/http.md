@@ -1198,31 +1198,34 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 ### Invariants
 - **Names.** `route()` resolves a name against the routes `Route.api()` mounted in this process: every contract route (`users.posts.update`, the tree name plus the endpoint key, [contract.md › Contract folder tree](./contract.md#contract-folder-tree)) and every ad-hoc route named with `.name()`. `Route.api()` fills the registry, and a second call merges its names: a contract route mounts again without an error, its name pointing at the path the latest group mounts (the same tree, so the same path in an app), and a named ad-hoc route of another group is added. `route()` before any `Route.api()` throws. A name must be a string: a non-string throws before the registry lookup, naming only its type. Untyped code passing a request value, a JSON body value such as `{ length: 1e9 }` included, never has its length read.
 - **One group in the types.** `Register.routes` holds one `Route.api()` group, whose contract names and ad-hoc `.name()`s type `route()`; the app registers the group it calls `route()` from. The runtime registry merges the other groups' names all the same.
-- **One name, one route.** An ad-hoc name maps to one method and path: a second ad-hoc route with the name and a different method or path (in this group or a later `Route.api()` call), or an ad-hoc name a contract route has, is an error; so is a contract route whose name an ad-hoc route of an earlier call took. The same group mounting again in one process (an `--hmr` restart) registers the same route, not a duplicate. `Route.api()` checks the whole group before it registers any of its names: a group that throws leaves nothing behind, so `route()` cannot build a URL for a route that never mounted.
-- **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` prefixes `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an http(s) URL whose origin and path are used (a `URL` value is accepted): no query, hash or credentials, and its trailing slashes are dropped. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
+- **One name, one route.** An ad-hoc name maps to one method and path: a second ad-hoc route with the name and a different method or path (in this group or a later `Route.api()` call), or an ad-hoc name a contract route has, is an error; so is a contract route whose name an ad-hoc route of an earlier call took. The same group mounting again in one process (an `--hmr` restart) registers the same route, not a duplicate. `Route.api()` checks the whole group (duplicate names included) before it registers any of its names: a group that fails `Route.api()` leaves nothing behind, so `route()` cannot build a URL for a group that never registered. Registration happens when `Route.api()` returns, before `.domain()` and `.mount()`: a later failure (`.domain('not a host')`, a handler `mount()` refuses) does not roll back the names of a group that already registered, so `route()` can then build the URL of a group the app does not serve.
+- **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` appends it to `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an http(s) URL whose origin and path are used (a `URL` value is accepted): no query, hash or credentials, and its trailing slashes are dropped. The path is appended to the config's own path, so a base path stays on every route, the root route `/` included: with `https://app.test/sub/`, the root route builds `https://app.test/sub/` and a query never changes the pathname. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
 - **No host from `.domain()`.** `route()` ignores the group's `.domain()`: the URL is a path relative to the current host, or with `{ absolute: true }` a URL under `config('config.url')`, never the domain the route is served on. A contract name mounted by several groups builds the path of the latest mount.
 - **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, a `bigint`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`, and a bigint value (direct, or the route key) is converted with `String()` before `buildUrl` encodes it, so DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)'s bigint keys keep their digits. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
 - **Query** is typed from the endpoint's query schema **input**, as the client types it; an endpoint without a query schema takes no `query` (`query?: undefined`). An ad-hoc route has no schema, so its query is `object`.
 - **One encoder.** `buildUrl` fills the path and serializes the query: params with `encodeURIComponent`, the query with `URLSearchParams` (`undefined` and `null` skipped, an array repeats its key, a `Date` as ISO 8601). `route()` never concatenates a value into a URL itself, and `buildUrl`'s diagnostics propagate unchanged.
 - **`.name()` is immutable.** It returns a new frozen route with `routeName` set and leaves the route it is called on unchanged. A name is a non-empty string.
-- **`redirect().route()`** redirects to the same URL, relative by default like `route()`, with `{ absolute: true }` to opt in: a relative `Location` is valid (RFC 9110 §10.2.2), and an absolute default would throw on every app without a `url`. It stays same-origin, but it resolves any registered name, so never pass a request value as the name without an allowlist: `redirect().route(req.query.to)` reaches every named route. Take the name from a fixed list.
+- **`redirect().route()`** redirects to the same URL, relative by default like `route()`, with `{ absolute: true }` to opt in: a relative `Location` is valid (RFC 9110 §10.2.2), and an absolute default would throw on every app without a `url`. A relative `Location` stays on the request origin; `{ absolute: true }` uses the `config('config.url')` origin, which can differ from the request origin (an app URL, never a request header). It resolves any registered name, so never pass a request value as the name without an allowlist: `redirect().route(req.query.to)` reaches every named route. Take the name from a fixed list.
 - **Server-side.** `route()` is for the server; the FE builds URLs with `@laratype/client` (CL1) over the same `buildUrl`. A name is not added to OpenAPI or typegen: an ad-hoc route stays out of both.
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/http] `:
 - `route: a route name is a string, got <typeof>` (the type alone, never the value)
 - `route: no routes are registered (call Route.api(appApi, ...) first)`
-- `route: unknown route name "<name>"` (a name longer than 100 characters is cut to 100 plus `…`)
+- `route: unknown route name "<name>"` (a name longer than 100 code points is cut to 100 plus `…`, from a bounded prefix: a huge name is never read whole)
 - `route: param "<name>" got an object that is not a model (no getRouteKey())`
 - `route: absolute URLs need config('config.url') (app.url), which is not set`
-- `route: config('config.url') must be an absolute http(s) URL without a query, hash or credentials, got "<value>"`
+- `route: config('config.url') must be an absolute http(s) URL`
+- `route: config('config.url') must not contain a query`
+- `route: config('config.url') must not contain a hash`
+- `route: config('config.url') must not contain credentials` (none of these echoes the config value: an operator's credentials never reach a log)
 - `Route.api: r.get('/x').name("<name>") is already the name of <route>` (a contract route name, or `r.get('/path')` of the ad-hoc route that has it)
 - `Route.api: contract "<name>" has the name of r.get('/path')`
 - `Route.api: r.get('/x').name() needs a name, a non-empty string`
 
 From `buildUrl` ([contract.md › URL builder](./contract.md#url-builder)), unchanged: `buildUrl: missing param "<name>" for "<path>"`, `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)`, `buildUrl: "<path>" builds "<result>", which a URL reads as another host`, `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`.
 
-Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an ad-hoc route without `.name()`, a missing required param, an unknown param, a param value that is not a string, number, bigint or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
+Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an ad-hoc route without `.name()`, a missing required param, an unknown param (on a path with no params too: `route('health', { typo: 'x' })` is an error), a param value that is not a string, number, bigint or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
 
 ### Example
 [`examples/http/proposed/route-names.ts`](./examples/http/proposed/route-names.ts):
@@ -1237,7 +1240,7 @@ export const apiRoutes = Route.api(appApi, (r) => [
 declare module '@laratype/http' { interface Register { routes: typeof apiRoutes } }
 
 route('users.posts.index', { user }, { query: { page: 2 } })                    // "/api/users/ada/posts?page=2"
-route('users.posts.show', { user: new User(), post }, { absolute: true })      // "https://app.test/api/users/ada/posts/7"
+route('users.posts.show', { user: new User('ada'), post }, { absolute: true })  // "https://app.test/api/users/ada/posts/7"
 redirect().route('users.posts.show', { user, post })                           // Location: "/api/users/ada/posts/7"
 ```
 
@@ -1247,6 +1250,9 @@ redirect().route('users.posts.show', { user, post })                           /
 - No type-level duplicate-name check: a duplicate is a `Route.api()` runtime error.
 - No `.name()` in `apiPaths()`, `apiRoutes()`, OpenAPI or typegen: an ad-hoc route stays out of them.
 - No model instance method here: `getRouteKey()` is H14 [#163](https://github.com/Laratypes/Laratype/issues/163)'s to add to the model base.
+
+### Open questions
+- The type-level pairing of a union-valued name with its required params (a `'health' | 'users.show'` value makes the params optional) → [#163](https://github.com/Laratypes/Laratype/issues/163)
 
 ### Acceptance
 [#162 Done when](https://github.com/Laratypes/Laratype/issues/162)
