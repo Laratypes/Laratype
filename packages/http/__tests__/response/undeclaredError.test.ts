@@ -215,6 +215,14 @@ describe('an undeclared contract error', () => {
     expect(logged).not.toHaveBeenCalled()
   })
 
+  it('is reported when __PROD__ is explicitly false, whatever NODE_ENV says', async () => {
+    vi.stubGlobal('__PROD__', false)
+    vi.stubEnv('NODE_ENV', 'production')
+    const response = await bootApp().request('/api/users/undeclared')
+    expect(response.status).toBe(418)
+    expect(logged).toHaveBeenCalledWith(undeclaredLine('users.undeclared', 418, 'TEAPOT'), thrown)
+  })
+
   it('is reported for a responsible 0.5 Exception: its code reaches the client too', async () => {
     const response = await bootApp().request('/api/users/open')
     expect(response.status).toBe(401)
