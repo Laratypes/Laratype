@@ -10,7 +10,7 @@ export const SHA256_SECRET = "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a2
 export type Row = { id: number; [key: string]: unknown };
 
 /** One primary column: `data.region` is a column of an embedded `data` object, as typeorm's `propertyPath` names it. */
-export type PrimaryColumn = string | { propertyName: string; propertyPath?: string };
+export type PrimaryColumnInput = string | { propertyName: string; propertyPath?: string };
 
 export type FakeOptions = {
   column?: string;
@@ -20,7 +20,7 @@ export type FakeOptions = {
   /** Runs when the rehash update arrives, to model a password change that committed while scrypt ran. */
   beforeUpdate?: () => void;
   /** The model's primary columns: `id` by default; more than one is a composite key. */
-  primaryColumns?: PrimaryColumn[];
+  primaryColumns?: PrimaryColumnInput[];
 };
 
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
@@ -42,8 +42,8 @@ export const fakeModel = (
     typeof column === "string" ? { propertyName: column, propertyPath: column } : column,
   ) as { propertyName: string; propertyPath?: string }[];
   /** The value at a primary column's property path: an embed nests its columns (`data.region`). */
-  const readPath = (row: unknown, propertyPath: string | undefined): unknown =>
-    (propertyPath ?? "").split(".").reduce<unknown>(
+  const readPath = (row: unknown, propertyPath: string): unknown =>
+    propertyPath.split(".").reduce<unknown>(
       (value, key) => (value === null || value === undefined ? undefined : (value as Record<string, unknown>)[key]),
       row,
     );
@@ -55,15 +55,16 @@ export const fakeModel = (
     if (!row) return undefined;
     const id: Record<string, unknown> = {};
     for (const column of columns) {
-      const path = (column.propertyPath ?? column.propertyName).split(".");
-      let value: unknown = row;
-      for (const key of path) {
-        if (value === null || value === undefined) return undefined;
-        value = (value as Record<string, unknown>)[key];
-      }
+      const propertyPath = column.propertyPath ?? column.propertyName;
+      const path = propertyPath.split(".");
+      const value = readPath(row, propertyPath);
       if (value === undefined) return undefined;
       let target = id;
-      for (const key of path.slice(0, -1)) target = (target[key] ??= {}) as Record<string, unknown>;
+      for (const key of path.slice(0, -1)) {
+        const nested = (target[key] ?? {}) as Record<string, unknown>;
+        target[key] = nested;
+        target = nested;
+      }
       target[path[path.length - 1]!] = value;
     }
     return id;
@@ -122,7 +123,9 @@ export const fakeModel = (
     }
     static getId(user: Row) {
       // typeorm's BaseEntity.getId(): the id map for a composite key, the value for a single one
-      return columns.length === 1 ? readPath(user, columns[0]!.propertyPath) : getEntityIdMap(user);
+      if (columns.length !== 1) return getEntityIdMap(user);
+      const only = columns[0]!;
+      return readPath(user, only.propertyPath ?? only.propertyName);
     }
   }
   return { User, calls, builders, findOneBy };

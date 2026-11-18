@@ -72,7 +72,7 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(hasher.calls).toBe(1);
   });
 
-  it("builds and checks the dummy hash with the Hasher bound for that check, after a swap", async () => {
+  it("uses the Hasher bound at check time for the dummy hash", async () => {
     /** A Hasher whose dummy hashes carry its mark, so a check shows which binding built the hash it checked. */
     class Marked extends Hasher {
       checks: [string, string][] = [];

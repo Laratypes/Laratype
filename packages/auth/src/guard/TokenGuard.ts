@@ -1,7 +1,8 @@
 import type { Request } from "@laratype/http";
 import type { Model } from "@laratype/database";
 import { Facade } from "@laratype/core";
-import { Hash, Hasher, ModelManagement, InternalException } from "@laratype/support";
+import { Hash, ModelManagement, InternalException } from "@laratype/support";
+import type { Hasher } from "@laratype/support";
 import JWTVerification from "../verifications/jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
 import type { GuardConfig } from "./tokens";
@@ -11,7 +12,7 @@ const ALIAS = "user";
 /** The pending dummy hash of each Hasher, so an unknown user takes as long as a wrong password on the bound Hasher. */
 const dummyHashes = new WeakMap<Hasher, Promise<string>>();
 
-/** The Hasher the `Hash` facade forwards to for this check, so its dummy and its real checks run the same binding. */
+/** The Hasher the `Hash` facade resolves for this dummy check, so its build and its check run the same instance. */
 const activeHasher = (): Hasher => Facade.getFacadeApplication().make(Hash.accessor);
 
 /** The dummy hash of `hasher`, built once; a rejected build is dropped so the next unknown-user request retries it. */

@@ -203,7 +203,7 @@ describe('TokenGuard.attempt()', () => {
     expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
-  it('skips the rehash when a composite key part is null, and still logs in', async () => {
+  it('authenticates a user whose composite key part is null without rehashing', async () => {
     const rows = [{ region: null, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
     const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
     // typeorm 0.3.26 keeps a null part in the id map, so the guard must reject it instead of comparing `= NULL`
@@ -217,7 +217,7 @@ describe('TokenGuard.attempt()', () => {
     expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
-  it('keeps a 0 key part when it rehashes a composite-key user', async () => {
+  it('rehashes a composite key whose part is 0', async () => {
     const rows = [
       { tenant: 0, id: 7, email: 'old@example.com', password: SHA256_SECRET },
       { tenant: 1, id: 7, email: 'other@example.com', password: SHA256_SECRET },
@@ -242,6 +242,20 @@ describe('TokenGuard.attempt()', () => {
     // An embed's id map is nested, so the part is read by property path, not by the bare column name
     expect(calls.update[0]![0]).toEqual({ data: { region: 1, id: 7 }, password: SHA256_SECRET })
     expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+  })
+
+  it('skips the rehash when an embedded composite-key part is null', async () => {
+    const rows = [{ data: { region: null, id: 7 }, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [
+        { propertyName: 'region', propertyPath: 'data.region' },
+        { propertyName: 'id', propertyPath: 'data.id' },
+      ],
+    })
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toEqual({ data: { region: null, id: 7 } })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
   it('never queries without a password or a lookup field', async () => {
