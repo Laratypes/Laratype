@@ -19,11 +19,11 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)) |
+| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)); `validateResponses` refused at compile time and at `createPathClient`: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ cfe2731 ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -317,10 +317,10 @@ export interface ClientRequest {
 ## Path-style calls
 
 ### Status
-proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary.
+proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary. The `validateResponses` refusal is CL6: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb.
 
 ### Public API
-[`packages/client/src/client.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/client.ts), [`packages/client/src/types.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/types.ts)
+[`packages/client/src/client.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/client.ts), [`packages/client/src/types.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/types.ts)
 
 ```ts
 export function createPathClient<A extends ApiShape<A> = never>(options?: PathClientOptions): PathClient<A>;
@@ -471,10 +471,10 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ cfe2731 ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
+proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
 ### Public API
-[`packages/client/src/validate.ts`](../../packages/client/src/validate.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
+[`packages/client/src/validate.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/validate.ts), [`packages/client/src/types.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/types.ts)
 
 ```ts
 export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
