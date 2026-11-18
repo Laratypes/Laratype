@@ -195,9 +195,52 @@ describe('TokenGuard.attempt()', () => {
     const rows = [{ tenant: 1, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
     // `region` is a primary column the row does not carry: no update may be sent without the whole key
     const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
+    // typeorm drops the whole id map when a primary column's property is missing
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toBeUndefined()
     expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
     expect(calls.update).toEqual([])
     expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('skips the rehash when a composite key part is null, and still logs in', async () => {
+    const rows = [{ region: null, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
+    // typeorm 0.3.26 keeps a null part in the id map, so the guard must reject it instead of comparing `= NULL`
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toEqual({ region: null, id: 7 })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({
+      region: null,
+      id: 7,
+      email: 'old@example.com',
+    })
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('keeps a 0 key part when it rehashes a composite-key user', async () => {
+    const rows = [
+      { tenant: 0, id: 7, email: 'old@example.com', password: SHA256_SECRET },
+      { tenant: 1, id: 7, email: 'other@example.com', password: SHA256_SECRET },
+    ]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['tenant', 'id'] })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    // 0 is a valid key part: a truthiness check would skip this row
+    expect(calls.update[0]![0]).toEqual({ tenant: 0, id: 7, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+    expect(rows[1]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('rehashes a composite key whose primary columns live in an embed', async () => {
+    const rows = [{ data: { region: 1, id: 7 }, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [
+        { propertyName: 'region', propertyPath: 'data.region' },
+        { propertyName: 'id', propertyPath: 'data.id' },
+      ],
+    })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    // An embed's id map is nested, so the part is read by property path, not by the bare column name
+    expect(calls.update[0]![0]).toEqual({ data: { region: 1, id: 7 }, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
   })
 
   it('never queries without a password or a lookup field', async () => {
@@ -212,7 +255,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a lookup value that is not a string, a boolean or a finite number, before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    for (const email of [{ $ne: null }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    for (const email of [{ $ne: null }, { length: 1e9 }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(await attempt(User, { email, password: 'secret' })).toBeNull()
     }
     expect(calls.where).toEqual([])
@@ -236,7 +279,7 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a password that is not a string before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    for (const password of [{ $ne: null }, ['secret'], 42, null, true]) {
+    for (const password of [{ $ne: null }, { length: 1e9 }, ['secret'], 42, null, true]) {
       expect(await attempt(User, { email: 'ada@example.com', password })).toBeNull()
     }
     expect(calls.where).toEqual([])

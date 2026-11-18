@@ -23,13 +23,19 @@ const dummyHash = () => {
 const isLookupValue = (value: unknown): value is string | boolean | number =>
   typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 
+/** One primary column: `propertyPath` nests a column inside an embed (`data.region`). */
+interface PrimaryColumn {
+  propertyName: string;
+  propertyPath?: string;
+}
+
 /** The slice of a model a token lookup and the rehash update need: its name and its primary columns. */
 interface PrimaryKeyModel {
   name: string;
   getRepository(): {
     metadata?: {
-      primaryColumns?: { propertyName: string }[];
-      /** The primary columns' values of one row, or undefined when the row is missing part of its key. */
+      primaryColumns?: PrimaryColumn[];
+      /** The primary columns' values of one row; a null part stays in the map, a missing one drops it. */
       getEntityIdMap?(row: unknown): Record<string, unknown> | undefined;
     };
   };
@@ -44,15 +50,35 @@ const primaryKeyOf = (model: PrimaryKeyModel): string => {
   return primaryKey;
 };
 
+/** A primary column's value in the id map: an embed nests its columns under the embed's property (`{ data: { region } }`). */
+const idPart = (id: Record<string, unknown>, column: PrimaryColumn): unknown => {
+  let value: unknown = id;
+  for (const key of (column.propertyPath ?? column.propertyName).split(".")) {
+    if (value === null || value === undefined) return undefined;
+    value = (value as Record<string, unknown>)[key];
+  }
+  return value;
+};
+
 /**
- * The criteria naming one row by every primary column, or `undefined` when the model has no primary key or the row is
- * missing part of its key. A composite key's `model.getId()` is an object, so only the id map names the row.
+ * The criteria naming one row by every primary column, or `undefined` when the model has no primary key, the row is
+ * missing part of its key, or a part is null. A composite key's `model.getId()` is an object, so only the id map names
+ * the row.
  */
 const primaryKeyWhere = (model: PrimaryKeyModel, row: unknown): Record<string, unknown> | undefined => {
   const metadata = model.getRepository().metadata;
   // An update without a primary column would match every row the other criteria match
   if (!metadata?.primaryColumns?.length) return undefined;
-  return metadata.getEntityIdMap?.(row);
+  const id = metadata.getEntityIdMap?.(row);
+  if (!id) return undefined;
+  // TypeORM keeps a null part in the id map, and `= NULL` matches no row (or another shape may match another row)
+  if (metadata.primaryColumns.some((column) => {
+    const part = idPart(id, column);
+    return part === null || part === undefined;
+  })) {
+    return undefined;
+  }
+  return id;
 };
 
 /**

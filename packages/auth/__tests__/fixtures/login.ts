@@ -9,6 +9,9 @@ export const SHA256_SECRET = "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a2
 
 export type Row = { id: number; [key: string]: unknown };
 
+/** One primary column: `data.region` is a column of an embedded `data` object, as typeorm's `propertyPath` names it. */
+export type PrimaryColumn = string | { propertyName: string; propertyPath?: string };
+
 export type FakeOptions = {
   column?: string;
   declared?: string;
@@ -17,7 +20,7 @@ export type FakeOptions = {
   /** Runs when the rehash update arrives, to model a password change that committed while scrypt ran. */
   beforeUpdate?: () => void;
   /** The model's primary columns: `id` by default; more than one is a composite key. */
-  primaryColumns?: string[];
+  primaryColumns?: PrimaryColumn[];
 };
 
 /** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
@@ -35,16 +38,43 @@ export const fakeModel = (
   const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] };
   const builders = vi.fn();
   const findOneBy = vi.fn(async () => null);
-  /** typeorm's EntityMetadata.getEntityIdMap(): the primary columns' values, or undefined when one of them is missing. */
+  const columns = primaryColumns.map((column) =>
+    typeof column === "string" ? { propertyName: column, propertyPath: column } : column,
+  ) as { propertyName: string; propertyPath?: string }[];
+  /** The value at a primary column's property path: an embed nests its columns (`data.region`). */
+  const readPath = (row: unknown, propertyPath: string | undefined): unknown =>
+    (propertyPath ?? "").split(".").reduce<unknown>(
+      (value, key) => (value === null || value === undefined ? undefined : (value as Record<string, unknown>)[key]),
+      row,
+    );
+  /**
+   * typeorm 0.3.26's `EntityMetadata.getEntityIdMap()`: every primary column's value, nested for an embed, `undefined`
+   * when a column's property is missing (its `getValueMap()` drops the map then), but a null part stays in the map.
+   */
   const getEntityIdMap = (row: unknown) => {
+    if (!row) return undefined;
     const id: Record<string, unknown> = {};
-    for (const propertyName of primaryColumns) {
-      const value = (row as Record<string, unknown> | null | undefined)?.[propertyName];
-      if (value === undefined || value === null) return undefined;
-      id[propertyName] = value;
+    for (const column of columns) {
+      const path = (column.propertyPath ?? column.propertyName).split(".");
+      let value: unknown = row;
+      for (const key of path) {
+        if (value === null || value === undefined) return undefined;
+        value = (value as Record<string, unknown>)[key];
+      }
+      if (value === undefined) return undefined;
+      let target = id;
+      for (const key of path.slice(0, -1)) target = (target[key] ??= {}) as Record<string, unknown>;
+      target[path[path.length - 1]!] = value;
     }
     return id;
   };
+  /** Whether a row matches an update criteria, whose composite key nests an embed's columns. */
+  const matches = (value: unknown, criteria: Record<string, unknown>): boolean =>
+    Object.entries(criteria).every(([key, expected]) =>
+      expected !== null && typeof expected === "object" && !(expected instanceof Date)
+        ? matches((value as Record<string, unknown> | null | undefined)?.[key], expected as Record<string, unknown>)
+        : (value as Record<string, unknown> | null | undefined)?.[key] === expected,
+    );
   class User {
     /** The credential column the model declares: cast() hashes it and attempt() checks it. */
     static readonly passwordField = declared;
@@ -52,7 +82,7 @@ export const fakeModel = (
     static getRepository() {
       return {
         metadata: {
-          primaryColumns: primaryColumns.map((propertyName) => ({ propertyName })),
+          primaryColumns: columns,
           getEntityIdMap,
           findColumnWithPropertyName: (name: string) =>
             name === column ? { propertyPath: column, isSelect: select } : undefined,
@@ -61,9 +91,7 @@ export const fakeModel = (
           calls.update.push([criteria, data]);
           beforeUpdate?.();
           if (failUpdate) throw new Error("the database is down");
-          const row = rows.find((candidate) =>
-            Object.entries(criteria).every(([key, value]) => candidate[key as keyof Row] === value),
-          );
+          const row = rows.find((candidate) => matches(candidate, criteria));
           if (!row) return { affected: 0 };
           Object.assign(row, data);
           return { affected: 1 };
@@ -94,7 +122,7 @@ export const fakeModel = (
     }
     static getId(user: Row) {
       // typeorm's BaseEntity.getId(): the id map for a composite key, the value for a single one
-      return primaryColumns.length === 1 ? user[primaryColumns[0]!] : getEntityIdMap(user);
+      return columns.length === 1 ? readPath(user, columns[0]!.propertyPath) : getEntityIdMap(user);
     }
   }
   return { User, calls, builders, findOneBy };
