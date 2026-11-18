@@ -226,11 +226,11 @@ describe('route() name guard', () => {
     const value = {
       get length() {
         reads += 1
-        throw new Error('length read')
+        return 1e9
       },
     }
     expectNameTypeError(() => route(value as never), 'object')
-    // the guard is the first read of the name: a length of 1e9 (or a getter) is never reached
+    // the guard is the first read of the name: a length of 1e9 is never reached
     expect(reads).toBe(0)
   })
 
@@ -286,7 +286,7 @@ describe('route() name guard', () => {
 })
 
 describe('route() absolute URLs', () => {
-  it('prefixes config("config.url"), trailing slashes dropped, path prefix kept', () => {
+  it('appends the path to config("config.url"), trailing slashes dropped, path prefix kept', () => {
     mount()
     const input = { user: 1, post: 2 }
     expect(route('users.posts.show', input, { absolute: true })).toBe('https://app.test/api/users/1/posts/2')

@@ -78,7 +78,7 @@ export type RouteQueryOf<Name extends string, R = Register> = RouteInputs<R, Nam
 export interface RouteUrlOptions<Query = object> {
   /** Serialized by `buildUrl`: `undefined` and `null` are skipped, an array repeats its key, a `Date` is ISO 8601. */
   readonly query?: Query;
-  /** `true` prefixes `config('config.url')`: `"https://app.test/api/users/1"`. Default: the path as mounted. */
+  /** `true` appends the path to `config('config.url')`: `"https://app.test/api/users/1"`. Default: the path as mounted. */
   readonly absolute?: boolean;
 }
 
@@ -163,7 +163,7 @@ function fail(message: string): never {
 }
 
 /** How many code points a name echoed in a diagnostic keeps. */
-const NAME_LIMIT = 100;
+const ECHO_LIMIT = 100;
 
 /**
  * A name echoed in a diagnostic: a 10 MB name must not build a 10 MB message. Reads a bounded prefix only (2 UTF-16
@@ -171,11 +171,11 @@ const NAME_LIMIT = 100;
  * point. A name of 100 code points or fewer is returned as is.
  */
 const truncateName = (name: string): string => {
-  if (name.length <= NAME_LIMIT) return name;
-  const prefix = name.slice(0, NAME_LIMIT * 2);
+  if (name.length <= ECHO_LIMIT) return name;
+  const prefix = name.slice(0, ECHO_LIMIT * 2);
   const codePoints = Array.from(prefix);
-  if (name.length === prefix.length && codePoints.length <= NAME_LIMIT) return name;
-  return `${codePoints.slice(0, NAME_LIMIT).join("")}…`;
+  if (name.length === prefix.length && codePoints.length <= ECHO_LIMIT) return name;
+  return `${codePoints.slice(0, ECHO_LIMIT).join("")}…`;
 };
 
 /**
@@ -263,9 +263,9 @@ export const buildRouteUrl = (
  * `route('users.posts.update', { user, post }, { query: { page: 2 } })` → `"/api/users/1/posts/2?page=2"`.
  * - Names come from the app's `Register` augmentation; params are typed from the full path, folder `[x]` params
  *   included, and a param takes a model through `RouteKeyed`.
- * - `{ absolute: true }` prefixes `config('config.url')`, its path prefix included (`https://app.test/sub/`). The
- *   config value is the only origin source: the request's `Host` header never reaches it, and a value that is not an
- *   absolute http(s) URL without a query, hash or credentials throws without echoing the value.
+ * - `{ absolute: true }` appends the path to `config('config.url')`, its path prefix included (`https://app.test/sub/`).
+ *   The config value is the only origin source: the request's `Host` header never reaches it, and a value that is not
+ *   an absolute http(s) URL without a query, hash or credentials throws without echoing the value.
  * - A name that is not a string, an unknown name, an object param that is not a model, and an invalid absolute-URL
  *   config throw; params and query are encoded by `buildUrl`, whose diagnostics propagate.
  */
