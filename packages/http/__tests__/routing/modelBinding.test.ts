@@ -456,18 +456,41 @@ describe('r.bind() validation at Route.api', () => {
     )
   })
 
-  it('refuses a binding on an optional param that is not the last segment, and still binds a trailing one', async () => {
+  it('refuses a binding on an optional param Hono registers as `:post?`, and binds the paths it expands', async () => {
     const mid = defineContract()({ show: endpoint.get('/:post?/details').response(anything) })
     const midApi = defineApi({ mid: { contract: mid, path: '/mid', scopes: [] } })
     class MidController extends Controller {
       show(ctx: Ctx<typeof mid.show, { params: { post: Post | undefined } }>) { return { post: ctx.params.post?.slug ?? null } }
     }
     expect(() => Route.api(midApi, (r) => [r.bind({ post: Post }).contract(mid, MidController)])).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `post` binds `:post?` in /mid/:post?/details, where the optional param is not the last segment: ' +
-        'Hono registers it as `post?`, so the binding would never run. Fix: make it the last segment of the path, or drop the `?`.',
+      '[@laratype/http] Route.api: r.bind(): `post` binds `:post?` in /mid/:post?/details, where Hono registers it as `post?`: ' +
+        'it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the `?`.',
     )
     // `/latest/:post?` ends with the optional segment: Hono drops the `?`, and the binding runs
     expect(await (await app.request('/api/users/7/posts/latest/hello')).json()).toEqual({ user: '7', post: 'hello' })
+
+    // Two optionals, the path ending with one: Hono expands every segment and strips both `?`s, so both bindings run
+    const nested = defineContract()({ show: endpoint.get('/:first?/:second?').response(anything) })
+    const nestedApi = defineApi({ nested: { contract: nested, path: '/nested', scopes: [] } })
+    class NestedController extends Controller {
+      show(ctx: Ctx<typeof nested.show, { params: { first: Post | undefined; second: Post | undefined } }>) {
+        return { first: ctx.params.first?.slug ?? null, second: ctx.params.second?.slug ?? null }
+      }
+    }
+    const routes = mount(Route.api(nestedApi, (r) => [r.bind({ first: Post, second: Post }).contract(nested, NestedController)]))
+    expect(await (await routes.request('/nested/one/two')).json()).toEqual({ first: 'one', second: 'two' })
+    expect(await (await routes.request('/nested/one')).json()).toEqual({ first: 'one', second: null })
+
+    // The same optional param before a trailing slash: the path does not end with `?`, so Hono keeps it in the name
+    const slashed = defineContract()({ show: endpoint.get('/:post?/').response(anything) })
+    const slashedApi = defineApi({ slashed: { contract: slashed, path: '/slashed', scopes: [] } })
+    class SlashedController extends Controller {
+      show(ctx: Ctx<typeof slashed.show, { params: { post: Post | undefined } }>) { return { post: ctx.params.post?.slug ?? null } }
+    }
+    expect(() => Route.api(slashedApi, (r) => [r.bind({ post: Post }).contract(slashed, SlashedController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `post` binds `:post?` in /slashed/:post?/, where Hono registers it as `post?`: ' +
+        'it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the `?`.',
+    )
   })
 
   it('binds a null-prototype map', async () => {
@@ -570,7 +593,7 @@ describe('the bindings of an item built by hand (no r.contract() / r.scope())', 
     expect(lookups).toEqual(['user:7'])
   })
 
-  it('reads a scope item bindings getter once, and checks the map it answered', () => {
+  it('reads a scope item bindings getter once, as a contract item', () => {
     const first: Record<string, unknown> = { user: User }
     const second: Record<string, unknown> = { user: 42 }
     let reads = 0

@@ -65,12 +65,13 @@ const valueLabel = (value: unknown): string =>
   value === null ? "null" : typeof value === "function" ? "a function" : typeof value === "string" ? JSON.stringify(value) : String(value);
 
 /**
- * Checks a `r.bind()` map at `Route.api` and returns the own string entries it read: a plain map (`Object.prototype`
- * or `null` as its prototype) with enumerable own string keys, whose every entry passes `checkBinder`. The binder of
- * each entry is read once, so a copy built from the result holds the values that were checked (a `Proxy` map answers
- * the copy with the same binder it answered the check with). A hand-built item's `bindings` is checked here too.
+ * Checks a `r.bind()` map at `Route.api` (docs/v1/http.md › Model binding) and returns the own string entries it read:
+ * a plain map (`Object.prototype` or `null` as its prototype) with enumerable own string keys, whose every entry passes
+ * `checkBinder`. The binder of each entry is read once, so a copy built from the result holds the values that were
+ * checked (a `Proxy` map answers the copy with the same binder it answered the check with). A hand-built item's
+ * `bindings` is checked here too.
  */
-const bindingEntries = (bindings: unknown): [string, Binder][] => {
+export const checkBindingMap = (bindings: unknown): [string, Binder][] => {
   if (typeof bindings !== "object" || bindings === null) {
     fail(`r.bind(): the bindings must be an object, one value per path param (got ${valueLabel(bindings)})`);
   }
@@ -102,23 +103,18 @@ const bindingEntries = (bindings: unknown): [string, Binder][] => {
   return entries;
 };
 
-/** Checks a `r.bind()` map at `Route.api` (docs/v1/http.md › Model binding): a hand-built item's `bindings` too. */
-export const checkBindingMap = (bindings: unknown): void => {
-  bindingEntries(bindings);
-};
-
 /**
  * A frozen copy of a checked `r.bind()` map, built from the entries the check read: what a getter or a `Proxy` answered
  * at mount is what every request resolves, never what a later read of the original map would answer.
  */
-export const copyBindingMap = (bindings: unknown): Bindings => Object.freeze(Object.fromEntries(bindingEntries(bindings)));
+export const copyBindingMap = (bindings: unknown): Bindings => Object.freeze(Object.fromEntries(checkBindingMap(bindings)));
 
 /**
  * The param names of a route path, the keys a binding may bind: `/api/users/:user/posts/:post?` gives `user`, `post`.
  * Hono's own parsing separates the segments and reads each param: a pattern may hold a `/`, nested braces
  * (`:id{[0-9]{2,4}}`), a brace in a character class (`:prefix{[{]}`) or an escaped one. The `?` of an optional param is
  * not part of the name; Hono registers a trailing optional route without it (`checkOptionalParameter`), which `getPattern`
- * would keep. A mid-path `?` stays in Hono's name: `nonTrailingOptionalParams` reports it.
+ * would keep. A mid-path `?` stays in Hono's name: `nonTrailingOptionalParamNames` reports it.
  */
 export const pathParamNames = (path: string): ReadonlySet<string> => {
   const names = new Set<string>();
@@ -130,16 +126,17 @@ export const pathParamNames = (path: string): ReadonlySet<string> => {
 };
 
 /**
- * The path params Hono registers under another name than their binding key: only a trailing optional param loses its
- * `?` (`checkOptionalParameter` expands `/posts/:id?` to `/posts` and `/posts/:id`), while `/:post?/details` keeps it,
- * so `param()` answers `post?` and a binding on `post` would never run.
+ * The path params Hono registers under another name than their binding key: `checkOptionalParameter` expands a path that
+ * ends with `?`, stripping the `?` from every optional segment (`/posts/:id?` registers `/posts` and `/posts/:id`), but
+ * any other path is registered as written, so `/:post?/details` keeps `post?` and a binding on `post` would never run.
  */
-export const nonTrailingOptionalParams = (path: string): ReadonlySet<string> => {
+export const nonTrailingOptionalParamNames = (path: string): ReadonlySet<string> => {
   const names = new Set<string>();
-  const segments = splitRoutingPath(path);
-  for (let i = 0; i < segments.length - 1; i++) {
-    const pattern = getPattern(segments[i]!);
-    if (pattern !== null && pattern !== "*" && pattern[1].endsWith("?")) names.add(pattern[1].slice(0, -1));
+  if (path.endsWith("?")) return names;
+  for (const segment of splitRoutingPath(path)) {
+    if (!segment.endsWith("?")) continue;
+    const pattern = getPattern(segment.slice(0, -1));
+    if (pattern !== null && pattern !== "*") names.add(pattern[1]);
   }
   return names;
 };

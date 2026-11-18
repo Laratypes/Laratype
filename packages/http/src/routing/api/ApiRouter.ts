@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBindingMap, copyBindingMap, nonTrailingOptionalParams, pathParamNames } from "./bindings";
+import { checkBindingMap, copyBindingMap, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 
@@ -340,14 +340,14 @@ const checkBindingKeys = (
   for (const route of routes) {
     const name = route.name.slice(0, route.name.lastIndexOf("."));
     const names = pathParamNames(route.path);
-    // A mid-path `:post?` is registered by Hono as `post?` (only a trailing one drops its `?`, `checkOptionalParameter`):
-    // a binding on it would read an absent optional param and never run, so it is refused instead of dropped silently
-    const misnamed = nonTrailingOptionalParams(route.path);
+    // A `:post?` per Hono's registration: checkOptionalParameter expands only a path that ends with `?`, so any other
+    // path registers the `?` in the param name and a binding on it would read an absent optional param and never run
+    const misnamed = nonTrailingOptionalParamNames(route.path);
     const midPath = Object.keys(route.bindings).find((key) => misnamed.has(key));
     if (midPath !== undefined) {
       fail(
-        `r.bind(): \`${midPath}\` binds \`:${midPath}?\` in ${route.path}, where the optional param is not the last segment: ` +
-          `Hono registers it as \`${midPath}?\`, so the binding would never run. Fix: make it the last segment of the path, or drop the \`?\`.`,
+        `r.bind(): \`${midPath}\` binds \`:${midPath}?\` in ${route.path}, where Hono registers it as \`${midPath}?\`: ` +
+          `it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the \`?\`.`,
       );
     }
     const forContract = contractParams.get(name) ?? new Set<string>();
