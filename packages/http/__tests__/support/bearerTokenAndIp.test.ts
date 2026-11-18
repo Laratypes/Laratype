@@ -153,12 +153,19 @@ describe('request.ip()', () => {
   })
 
   it('returns undefined for an address that is not a non-empty string', async () => {
-    const addresses: unknown[] = [42, NaN, Infinity, null, undefined, true, {}, { length: 1e9 }, ['203.0.113.7']]
+    const addresses: unknown[] = [
+      42, NaN, Infinity, null, undefined, true, {}, { length: 1e9 }, ['203.0.113.7'],
+      // No key walk: an object whose own `__proto__` key or a null prototype carries an address is still no string
+      JSON.parse('{"__proto__":{"address":"203.0.113.7"}}'), Object.create(null),
+    ]
     for (const address of addresses) expect(await ipFor(address)).toBeUndefined()
   })
 
   it('returns undefined for an empty address, a blank one, and one with control characters', async () => {
-    const addresses = ['', ' ', '\u0000', '203.0.113.7\r\nX-Forwarded-For: 10.0.0.1', '203.0.113.7\u2028', '\ud800']
+    const addresses = [
+      '', ' ', '\u0000', '203.0.113.7\r\nX-Forwarded-For: 10.0.0.1', '203.0.113.7\u2028', '\ud800',
+      '__proto__', 'constructor',
+    ]
     for (const address of addresses) expect(await ipFor(address)).toBeUndefined()
   })
 
@@ -196,13 +203,13 @@ describe('request.ip()', () => {
   it('refuses a getConnInfo that is not a function, and an app that is not a Hono app', () => {
     const on = new Hono()
     const getConnInfo = () => ({ remote: { address: '127.0.0.1' } })
-    for (const value of [undefined, null, 42, 'getConnInfo', {}, []]) {
-      expect(() => mountConnInfo(on, value as never), String(value)).toThrow(
+    for (const [index, value] of [undefined, null, 42, 'getConnInfo', {}, []].entries()) {
+      expect(() => mountConnInfo(on, value as never), `getConnInfo #${index}`).toThrow(
         new TypeError(`[@laratype/http] mountConnInfo(): expected the runtime's getConnInfo(context) function, got ${typeof value}`),
       )
     }
-    for (const value of [undefined, null, 42, 'app', {}, { use: 42 }]) {
-      expect(() => mountConnInfo(value as never, getConnInfo), String(value)).toThrow(
+    for (const [index, value] of [undefined, null, 42, 'app', {}, { use: 42 }, Object.create(null)].entries()) {
+      expect(() => mountConnInfo(value as never, getConnInfo), `app #${index}`).toThrow(
         new TypeError(`[@laratype/http] mountConnInfo(): expected a Hono app, got ${value === null ? 'null' : typeof value}`),
       )
     }
