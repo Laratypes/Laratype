@@ -1,9 +1,8 @@
 import process, { cwd } from "node:process";
 import { Command, Console } from "@laratype/console";
 import { green } from "kolorist";
-import { generateOpenApiFile } from "../../openapi";
+import { errorReason, generateOpenApiFile } from "../../openapi";
 import type { GeneratedOpenApiFile } from "../../openapi";
-import { errorReason } from "../../openapi/schema";
 import { ScanError } from "../../typegen";
 
 const PREFIX = "[sauf openapi:generate] ";

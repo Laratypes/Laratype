@@ -231,7 +231,7 @@ const pathGroupKey = (template: string): string => template.replace(/\{[^}]*\}/g
  * The output is deterministic: paths, components and schemes are sorted, methods and statuses have a fixed order, and
  * every map is built with `Object.fromEntries`, so a route name or property named `__proto__` is an own key.
  */
-export function generateOpenApiDocument(api: object, options?: OpenApiOptions): GeneratedOpenApi {
+export function generateOpenApiDocument(api: object, options: OpenApiOptions): GeneratedOpenApi {
   const contract = options?.contract;
   if (typeof contract?.apiRoutes !== "function" || typeof contract.isApiRoot !== "function") {
     throw new OpenApiGenerationError("options.contract must provide apiRoutes() and isApiRoot()");
@@ -241,13 +241,14 @@ export function generateOpenApiDocument(api: object, options?: OpenApiOptions): 
   }
   const routes = contract.apiRoutes(api);
   if (!Array.isArray(routes)) throw new OpenApiGenerationError("apiRoutes() must return an array of routes");
+  const methodNames = new Set<string>(METHOD_ORDER);
   for (const route of routes) {
     // The contract runtime is the project's package, but it is still an input: a wrong one gets one diagnostic, not
-    // a TypeError from the walk below.
+    // a TypeError (or a silently dropped operation) from the walk below.
     if (
       typeof route?.name !== "string" ||
       typeof route.path !== "string" ||
-      typeof route.method !== "string" ||
+      !methodNames.has(route.method) ||
       typeof route.endpoint?.def !== "object" ||
       route.endpoint.def === null ||
       !Array.isArray(route.errors) ||
@@ -264,9 +265,9 @@ export function generateOpenApiDocument(api: object, options?: OpenApiOptions): 
   const guards = new Map<string, Set<string>>();
 
   const component = (base: string, build: (key: string) => JsonSchema): JsonSchema => {
-    // A provisional key: the final one is chosen below, in sorted base order, so it does not depend on whether the
-    // tree's definition order changed (two route names can sanitize to the same component key).
-    const provisional = `$${nextComponent}`;
+    // A provisional key, marked with NUL (which no final key or sane ref has): the final one is chosen below, in
+    // sorted base order, so it does not depend on the tree's definition order (two route names can sanitize alike).
+    const provisional = `\u0000${nextComponent}`;
     nextComponent += 1;
     components.set(provisional, { base, schema: build(provisional) });
     return { $ref: `#/components/schemas/${provisional}` };
@@ -295,9 +296,9 @@ export function generateOpenApiDocument(api: object, options?: OpenApiOptions): 
     if (schema === undefined) return [];
     const result = standardJsonSchema(schema, "input");
     if (!result.ok) {
+      const notDocumented = `the ${label} parameters are not documented`;
       warnings.push(
-        `${route.name}: the ${label} schema has no JSON Schema (${result.reason}); ` +
-          `the ${label} parameters are not documented`,
+        `${route.name}: the ${label} schema has no JSON Schema (${result.reason}); ${notDocumented}`,
       );
       return [];
     }
@@ -316,10 +317,8 @@ export function generateOpenApiDocument(api: object, options?: OpenApiOptions): 
         );
         json = {};
       } else if (isParentRef(property)) {
-        warnings.push(
-          `${route.name}: the ${label} property "${name}" only refers to the ${label} schema itself; ` +
-            "it is documented as {}",
-        );
+        const itself = `only refers to the ${label} schema itself; it is documented as {}`;
+        warnings.push(`${route.name}: the ${label} property "${name}" ${itself}`);
         json = {};
       } else if (hasLocalRefs(property)) {
         json = component(`${route.name}.${label}.${name}`, (key) => rebaseRefs(withParentDefs(root, property), key));
@@ -518,8 +517,8 @@ export function generateOpenApiDocument(api: object, options?: OpenApiOptions): 
 const SCHEMA_REF = "#/components/schemas/";
 
 /**
- * Replaces the provisional component keys (`$0`, `$1`, ...) in every `$ref` with the final key chosen in sorted base
- * order. Only refs this generator wrote start with `$` (a final key never does), so a schema's own ref is untouched.
+ * Replaces the provisional component keys (a NUL and a number) in every `$ref` with the final key chosen in sorted base
+ * order. Only refs this generator wrote carry the NUL marker (a final key cannot), so a schema's own ref is untouched.
  */
 function rewriteComponentRefs(document: OpenApiDocument, finals: ReadonlyMap<string, string>): OpenApiDocument {
   const rewrite = (value: unknown): unknown => {

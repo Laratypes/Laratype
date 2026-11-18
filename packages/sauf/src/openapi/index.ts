@@ -22,4 +22,5 @@ export type {
 export { OpenApiGenerationError } from "./errors";
 export { generateOpenApiFile } from "./load";
 export type { GeneratedOpenApiFile, LoadFunction, OpenApiFlags, OpenApiProjectOptions } from "./load";
+export { errorReason } from "./schema";
 export type { JsonSchema, JsonSchemaIo, JsonSchemaResult } from "./schema";

@@ -4,17 +4,25 @@ import type {
   GeneratedOpenApi,
   GeneratedOpenApiFile,
   JsonSchema,
+  JsonSchemaIo,
+  JsonSchemaResult,
+  LoadFunction,
   OpenApiComponents,
   OpenApiContract,
   OpenApiDocument,
+  OpenApiFlags,
   OpenApiOperation,
   OpenApiOptions,
   OpenApiParameter,
   OpenApiPathItem,
   OpenApiProjectOptions,
+  OpenApiRequestBody,
   OpenApiResponse,
   OpenApiSecurityScheme,
 } from "../../src/openapi";
+
+/** Type-level checks only: the body is type-checked but never run. */
+const typeOnly = (_fn: () => void) => {};
 
 describe("the OpenAPI document types", () => {
   it("has the shapes the document builder returns", () => {
@@ -24,22 +32,29 @@ describe("the OpenAPI document types", () => {
     expectTypeOf<OpenApiOperation["responses"]>().toEqualTypeOf<Record<string, OpenApiResponse>>();
     expectTypeOf<OpenApiOperation["security"]>().toEqualTypeOf<ReadonlyArray<Record<string, readonly string[]>>>();
     expectTypeOf<OpenApiParameter["in"]>().toEqualTypeOf<"path" | "query" | "header">();
+    expectTypeOf<OpenApiRequestBody["required"]>().toEqualTypeOf<true>();
     expectTypeOf<OpenApiSecurityScheme["scheme"]>().toEqualTypeOf<"bearer">();
     expectTypeOf<JsonSchema>().toEqualTypeOf<Record<string, unknown>>();
+    expectTypeOf<JsonSchemaIo>().toEqualTypeOf<"input" | "output">();
+    expectTypeOf<JsonSchemaResult["ok"]>().toEqualTypeOf<boolean>();
   });
 
-  it("types the entry points", () => {
-    expectTypeOf(generateOpenApiDocument).parameters.toEqualTypeOf<[api: object, options?: OpenApiOptions]>();
+  it("types the entry points and the project options", () => {
+    expectTypeOf(generateOpenApiDocument).parameters.toEqualTypeOf<[api: object, options: OpenApiOptions]>();
     expectTypeOf(generateOpenApiDocument).returns.toEqualTypeOf<GeneratedOpenApi>();
     expectTypeOf(generateOpenApiFile).parameters.toEqualTypeOf<[options: OpenApiProjectOptions]>();
     expectTypeOf(generateOpenApiFile).returns.toEqualTypeOf<Promise<GeneratedOpenApiFile>>();
     expectTypeOf<GeneratedOpenApiFile["file"]>().toEqualTypeOf<string>();
     expectTypeOf<GeneratedOpenApiFile["changed"]>().toEqualTypeOf<boolean>();
     expectTypeOf<OpenApiOptions["contract"]>().toEqualTypeOf<OpenApiContract>();
+    expectTypeOf<OpenApiFlags["out"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<OpenApiProjectOptions["contract"]>().toEqualTypeOf<OpenApiContract | undefined>();
+    expectTypeOf<LoadFunction>().toEqualTypeOf<(url: string) => Promise<unknown>>();
     expectTypeOf<OpenApiGenerationError>().toMatchTypeOf<Error>();
 
-    // @ts-expect-error options.contract is required
-    generateOpenApiDocument({}, {});
+    typeOnly(() => {
+      // @ts-expect-error options.contract is required
+      generateOpenApiDocument({}, {});
+    });
   });
 });

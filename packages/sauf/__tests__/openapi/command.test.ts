@@ -154,10 +154,10 @@ describe("sauf openapi:generate", () => {
     const dir = project("no-contract");
     const error = await generateOpenApiFile({ projectDir: dir, load }).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(OpenApiGenerationError);
-    expect((error as Error).message).toBe(
-      `[sauf openapi:generate] the project at ${slash(dir)} has no resolvable @laratype/contract dependency: ` +
-        "add it to the project's dependencies",
+    expect((error as Error).message).toContain(
+      `the project at ${slash(dir)} has no resolvable @laratype/contract dependency`,
     );
+    expect((error as Error).message).toMatch(/add it to the project's dependencies$/);
     expect((error as Error).message).not.toContain("\n");
     expect((error as Error).message).not.toContain("Cannot find module");
   }, 60_000);

@@ -21,6 +21,7 @@ import { errorReason, isJsonObject } from "./schema";
 const CONTRACT = "@laratype/contract";
 const DEFAULT_OPENAPI = "openapi.json";
 
+/** The module loader `generateOpenApiFile` uses: a file URL in, a module namespace out (jiti by default). */
 export type LoadFunction = (url: string) => Promise<unknown>;
 
 /** The command's flags; each is a string when present (the wrapper validates the type). */
@@ -35,6 +36,7 @@ export interface OpenApiFlags {
   readonly out?: string;
 }
 
+/** What `generateOpenApiFile` needs: the project, its flags, and optionally its loader and contract runtime. */
 export interface OpenApiProjectOptions extends OpenApiFlags {
   /** Project directory (absolute). */
   readonly projectDir: string;
@@ -135,9 +137,9 @@ async function loadContract(projectDir: string, load: LoadFunction): Promise<Ope
   try {
     entry = require.resolve(CONTRACT);
   } catch (error) {
+    const dependency = "add it to the project's dependencies";
     throw new OpenApiGenerationError(
-      `the project at ${slash(projectDir)} has no resolvable ${CONTRACT} dependency: ` +
-        "add it to the project's dependencies",
+      `the project at ${slash(projectDir)} has no resolvable ${CONTRACT} dependency: ${dependency}`,
       { cause: error },
     );
   }

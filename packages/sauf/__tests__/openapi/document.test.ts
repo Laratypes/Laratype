@@ -402,8 +402,16 @@ describe("recursive schemas", () => {
         vendor: "resource",
         validate: () => ({ value: 1 }),
         jsonSchema: {
-          input: () => ({ $id: "https://example.com/node", type: "object", properties: { self: { $ref: "#" } } }),
-          output: () => ({ $id: "https://example.com/node", type: "object", properties: { self: { $ref: "#" } } }),
+          input: () => ({
+            $id: "https://example.com/node",
+            type: "object",
+            properties: { self: { $ref: "#" }, legacy: { $ref: "#/components/schemas/$0" } },
+          }),
+          output: () => ({
+            $id: "https://example.com/node",
+            type: "object",
+            properties: { self: { $ref: "#" }, legacy: { $ref: "#/components/schemas/$0" } },
+          }),
         },
       },
     } as unknown as StandardSchemaV1;
@@ -412,7 +420,8 @@ describe("recursive schemas", () => {
     expect(content(result.document.paths["/api/res"]!.get!.responses["200"]!)).toEqual({
       $id: "https://example.com/node",
       type: "object",
-      properties: { self: { $ref: "#" } },
+      // the generator only rewrites its own provisional keys (marked with NUL): a schema's own ref is left alone
+      properties: { self: { $ref: "#" }, legacy: { $ref: "#/components/schemas/$0" } },
     });
     expect(result.document.components.schemas).toEqual({});
   });
@@ -601,6 +610,13 @@ describe("hostile contract input", () => {
     );
     const badRoute = { apiRoutes: () => [{}], isApiRoot: () => true } as unknown as OpenApiContract;
     expect(() => generateOpenApiDocument({}, { contract: badRoute })).toThrow(
+      "[sauf openapi:generate] apiRoutes() returned an invalid route",
+    );
+    const badMethod = {
+      apiRoutes: () => [{ name: "a", method: "head", path: "/a", endpoint: { def: {} }, errors: [] }],
+      isApiRoot: () => true,
+    } as unknown as OpenApiContract;
+    expect(() => generateOpenApiDocument({}, { contract: badMethod })).toThrow(
       "[sauf openapi:generate] apiRoutes() returned an invalid route",
     );
   });
