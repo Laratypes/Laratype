@@ -36,7 +36,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [Route names and URLs](#route-names-and-urls) | proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [CORS](#cors) | proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)) |
-| [Undeclared-error check](#undeclared-error-check) | planned → #157 |
+| [Undeclared-error check](#undeclared-error-check) | proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [bc10401](https://github.com/Laratypes/Laratype/commit/bc10401) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)); `sauf test` coverage split out → [#387](https://github.com/Laratypes/Laratype/issues/387) |
 
 ---
 
@@ -1350,13 +1350,41 @@ A `cors` value the framework refuses fails the boot with one `TypeError` listing
 ## Undeclared-error check
 
 ### Status
-planned → [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, M4). Depends on H5 #108. It replaces the earlier `--strict-contract` dev mode.
+proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [bc10401](https://github.com/Laratypes/Laratype/commit/bc10401) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157), M4). It replaces the earlier `--strict-contract` dev mode. Checking the handler's output against the response schema is [Response from the contract](#response-from-the-contract) › Dev-mode output validation (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)), not this section.
 
-### Design (non-binding)
-- **Dev and test:** throwing an error that the running endpoint doesn't declare (its `throws` across all levels) is reported loudly, with the stack. In tests it fails the test. The check is a set lookup and is always on in dev and test ([cli.md › sauf dev](./cli.md#sauf-dev)).
-- **Coverage report:** `sauf test` lists declared errors that no test triggers, which points at a missing test or a stale declaration.
-- **Production:** the real status is still sent, and the FE gets `unexpected` ([client.md › Result union](./client.md#result-union)).
-- **Response output:** checking the handler's output against the response schema belongs to [Response from the contract](#response-from-the-contract).
+### Public API
+No new API, and no flag: `RequestKernel.handle` checks each thrown error in the catch of its route pipeline ([`request/Request.ts` @ bc10401](https://github.com/Laratypes/Laratype/blob/bc10401/packages/http/src/request/Request.ts)) against the route's resolved errors, which `Route.api` passes from `apiRoutes()` (`RouteEntry.errors`). The check is always on in dev and test ([cli.md › sauf dev](./cli.md#sauf-dev)); its environment test is the internal helper the output validation reads too ([`supports/runtime.ts` @ bc10401](https://github.com/Laratypes/Laratype/blob/bc10401/packages/http/src/supports/runtime.ts)).
+
+### Invariants
+- **The declared set:** the endpoint's resolved errors, as `apiRoutes()` gives them: the derived 422 (a query, body or headers schema), 404 (a path param), 401 (`auth`), 403 (`authorize`) and 429 (`throttle`), plus `throws` from the scope chain, the contract and the endpoint ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). The check is a set lookup of `code` + `status`: a route's pairs are collected once and kept in a `WeakMap`, and production never builds them.
+- **Declared:** a thrown error is declared when the code and status the client receives are in that set. The check reads a `ContractError`'s `code` and `status`, and a responsible 0.5 `Exception`'s `getHttpCode()` and the `code` of its `toJson()` body while its status is under 500 and its answer has a body: a guard throwing `UnauthorizedException` is the derived 401. The body's `code` is the one the filter sends (`resolveException` answers with `toJson()`), not `getErrorCode()`: a subclass whose body sends `TOKEN_EXPIRED` is checked as `TOKEN_EXPIRED` even when `getErrorCode()` says `UNAUTHORIZED`. A `code` JSON serialization would not write is no code: not an own enumerable key, not a string, or empty. `toJson()` is read synchronously, as the filter sends it: an async `toJson()` (the client gets `{}`) or a body with its own `toJSON` is not read, a known false negative. `toJson()` must be deterministic: the check reads the code and the filter calls it again for the answer. The body is not computed once and shared, because the filter also answers throws the check never sees (production returns before any read, a route without `Route.api` is skipped), so a shared body would need a per-request channel between the two kernels to cover only a `toJson()` that changes between calls. An error from another copy of either package counts, told by its `Symbol.for` brand.
+- **Checked:** an error thrown by the handler or a middleware of a `Route.api` contract route, at any depth, and the rejection of its contract response resolution (a `JsonResource` whose `toJson()` throws): that resolution is `await`ed inside the same `try`. A route mounted through `RequestKernel.handle` alone has no resolved set (its contract and scope `throws` are unknown), so it is not checked.
+- **Not checked:** an unknown error (a plain `Error`, a `TypeError`, a non-`Error` throw): it is the generic 500 already, and logged ([Exceptions](#exceptions)). A non-responsible `Exception` sends no code. A responsible 0.5 `Exception` with a 5xx status sends none either: every non-contract 5xx carries only `{ message: "Server Error" }` ([Exceptions](#exceptions)), so a `new UnauthorizedException({ httpCode: 503 })` is a server failure, not an undeclared `UNAUTHORIZED`. A 204, 205 or 304 answer carries no body at all, so no code: the check reads the filter's own rule, `isBodylessResponse`. A 5xx `ContractError` keeps its code and body, and is checked. A Hono `HTTPException` is a framework answer, not a contract error: the 413 of the default body limit, the malformed-body 400, the contract's own 422 and the throttle's 429. A 0.5 route (`Route.group`, an ad-hoc `r.get()`) has no endpoint to declare its errors against.
+- **Dev:** `console.error`, the channel a 5xx is logged on, gets the line below and then the thrown error, whose stack is printed. The response is unchanged: the error's own status, code and body still go out, so a dev client sees `unexpected` ([client.md › Result union](./client.md#result-union) and [Exceptions](#exceptions)).
+- **Test:** `NODE_ENV=test` fails the test instead: the check throws an `Error` whose message is the line and whose `cause` is the thrown error, so the exception filter answers the generic 500 with the line in its log, and the test fails on its own assertions. A test that covers the check alone asserts that 500 and log, or stubs `NODE_ENV=development` for the dev report. The thrown error itself is unchanged in dev and production; only test mode wraps it.
+- **A check that fails:** reading the error is guarded: a `toJson()` that throws (or any other failure inside the check) is logged on its own line and the original error is kept, in dev and in test. Both diagnostic writes are guarded too: a `console.error` that throws, or an error whose `util.inspect` throws, never replaces the route's error. Only the test-mode wrapper above may replace the error.
+- **Production:** the check returns before it reads or allocates anything (`__PROD__`, or `NODE_ENV=production` without it, the same test as the output validation's). `__PROD__` is read first, so an explicit `__PROD__ = false` wins over `NODE_ENV=production`. The response is the error's own, unchanged, and *this check* logs nothing: the exception filter's own logs (a non-contract 5xx, a reportable error) are unchanged and still happen ([Exceptions](#exceptions) › Logs). A dev build's set lookup never runs there.
+- **One check, not two:** the handler's value against the response schema stays [Response from the contract](#response-from-the-contract) › Dev-mode output validation (H4 #107). This section only reads the thrown error.
+
+### Diagnostics
+- `[@laratype/http] <route>: the route threw <status> <CODE>, which the endpoint does not declare: add it with .throws(...) on the endpoint, or throws: [...] on its contract or a scope` (dev and test only; dev: logged with the error, response unchanged; test: logged, generic 500)
+- `[@laratype/http] the undeclared-error check failed, the thrown error is unchanged:` then the failure that broke the check (dev and test only; the response is the original error's, never a check failure)
+
+### Example
+```ts
+export default defineContract<Prefix>()({
+  store: endpoint.post('/').body(NewUser).response(UserDto, 201).throws(EmailTaken),
+})
+// declare it, or the dev server reports 409 EMAIL_TAKEN and a test answers 500
+throw EmailTaken(input.email)
+```
+
+Tests: [`packages/http/__tests__/response/undeclaredError.test.ts`](../../packages/http/__tests__/response/undeclaredError.test.ts) (each derived error, a `throws` of each level including one declared only by a scope, a middleware's error, dev, test, production, an unknown error, a non-contract 5xx `Exception`, a 5xx contract error, bodyless 204 / 205 / 304 answers, a subclass whose body code differs from `getErrorCode()`, a `JsonResource` whose `toJson()` throws, a check that throws, a throwing `console.error` and a throwing `util.inspect`, a 0.5 route) and [`bodyless.test.ts`](../../packages/http/__tests__/response/bodyless.test.ts) for the shared bodyless rule.
+
+### Non-goals
+- The `sauf test` coverage report, which lists declared errors that no test triggers: [#387](https://github.com/Laratypes/Laratype/issues/387).
+- A warn-or-fail switch or a `--strict-contract` flag: the check is always on in dev and test.
+- A second output check; it belongs to [Response from the contract](#response-from-the-contract).
 
 ### Open questions
 - Resolved: undeclared errors are reported in dev and fail the test in tests, with no warn-or-fail switch ([#157](https://github.com/Laratypes/Laratype/issues/157)).

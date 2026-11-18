@@ -3,6 +3,7 @@ import { HonoRequest } from "hono/request"
 import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
+import { checkUndeclaredError } from "../response/undeclaredError";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
@@ -443,14 +444,23 @@ export default class Request extends AppServiceProvider {
         pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
-        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
-
-        if(pipelineResult instanceof Error) {
-          throw pipelineResult;
+        try {
+          const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
+          if(pipelineResult instanceof Error) {
+            throw pipelineResult;
+          }
+          // `await`ed inside the try: a contract response resolution that rejects (a `JsonResource` whose `toJson()`
+          // throws) is a route error too, and must be checked, not escape the catch as a rejected promise
+          return routeOption.endpoint
+            ? await resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+            : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
         }
-        return routeOption.endpoint
-          ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
-          : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
+        catch (error) {
+          // A route's thrown error must be declared on its endpoint (docs/v1/http.md › Undeclared-error check, X3 #157):
+          // dev logs it, test answers the generic 500, production skips the check and the error is rethrown untouched
+          checkUndeclaredError(error, routeOption);
+          throw error;
+        }
       });
     }
   }
