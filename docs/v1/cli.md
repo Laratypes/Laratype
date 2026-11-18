@@ -21,7 +21,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | Section | Status |
 |---|---|
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
-| [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #157; type watch proposed: PR <leader fills> @ b4015c6a ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #157; type watch proposed: PR <leader fills> @ e1633581 ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
 | [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)); `make:command` merged in PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
 
@@ -66,7 +66,7 @@ Each command's issue, linked in the table.
 ## sauf dev
 
 ### Status
-The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check). The type watch (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) is proposed: PR <leader fills> @ b4015c6a.
+The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check). The type watch (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) is proposed: PR <leader fills> @ e1633581.
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125)).

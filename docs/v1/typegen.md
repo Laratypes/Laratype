@@ -13,7 +13,7 @@ last-verified: 2026-10-13
 | Section | Status |
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ b4015c6a (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ e1633581 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
 
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ b4015c6a ([#142](https://github.com/Laratypes/Laratype/issues/142)).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ e1633581 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -122,10 +122,10 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-proposed: PR <leader fills> @ b4015c6a (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), M3).
+proposed: PR <leader fills> @ e1633581 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), M3).
 
 ### Public API
-[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/b4015c6a08182e2e433d2c5d0729b848f6737864/packages/sauf/src/commands/dev.ts)
+[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/e163358155cd27ba655fc50cc2964fa8f2e95038/packages/sauf/src/commands/dev.ts)
 
 ```ts
 // ApiPluginApi (laratype:api), used by sauf dev
@@ -166,7 +166,7 @@ export class ContractTypeWatchHost {                       // one live watch for
 - **Server.** The watch writes the type files only; it does not rebuild the running app. Routes are mounted at boot from `appApi`, so a new or removed route still needs a `--hmr` restart (Non-goals).
 
 ### Diagnostics
-- A failed scan is reported once per debounced generation, prefixed `[laratype:api]`, through `Console.error`. The scan and emit run before any write, so the last good output stays and the dev server keeps running; the next relevant event retries. The messages are the ones in [sauf types:generate › Diagnostics](#diagnostics), for example `[laratype:api] file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)`.
+- A refresh that ends in a failed scan is reported once, prefixed `[laratype:api]`, through `Console.error`. The scan and emit run before any write, so the last good output stays and the dev server keeps running; the next relevant event retries. The messages are the ones in [sauf types:generate › Diagnostics](#diagnostics), for example `[laratype:api] file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)`.
 - A syntax or type error in a contract is not a dev-scan error (the scan never reads contents): it surfaces in the FE's TypeScript tooling and, with `--hmr`, in the app restart.
 - A `TypeError` from the watcher's options names the option: `the type watch needs an options object`, `the type watch events must provide on() and off()`, `the type watch tree needs affectsTree(), isGenerated() and refresh()`, `the type watch onError must be a function`, `the type watch delay must be a finite number of milliseconds, 0 or more, got <value>`.
 
@@ -178,7 +178,8 @@ export class ContractTypeWatchHost {                       // one live watch for
 - a bad file name logs the scan error, keeps the last output, and the next save recovers;
 - a content edit: the FE program's type changes, with zero scans;
 - a 1,000-event burst: one scan; events during a scan: one follow-up, no overlap;
-- a symlink/junction out of the tree, a path outside the tree, unicode/control/long names, a whole-tree delete, `dispose()`, and a real Vite `server.watcher` add/change/unlink plus server close.
+- a symlink/junction out of the tree, a path outside the tree, unicode/control/long names, a whole-tree delete, `dispose()`, and a real Vite `server.watcher` add/change/unlink plus server close;
+- the dev wiring, as a proposed example: [`docs/v1/examples/typegen/proposed/watch.ts`](./examples/typegen/proposed/watch.ts).
 
 ### Non-goals
 - **No server route reload without a restart.** The running Hono app builds its route registry at boot; Vite SSR module invalidation alone does not rebuild it. `--hmr` restarts stay the way the server picks up added or removed routes, and an edited contract still needs one to change a running route. This is a follow-up (Open questions), not part of #142's Done-when, which is about FE types.
