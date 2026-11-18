@@ -6,7 +6,7 @@ const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
 };
 
-/** What a call passes on: the runtime view of `CallInput`. */
+/** What a call passes on: the runtime view of `CallInput`, whose query is flat (`UrlQuery`) even when the schema input is wider. */
 interface RequestInput {
   readonly params?: Readonly<Record<string, string | number>>;
   readonly query?: UrlQuery;

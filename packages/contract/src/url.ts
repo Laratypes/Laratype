@@ -27,7 +27,7 @@ type WildcardParams<P extends string> = {
 };
 
 /** Whether `buildUrl` takes its input: a required param, or a `*` segment, needs it. */
-type HasRequiredParams<P extends string> = HasWildcard<P> extends true ? true : {} extends PathParams<P> ? false : true;
+type NeedsInput<P extends string> = HasWildcard<P> extends true ? true : {} extends PathParams<P> ? false : true;
 
 /** Param values for a path: each key of `PathParams<P>` takes a string or a number (optional keys stay optional). */
 export type UrlParams<P extends string> = string extends P
@@ -37,7 +37,7 @@ export type UrlParams<P extends string> = string extends P
     : { [K in keyof PathParams<P>]: string | number };
 
 /** `params` is required when the path has a required param, or a `*` segment (whose `params` is the error type above). */
-export type UrlInput<P extends string> = (HasRequiredParams<P> extends true
+export type UrlInput<P extends string> = (NeedsInput<P> extends true
   ? { params: UrlParams<P> }
   : { params?: UrlParams<P> | undefined }) & {
   query?: UrlQuery | undefined;
@@ -72,7 +72,7 @@ const atomMatchesSlash = (source: string): boolean => {
  * `:file{.+}` both read a value that holds "/"). The pattern is read atom by atom: a literal "/" and `.` (any
  * character) can, a character class or one-character escape is checked with `RegExp`, and an escape whose text is
  * longer than one character (hex, Unicode, property, backreference) is treated as able to. Atoms of a lookahead count
- * too, which can only over-approximate: a value that does not match the pattern is refused separately.
+ * too, which can only over-approximate: whether the value reaches the route is Hono's match to make, not `buildUrl`'s.
  */
 function patternCanMatchSlash(pattern: string): boolean {
   for (let i = 0; i < pattern.length; i++) {
@@ -226,7 +226,7 @@ function serializeQuery(query: UrlQuery): string {
  */
 export function buildUrl<P extends string>(
   path: P,
-  ...[input]: HasRequiredParams<P> extends true ? [input: UrlInput<P>] : [input?: UrlInput<P>]
+  ...[input]: NeedsInput<P> extends true ? [input: UrlInput<P>] : [input?: UrlInput<P>]
 ): string {
   if (typeof path !== "string") fail(`buildUrl: path must be a string, got ${typeof path}`);
   const params: unknown = input?.params;
