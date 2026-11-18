@@ -20,8 +20,8 @@ export const hextets = (ip: string): number[] => {
   return [...left, ...Array<number>(8 - left.length - right.length).fill(0), ...right];
 };
 
-/** The IPv4 address two hextets carry, as `a.b.c.d`. */
-const dotted = (high: number, low: number): string => [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+/** The IPv4 address two 16-bit groups carry, as `a.b.c.d`. */
+export const ipv4FromHextets = (high: number, low: number): string => [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
 
 /**
  * An address the registered `getConnInfo` returned, normalized (docs/v1/http.md › Request.ip()), or `undefined` when it
@@ -41,5 +41,5 @@ export const normalizeIp = (address: unknown): string | undefined => {
   if (version === 4) return plain;
   const groups = hextets(plain);
   const mapped = groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
-  return mapped ? dotted(groups[6]!, groups[7]!) : plain;
+  return mapped ? ipv4FromHextets(groups[6]!, groups[7]!) : plain;
 };

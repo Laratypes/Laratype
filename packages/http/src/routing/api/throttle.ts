@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 import { errors } from "@laratype/contract";
 import type { Duration, ThrottleOptions } from "@laratype/contract";
 import { clientIp } from "../../supports/Request";
-import { hextets } from "../../supports/ip";
+import { hextets, ipv4FromHextets } from "../../supports/ip";
 
 /** The hits counted in a key's current window, and when that window ends (epoch ms). */
 export interface ThrottleHit {
@@ -95,9 +95,6 @@ const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const;
 export const durationMs = (per: Duration): number =>
   (typeof per === "number" ? per : Number.parseFloat(per) * UNIT_SECONDS[per.slice(-1) as keyof typeof UNIT_SECONDS]) * 1000;
 
-/** The IPv4 address two hextets carry, as `a.b.c.d`. */
-const ipv4 = (high: number, low: number): string => [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
-
 /**
  * The client's bucket from `request.ip()` (the socket peer, never `X-Forwarded-For`), or `undefined` when there is no
  * address: a shared bucket would let one client throttle every other client without one. An IPv4 address carried in
@@ -112,7 +109,7 @@ export const ipBucket = (ip: string | undefined): string | undefined => {
   const mapped = groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff;
   const translated = groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0);
   if (mapped || translated) {
-    return ipv4(groups[6]!, groups[7]!);
+    return ipv4FromHextets(groups[6]!, groups[7]!);
   }
   return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`;
 };
