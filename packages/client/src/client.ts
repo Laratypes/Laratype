@@ -1,6 +1,6 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, ProvidedHeaders } from "./types";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, PathClient, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
@@ -60,13 +60,17 @@ const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly stat
 };
 
 /**
- * What a 2xx must look like: the declared status (unknown for the manifest) and the data, `"json"` for a response
- * schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the manifest: the body is parsed if there is one).
+ * What a 2xx must look like: the declared status (unknown for the manifest and the path client) and the data, `"json"`
+ * for a response schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the body is
+ * parsed if there is one).
  */
 interface Success {
   readonly status: number | undefined;
   readonly data: "json" | "none" | "any";
 }
+
+/** The success of a client that has no contract runtime (the manifest, the path client): any 2xx, body parsed if any. */
+const UNKNOWN_SUCCESS: Success = { status: undefined, data: "any" };
 
 /**
  * One call of the client: its route name relative to the client root (`"users.posts.update"`), method, full path,
@@ -299,10 +303,13 @@ const cancelBody = (response: Response): void => {
  *   is a declared error whose `error` is the body without `code`; anything else is unexpected. A 3xx is always
  *   unexpected, whatever code its body carries: a contract can't declare one, and the manifest knows codes only, so
  *   its body would match any status.
+ * - `declared` is absent for a path-style call: it has no contract runtime, so it trusts the path, and any string
+ *   `code` on a 4xx or 5xx is a declared error (the type says the endpoint declares it; http.md › Undeclared-error
+ *   check keeps the server honest).
  * - A body that isn't JSON, or fails while it is read (an abort or a network error after the headers arrived), is
  *   `unexpected` with the HTTP status, the `response` and that error.
  */
-async function toResult(response: Response, success: Success, declared: () => Declared): Promise<Result> {
+async function toResult(response: Response, success: Success, declared?: () => Declared): Promise<Result> {
   const { status } = response;
   const expected = success.status === undefined || status === success.status;
   if (response.ok && expected && success.data === "none") {
@@ -332,10 +339,14 @@ async function toResult(response: Response, success: Success, declared: () => De
   // a 3xx is never a declared error (see the doc above): only 4xx and 5xx body codes are matched
   if (status >= 400 && status < 600 && typeof body === "object" && body !== null && !Array.isArray(body)) {
     const { code, ...error } = body as Record<string, unknown>;
-    const errors = declared();
-    if (typeof code === "string" && errors.has(code)) {
-      const statuses = errors.get(code);
-      if (statuses === undefined || statuses.has(status)) return { ok: false, status, code, error, response };
+    if (typeof code === "string") {
+      // no contract runtime (the path client): the path names the endpoint, so the code is taken as declared
+      if (!declared) return { ok: false, status, code, error, response };
+      const errors = declared();
+      if (errors.has(code)) {
+        const statuses = errors.get(code);
+        if (statuses === undefined || statuses.has(status)) return { ok: false, status, code, error, response };
+      }
     }
   }
   return unexpected(status, body, response);
@@ -344,18 +355,19 @@ async function toResult(response: Response, success: Success, declared: () => De
 /**
  * One endpoint call: `send` wrapped into the result union. A network failure or an abort before the headers arrive
  * resolves as unexpected (`status: 0`, no `response`); a programming error, such as a missing required param, rejects.
- * The declared errors are computed on the first 4xx or 5xx answer, then kept.
+ * The declared errors are computed on the first 4xx or 5xx answer, then kept. Without `declared` (the path client),
+ * the result trusts the path and takes any string `code` as declared.
  */
-const createCall = (send: Send, method: Method, route: RouteSpec): Call => {
+const createCall = (send: Send, method: Method, path: string, success: Success, declared?: () => Declared): Call => {
   return async (input) => {
     let response: Response;
     try {
-      response = await send(method, route.path, input);
+      response = await send(method, path, input);
     } catch (error) {
       if (error instanceof FetchFailed) return unexpected(0, error.cause, undefined);
       throw error;
     }
-    return toResult(response, route.success, route.declared);
+    return toResult(response, success, declared);
   };
 };
 
@@ -383,7 +395,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
     if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
-    node[key] = createCall(send, route.method.toLowerCase() as Method, route);
+    node[key] = createCall(send, route.method.toLowerCase() as Method, route.path, route.success, route.declared);
   }
   return freezeTree(root);
 }
@@ -420,7 +432,7 @@ const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
       name,
       method: route.method,
       path: route.path,
-      success: { status: undefined, data: "any" },
+      success: UNKNOWN_SUCCESS,
       declared: once(() => new Map((errors ?? []).map((code) => [code, undefined]))),
     };
   });
@@ -473,4 +485,35 @@ export function createClient(api: object, options: ClientOptions = {}): object {
   if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false);
   if (isManifest(api)) return buildTree(manifestRoutes(api), send, true);
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
+}
+
+/** The methods of `PathClient`, in declaration order. */
+const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
+
+/**
+ * The type-only path-style client: `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then
+ * `api.get('/api/users/:user', { params })`. It takes no contract value, so the API type comes from `import type` and
+ * the path types the call's input, result and errors (see `client.md › Path-style calls`).
+ *
+ * @example
+ * const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://example.com' })
+ * const result = await api.get('/api/users/:user', { params: { user: 1 } })
+ */
+export function createPathClient<A extends ApiShape<A> = never>(options?: ClientOptions): PathClient<A>;
+/**
+ * The path client with the type of `options.headers` as the second type argument, as the manifest client: the headers
+ * it statically provides are optional in each call's `headers`. `options.headers` is required, so the client can't
+ * claim a header it never sends, and a `headers` function provides none to the types (it is called at each call).
+ */
+export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+): PathClient<A, ProvidedHeaders<Hd>>;
+export function createPathClient(options: ClientOptions = {}): object {
+  splitBaseUrl(options.baseUrl ?? "");
+  const send = createSend(options);
+  const client: Record<string, unknown> = Object.create(null);
+  for (const method of METHODS) {
+    client[method] = (path: string, input?: RequestInput) => createCall(send, method, path, UNKNOWN_SUCCESS)(input);
+  }
+  return Object.freeze(client) as unknown as PathClient<never>;
 }
