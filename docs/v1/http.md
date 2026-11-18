@@ -36,7 +36,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` planned → #162 |
 | [Route names and URLs](#route-names-and-urls) | planned → #162 |
 | [CORS](#cors) | proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)) |
-| [Undeclared-error check](#undeclared-error-check) | proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [555e5a5](https://github.com/Laratypes/Laratype/commit/555e5a5) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)); `sauf test` coverage split out → [#387](https://github.com/Laratypes/Laratype/issues/387) |
+| [Undeclared-error check](#undeclared-error-check) | proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [2d753c3](https://github.com/Laratypes/Laratype/commit/2d753c3) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157)); `sauf test` coverage split out → [#387](https://github.com/Laratypes/Laratype/issues/387) |
 
 ---
 
@@ -1258,10 +1258,10 @@ A `cors` value the framework refuses fails the boot with one `TypeError` listing
 ## Undeclared-error check
 
 ### Status
-proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [555e5a5](https://github.com/Laratypes/Laratype/commit/555e5a5) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157), M4). It replaces the earlier `--strict-contract` dev mode. Checking the handler's output against the response schema is [Response from the contract](#response-from-the-contract) › Dev-mode output validation (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)), not this section.
+proposed: PR [#392](https://github.com/Laratypes/Laratype/pull/392) @ [2d753c3](https://github.com/Laratypes/Laratype/commit/2d753c3) (X3 [#157](https://github.com/Laratypes/Laratype/issues/157), M4). It replaces the earlier `--strict-contract` dev mode. Checking the handler's output against the response schema is [Response from the contract](#response-from-the-contract) › Dev-mode output validation (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)), not this section.
 
 ### Public API
-No new API, and no flag: `RequestKernel.handle` checks each thrown error in the catch of its route pipeline ([`request/Request.ts` @ 555e5a5](https://github.com/Laratypes/Laratype/blob/555e5a5/packages/http/src/request/Request.ts)) against the route's resolved errors, which `Route.api` passes from `apiRoutes()` (`RouteEntry.errors`). The check is always on in dev and test ([cli.md › sauf dev](./cli.md#sauf-dev)); its environment test is the internal helper the output validation reads too ([`supports/runtime.ts` @ 555e5a5](https://github.com/Laratypes/Laratype/blob/555e5a5/packages/http/src/supports/runtime.ts)).
+No new API, and no flag: `RequestKernel.handle` checks each thrown error in the catch of its route pipeline ([`request/Request.ts` @ 2d753c3](https://github.com/Laratypes/Laratype/blob/2d753c3/packages/http/src/request/Request.ts)) against the route's resolved errors, which `Route.api` passes from `apiRoutes()` (`RouteEntry.errors`). The check is always on in dev and test ([cli.md › sauf dev](./cli.md#sauf-dev)); its environment test is the internal helper the output validation reads too ([`supports/runtime.ts` @ 2d753c3](https://github.com/Laratypes/Laratype/blob/2d753c3/packages/http/src/supports/runtime.ts)).
 
 ### Invariants
 - **The declared set:** the endpoint's resolved errors, as `apiRoutes()` gives them: the derived 422 (a query, body or headers schema), 404 (a path param), 401 (`auth`), 403 (`authorize`) and 429 (`throttle`), plus `throws` from the scope chain, the contract and the endpoint ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). The check is a set lookup of `code` + `status`: a route's pairs are collected once and kept in a `WeakMap`, and production never builds them.
