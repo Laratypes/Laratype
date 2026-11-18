@@ -225,7 +225,7 @@ describe('JSON-safe request input (#255)', () => {
 
   test('a contract whose date field coerces: the call takes a Date or an ISO string, not a number', () => {
     const events = defineContract()({
-      store: endpoint.post('/api/events').body(z.object({ at: z.coerce.date(), name: z.string() })).query(z.object({ since: z.coerce.date().optional() })),
+      store: endpoint.post('/api/events').body(z.object({ at: z.coerce.date<Date>(), name: z.string() })).query(z.object({ since: z.coerce.date<Date>().optional() })),
       big: endpoint.post('/api/big').body(z.object({ n: z.bigint() })),
     })
     const client = createClient(events)

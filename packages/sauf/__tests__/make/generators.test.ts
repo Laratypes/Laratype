@@ -181,7 +181,7 @@ describe("make generators", () => {
     expect(stub).toContain('import type { Prefix } from "./$types";');
     expect(stub).toContain("export default defineContract<Prefix>()({");
     expect(stub).toContain('index: endpoint.get("/").query(IndexQuery)');
-    expect(stub).toContain("z.coerce.number()");
+    expect(stub).toContain("z.coerce.number<number>()");
   });
 
   it("make:contract keeps its folder rules for a dashed file name", () => {

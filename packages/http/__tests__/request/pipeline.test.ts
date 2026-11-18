@@ -95,7 +95,7 @@ describe('a contract route', () => {
     expect(body.code).toBe('VALIDATION_ERROR')
     expect(body.message).toBe('The given data was invalid.')
     expect(Object.keys(body.errors).sort()).toEqual(['draft', 'tags', 'title'])
-    expect(body.errors.title).toEqual(['Required'])
+    expect(body.errors.title).toEqual(['Invalid input: expected string, received undefined'])
     const invalid = await app().request('/api/users/7/posts?page=0')
     expect(invalid.status).toBe(422)
     expect((await invalid.json()).errors.page).toHaveLength(1)
@@ -121,7 +121,7 @@ describe('a contract route', () => {
     const text = await response.text()
     expect(response.status).toBe(422)
     expect(text).not.toContain('s3cr3t')
-    expect(JSON.parse(text).errors.draft).toEqual(["Invalid enum value. Expected 'yes' | 'no'"])
+    expect(JSON.parse(text).errors.draft).toEqual(['Invalid option: expected one of "yes"|"no"'])
   })
 
   it('an error thrown inside a schema is a generic 500, not a 422', async () => {
@@ -491,8 +491,8 @@ describe('a 0.5 request class', () => {
     expect(response.status).toBe(422)
     const text = await response.text()
     expect(JSON.parse(text).errors).toEqual([
-      { path: ['role'], message: "Invalid enum value. Expected 'admin' | 'user'" },
-      { path: ['name'], message: 'Required' },
+      { path: ['role'], message: 'Invalid option: expected one of "admin"|"user"' },
+      { path: ['name'], message: 'Invalid input: expected string, received undefined' },
     ])
     expect(text).not.toContain('s3cr3t')
   })
@@ -502,7 +502,7 @@ describe('a 0.5 request class', () => {
     const response = await post(() => z.object({ name: z.string().min(3, 'Name too short'), age: z.number() }), { name: 'a', age: 'x' })
     expect((await response.json()).errors).toEqual([
       { path: ['name'], message: 'Name too short' },
-      { path: ['age'], message: 'Expected number, received string' },
+      { path: ['age'], message: 'Invalid input: expected number, received string' },
     ])
   })
 
@@ -510,7 +510,7 @@ describe('a 0.5 request class', () => {
     quiet()
     const response = await post(() => z.object({ name: z.string() }).strict(), { name: 'ada', s3cr3t: 1 })
     const text = await response.text()
-    expect(JSON.parse(text).errors).toEqual([{ path: [], message: 'Unrecognized key(s) in object' }])
+    expect(JSON.parse(text).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
     expect(text).not.toContain('s3cr3t')
   })
 

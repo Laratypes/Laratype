@@ -383,7 +383,7 @@ export default class Request extends AppServiceProvider {
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
       const rules = requestInstance.rules() as StandardSchemaV1;
       if(typeof rules?.["~standard"]?.validate !== "function") {
-        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)`);
       }
       // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only
       const result = await validate(rules, requestInstance.all());
