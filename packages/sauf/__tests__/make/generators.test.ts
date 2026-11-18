@@ -34,6 +34,7 @@ type RunName =
   | "resource"
   | "nestedResource"
   | "gate"
+  | "nestedGate"
   | "escapeController"
   | "escapeRequest"
   | "escapeResource"
@@ -129,6 +130,8 @@ beforeAll(async () => {
     resource: await sauf("make:resource", "Draft", "--collection"),
     nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
     gate: await sauf("make:gate", "UpdateUserGate"),
+    // A sub-path and a trailing `.ts`: the import in the usage comment drops the extension and keeps the folders
+    nestedGate: await sauf("make:gate", "admin/AdminGate.ts"),
     escapeController: await sauf("make:controller", "../x"),
     escapeRequest: await sauf("make:request", "../x"),
     escapeResource: await sauf("make:resource", "../x", "--collection"),
@@ -372,6 +375,15 @@ describe("make generators", () => {
     expect(stub).toContain('`import UpdateUserGate from "../gates/UpdateUserGate"`');
     expect(stub).toContain("`Gate.allows(user, UpdateUserGate, target)`");
     expect(stub).not.toContain("Gate.allows(user, update-user,");
+  });
+
+  it("make:gate keeps a sub-path and drops a trailing .ts in the usage comment", () => {
+    expectOk(runs.nestedGate);
+    const stub = readFileSync(join(project, "src/gates/admin/AdminGate.ts"), "utf8");
+    expect(stub).toContain('`import AdminGate from "../gates/admin/AdminGate"`');
+    expect(stub).toContain("`Gate.allows(user, AdminGate, target)`");
+    expect(stub).toContain('export default Gate.define("admin",');
+    expect(stub).not.toContain("AdminGate.ts\"`");
   });
 
   it("types:generate gives the nested folder its Prefix", () => {
