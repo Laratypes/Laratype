@@ -222,14 +222,22 @@ describe("sauf openapi:generate", () => {
     expect(readFileSync(real, "utf8")).toBe(JSON.stringify({ openapi: "3.1.0" }));
   }, 60_000);
 
-  it("refuses a --gen folder inside the contract tree root", async () => {
+  it("refuses a --gen folder equal to or inside the contract tree root", async () => {
     const dir = project("gen-in-root");
-    await expect(
-      generateOpenApiFile({ projectDir: dir, gen: "app/api/x", load, contract: contractRuntime }),
-    ).rejects.toThrow(
-      'the generated folder "app/api/x" (--gen) must not be inside the contract tree root "app/api" (--root or config api.root)',
-    );
+    for (const gen of ["app/api", "app/api/x"]) {
+      await expect(generateOpenApiFile({ projectDir: dir, gen, load, contract: contractRuntime })).rejects.toThrow(
+        `the generated folder "${gen}" (--gen) must not be the contract tree root or inside it ("app/api", --root or config api.root)`,
+      );
+    }
     expect(existsSync(join(dir, "app", "api", "x"))).toBe(false);
+    expect(existsSync(join(dir, "app", "api", "api"))).toBe(false);
+  }, 60_000);
+
+  it("accepts the documented --root . with the default --gen inside it", async () => {
+    const dir = project("gen-project-root");
+    const result = await generateOpenApiFile({ projectDir: dir, root: ".", load, contract: contractRuntime });
+    expect(result.changed).toBe(true);
+    expect(existsSync(join(dir, ".laratype", "api", "index.gen.ts"))).toBe(true);
   }, 60_000);
 
   it("rejects wrong-typed options with one diagnostic", async () => {

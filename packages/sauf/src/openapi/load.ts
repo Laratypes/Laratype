@@ -161,7 +161,8 @@ function isOpenApiDocument(target: string): boolean {
 /**
  * The folder the write goes through must resolve inside the project: `realpath` of the nearest existing parent
  * follows a symlink or junction anywhere above the target (the target itself is refused above). A project folder
- * that does not exist is left to the scan, which reports the missing contract tree.
+ * that does not exist or cannot be resolved is left to the scan, which fails before any write, so the guarantee
+ * still holds on every path that reaches the writer.
  */
 function checkOutputFolder(projectDir: string, out: string, target: string): void {
   let realProject: string;
@@ -194,13 +195,14 @@ function checkOutputFolder(projectDir: string, out: string, target: string): voi
   }
 }
 
-/** The generated folder is apart from the tree it describes: the reverse of typegen's "gen contains root" rule. A
- * project root (`--root .`) is exempt, since the documented `<project>/.laratype` is inside that root. */
+/** The generated folder is apart from the tree it describes: the exact reverse of typegen's "gen contains root"
+ * rule. A project root (`--root .`) is exempt, since the documented `<project>/.laratype` is inside that root. */
 function checkGeneratedFolder(projectDir: string, root: string, gen: string): void {
   const rootDir = resolve(projectDir, root);
-  if (rootDir !== projectDir && inside(rootDir, resolve(projectDir, gen))) {
+  const genDir = resolve(projectDir, gen);
+  if (rootDir !== projectDir && (genDir === rootDir || inside(rootDir, genDir))) {
     throw new OpenApiGenerationError(
-      `the generated folder "${gen}" (--gen) must not be inside the contract tree root "${root}" (--root or config api.root)`,
+      `the generated folder "${gen}" (--gen) must not be the contract tree root or inside it ("${root}", --root or config api.root)`,
     );
   }
 }
