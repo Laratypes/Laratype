@@ -40,6 +40,8 @@ export interface ResponseCheckFailure {
  * as unexpected: a `ResponseValidationError` for a mismatch, whose message names the route and the issues as http's
  * dev-mode output validation does for the server, or the error a schema threw or rejected with. The check never
  * rejects: it reports the schema's own error as the result.
+ * The schema gets a `structuredClone` of the body: a Standard Schema validator may write to its input, and `data`
+ * must stay the wire value (a parsed JSON body is cloneable as it is).
  */
 export const checkResponseBody = async (
   schema: StandardSchemaV1,
@@ -48,7 +50,7 @@ export const checkResponseBody = async (
 ): Promise<ResponseCheckFailure | undefined> => {
   let result: ValidationResult<unknown>;
   try {
-    result = await validate(schema, body);
+    result = await validate(schema, structuredClone(body));
   } catch (error) {
     // the schema broke, not the body: the call resolves it as unexpected instead of rejecting
     return { error };

@@ -155,6 +155,34 @@ describe('dev-mode response validation (CL6 #159)', () => {
     expect(result).toMatchObject({ ok: true, data: { n: 'ab' } })
   })
 
+  it('validates a clone: a schema that writes to its input does not change data', async () => {
+    let received: unknown
+    const validate = vi.fn((value: unknown) => {
+      received = value
+      const body = value as { name: string; tags: string[] }
+      body.name = 'mutated'
+      body.tags.push('mutated')
+      return { value: body }
+    })
+    const schema: StandardSchemaV1 = { '~standard': { version: 1, vendor: 'test', validate } }
+    const things = defineContract()({ show: endpoint.get('/api/things').response(schema) })
+    const result = await createClient(things, { fetch: jsonFetch({ name: 'wire', tags: ['a'] }), validateResponses: true }).show()
+    // the wire value, not what the validator wrote to its copy
+    expect(result).toMatchObject({ ok: true, data: { name: 'wire', tags: ['a'] } })
+    expect(received).toEqual({ name: 'mutated', tags: ['a', 'mutated'] })
+    if (result.ok) expect(result.data).not.toBe(received)
+  })
+
+  it('the clone keeps every JSON value the body can be: null, booleans, numbers, strings and arrays', async () => {
+    const { schema } = schemaWith()
+    const things = defineContract()({ show: endpoint.get('/api/n').response(schema) })
+    for (const wire of [null, true, 0, -1.5, '', 'x'.repeat(100_000), '\u0000 \ud800', [1, null, 'x'], { nested: { deep: ['a'] } }]) {
+      const result = await createClient(things, { fetch: jsonFetch(wire), validateResponses: true }).show()
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.data).toEqual(wire)
+    }
+  })
+
   it('the generated manifest has no schemas: the option is refused at createClient', () => {
     // @ts-expect-error the manifest carries no response schemas
     expect(() => createClient<AppApi>(manifest, { validateResponses: true })).toThrow(
