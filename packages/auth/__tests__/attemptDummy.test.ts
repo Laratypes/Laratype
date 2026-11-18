@@ -173,6 +173,44 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(calls.checks).toEqual([["secret", "bare:"], ["secret", "bare:"]]);
   });
 
+  it("gives each object-literal Hasher its own dummy: their constructor is Object, not a class", async () => {
+    /** A plain object Hasher whose dummy carries its mark, so a check shows which object built the hash it checked. */
+    const literal = (mark: string) => {
+      const calls = { makes: [] as string[], checks: [] as [string, string][] };
+      const hasher = {
+        makeAsync: async (value: string) => {
+          calls.makes.push(value);
+          return `${mark}:${value}`;
+        },
+        checkAsync: async (value: string, hashed: string) => {
+          calls.checks.push([value, hashed]);
+          return hashed === `${mark}:${value}`;
+        },
+      } as unknown as Hasher;
+      return { hasher, calls };
+    };
+    const first = literal("first");
+    const second = literal("second");
+    expect(first.hasher.constructor).toBe(Object);
+    const { User } = fakeModel([]);
+
+    usingHasher(first.hasher);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    // A swap to another object literal must not reuse the first one's dummy
+    usingHasher(second.hasher);
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(first.calls.makes).toEqual([""]);
+    expect(first.calls.checks).toEqual([["secret", "first:"]]);
+    expect(second.calls.makes).toEqual([""]);
+    expect(second.calls.checks).toEqual([["secret", "second:"]]);
+
+    // Each object keeps its own cached dummy: swapping back builds nothing new
+    usingHasher(first.hasher);
+    await expect(attempt(User, { email: "eve@example.com", password: "secret" })).resolves.toBeNull();
+    expect(first.calls.makes).toEqual([""]);
+    expect(first.calls.checks).toHaveLength(2);
+  });
+
   it("shares one dummy hash between unknown users under the default binding", async () => {
     const make = vi.spyOn(Hasher.prototype, "makeAsync");
     const check = vi.spyOn(Hasher.prototype, "checkAsync");
