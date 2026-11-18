@@ -53,8 +53,8 @@ const leavesOrigin = (path: string): boolean => {
   return parsed.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(parsed);
 };
 
-/** Encodes one param value; `encodeURIComponent` throws on an unpaired surrogate, which gets a diagnostic (never the value). */
-function encodeParam(name: string, text: string, path: string): string {
+/** Encodes `text` with `encodeURIComponent`; an unpaired surrogate throws, with a diagnostic that never echoes the value. */
+function encodeValue(name: string, text: string, path: string): string {
   try {
     return encodeURIComponent(text);
   } catch {
@@ -62,43 +62,43 @@ function encodeParam(name: string, text: string, path: string): string {
   }
 }
 
+/** Whether a param pattern accepts a value; `unusable` when it is not a `RegExp` at all (Hono refuses such a route). */
+type PatternAnswer = "accepts" | "rejects" | "unusable";
+
 /**
- * Whether a param's pattern accepts `value`, the way Hono matches a param: Hono compiles a pattern with no flags
- * (`router/trie-router` builds `new RegExp("^" + pattern + "$")`, `router/reg-exp-router` inlines the same source
- * into one anchored `RegExp`) and runs it on the raw path, where `%2F` is still an escape (Hono's `getPath` decodes
- * with `decodeURI`, which keeps it). `null` when the pattern is not a usable `RegExp`: Hono would refuse the route at
- * registration, so the caller decides what the default is.
+ * Matches a param's pattern against `value` the way Hono matches a param: anchored and with no flags, the pattern in
+ * a group. Hono's trie router builds `new RegExp("^" + pattern + "$")` (and `"^" + pattern + "(?=/next)"` when a
+ * static segment follows); its RegExp router inlines the same source into one anchored `RegExp`. Both run on the raw
+ * path, where `%2F` is still an escape (Hono's `getPath` decodes with `decodeURI`, which keeps it).
  */
-function patternMatches(pattern: string, value: string): boolean | null {
+function matchPattern(pattern: string, value: string): PatternAnswer {
   try {
-    return new RegExp(`^(?:${pattern})$`).test(value);
+    return new RegExp(`^(?:${pattern})$`).test(value) ? "accepts" : "rejects";
   } catch {
-    return null;
+    return "unusable";
   }
 }
 
 /**
- * Encodes one param value: the whole value with `encodeURIComponent` by default, so a `/` is `%2F` and a value like
- * `admin/all` cannot pick the static `admin/all` sibling route. A value with a `/` is split per segment only when the
- * pattern cannot match the encoded form and does match the split form: `:file{.+/.+}` has a literal `/`, so `%2F`
- * would 404, while `:file{.+}` matches the encoded value and keeps it. A split that the pattern cannot match either
- * (an invalid value for the route) stays the encoded default: it 404s without becoming another route's path.
+ * Encodes one param value: the whole value by default, so a `/` is `%2F` and a value like `admin/all` cannot pick the
+ * static `admin/all` sibling route. Only a value with a `/` that its pattern rejects in that form is examined per
+ * segment: its empty and `.`/`..` segments are refused, as `:file{.+/.+}` (a literal `/`, where `%2F` would 404)
+ * needs a real split, and the split is used when the pattern matches it. A pattern that matches neither form (the
+ * value cannot reach the route) and an unusable pattern keep the encoded value, so it 404s as one segment instead of
+ * becoming another route's path.
  */
-function encodeParamValue(name: string, text: string, path: string, pattern: string | undefined): string {
-  const encoded = encodeParam(name, text, path);
+function encodeParam(name: string, text: string, path: string, pattern: string | undefined): string {
+  const encoded = encodeValue(name, text, path);
   // without a "/" in the value both forms are the same string: only a "/" (sent as %2F) can change which route matches
-  if (pattern === undefined || !text.includes("/")) return encoded;
-  // an unusable pattern keeps the default, as does one that accepts the encoded value
-  if (patternMatches(pattern, encoded) !== false) return encoded;
+  if (pattern === undefined || !text.includes("/") || matchPattern(pattern, encoded) !== "rejects") return encoded;
   const perSegment = encodePerSegment(name, text, path);
-  return patternMatches(pattern, perSegment) === true ? perSegment : encoded;
+  return matchPattern(pattern, perSegment) === "accepts" ? perSegment : encoded;
 }
 
 /**
- * A value of a param whose pattern cannot match its encoded form (it needs a literal "/", as `:file{.+/.+}` does):
- * each "/" stays a path separator, and every other character is encoded per segment. An empty segment, or one that
- * is exactly "." or "..", would add a segment or be resolved as a dot segment, so it is refused; the diagnostic names
- * the param, never the value.
+ * A value of a param whose pattern rejects its encoded form: each "/" stays a path separator, and every other
+ * character is encoded per segment. An empty segment, or one that is exactly "." or "..", would add a segment or be
+ * resolved as a dot segment, so it is refused; the diagnostic names the param, never the value.
  */
 function encodePerSegment(name: string, text: string, path: string): string {
   let out = "";
@@ -108,7 +108,7 @@ function encodePerSegment(name: string, text: string, path: string): string {
       fail(`buildUrl: param "${name}" for "${path}" has a "." or ".." segment (a dot segment)`);
     }
     if (index > 0) out += "/";
-    out += encodeParam(name, segment, path);
+    out += encodeValue(name, segment, path);
   }
   return out;
 }
@@ -168,8 +168,8 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
       const text = String(value);
       // encodeURIComponent keeps dots, and URL parsing (fetch) resolves a dot segment: "/api/users/.." → "/api"
       if (text === "." || text === "..") fail(`buildUrl: param "${name}" for "${path}" cannot be "${text}" (a dot segment)`);
-      // "/" stays %2F unless the param's pattern needs a literal one (":file{.+/.+}"): the encoded value would 404
-      out += encodeParamValue(name, text, path, pattern);
+      // "/" stays %2F unless the param's pattern rejects the encoded value and accepts a split one: ":file{.+/.+}"
+      out += encodeParam(name, text, path, pattern);
     }
     i = j;
   }
@@ -197,10 +197,10 @@ function serializeQuery(query: UrlQuery): string {
  * Builds a URL from a full route path: `buildUrl("/api/users/:user/posts", { params: { user: 1 }, query: { page: 2 } })`
  * → `"/api/users/1/posts?page=2"`. Pure and browser-safe; shared by `@laratype/client` and the server `route()` helper (H13).
  * - Param values are a `string` or a finite `number`, encoded with `encodeURIComponent`, so a `/` in a value is `%2F`. A
- *   missing required param throws; an absent optional one drops its segment. When the param's pattern cannot match
- *   the encoded value, it needs a literal `/` (`:file{.+/.+}`: `%2F` would 404), so the value is split on `/` and each
- *   segment is encoded, refusing an empty, `.` or `..` segment; its segments then become path segments. A `*` segment
- *   throws: there is no value to fill it with.
+ *   missing required param throws; an absent optional one drops its segment. When the param's pattern rejects the
+ *   encoded value (it needs a literal `/`, as `:file{.+/.+}` does: `%2F` would 404), the value is split on `/` and each
+ *   segment is encoded, refusing an empty, `.` or `..` segment; the split is used when the pattern matches it, so its
+ *   segments then become path segments. A `*` segment throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
  * - Query: flat values only. `undefined` and `null` are skipped, an array repeats its key, a `Date` is sent as ISO 8601.

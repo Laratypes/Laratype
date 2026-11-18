@@ -97,7 +97,7 @@ describe('buildUrl regex params and "/"', () => {
   })
 
   it('keeps "/" encoded when the pattern matches the encoded value, so a value cannot pick another route', () => {
-    // "." matches any character, so ".+", ".*" and "[^]" all match "admin%2Fall": the encoded value is the route's
+    // "." and "[^]" match every character, so ".+", ".*" and "[^]+" accept the encoded value: the slashes stay %2F
     expect(buildUrl('/files/:file{.+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
     expect(buildUrl('/files/:file{.+}', { params: { file: 'admin/all' } })).toBe('/files/admin%2Fall')
     expect(buildUrl('/files/:file{.*}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
@@ -154,6 +154,14 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a../.../b' } })).toBe('/files/a../.../b/raw')
   })
 
+  it('refuses an empty or dot segment of any value whose pattern rejects the encoded form, even when no split matches', () => {
+    // the segment check runs before the split is chosen, for a pattern that needs no "/" too
+    expect(() => buildUrl('/posts/:id{[0-9]+}', { params: { id: '1//2' } })).toThrow(/param "id" for "\/posts\/:id\{\[0-9\]\+\}" has an empty segment/)
+    expect(() => buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/./2' } })).toThrow(/param "id" .* has a "\." or "\.\." segment/)
+    // no empty or dot segment: the value keeps the encoded form, which the pattern rejects too
+    expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: '1/a' } })).toBe('/posts/1%2Fa')
+  })
+
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: '%2e%2e/%2e%2E' } })).toBe('/files/%252e%252e/%252e%252E/raw')
   })
@@ -177,8 +185,11 @@ describe('buildUrl regex params and "/"', () => {
     }
   })
 
-  it('matches control characters and a 1 MB value against the pattern, then encodes or splits the whole value', () => {
+  it('matches control characters against the pattern before encoding them', () => {
     expect(buildUrl('/files/:file{.+}', { params: { file: 'a\u0000b\tc\nd/e' } })).toBe('/files/a%00b%09c%0Ad%2Fe')
+  })
+
+  it('matches a 1 MB value against the pattern: encoded whole for ".+", split for ".+/+"', () => {
     const big = `${'a'.repeat(500_000)}/${'b'.repeat(500_000)}`
     expect(buildUrl('/files/:file{.+}', { params: { file: big } })).toBe(`/files/${'a'.repeat(500_000)}%2F${'b'.repeat(500_000)}`)
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: big } })).toBe(`/files/${big}/raw`)

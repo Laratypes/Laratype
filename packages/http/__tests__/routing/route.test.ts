@@ -159,7 +159,7 @@ describe('route()', () => {
       app.delete('/files/admin/all', () => new Response('sibling'))
       app.delete(path, (c) => c.json({ f: c.req.param('f') }))
       expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
-      const url = buildUrl(path as string, { params: { f: 'admin/all' } })
+      const url = buildUrl(path, { params: { f: 'admin/all' } })
       // the encoded value stays one segment, so the sibling's path is never spelled out
       expect(url).toBe('/files/admin%2Fall')
       const res = await app.request(url, { method: 'DELETE' })
