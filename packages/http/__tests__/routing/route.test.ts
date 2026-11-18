@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { setConfigs } from '@laratype/core'
-import { defineApi, defineContract, endpoint } from '@laratype/contract'
+import { defineApi, defineContract, endpoint, buildUrl } from '@laratype/contract'
 import { Controller, Route, redirect, route } from '../../src/index'
 import { resetRouteRegistry } from '../../src/routing/routeUrl'
 
@@ -147,6 +147,26 @@ describe('route()', () => {
     expect(res.status).toBe(200)
     // Hono decodes each segment: the handler reads the value buildUrl was given
     expect(await res.json()).toEqual({ file })
+  })
+
+  it('keeps "/" encoded for a ".+" or "[^.]+" pattern, so a value cannot reach a sibling route (C8 B1)', async () => {
+    for (const [pattern, path] of [
+      ['.+', '/files/:f{.+}'],
+      ['[^.]+', '/files/:f{[^.]+}'],
+    ] as const) {
+      const app = new Hono()
+      // registered first: a static sibling wins over a param route whenever the raw path matches it
+      app.delete('/files/admin/all', () => new Response('sibling'))
+      app.delete(path, (c) => c.json({ f: c.req.param('f') }))
+      expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+      const url = buildUrl(path as string, { params: { f: 'admin/all' } })
+      // the encoded value stays one segment, so the sibling's path is never spelled out
+      expect(url).toBe('/files/admin%2Fall')
+      const res = await app.request(url, { method: 'DELETE' })
+      expect(res.status).toBe(200)
+      // Hono decodes the param: the :f route read the value whole, and the sibling never ran
+      expect(await res.json()).toEqual({ f: 'admin/all' })
+    }
   })
 
   it('refuses a named wildcard route through buildUrl, naming the path', () => {
