@@ -14,7 +14,7 @@ last-verified: 2026-10-13
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | planned → #142 |
-| [OpenAPI](#openapi) | proposed: PR <leader fills> @ 5ed47370 ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
+| [OpenAPI](#openapi) | proposed: PR <leader fills> @ f90a00b6 ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
 | [Detective](#detective) | planned → #144 |
 
 ---
@@ -136,10 +136,10 @@ planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, M3).
 ## OpenAPI
 
 ### Status
-proposed: PR <leader fills> @ 5ed47370 ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
+proposed: PR <leader fills> @ f90a00b6 ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
 
 ### Public API
-[`packages/sauf/src/openapi/` @ 5ed47370](https://github.com/Laratypes/Laratype/blob/5ed4737098073e41456bb1eb827697207c91715d/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ 5ed47370](https://github.com/Laratypes/Laratype/blob/5ed4737098073e41456bb1eb827697207c91715d/packages/sauf/src/commands/openapi/generate.ts)
+[`packages/sauf/src/openapi/` @ f90a00b6](https://github.com/Laratypes/Laratype/blob/f90a00b67f3b0fe15e04f709f58f2d75a9fe732c/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ f90a00b6](https://github.com/Laratypes/Laratype/blob/f90a00b67f3b0fe15e04f709f58f2d75a9fe732c/packages/sauf/src/commands/openapi/generate.ts)
 
 ```
 sauf openapi:generate [--root <dir>] [--base <path>] [--gen .laratype] [--out openapi.json]
@@ -217,7 +217,7 @@ Warnings, printed and returned in `warnings`; the document is still valid:
 - Every warning is one line: a converter's multi-line message (such as the circular-structure error) is collapsed, and route and property names are `JSON.stringify`-quoted, so a control character or an ANSI escape never reaches the terminal raw.
 
 ### Example
-[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/5ed4737098073e41456bb1eb827697207c91715d/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, fallbacks, recursion, collisions, hostile names, warning hygiene), `command.test.ts` (scan, import, `--out` overwrite and symlink guards, `--gen`, the missing contract), `types.test-d.ts` (the exported types) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
+[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/f90a00b67f3b0fe15e04f709f58f2d75a9fe732c/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, fallbacks, recursion, collisions, hostile names, warning hygiene), `command.test.ts` (scan, import, `--out` overwrite and symlink guards, `--gen`, the missing contract), `types.test-d.ts` (the exported types) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
 ```
 $ sauf openapi:generate
 ... Wrote openapi.json (3 paths) in 12.34ms
