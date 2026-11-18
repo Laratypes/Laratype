@@ -31,7 +31,13 @@ export default class MakeGateCommand extends MakeCommand {
 
     return names.map(name => {
       const destinationPath = `./${GENERATOR_FOLDERS.gate}/${name}.ts`;
-      const result = this.build(resourcePath, { GateName: gateName(this.getFileName(name)) });
+      // The exported value is the file name; the kebab name is the gate's diagnostic name and never a lookup key
+      const gateValue = this.getFileName(name);
+      const result = this.build(resourcePath, {
+        GateName: gateName(gateValue),
+        GateValue: gateValue,
+        GateImportPath: `../gates/${name}`,
+      });
       this.publish(result, destinationPath);
       return destinationPath;
     });

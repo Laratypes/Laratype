@@ -6,14 +6,15 @@ import type {{ModelName}} from "../models/{{ModelName}}";
 {{#if ModelName}}
 /**
  * The abilities of {{PolicyName}} for {{ModelName}} (docs/v1/auth.md › Policies and gates): `true` allows, anything
- * else denies. Declare it on the model with `interface {{ModelName}} extends HasPolicy<{{PolicyName}}> {}` and register
- * it with `Gate.policy({{ModelName}}, {{PolicyName}})` in a service provider.
+ * else denies. Declare it on the model with
+ * `export default interface {{ModelName}} extends HasPolicy<{{PolicyName}}> {}` beside its `export default class` and
+ * register it with `Gate.policy({{ModelName}}, {{PolicyName}})` in a service provider.
  */
 {{else}}
 /**
  * The abilities of {{PolicyName}} (docs/v1/auth.md › Policies and gates): `true` allows, anything else denies.
- * Declare it on its model with `interface Model extends HasPolicy<{{PolicyName}}> {}` and register it with
- * `Gate.policy(Model, {{PolicyName}})` in a service provider.
+ * Declare it on its model with `export default interface Model extends HasPolicy<{{PolicyName}}> {}` beside its
+ * `export default class` and register it with `Gate.policy(Model, {{PolicyName}})` in a service provider.
  */
 {{/if}}
 export default class {{PolicyName}} {

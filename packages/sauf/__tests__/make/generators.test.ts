@@ -49,6 +49,7 @@ type RunName =
   | "identifierPolicy"
   | "identifierGate"
   | "reservedController"
+  | "policy"
   | "policyModel"
   | "policyModelOk";
 
@@ -144,8 +145,9 @@ beforeAll(async () => {
     identifierGate: await sauf("make:gate", "my-note"),
     // A reserved word is not an identifier: `class` would write `export default class class`
     reservedController: await sauf("make:controller", "class"),
-    // `-m` takes the model generator's rules; the policy name is valid, so only the model name is refused
-    policyModel: await sauf("make:policy", "DraftPolicy", "-m", "my-note"),
+    // The no-model branch of the policy stub, and then `-m` with the model generator's rules
+    policy: await sauf("make:policy", "DraftPolicy"),
+    policyModel: await sauf("make:policy", "RejectedPolicy", "-m", "my-note"),
     policyModelOk: await sauf("make:policy", "PostPolicy", "-m", "Post"),
   };
 }, 240_000);
@@ -326,7 +328,7 @@ describe("make generators", () => {
       'so use a valid identifier (letters, digits and "_", not starting with a digit),',
       "under src/models.",
     ].join(" "));
-    expect(existsSync(join(project, "src/policies/DraftPolicy.ts"))).toBe(false);
+    expect(existsSync(join(project, "src/policies/RejectedPolicy.ts"))).toBe(false);
 
     // The last segment used to come from `../x` silently: the model rules refuse it before the stub is written
     const escape = await sauf("make:policy", "EscapedPolicy", "-m", "../x");
@@ -346,6 +348,18 @@ describe("make generators", () => {
     // A v1 policy is a plain class, with no 0.5 base class to extend
     expect(stub).toContain("export default class PostPolicy {");
     expect(stub).not.toContain("extends Policy");
+    // The setup text shows the export default interface merge, which pairs with the model's export default class
+    expect(stub).toContain("export default interface Post extends HasPolicy<PostPolicy> {}");
+    expect(stub).toContain("beside its `export default class`");
+    expect(stub).not.toContain("`interface Post");
+  });
+
+  it("make:policy without -m shows the default-exported interface merge too", () => {
+    expectOk(runs.policy);
+    const stub = readFileSync(join(project, "src/policies/DraftPolicy.ts"), "utf8");
+    expect(stub).toContain("export default interface Model extends HasPolicy<DraftPolicy> {}");
+    expect(stub).not.toContain("`interface Model");
+    expect(stub).not.toContain("import type DraftPolicy");
   });
 
   it("make:gate writes a typed gate value, not a 0.5 gate class", () => {
@@ -354,6 +368,10 @@ describe("make generators", () => {
     expect(stub).toContain('import { Gate } from "@laratype/auth";');
     expect(stub).toContain('export default Gate.define("update-user", (user: User, target: User) => user.id === target.id);');
     expect(stub).not.toContain("extends Gate");
+    // The usage example names the imported value, never the kebab name that is only the diagnostic name
+    expect(stub).toContain('`import UpdateUserGate from "../gates/UpdateUserGate"`');
+    expect(stub).toContain("`Gate.allows(user, UpdateUserGate, target)`");
+    expect(stub).not.toContain("Gate.allows(user, update-user,");
   });
 
   it("types:generate gives the nested folder its Prefix", () => {
@@ -393,8 +411,9 @@ describe("make generators", () => {
       // A sub-path is a folder, never part of an exported name
       "app/http/resources/admin/NoteResource.ts",
       "app/http/resources/admin/NoteResourceCollection.ts",
-      // The v1 policy and gate stubs (A3 #121)
+      // The v1 policy and gate stubs (A3 #121), both policy setup branches
       "src/policies/PostPolicy.ts",
+      "src/policies/DraftPolicy.ts",
       "src/gates/UpdateUserGate.ts",
     ].map((path) => join(project, path));
     for (const file of generated) expect(existsSync(file), file).toBe(true);
