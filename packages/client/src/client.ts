@@ -1,5 +1,5 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method } from "@laratype/contract";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, UrlQuery } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestRoute, PathClient, ProvidedHeaders } from "./types";
 
 const fail = (message: string): never => {
@@ -9,7 +9,7 @@ const fail = (message: string): never => {
 /** What a call passes on: the runtime view of `CallInput`. */
 interface RequestInput {
   readonly params?: Readonly<Record<string, string | number>>;
-  readonly query?: object;
+  readonly query?: UrlQuery;
   readonly body?: unknown;
   readonly headers?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;

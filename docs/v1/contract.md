@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); regex params, wildcard segments and flat query types proposed: PR <leader fills> @ <sha> ([#253](https://github.com/Laratypes/Laratype/issues/253)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -898,35 +898,50 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; regex params that hold `/`, the wildcard refusal and the flat query types proposed: PR <leader fills> @ <sha> (C8 [#253](https://github.com/Laratypes/Laratype/issues/253)); the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
 
 ```ts
-export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional)
-export type UrlInput<P extends string> = { params: UrlParams<P> /* optional when P has no required param */; query?: object };
-export function buildUrl<P extends string>(path: P, input?: UrlInput<P>): string;   // input required when P has a required param
+export type UrlQueryValue;   // string | number | bigint | boolean | Date | null | undefined
+export type UrlQuery;        // { readonly [key: string]: UrlQueryValue | readonly UrlQueryValue[] }: flat values only
+export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional); a "*" segment gives { error: "…" }
+export type UrlInput<P extends string> = { params: UrlParams<P> /* optional when P has no required param */; query?: UrlQuery };
+export function buildUrl<P extends string>(path: P, input?: UrlInput<P>): string;   // input required when P has a required param or a "*" segment
 
 buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } })   // "/api/users/1/posts?page=2"
+buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a/b' } })                  // "/files/a/b/raw"
 ```
 
 ### Invariants
 - **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
-- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
-- **No dot segments:** a param value of exactly `.` or `..` throws, required or optional. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` in a value is encoded (`..%2Fx`).
+- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). A value is a `string` or a `number`, encoded with `encodeURIComponent`; any other type throws. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment stays as it is. Only own properties are read: a param named `__proto__` or `constructor` never reads the object's prototype.
+- **Multi-segment params.** A param whose regex pattern can match `/` (`:file{.+/.+}`, `:file{.+}`) keeps its `/` as path separators: the value is split on `/`, each segment is `encodeURIComponent`d, and the segments are joined with `/`, so Hono matches the path and reads the param back whole. An empty segment, or a segment that is exactly `.` or `..`, throws (it would add a segment or be resolved as a dot segment); the diagnostic names the param, never the value. Every other param encodes `/` as `%2F`. The pattern is read atom by atom: a literal `/` and `.` can match one, a character class or a one-character escape is checked with `RegExp`, and an escape a regex refuses alone (a hex, Unicode or property escape, a backreference) is treated as able to (conservative).
+- **No wildcards.** A `*` segment is a Hono wildcard, and `buildUrl` has no value to fill it: a path with one is a type error (`UrlParams<P>` is then `{ error }`) and throws at runtime, naming the path. A `*` inside a regex pattern or a longer segment (`a*b`) is a character.
+- **No dot segments:** a param value of exactly `.` or `..` throws, required or optional; so does a `.` or `..` segment of a multi-segment value. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` in a value that cannot hold one is encoded (`..%2Fx`).
+- **No unpaired surrogate.** A param value with an unpaired UTF-16 surrogate cannot be encoded (`encodeURIComponent` throws `URIError`); `buildUrl` throws a `TypeError` naming the param and the path, never the value. A query value with one is replaced with U+FFFD by `URLSearchParams`, as any non-USV string is.
 - **No other host:** a result that URL parsing reads as another host throws: read the way URL parsing reads it (leading spaces and controls and every tab, LF and CR dropped, `\` as `/`), it must not start with `//` or a `scheme:` (`//x`, `/\x`, `/<tab>/x` and a scheme-relative `http:/x` throw). String work only: `buildUrl` doesn't use `URL`. Endpoint paths start with one `/`, but an absent optional first param drops its segment, so `/:a?//x` would build `//x`, the host `x` (#257).
-- **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object, a function or a symbol throws. An empty query adds no `?`.
+- **Query is flat** (`UrlQuery`): a string, number, bigint, boolean, `Date`, `null`/`undefined`, or an array of them. A nested object is a type error (there is no `a[b]=1` serialization) and throws at runtime, naming the key only. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A function or a symbol throws. Keys are own enumerable keys: a prototype key is never sent, and an own `__proto__` key is an ordinary key. An empty query adds no `?`.
+- The path, `params` and `query` must be a string, an object and an object: a non-string path (which a `{ length: 1e9 }` object could fake) and a primitive `params` or `query` throw, naming only the type. `null` and `undefined` `params`/`query` mean none.
 - Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
+- `buildUrl: path must be a string, got <typeof>`
+- `buildUrl: path "<path>" has a "*" segment, which buildUrl cannot fill`
+- `buildUrl: params must be an object, got <typeof>`
+- `buildUrl: query must be an object, got <typeof>`
 - `buildUrl: missing param "<name>" for "<path>"`
+- `buildUrl: param "<name>" for "<path>" must be a string or a number, got <typeof>`
 - `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)` (or `".."`)
+- `buildUrl: param "<name>" for "<path>" has an empty segment`
+- `buildUrl: param "<name>" for "<path>" has a "." or ".." segment (a dot segment)` (a segment of a multi-segment value; never the value)
+- `buildUrl: param "<name>" for "<path>" has an unpaired surrogate`
 - `buildUrl: "<path>" builds "<result>", which a URL reads as another host`
 - `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`
 
-Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.
+Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, a param value that is not a string or number, a path with a `*` segment, and a nested or non-flat query value.
 
 ### Example
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)

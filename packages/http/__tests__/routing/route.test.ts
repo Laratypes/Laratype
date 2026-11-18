@@ -132,6 +132,30 @@ describe('route()', () => {
     expect(route('file', { name: 'read me' })).toBe('/files/read%20me')
   })
 
+  it('builds the URL Hono matches for a regex param that holds "/"', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/files/:file{.+/.+}/raw', (req, { file }) => ({ file })).name('file.raw'),
+    ])
+    const file = 'a b/c?d#e%f'
+    const url = route('file.raw', { file })
+    // one encoded segment per part: the "/" stays a separator, so the regex pattern still matches
+    expect(url).toBe('/files/a%20b/c%3Fd%23e%25f/raw')
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request(url)
+    expect(res.status).toBe(200)
+    // Hono decodes each segment: the handler reads the value buildUrl was given
+    expect(await res.json()).toEqual({ file })
+  })
+
+  it('refuses a named wildcard route through buildUrl, naming the path', () => {
+    Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/files/*', () => 'ok').name('files.all')])
+    expect(() => route('files.all')).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: path "/files/*" has a "*" segment, which buildUrl cannot fill'),
+    )
+  })
+
   it('serializes the query with buildUrl: "&" and "=" encoded, arrays repeated, null skipped', () => {
     mount()
     const query = { filter: 'a&b=c', tag: ['x', 'y'], none: undefined, nil: null, page: 2 }
