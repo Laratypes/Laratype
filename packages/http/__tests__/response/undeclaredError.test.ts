@@ -29,6 +29,7 @@ const users = defineContract()({
   declared: endpoint.get('/declared').throws(Declared).response(anything),          // a middleware throws it
   undeclared: endpoint.get('/undeclared').response(anything),
   unknown: endpoint.get('/unknown').response(anything),
+  failing: endpoint.get('/failing').response(anything),                              // a 0.5 Exception with a 5xx status
 }, { throws: [AtContract] })
 
 const usersApi = defineApi({ users: { contract: users, path: '/api/users', scopes: [] } })
@@ -49,6 +50,7 @@ class Users extends Controller {
   declared() { return {} }
   undeclared() { throw (thrown = Undeclared()) }
   unknown() { throw (thrown = new Error('secret detail')) }
+  failing() { throw (thrown = new UnauthorizedException({ httpCode: 503 })) }
 }
 
 /** A 0.5 route middleware that throws `error()`, not the handler: the check covers it the same way. */
@@ -231,6 +233,50 @@ describe('what is not checked', () => {
     expect(logged).toHaveBeenLastCalledWith(thrown)
     // never the undeclared line: a plain error is the generic 500 already
     for (const call of logged.mock.calls) expect(String(call[0])).not.toContain('does not declare')
+  })
+
+  it('a responsible 0.5 Exception with a 5xx status is not checked: its body carries no code', async () => {
+    const app = bootApp()
+    const dev = await app.request('/api/users/failing')
+    const failure = thrown
+    expect(dev.status).toBe(503)
+    expect(await dev.json()).toEqual({ message: 'Server Error' })
+    // the exception filter's own 5xx log, never the undeclared line
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(logged).toHaveBeenCalledWith(failure)
+
+    vi.stubEnv('NODE_ENV', 'test')
+    const test = await app.request('/api/users/failing')
+    expect(test.status).toBe(503)                                   // the generic 503, not the test wrapper's 500
+    expect(await test.json()).toEqual({ message: 'Server Error' })
+    expect(logged).toHaveBeenCalledTimes(2)
+    expect(logged.mock.calls[1]![0]).toBe(thrown)
+    for (const call of logged.mock.calls) expect(String(call[0])).not.toContain('does not declare')
+  })
+
+  it('a failure inside the check keeps the original error, in dev and in test', async () => {
+    class BrokenCode extends UnauthorizedException {
+      override getErrorCode(): string { throw new TypeError('broken code') }
+    }
+    const failure = new BrokenCode()
+    const app = bootApp([throwingMiddleware(() => failure)])
+
+    const dev = await app.request('/api/users/declared')
+    expect(dev.status).toBe(401)
+    expect(await dev.json()).toEqual({ code: 'UNAUTHORIZED', message: failure.message })
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(logged).toHaveBeenCalledWith(
+      '[@laratype/http] the undeclared-error check failed, the thrown error is unchanged:',
+      expect.any(TypeError),
+    )
+
+    logged.mockClear()
+    vi.stubEnv('NODE_ENV', 'test')
+    const test = await app.request('/api/users/declared')
+    expect(test.status).toBe(401)                                   // not the test wrapper's generic 500
+    expect(await test.json()).toEqual({ code: 'UNAUTHORIZED', message: failure.message })
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(String(logged.mock.calls[0]![0])).not.toContain('does not declare')
   })
 
   it('a 0.5 route is not checked', async () => {
