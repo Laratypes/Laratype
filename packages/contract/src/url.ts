@@ -181,6 +181,10 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
       if (typeof value !== "string" && typeof value !== "number") {
         fail(`buildUrl: param "${name}" for "${path}" must be a string or a number, got ${typeof value}`);
       }
+      // "/users/NaN" is never the URL a caller meant: a NaN or an infinite number is a bug upstream, not a key
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        fail(`buildUrl: param "${name}" for "${path}" must be a finite number, got ${value}`);
+      }
       const text = String(value);
       // encodeURIComponent keeps dots, and URL parsing (fetch) resolves a dot segment: "/api/users/.." → "/api"
       if (text === "." || text === "..") fail(`buildUrl: param "${name}" for "${path}" cannot be "${text}" (a dot segment)`);
@@ -215,7 +219,7 @@ function serializeQuery(query: UrlQuery): string {
 /**
  * Builds a URL from a full route path: `buildUrl("/api/users/:user/posts", { params: { user: 1 }, query: { page: 2 } })`
  * → `"/api/users/1/posts?page=2"`. Pure and browser-safe; shared by `@laratype/client` and the server `route()` helper (H13).
- * - Param values are a `string` or a `number`, encoded with `encodeURIComponent`. A missing required param throws; an
+ * - Param values are a `string` or a finite `number`, encoded with `encodeURIComponent`. A missing required param throws; an
  *   absent optional one drops its segment. A param whose regex pattern can match `/` (`:file{.+/.+}`, `:file{.+}`) keeps
  *   its `/` as separators with each segment encoded on its own, and refuses an empty, `.` or `..` segment. A `*`
  *   segment throws: there is no value to fill it with.

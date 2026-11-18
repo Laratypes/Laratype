@@ -219,9 +219,14 @@ describe('buildUrl edge inputs', () => {
         `[@laratype/contract] buildUrl: param "user" for "/users/:user" must be a string or a number, got ${typeof value}`,
       )
     }
-    // a number is not read as a length anywhere: NaN and Infinity reach the path as their text
-    expect(buildUrl('/users/:user', { params: { user: Number.NaN } })).toBe('/users/NaN')
-    expect(buildUrl('/users/:user', { params: { user: Number.POSITIVE_INFINITY } })).toBe('/users/Infinity')
+    // a non-finite number is a bug upstream: "/users/NaN" is never the URL a caller meant
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => buildUrl('/users/:user', { params: { user: value } })).toThrow(
+        new TypeError(`[@laratype/contract] buildUrl: param "user" for "/users/:user" must be a finite number, got ${value}`),
+      )
+    }
+    expect(buildUrl('/users/:user', { params: { user: 0 } })).toBe('/users/0')
+    expect(buildUrl('/users/:user', { params: { user: -1.5 } })).toBe('/users/-1.5')
   })
 
   it('reads only own param keys, so a prototype value is not a param', () => {
