@@ -2,6 +2,7 @@ import { isContractError } from "@laratype/contract";
 import type { AnyErrorDef } from "@laratype/contract";
 import { isException } from "@laratype/support";
 import { isProduction, isTest } from "../supports/runtime";
+import { isBodylessResponse } from "./bodyless";
 
 /**
  * The undeclared-error check (docs/v1/http.md › Undeclared-error check, X3 #157): in dev and test, a thrown error whose
@@ -24,21 +25,37 @@ interface CodedError {
 }
 
 /**
- * A thrown error whose code reaches the client: a contract error, or a responsible 0.5 `Exception` with a code (a guard
- * or policy throwing `UnauthorizedException` is the derived 401). Anything else is not checked: a plain error's generic
- * 500 carries no code, a non-responsible `Exception` sends none either, and a responsible one with a 5xx status is a
- * server failure whose body is the generic `{ message: "Server Error" }`, without the code (docs/v1/http.md ›
- * Exceptions). A 5xx contract error keeps its code and body, and is checked.
+ * The code a responsible `Exception`'s `toJson()` sends, or `undefined` when its body carries none: the exception filter
+ * answers with that body (`Response.resolveException`), not with `getErrorCode()`, and JSON serialization writes own
+ * enumerable string keys only. An inherited or non-enumerable `code` never reaches the client, so it is no code; a
+ * non-string or empty one is none either, since the client narrows by a non-empty string (client.md › Result union).
+ */
+const sentCode = (payload: unknown): string | undefined => {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(payload, "code");
+  if (descriptor?.enumerable !== true) return undefined;
+  // A getter runs here as serialization runs it; a data property is its value
+  const code: unknown = "value" in descriptor ? descriptor.value : (payload as { code?: unknown }).code;
+  return typeof code === "string" && code !== "" ? code : undefined;
+};
+
+/**
+ * A thrown error whose code reaches the client: a contract error, or a responsible 0.5 `Exception` whose answer carries a
+ * code (a guard or policy throwing `UnauthorizedException` is the derived 401). Anything else is not checked: a plain
+ * error's generic 500 carries no code, a non-responsible `Exception` sends none either, and a responsible one with a 5xx
+ * status is a server failure whose body is the generic `{ message: "Server Error" }`, without the code (docs/v1/http.md ›
+ * Exceptions). A 204, 205 or 304 answer has no body, so no code either. A 5xx contract error keeps its code and body, and
+ * is checked. The filter calls `toJson()` again for the answer it sends, so a `toJson()` that changed its code between
+ * the two calls would send one this check never saw: it must be deterministic.
  */
 const codedError = (error: unknown): CodedError | undefined => {
   if (isContractError(error)) return error;
   if (!isException(error) || !error.canResponsible()) return undefined;
   const status = error.getHttpCode();
-  // Every non-contract 5xx sends `{ message: "Server Error" }`, not `{ code, message }`: nothing for the client to narrow
-  if (status >= 500) return undefined;
-  const code = error.getErrorCode();
-  if (code !== "") return { code, status };
-  return undefined;
+  // Every non-contract 5xx sends `{ message: "Server Error" }`, and a bodyless one no body: nothing for the client to narrow
+  if (status >= 500 || isBodylessResponse(status)) return undefined;
+  const code = sentCode(error.toJson());
+  return code === undefined ? undefined : { code, status };
 };
 
 /** The declared `code status` pairs of one route's errors, built on the first violation: dev and test only. */
@@ -67,6 +84,20 @@ const undeclaredLine = (error: unknown, route: UndeclaredRoute): string | undefi
 };
 
 /**
+ * A diagnostic write that must never replace the error it reports: a console adapter can throw (a broken transport), and
+ * so can Node's formatting of the error (a `util.inspect.custom` that throws). The route's error is what the caller
+ * rethrows; a lost diagnostic is the lesser loss.
+ */
+const quietLog = (...values: unknown[]): void => {
+  try {
+    console.error(...values);
+  }
+  catch {
+    // The console itself failed: nothing else to do, and the caller's error is untouched
+  }
+};
+
+/**
  * Reports an error thrown by a route's handler or middleware that the running endpoint does not declare: `console.error`
  * with the thrown error (its stack) in dev, and in test a thrown `Error` whose cause is the original, so the exception
  * filter answers the generic 500 and the test fails. Production returns before anything is read, so the check costs
@@ -81,12 +112,12 @@ export const checkUndeclaredError = (error: unknown, route: UndeclaredRoute): vo
   }
   catch (failure) {
     // A check that cannot read the error must never replace it, dev or test: only the test-mode wrapper below may
-    console.error("[@laratype/http] the undeclared-error check failed, the thrown error is unchanged:", failure);
+    quietLog("[@laratype/http] the undeclared-error check failed, the thrown error is unchanged:", failure);
     return;
   }
   if (line === undefined) return;
   // Test: the generic 500 of the exception filter (logged once there, with this line), so a test of the route fails.
   // Thrown outside the try, so it is the one failure that escapes: the filter's answer to an undeclared error
   if (isTest()) throw new Error(line, { cause: error });
-  console.error(line, error);
+  quietLog(line, error);
 };
