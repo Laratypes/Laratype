@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -132,10 +132,10 @@ Type-only (from `types/path.types.ts`): accessing `regex['id{[0-9]+}']`, `option
 ## Endpoint builder
 
 ### Status
-merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84.
+merged @ d70daa7 (C1 [#89](https://github.com/Laratypes/Laratype/issues/89); `NoInfer` fix f95d859; copy-before-freeze fix b54ca7c). The capability methods (`.throws()`, `.auth()`, `.public()`, `.authorize()`, `.throttle()`) are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)), and `.errors()` is removed. The path check (one leading `/`, no control characters) and the no-body-on-GET rule (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. `isFailureStatus` is proposed: PR [#388](https://github.com/Laratypes/Laratype/pull/388) @ f04379c (H29 [#295](https://github.com/Laratypes/Laratype/issues/295)).
 
 ### Public API
-[`packages/contract/src/endpoint.ts`](../../packages/contract/src/endpoint.ts)
+[`packages/contract/src/endpoint.ts` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts) · [`isFailureStatus` @ f04379c](https://github.com/Laratypes/Laratype/blob/f04379c27f514034bec1a650dd5f468ba7bd5d8c/packages/contract/src/endpoint.ts#L41-L42)
 
 ```ts
 export type Method = "get" | "post" | "put" | "patch" | "delete";
@@ -189,6 +189,7 @@ export type AnyEndpoint = Endpoint<any, any, any, any, any, any, any, any, any>;
 export type SuccessStatus;                            // 200 | 201 | ... | 299
 export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 export const isBodylessStatus: (status: number) => boolean;   // 204 or 205
+export const isFailureStatus: (status: unknown) => status is number;   // an integer from 400 to 599, the one error-status rule (H29 #295)
 export const ENDPOINT: unique symbol;                 // Symbol.for("laratype.endpoint"), non-enumerable on each endpoint
 export const isEndpoint: (value: unknown) => value is AnyEndpoint;
 ```
@@ -303,7 +304,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
 - A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives. `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
-- **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date()` (zod 3) or `z.coerce.date<Date>()` (zod 4). A handler that wants the ISO string itself uses `z.string().datetime()` (zod 3) or `z.iso.datetime()` (zod 4). A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
+- **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date<Date>()`. A handler that wants the ISO string itself uses `z.iso.datetime()`. A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
 - `TypeError: validateSync: the <vendor> schema is async, use validate() instead` (for example `the zod schema`).
@@ -897,7 +898,7 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
@@ -931,10 +932,10 @@ Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or req
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Design (non-binding)
-The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162)) will build on `buildUrl`. Nothing of it exists in code yet.
+The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162), H13) builds on `buildUrl`, and lives in `@laratype/http`; [http.md › Route names and URLs](./http.md#route-names-and-urls) has its API and diagnostics.
 
 - **Names:** the folder tree plus the endpoint key, for example `route('users.posts.update', { user, post })` ([Contract folder tree](#contract-folder-tree)).
-- **Params:** typed from the path, including the params of parent `[x]` folders. Bound params accept a Model (its route key).
+- **Params:** typed from the path, including the params of parent `[x]` folders. A param accepts a Model through `getRouteKey()`.
 - **Ad-hoc routes** keep explicit names ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)).
 
 ### Acceptance

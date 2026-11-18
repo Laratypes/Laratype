@@ -10,10 +10,15 @@ export type { MissingValue, Resource, ResourceOutput, ResourcePage } from "./res
 export { default as Controller } from "./controller/Controller"
 export { default as Middleware } from "./middleware/Middleware"
 export { defineMiddleware, isTypedMiddleware } from "./middleware/defineMiddleware"
+export type { CorsConfig } from "./middleware/cors"
 export type {
   AnyTypedMiddleware, MiddlewareItem, TypedMiddleware, TypedMiddlewareHandler
 } from "./middleware/defineMiddleware"
 export * from "./routing/Route"
+export { route } from "./routing/routeUrl"
+export type {
+  Register, RouteArgs, RouteKeyed, RouteName, RouteParamsOf, RouteParamValue, RouteQueryOf, RouteUrlOptions
+} from "./routing/routeUrl"
 export type { ApiRoutes } from "./routing/api/ApiRouter"
 export type * from "./routing/api/types"
 export type * from "./routing/api/proof"

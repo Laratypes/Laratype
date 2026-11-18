@@ -19,7 +19,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Path-style calls](#path-style-calls) | planned → #140 |
+| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
@@ -157,7 +157,7 @@ if (result.ok) result.data.title                     // see Result union
   - A part is absent when the endpoint has no such schema, optional when all its keys are optional, and required otherwise. The whole input is optional when nothing in it is required.
 - **Result:** a call resolves to the [result union](#result-union) and never rejects for an HTTP or network outcome. It never throws either: a configuration or programming error rejects, whether the URL cannot be built (a missing required param), the body cannot be serialized, or there is no `fetch`. A redirect is an HTTP outcome, not a rejection: under the default `redirect: "manual"` ([Options and hooks](#options-and-hooks)) a real 3xx (Node, Bun, Deno, workerd) is the unexpected result with its status and `response` set, and a browser's `opaqueredirect` is the status-0 unexpected result with `response` set; the `"error"` opt-in makes `fetch` reject (the status-0 result without `response`), except on Cloudflare Workers, where the mode itself is refused, so every call under it fails, a plain 200 included: the status-0 result, or a rejected call under `do_not_capture_async_api_throws` ([Options and hooks](#options-and-hooks)).
 - **Global `fetch` vs injected `fetch`:** both get `(url, init)`, and `fetch` resolves a relative URL itself (against the document's base URL in a browser). The client checks only what would otherwise look like a network failure: a GET with a body rejects with `[@laratype/client] a GET request cannot have a body: "<path>"`, and with the global `fetch` a relative URL outside a browser (no `document` or `location`, as in Node SSR or Deno without `--location`, or a page base that doesn't resolve the URL to http(s), such as `about:blank`, `about:srcdoc`, the jsdom default, `blob:` or `data:`) rejects; set `baseUrl` to an absolute URL, or pass `fetch`. An injected `fetch` is not guarded, since it may resolve relative URLs itself. A synchronous throw from `fetch`, global or injected, rejects the call; only a rejected promise is the status-0 result.
-- <a id="json-safe-request-input"></a>**JSON-safe request input** (#255): the server validates the parsed JSON body ([validation.md](./validation.md); H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301), reads a JSON body by its media type), so the call's `body` is typed with what `JSON.stringify` carries, not the raw schema input. A value with `toJSON` is accepted as itself or as its JSON form (`Date` → `Date | string`; both send the same ISO string), unless that form is one JSON can't carry (`toJSON(): bigint`): then the value is `never` too, since `JSON.stringify` throws. A value JSON can't carry is `never`, so passing it is a type error: `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols; a body that is one of them as a whole stays required, as `never`. An `undefined` array item is removed from the item type, since it is sent as `null`. Everything else is the schema input unchanged, optional keys included. The wire carries a string, so a body or query field whose handler wants a `Date` needs a schema that accepts the ISO string: `z.coerce.date()` (zod 3) or `z.coerce.date<Date>()` (zod 4, as `z.coerce.number<number>()` in [contract.md › Validation adapter](./contract.md#validation-adapter)); a handler that wants the ISO string itself uses `z.string().datetime()` (zod 3) or `z.iso.datetime()` (zod 4). A `z.date()` body field fails validation (422) for any request, since no JSON value is a `Date`; the client type can't tell it from `z.coerce.date()` (both have the input `Date` in zod 3). `packages/client/__tests__/wire-input.test.ts` sends a `Date` body field and a `Date` query value to a server that validates them as validation.md specifies, and gets them back without a 422.
+- <a id="json-safe-request-input"></a>**JSON-safe request input** (#255): the server validates the parsed JSON body ([validation.md](./validation.md); H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301), reads a JSON body by its media type), so the call's `body` is typed with what `JSON.stringify` carries, not the raw schema input. A value with `toJSON` is accepted as itself or as its JSON form (`Date` → `Date | string`; both send the same ISO string), unless that form is one JSON can't carry (`toJSON(): bigint`): then the value is `never` too, since `JSON.stringify` throws. A value JSON can't carry is `never`, so passing it is a type error: `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols; a body that is one of them as a whole stays required, as `never`. An `undefined` array item is removed from the item type, since it is sent as `null`. Everything else is the schema input unchanged, optional keys included. The wire carries a string, so a body or query field whose handler wants a `Date` needs a schema that accepts the ISO string: `z.coerce.date<Date>()` (as `z.coerce.number<number>()` in [contract.md › Validation adapter](./contract.md#validation-adapter)); a handler that wants the ISO string itself uses `z.iso.datetime()`. A `z.date()` body field fails validation (422) for any request, since no JSON value is a `Date`; the client type can't tell it from `z.coerce.date<Date>()` (both have the input `Date`). `packages/client/__tests__/wire-input.test.ts` sends a `Date` body field and a `Date` query value to a server that validates them as validation.md specifies, and gets them back without a 422.
 - **Options are live:** every option (`baseUrl`, `headers`, `fetch`, and those of [Options and hooks](#options-and-hooks)) is read from the options object when each call starts, so changing one later (a refreshed token) applies to the next call.
 - **Wire type** (`ResponseData`, and the error bodies): the schema output after `JSON.stringify` + `JSON.parse` (#107). `Date` → `string` (through `toJSON`). `undefined`, functions and symbols are removed from unions, and a property of only those types is dropped. A property that may be `undefined` (`x?: X` or `x: X | undefined`) is optional, since `JSON.stringify` drops it. In arrays they become `null`. `bigint` → `never`, `Map` / `Set` → `{}`. An endpoint without a response schema, or with a declared 204 or 205, gives `undefined`. `Jsonify` is exported by `@laratype/contract` ([API type projection](./contract.md#api-type-projection)).
 - **Runtime:** no Node dependencies. It uses `fetch`, `Headers` and `URLSearchParams` only, and the global `fetch` is read at each call, so a polyfill or a test stub installed later is used.
@@ -316,13 +316,77 @@ export interface ClientRequest {
 ## Path-style calls
 
 ### Status
-planned → [#140](https://github.com/Laratypes/Laratype/issues/140) (CL4, M3).
+proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary.
 
-### Design (non-binding)
-- This is an **additive, type-only** call style: `api.get('/users/:user', { params })` ([#140](https://github.com/Laratypes/Laratype/issues/140)).
-- It needs no contract runtime. The API type comes from `import type` (`ApiTypes<AppApi>`) or from generated types.
-- The S2 spike measured it at 0.63 KiB gzip.
-- The named style stays primary.
+### Public API
+[`packages/client/src/client.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/client.ts), [`packages/client/src/types.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/types.ts)
+
+```ts
+export function createPathClient<A extends ApiShape<A> = never>(options?: ClientOptions): PathClient<A>;
+export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+): PathClient<A, ProvidedHeaders<Hd>>;
+
+export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
+export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
+  path: Path & CheckPath<A, M, Path>,
+  ...input: [EndpointAt<A, M, Path>] extends [never]
+    ? [input?: never]
+    : {} extends CallInput<EndpointAt<A, M, Path>, P>
+      ? [input?: CallInput<EndpointAt<A, M, Path>, P>]
+      : [input: CallInput<EndpointAt<A, M, Path>, P>]
+) => Promise<ClientResult<EndpointAt<A, M, Path>>>;
+```
+
+```ts
+import type { ApiTypes } from '@laratype/contract'
+import type { AppApi } from '$api'                       // .laratype/api/index.gen.ts, imported as a type only
+import { createPathClient } from '@laratype/client'
+
+const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://api.example.com' })
+const result = await api.get('/api/users/:user', { params: { user: 1 } })
+```
+
+### Invariants
+- **Type-only:** `createPathClient` takes no contract value. The API type comes from `import type { AppApi } from '$api'` projected with `ApiTypes<AppApi>`, or from the generated `AppApi` of a separate-repo FE ([Separate-repo FE](#separate-repo-fe-generated-manifest)), so no contract file, schema or schema library reaches the bundle. Nothing about the contracts is read at runtime; the path alone is sent.
+- **The path** is the full request path the server mounts, the same string [`buildUrl`](./contract.md#url-builder) gets: the contract's URL prefix and the folder tree, with `[x]` folder params in it (`app/api/users/[user]/posts.ts` → `/api/users/:user/posts/:post`, both `user` and `post` in `params`). It must be a literal: a `string` variable and a template-literal type are rejected, even when the method has one endpoint, and so is a helper that forwards a wider generic path type. The API type must name each location with a literal key and each path with a single literal: an index signature at any level (`Record<string, E>`) or a pattern key refuses every call, and an endpoint whose `path` type is `string` or a template-literal pattern (`` `/api/users/${string}` ``) refuses the calls of its own method, since none of them names one endpoint. A path that matches no endpoint of that method, or more than one (the same method and path in two contracts, even when the two endpoint types are identical), is a type error (see Diagnostics). `CheckPath`, `EndpointAt`, `MatchingLocations`, `HasNonLiteralKey` and `HasPatternPath` are private types.
+- **Never build the path from user input.** A literal path is checked against the API type only, not at runtime: dot segments are not checked, so `/api/../admin` is sent as `/admin` after URL parsing — still same-origin, but a different endpoint than the type matched. Values belong in `params`, which `buildUrl` encodes and refuses when they are `.` or `..` (a dot segment).
+- **The call** is typed from the matched endpoint with the named style's own types, so nothing is inferred twice: `EndpointShape`'s params, query, body, headers and `signal` become [`CallInput`](#createclient) (the input is optional when nothing in it is required), and the result and errors are [`ClientResult`](#result-union) (the declared status, the wire `data`, and the per-code error union). A missing param, a wrong body or a missing schema header is the same type error as in the named style. `options.headers` provides a schema header only with a static headers object and the headers type as the second type argument, as with the manifest client of `createClient`: `createPathClient<ApiTypes<AppApi>, { 'x-api-key': string }>({ headers: { 'x-api-key': key } })`; the second type argument requires `options.headers`, so a client cannot claim a header it never sends, and a `headers` function provides none to the types: `createPathClient<ApiTypes<AppApi>>({ headers })` sends them but uses `HeadersInit`, so a required schema header stays required.
+- **Runtime reuse:** the path client reuses the named style's request path: [`buildUrl`](./contract.md#url-builder) fills the path and the query, `createSend` parses and joins `baseUrl`, applies the same-origin guard, merges the headers, sets the JSON `content-type`, `credentials`, `redirect` and the `init`, and `toResult` reads the response. Options and hooks are therefore the named style's ([Options and hooks](#options-and-hooks)): every option is read at each call, a `headers` function is called and awaited, `onRequest`/`onResponse` run, `redirect` defaults to `"manual"`, and a call rejects on the same configuration errors (a missing param, a GET with a body, no fetch, a relative URL outside a browser, a route path that would leave the page's origin).
+- **Known gap, trust the path:** the runtime has no contract, so it knows neither the declared success status nor whether the endpoint has a response schema. A 2xx is the success only when its body can be read and is empty (zero bytes) or JSON: `data` is the parsed body, or `undefined` for an empty body. A 2xx whose body isn't JSON (an HTML 200 from a proxy, say) is [`unexpected`](#result-union) with `text` and the `SyntaxError`, not a success, and so is a body that fails while it is read (an abort or network error after the headers). A 4xx or 5xx JSON object with a string `code` is the declared-error shape, typed as that endpoint's declared error union **even when the code is not declared and whatever its status**. That includes a JSON 4xx/5xx with a string `code` from a proxy, gateway or CDN, which is typed as declared too: FE code should not trust the `error` fields to have the declared shape when it renders them. Everything else (a 4xx/5xx without a `code`, a non-JSON body, a network failure) is [`unexpected`](#result-union). For an endpoint that declares no errors, `ClientResult` has no failure branch: the runtime still returns the error shape, so there `code` is typed `undefined` and the object is outside the type. The client cannot check a code against the endpoint or a status against the code; [http.md › Undeclared-error check](./http.md#undeclared-error-check) is what keeps the server honest. Use the named style `createClient` when exact statuses and codes must be checked at runtime; the manifest client checks codes only, not statuses ([Result union](#result-union) › Manifest).
+- **No route table:** the client is five methods (`get`, `post`, `put`, `patch`, `delete`), one per HTTP method, frozen and with a null prototype; it has none of the named tree. It cannot check the path at runtime, since it never sees the API's routes: a caller that bypasses the types sends whatever path it passes.
+- **Bundle:** with the S2 method (esbuild 0.25.9, bundle + minify, browser, ES2022, ESM, entries resolved to `packages/*/src`, gzip -9, no schema library), a path-only FE entry measured **3.55 KiB min+gzip**, and a named+path entry costs **0.10 KiB gzip** more than the same named manifest client (284 B min, 99 B gzip). Against the built `dist` the same entries are 4.27 KiB and +0.11 KiB (284 B min, 111 B gzip). The path client's own code is the five dispatchers, since it reuses the named request path; that is under the 5 kB [Bundle budget](#bundle-budget) for the client + contract runtime. The named client's own total (5.59 KiB in the same measurement) is above 5 kB before this change, which the CI budget check of [#132](https://github.com/Laratypes/Laratype/issues/132) tracks.
+
+### Diagnostics
+- Type-level, from `CheckPath`:
+  - `[@laratype/client] createPathClient: the API type must declare literal keys (an index signature or a pattern key cannot name an endpoint)` (the API type argument has a `string` or `number` index signature at any level, such as `Record<string, E>`, or a template-literal key; every call is refused);
+  - `[@laratype/client] createPathClient: the API declares a GET path that is not a single literal (a template-literal or string path matches more than one path)` (an endpoint of that method declares `path: string` or a template-literal path, so the path cannot select it; the other methods are unaffected);
+  - `[@laratype/client] createPathClient: no GET endpoint at path "/api/nope"` (also for a known path with the wrong method, e.g. `no POST endpoint at path "/api/users/:user"`);
+  - `[@laratype/client] createPathClient: more than one endpoint answers GET at path "/api/dup"` (two contracts with the same method and path, even when their endpoint types are identical: the check counts endpoint locations, not the members of their type union);
+  - `[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)`;
+  - the missing or wrong `params`, `query`, `body` and schema `headers` of the matched endpoint, as in [createClient](#createclient) › Diagnostics.
+- Runtime, from the shared request path (with the named style's text): `[@laratype/client] createClient: baseUrl …` (the shared `createClient:` prefix), `[@laratype/client] route path "…" would leave the page's origin: "…"`, `[@laratype/contract] buildUrl: …` and `[@laratype/client] a GET request cannot have a body: "…"`. There is no unknown-path runtime error: the runtime has no route table.
+
+### Example
+[`docs/v1/examples/client/create-client.ts`](./examples/client/create-client.ts) shows the named style. The path style:
+
+```ts
+import type { ApiTypes } from '@laratype/contract'
+import type { AppApi } from '$api'
+import { createPathClient } from '@laratype/client'
+
+const api = createPathClient<ApiTypes<AppApi>>({ baseUrl: 'https://api.example.com' })
+const result = await api.get('/api/users/:user', { params: { user: 1 } })
+if (result.ok) result.data.name
+```
+
+### Non-goals
+- No named tree, route name lookup or runtime path check: the named style stays primary.
+- No contract, schema or code/status check at runtime (the known gap above).
+- No response validation: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+
+### Open questions
+- None recorded.
 
 ### Acceptance
 [#140 Done when](https://github.com/Laratypes/Laratype/issues/140)

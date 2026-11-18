@@ -1,6 +1,6 @@
 export const PACKAGE_NAME = '@laratype/client' as const
 
-export { createClient } from './client'
+export { createClient, createPathClient } from './client'
 export { ResponseValidationError } from './validate'
 export type { ApiNodeShape, ApiRootShape } from './client'
 export type {
@@ -18,6 +18,8 @@ export type {
   Manifest,
   ManifestClientOptions,
   ManifestRoute,
+  PathCall,
+  PathClient,
   ProvidedHeaders,
   ResponseData,
   UnexpectedResult,
