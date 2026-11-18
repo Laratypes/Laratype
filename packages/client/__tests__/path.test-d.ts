@@ -152,6 +152,58 @@ describe("createPathClient", () => {
     void identical.get("/api/dup");
   });
 
+  test("an API type with an index signature is refused: it cannot name endpoint locations", async () => {
+    const record = createPathClient<Record<string, Shape<string>>>();
+    // @ts-expect-error the API type must declare literal keys
+    void record.get("/api/dup");
+    // @ts-expect-error every call is refused, whatever path it passes
+    void record.post("/api/nope");
+    const nested = createPathClient<{ users: Record<string, Shape<string>> }>();
+    // @ts-expect-error an index signature under a literal node is found too
+    void nested.get("/api/dup");
+    const numeric = createPathClient<{ [index: number]: Shape<string> }>();
+    // @ts-expect-error a number index signature names no location either
+    void numeric.get("/api/dup");
+    const patterned = createPathClient<{ [key: `/api/${string}`]: Shape<string> }>();
+    // @ts-expect-error a template-literal key is a pattern, not a location
+    void patterned.get("/api/dup");
+    // the positive control: an API of literal keys still types every call
+    const literal = createPathClient<{ a: { x: Shape<string> } }>();
+    const result = await literal.get("/api/dup");
+    expectTypeOf(result).toEqualTypeOf<ClientResult<Shape<string>>>();
+    // a non-tree type argument still compiles the factory (the self-constraint is weak), but no call type-checks
+    const nothing = createPathClient<null>();
+    // @ts-expect-error no endpoint in a non-tree API
+    void nothing.get("/api/dup");
+    const str = createPathClient<string>();
+    // @ts-expect-error no endpoint in a non-tree API
+    void str.get("/api/dup");
+  });
+
+  test("an API type with a template-literal or string path is refused: a pattern matches more than one path", () => {
+    const patterns = createPathClient<{ users: { archive: Omit<Shape<string>, "path"> & { path: `/api/users/${string}` } } }>();
+    // @ts-expect-error the API declares a GET path that is not a single literal
+    void patterns.get("/api/users/archive");
+    const path: `/api/users/${string}` = "/api/users/archive";
+    // @ts-expect-error a call with the pattern itself is refused too: the API type is the problem, not the call path
+    void patterns.get(path);
+    const wide = createPathClient<{ a: { x: Omit<Shape<string>, "path"> & { path: string } } }>();
+    // @ts-expect-error a `string` path type is refused like a pattern
+    void wide.get("/api/any");
+    // only the method with the pattern is refused: a literal GET path still types its call
+    type Mixed = {
+      a: {
+        x: Shape<string>;
+        y: Omit<Shape<number>, "method" | "path"> & { method: "post"; path: `/api/users/${string}` };
+      };
+    };
+    const mixed = createPathClient<Mixed>();
+    const got = mixed.get("/api/dup");
+    expectTypeOf(got).toEqualTypeOf<Promise<ClientResult<Shape<string>>>>();
+    // @ts-expect-error the POST pattern path refuses POST calls, with no effect on GET
+    void mixed.post("/api/users/archive");
+  });
+
   test("headers provided by options.headers are optional, with the headers type as the second type argument", () => {
     // A has no value to infer from, so Hd is explicit, as in the manifest overload of createClient
     const withTenant = createPathClient<Api, { "x-tenant": string }>({ headers: { "x-tenant": "t" } });

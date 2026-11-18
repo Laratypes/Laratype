@@ -132,8 +132,8 @@ describe("createPathClient", () => {
     expect(result.response!.headers.get("location")).toBe("/login");
   });
 
-  it("takes any 2xx as the success, since the route contract is not available at runtime", async () => {
-    // users.store declares 201; a 200 is still the success of this type-only client
+  it("takes any 2xx status as the success when its body is JSON, since the route contract is not available at runtime", async () => {
+    // users.store declares 201; a 200 is still the success of this type-only client, and its JSON body is the data
     const fetch = vi.fn<FetchLike>(async () => Response.json({ id: 7, title: "T" }, { status: 200 }));
     const result = await createPathClient<Api>({ fetch }).post("/api/users", { body: { name: "A", email: "a@b.c" } });
     expect(result).toMatchObject({ ok: true, status: 200, data: { id: 7, title: "T" } });
@@ -193,12 +193,18 @@ describe("path diagnostics", () => {
       "  response: string; status: 200; errors: never",
       "}",
       "type Dup = { a: { x: E1 }; b: { y: Omit<E1, 'response'> & { response: number } } }",
+      "type Rec = Record<string, E1>",
+      "type Pattern = { a: { x: Omit<E1, 'path'> & { path: `/api/users/${string}` } } }",
       "const api = createPathClient<ApiTypes<AppApi>>()",
       "const dup = createPathClient<Dup>()",
+      "const rec = createPathClient<Rec>()",
+      "const pattern = createPathClient<Pattern>()",
       "const wide: string = '/api/users'",
       "void api.get('/api/nope')",
       "void api.post('/api/users/:user', { params: { user: 1 } })",
       "void dup.get('/api/dup')",
+      "void rec.get('/api/dup')",
+      "void pattern.get('/api/users/archive')",
       "void api.post(wide, { body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })",
       "void api.delete('/api/users')",
     ].join("\n");
@@ -231,5 +237,9 @@ describe("path diagnostics", () => {
     );
     expect(text).toContain("[@laratype/client] createPathClient: the path must be a literal");
     expect(text).toContain('[@laratype/client] createPathClient: no DELETE endpoint at path "/api/users"');
+    expect(text).toContain("[@laratype/client] createPathClient: the API type must declare literal keys");
+    expect(text).toContain(
+      "[@laratype/client] createPathClient: the API declares a GET path that is not a single literal",
+    );
   }, 60_000);
 });
