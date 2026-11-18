@@ -111,6 +111,30 @@ describe('r.bind()', () => {
     Route.api(appApi, (r) => [r.bind({ user: User, post: callableModel }).contract(posts, WantsString)])
   })
 
+  test('a callable with findByRouteKey and no string primaryKey fails at r.bind(), as the mount check refuses it', () => {
+    class PlainController extends Controller {
+      index() { return {} }
+      show() { return {} }
+      latest() { return {} }
+    }
+    // The runtime treats a function carrying findByRouteKey as a model class and needs its static primaryKey, so the
+    // type refuses it too: a resolver must not carry the lookup (no member of Binder accepts it)
+    const partial = Object.assign((raw: string) => raw, { findByRouteKey: (key: string) => key })
+    Route.api(appApi, (r) => {
+      // @ts-expect-error Type '{ findByRouteKey: (key: string) => string; }' is not assignable to type 'Binder'
+      r.bind({ post: partial })
+      return [r.contract(posts, PlainController)]
+    })
+
+    // A callable with the string primaryKey but no lookup is a resolver, as at runtime
+    class ReadsString extends Controller {
+      index() { return {} }
+      show(ctx: Ctx<typeof posts.show, { params: { user: User; post: string } }>) { return ctx.params.post }
+      latest() { return {} }
+    }
+    Route.api(appApi, (r) => [r.bind({ user: User, post: Object.assign(() => 'x', { primaryKey: 'id' }) }).contract(posts, ReadsString)])
+  })
+
   test('a scope binding proves the contract mounted from the same builder', () => {
     Route.api(appApi, (r) => {
       const bound = r.bind({ user: User, post: Post })

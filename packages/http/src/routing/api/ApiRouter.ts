@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBindingMap, pathParamNames } from "./bindings";
+import { checkBindingMap, copyBindingMap, nonTrailingOptionalParams, pathParamNames } from "./bindings";
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 
@@ -215,12 +215,15 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
-      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does.
-      // Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
-      checkBindingMap(item.bindings === undefined ? {} : item.bindings);
-      scopes.set(item.dir, item);
+      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does, and
+      // store a copy of the one snapshot checked, so a mutation (or a getter) after this point cannot install a binder
+      // the check never saw. Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
+      const scopeBindings = item.bindings;
+      const bindings = copyBindingMap(scopeBindings === undefined ? {} : scopeBindings);
+      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, bindings }));
     } else if (item?.kind === "contract") {
-      const matched = mountedEntries(entries, item.contract);
+      const contract = item.contract;
+      const matched = mountedEntries(entries, contract);
       const names = matched.map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
       const controller = item.controller;
@@ -237,11 +240,11 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
       // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have
-      // checked. An omitted `bindings` is the empty map; a null one is refused
-      checkBindingMap(item.bindings === undefined ? {} : item.bindings);
-      const stored = pinned !== undefined
-        ? item
-        : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, bindings: item.bindings ?? {}, options });
+      // checked. The one read snapshot is copied and frozen, so a mutation (or a getter) after this point cannot install
+      // a binder the check never saw. An omitted `bindings` is the empty map; a null one is refused
+      const itemBindings = item.bindings;
+      const bindings = copyBindingMap(itemBindings === undefined ? {} : itemBindings);
+      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, bindings, options });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -337,6 +340,16 @@ const checkBindingKeys = (
   for (const route of routes) {
     const name = route.name.slice(0, route.name.lastIndexOf("."));
     const names = pathParamNames(route.path);
+    // A mid-path `:post?` is registered by Hono as `post?` (only a trailing one drops its `?`, `checkOptionalParameter`):
+    // a binding on it would read an absent optional param and never run, so it is refused instead of dropped silently
+    const misnamed = nonTrailingOptionalParams(route.path);
+    const midPath = Object.keys(route.bindings).find((key) => misnamed.has(key));
+    if (midPath !== undefined) {
+      fail(
+        `r.bind(): \`${midPath}\` binds \`:${midPath}?\` in ${route.path}, where the optional param is not the last segment: ` +
+          `Hono registers it as \`${midPath}?\`, so the binding would never run. Fix: make it the last segment of the path, or drop the \`?\`.`,
+      );
+    }
     const forContract = contractParams.get(name) ?? new Set<string>();
     for (const key of names) forContract.add(key);
     contractParams.set(name, forContract);

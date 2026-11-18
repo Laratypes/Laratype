@@ -444,6 +444,32 @@ describe('r.bind() validation at Route.api', () => {
     )
   })
 
+  it('a missing property descriptor (a Proxy phantom key) gives that diagnostic, not a TypeError', () => {
+    // Object.getOwnPropertyNames() shows the key, getOwnPropertyDescriptor() returns undefined for it
+    const map = new Proxy({ user: User } as Record<string, unknown>, {
+      ownKeys: () => ['user', 'ghost'],
+      getOwnPropertyDescriptor: (target, key) => (key === 'ghost' ? undefined : Reflect.getOwnPropertyDescriptor(target, key)),
+    })
+    expect(() => mountWith(map)).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `ghost` is a non-enumerable property of the bindings map: r.bind() copies enumerable own properties only, so the binding would be dropped. ' +
+        'Fix: declare it as a plain property, { ghost: ... }.',
+    )
+  })
+
+  it('refuses a binding on an optional param that is not the last segment, and still binds a trailing one', async () => {
+    const mid = defineContract()({ show: endpoint.get('/:post?/details').response(anything) })
+    const midApi = defineApi({ mid: { contract: mid, path: '/mid', scopes: [] } })
+    class MidController extends Controller {
+      show(ctx: Ctx<typeof mid.show, { params: { post: Post | undefined } }>) { return { post: ctx.params.post?.slug ?? null } }
+    }
+    expect(() => Route.api(midApi, (r) => [r.bind({ post: Post }).contract(mid, MidController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `post` binds `:post?` in /mid/:post?/details, where the optional param is not the last segment: ' +
+        'Hono registers it as `post?`, so the binding would never run. Fix: make it the last segment of the path, or drop the `?`.',
+    )
+    // `/latest/:post?` ends with the optional segment: Hono drops the `?`, and the binding runs
+    expect(await (await app.request('/api/users/7/posts/latest/hello')).json()).toEqual({ user: '7', post: 'hello' })
+  })
+
   it('binds a null-prototype map', async () => {
     // Object.create(null) is a plain map: its own enumerable keys are spread like any other's
     const map: Record<string, unknown> = Object.create(null)
@@ -508,6 +534,54 @@ describe('the bindings of an item built by hand (no r.contract() / r.scope())', 
     ])))
     expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
     expect(lookups).toEqual(['user:7'])
+  })
+
+  it('binds the checked snapshot: a map mutated from an endpoints callback changes no route', async () => {
+    // The callbacks run after every item is planned: the checked copy is what the route binds, not the mutated map
+    const bindings: Record<string, unknown> = { user: User }
+    const swapped = (raw: string) => {
+      lookups.push(`swapped:${raw}`)
+      return new OtherPost()
+    }
+    const routes = mount(Route.api(appApi, () => items([
+      {
+        kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings,
+        options: { endpoints: { show: (b: unknown) => { bindings.user = swapped; return b } } },
+      },
+    ])))
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
+    expect(lookups).toEqual(['user:7'])
+  })
+
+  it('reads a contract item bindings getter once: the checked map is the one the route binds', async () => {
+    const first: Record<string, unknown> = { user: User }
+    const second: Record<string, unknown> = {
+      user: (raw: string) => {
+        lookups.push(`second:${raw}`)
+        return new OtherPost()
+      },
+    }
+    let reads = 0
+    const item: Record<string, unknown> = { kind: 'contract', contract: posts, controller: PlainController, middleware: [] }
+    Object.defineProperty(item, 'bindings', { enumerable: true, get: () => (reads++ === 0 ? first : second) })
+    const routes = mount(Route.api(appApi, () => items([item])))
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
+    expect(reads).toBe(1)
+    expect(lookups).toEqual(['user:7'])
+  })
+
+  it('reads a scope item bindings getter once, and checks the map it answered', () => {
+    const first: Record<string, unknown> = { user: User }
+    const second: Record<string, unknown> = { user: 42 }
+    let reads = 0
+    const scope: Record<string, unknown> = { kind: 'scope', dir: 'users/[user]', policy: PostPolicy, middleware: [] }
+    Object.defineProperty(scope, 'bindings', { enumerable: true, get: () => (reads++ === 0 ? first : second) })
+    // The contract binds the same key, as a scope binding requires: the second, unchecked map never reaches a check
+    expect(() => Route.api(appApi, () => items([
+      scope,
+      { kind: 'contract', contract: posts, controller: PlainController, middleware: [], bindings: { user: User } },
+    ]))).not.toThrow()
+    expect(reads).toBe(1)
   })
 })
 

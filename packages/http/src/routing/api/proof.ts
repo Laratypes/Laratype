@@ -72,7 +72,11 @@ export type ControllerOf<C> = {
 
 // ---- what the route provides ------------------------------------------------
 
-type Resolver = (value: string) => unknown;
+/**
+ * A resolver from the raw param. A value carrying `findByRouteKey` is a model at runtime (`isModelClass`), so a resolver
+ * must not carry it: `Binder` refuses one, as `checkBinder` refuses a model without a string `primaryKey` (H7 #118).
+ */
+type Resolver = ((value: string) => unknown) & { readonly findByRouteKey?: never };
 
 /**
  * The static side of a model class `r.bind()` takes (docs/v1/database.md › BindableModel), structural and type-only:
@@ -86,8 +90,8 @@ export interface BindableModelClass<M extends object = object> {
   findByRouteKey(key: string): Promise<M | null | undefined>;
 }
 
-/** A `.bind()` value: a model class, or a resolver from the raw param (H7 #118). */
-export type Binder = BindableModelClass | Resolver;
+/** A `.bind()` value: a model class, a callable carrying its statics, or a resolver from the raw param (H7 #118). */
+export type Binder = BindableModelClass | CallableModel | Resolver;
 
 /** A `.bind()` map: one value per path param key. */
 export type Bindings = Readonly<Record<string, Binder>>;
@@ -98,12 +102,15 @@ export type Bindings = Readonly<Record<string, Binder>>;
  */
 type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string): unknown };
 
+/** A callable that carries the model statics without a construct signature: a model at runtime (`isModelClass`). */
+type CallableModel = ((value: string) => unknown) & ModelStatics;
+
 /**
- * The value a binder gives the handler. A `BindableModelClass` gives its instance (the class's own type, not the
- * inherited return of `findByRouteKey`); a callable that carries the same statics is a model too at runtime
- * (`isModelClass`), so it gives its lookup result; any other resolver is called, and its miss is a 404, so the handler
- * sees the value without `null` / `undefined`. Constructability alone is not enough: `Date` is newable and callable,
- * and the runtime calls it as a resolver.
+ * The value a binder gives the handler. A `BindableModelClass` gives its instance (the class's own type: its
+ * `findByRouteKey` builds the receiver, so a subclass overrides an inherited base-returning lookup); a callable that
+ * carries the same statics is a model too at runtime (`isModelClass`), so it gives its lookup result; any other resolver
+ * is called, and its miss is a 404, so the handler sees the value without `null` / `undefined`. Constructability alone is
+ * not enough: `Date` is newable and callable, and the runtime calls it as a resolver.
  */
 type Bound<B> = B extends BindableModelClass
   ? InstanceType<B>
