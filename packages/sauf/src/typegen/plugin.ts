@@ -13,7 +13,6 @@ import { DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApi
 import type { ApiTreeConfig } from './config';
 import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
-import { coalesce } from './watch';
 
 export const API_PLUGIN_NAME = 'laratype:api';
 export const API_ALIAS = '$api';
@@ -153,3 +152,45 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
 /** The `laratype:api` plugin API of a Vite server, if it has the plugin. */
 export const contractTreePlugin = (plugins: readonly { name: string; api?: unknown }[]): ApiPluginApi | undefined =>
   plugins.find((p) => p.name === API_PLUGIN_NAME)?.api as ApiPluginApi | undefined;
+
+/** One task at a time: calls during a run coalesce into exactly one follow-up run, never a concurrent one. */
+export interface CoalescedTask {
+  /** Runs now, or after the in-flight run. Resolves with the last queued run's outcome. */
+  run(): Promise<void>;
+}
+
+/**
+ * Serializes `task` and coalesces concurrent calls: while a run is in flight any number of `run()` calls queue exactly
+ * one follow-up. The queue drains even when a run throws and the shared promise rejects only when the last run failed,
+ * so a call that arrives during a failed run is not dropped and a failing scan is not cached.
+ */
+export function coalesce(task: () => Promise<void>): CoalescedTask {
+  let current: Promise<void> | undefined;
+  let requested = false;
+  const drain = async (): Promise<void> => {
+    let failed = false;
+    let failure: unknown;
+    try {
+      while (requested) {
+        requested = false;
+        failed = false;
+        try {
+          await task();
+        } catch (error) {
+          failed = true;
+          failure = error;
+        }
+      }
+      if (failed) throw failure;
+    } finally {
+      current = undefined;
+    }
+  };
+  return {
+    run() {
+      requested = true;
+      const run = current ?? (current = drain());
+      return run;
+    },
+  };
+}

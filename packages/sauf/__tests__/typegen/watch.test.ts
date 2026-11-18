@@ -9,7 +9,8 @@ import type { ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { laratypeApi } from "../../src/typegen";
 import type { ApiPluginApi } from "../../src/typegen";
-import { ContractTypeWatch, ContractTypeWatchHost, coalesce } from "../../src/typegen/watch";
+import { coalesce } from "../../src/typegen/plugin";
+import { ContractTypeWatch, ContractTypeWatchHost } from "../../src/typegen/watch";
 import type { ContractTypeWatchOptions, WatchEvents } from "../../src/typegen/watch";
 
 /**
@@ -147,15 +148,18 @@ describe("ContractTypeWatch", () => {
     // the old base is gone from every generated path
     expect(indexOf(dir)).not.toContain("path: '/api/users'");
 
-    rmSync(join(dir, "app/api"), { recursive: true });
+    // app/api still exists: the config change alone must move the output and prune the old root's types
     mkdirSync(join(dir, "app/contracts"), { recursive: true });
     writeFileSync(join(dir, "app/contracts/fresh.ts"), "export default {}\n");
     writeFileSync(join(dir, "app/config/config.ts"), "export default { api: { root: 'app/contracts', base: '/v3' } }\n");
     events.emit("change", join(dir, "app/config/config.ts"));
     await watch.idle();
     expect(indexOf(dir)).toContain("path: '/v3/fresh'");
+    expect(indexOf(dir)).not.toContain("path: '/v2/users'");
     expect(existsSync(typeFile(dir, "app/api"))).toBe(false);
     expect(existsSync(typeFile(dir, "app/contracts"))).toBe(true);
+    // only .laratype changed: the old root's contracts are still on disk
+    expect(existsSync(join(dir, "app/api/users.ts"))).toBe(true);
   });
 
   it("logs a scan error and keeps the last good output; the next good save recovers", async () => {
@@ -347,6 +351,29 @@ describe("ContractTypeWatch", () => {
     expect(indexOf(dir)).toBe(before);
   });
 
+  it("a syntax error in a contract is not a scan error: the name-only scan keeps generating", async () => {
+    const dir = project("syntax");
+    const { api } = await opened(dir);
+    const events = fakeEvents();
+    const errors: unknown[] = [];
+    const scans = { count: 0 };
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api, scans), delay: 0, onError: (e) => errors.push(e) });
+
+    const users = join(dir, "app/api/users.ts");
+    writeFileSync(users, "export default {\n");
+    events.emit("change", users);
+    await watch.idle();
+    expect(scans.count).toBe(0);
+
+    const added = join(dir, "app/api/after.ts");
+    writeFileSync(added, "export default {}\n");
+    events.emit("add", added);
+    await watch.idle();
+    expect(scans.count).toBe(1);
+    expect(errors).toEqual([]);
+    expect(indexOf(dir)).toContain("'after':");
+  });
+
   it("does not follow a symlink or junction in the tree that points outside it", async (ctx) => {
     const dir = project("symlink");
     const outside = join(tmp, "outside-symlink");
@@ -357,7 +384,7 @@ describe("ContractTypeWatch", () => {
       // A junction needs no privilege on Windows; a directory symlink does on POSIX-less Windows
       symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
     } catch {
-      ctx.skip();
+      ctx.skip("the OS refused to create a junction or directory symlink in the contract tree");
       return;
     }
 
@@ -375,7 +402,8 @@ describe("ContractTypeWatch", () => {
     expect(indexOf(dir)).not.toContain("linked");
     expect(existsSync(typeFile(dir, "app/api/linked"))).toBe(false);
 
-    // A file symlink too, where the OS allows it (Windows without developer mode does not)
+    // A file symlink too, where the OS allows it: Windows without developer mode refuses one and the junction above
+    // is its documented stand-in (condition on #142's checklist a).
     try {
       symlinkSync(join(outside, "nested", "secret.ts"), join(dir, "app/api/secret-link.ts"), "file");
     } catch {
@@ -448,10 +476,19 @@ describe("ContractTypeWatchHost", () => {
   });
 
   it("rejects a wrong options object without disturbing the live watch's listeners", async () => {
+    const dir = project("host-bad-open");
+    const { api } = await opened(dir);
     const events = fakeEvents();
+    const scans = { count: 0 };
     const host = new ContractTypeWatchHost();
+    host.open({ events, tree: treeOf(api, scans), delay: 0 });
+    expect(events.listenerCount("add")).toBe(1);
+
     expect(() => host.open(null as unknown as ContractTypeWatchOptions)).toThrow("the type watch needs an options object");
-    expect(host.active).toBe(false);
+    // the new watch is built before the old is disposed, so a bad open() leaves the live watch in place
+    expect(host.active).toBe(true);
+    expect(events.listenerCount("add")).toBe(1);
+    host.close();
     expect(events.listenerCount("add")).toBe(0);
   });
 
@@ -505,6 +542,19 @@ describe("coalesce", () => {
     await task.run();
     expect(calls).toBe(2);
   });
+
+  it("does not drop a call that arrives during a failed run: it runs the follow-up and resolves", async () => {
+    let calls = 0;
+    const task = coalesce(async () => {
+      calls++;
+      if (calls === 1) throw new Error("first fails");
+    });
+    const first = task.run();
+    const second = task.run();
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(calls).toBe(2);
+  });
 });
 
 describe("ContractTypeWatch options", () => {
@@ -524,14 +574,18 @@ describe("ContractTypeWatch options", () => {
     expect(events.listenerCount("add")).toBe(0);
   });
 
-  it("defaults an undefined delay, accepts 0, and reads a non-enumerable delay key", async () => {
+  it("defaults an undefined delay and accepts 0", () => {
     const events = fakeEvents();
     const watch = new ContractTypeWatch({ events, tree, delay: undefined as number | undefined });
     const explicit = new ContractTypeWatch({ events, tree, delay: 0 });
-    const options = Object.defineProperty({ events, tree }, "delay", { value: 0, enumerable: false }) as ContractTypeWatchOptions;
-    const hidden = new ContractTypeWatch(options);
     watch.dispose();
     explicit.dispose();
+  });
+
+  it("reads a non-enumerable delay key", () => {
+    const events = fakeEvents();
+    const options = Object.defineProperty({ events, tree }, "delay", { value: 0, enumerable: false }) as ContractTypeWatchOptions;
+    const hidden = new ContractTypeWatch(options);
     hidden.dispose();
   });
 
@@ -641,6 +695,17 @@ describe("the type watch on Vite's watcher", () => {
       await host.idle();
       expect(indexOf(dir)).toContain("'reports':");
 
+      // a rename is unlink + add on the real watcher, and the index follows both
+      const renamed = Promise.all([
+        next("unlink", "app/api/reports/index.ts"),
+        next("add", "app/api/reports/renamed.ts"),
+      ]);
+      renameSync(join(dir, "app/api/reports/index.ts"), join(dir, "app/api/reports/renamed.ts"));
+      await renamed;
+      await host.idle();
+      expect(indexOf(dir)).toContain("'reports.renamed':");
+      expect(indexOf(dir)).not.toContain("'reports':");
+
       // a content edit reaches the watcher but never a scan
       scans.count = 0;
       const changed = next("change", "app/api/users.ts");
@@ -649,11 +714,11 @@ describe("the type watch on Vite's watcher", () => {
       await host.idle();
       expect(scans.count).toBe(0);
 
-      const removed = next("unlink", "app/api/reports/index.ts");
+      const removed = next("unlink", "app/api/reports/renamed.ts");
       rmSync(join(dir, "app/api/reports"), { recursive: true });
       await removed;
       await host.idle();
-      expect(indexOf(dir)).not.toContain("'reports':");
+      expect(indexOf(dir)).not.toContain("'reports.renamed':");
       expect(existsSync(typeFile(dir, "app/api/reports"))).toBe(false);
     } finally {
       await server.close();

@@ -16,47 +16,19 @@ export interface WatchEvents {
   off(event: WatchEvent, listener: (file: string) => void): unknown;
 }
 
+/** The `laratype:api` part the type watch reads: which events can change the tree, and how to refresh it. */
+type TreeSource = Pick<ApiPluginApi, "affectsTree" | "isGenerated" | "refresh">;
+
+/** Options of {@link ContractTypeWatch}. */
 export interface ContractTypeWatchOptions {
   /** The file watcher: Vite's `server.watcher` in `sauf dev`. */
   readonly events: WatchEvents;
   /** The `laratype:api` plugin API: which events can change the tree, and `refresh()`. */
-  readonly tree: Pick<ApiPluginApi, "affectsTree" | "isGenerated" | "refresh">;
+  readonly tree: TreeSource;
   /** Debounce after the last relevant event before one scan, in ms. Default 30; finite and 0 or more. */
   readonly delay?: number;
   /** Receives a failed scan (a `ScanError` prefixed `[laratype:api]`). Default `console.error`. */
   readonly onError?: (error: unknown) => void;
-}
-
-/** One task at a time: a call during a run coalesces into exactly one follow-up run, never a concurrent one. */
-export interface CoalescedTask {
-  /** Runs now, or after the in-flight run. Resolves when the run that saw this call has finished. */
-  run(): Promise<void>;
-}
-
-/**
- * Serializes `task` and coalesces concurrent calls: while a run is in flight any number of `run()` calls queue
- * exactly one follow-up. A rejected run is not cached, so the next call retries.
- */
-export function coalesce(task: () => Promise<void>): CoalescedTask {
-  let current: Promise<void> | undefined;
-  let requested = false;
-  const drain = async (): Promise<void> => {
-    try {
-      while (requested) {
-        requested = false;
-        await task();
-      }
-    } finally {
-      current = undefined;
-    }
-  };
-  return {
-    run() {
-      requested = true;
-      const run = current ?? (current = drain());
-      return run;
-    },
-  };
 }
 
 const DEFAULT_DELAY = 30;
@@ -82,7 +54,7 @@ export class ContractTypeWatch {
 
   private readonly events: WatchEvents;
 
-  private readonly tree: Pick<ApiPluginApi, "affectsTree" | "isGenerated" | "refresh">;
+  private readonly tree: TreeSource;
 
   private readonly listeners: Record<WatchEvent, (file: string) => void>;
 
@@ -193,11 +165,12 @@ export class ContractTypeWatchHost {
     return this.current !== undefined;
   }
 
-  /** Replaces the live watch: the previous one is disposed before the new one starts. */
+  /** Replaces the live watch: the new watch is built first, so bad options leave the live one untouched. */
   open(options: ContractTypeWatchOptions): ContractTypeWatch {
+    const next = new ContractTypeWatch(options);
     this.close();
-    this.current = new ContractTypeWatch(options);
-    return this.current;
+    this.current = next;
+    return next;
   }
 
   /** Disposes the live watch, if any. Safe to call twice. */
