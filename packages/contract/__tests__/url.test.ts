@@ -103,6 +103,9 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{.*}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
     expect(buildUrl('/files/:file{[^]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
     expect(buildUrl('/files/:file{[^.]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
+    // a top-level "|" compiles bare in Hono's trie router ("^a|.+/.+$"): the encoded value starts with "a", so it is
+    // the value Hono routes, and splitting it would spell the sibling "admin/all" that the trie would not pick
+    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'admin/all' } })).toBe('/files/admin%2Fall')
   })
 
   it('splits only when the pattern needs a literal "/": the encoded value would not match it', () => {
@@ -185,11 +188,11 @@ describe('buildUrl regex params and "/"', () => {
     }
   })
 
-  it('matches control characters against the pattern before encoding them', () => {
+  it('matches the encoded form of a control-character value against the pattern', () => {
     expect(buildUrl('/files/:file{.+}', { params: { file: 'a\u0000b\tc\nd/e' } })).toBe('/files/a%00b%09c%0Ad%2Fe')
   })
 
-  it('matches a 1 MB value against the pattern: encoded whole for ".+", split for ".+/+"', () => {
+  it('matches a 1 MB value against the pattern: encoded whole for ".+", split for ".+/.+"', () => {
     const big = `${'a'.repeat(500_000)}/${'b'.repeat(500_000)}`
     expect(buildUrl('/files/:file{.+}', { params: { file: big } })).toBe(`/files/${'a'.repeat(500_000)}%2F${'b'.repeat(500_000)}`)
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: big } })).toBe(`/files/${big}/raw`)

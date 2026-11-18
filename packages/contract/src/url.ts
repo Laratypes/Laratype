@@ -62,21 +62,28 @@ function encodeValue(name: string, text: string, path: string): string {
   }
 }
 
-/** Whether a param pattern accepts a value; `unusable` when it is not a `RegExp` at all (Hono refuses such a route). */
+/** Whether a param pattern accepts a value; `unusable` when `new RegExp` throws for both forms Hono compiles. */
 type PatternAnswer = "accepts" | "rejects" | "unusable";
 
 /**
- * Matches a param's pattern against `value` the way Hono matches a param: anchored and with no flags, the pattern in
- * a group. Hono's trie router builds `new RegExp("^" + pattern + "$")` (and `"^" + pattern + "(?=/next)"` when a
- * static segment follows); its RegExp router inlines the same source into one anchored `RegExp`. Both run on the raw
- * path, where `%2F` is still an escape (Hono's `getPath` decodes with `decodeURI`, which keeps it).
+ * Matches a param's pattern against `value` the way Hono matches a param: anchored and with no flags. Hono's two
+ * routers compile it differently — `router/reg-exp-router` wraps the source in `(...)` (`^(?:pattern)$` here), while
+ * `router/trie-router` uses it bare (`^pattern$`, or `^pattern(?=/next)` when a static segment follows), which for a
+ * top-level `|` matches a prefix or suffix — and the route is served by whichever router compiles it, so a value
+ * either form accepts is a value Hono can route. Both run on the raw path, where `%2F` is still an escape (Hono's
+ * `getPath` decodes with `decodeURI`, which keeps it).
  */
 function matchPattern(pattern: string, value: string): PatternAnswer {
-  try {
-    return new RegExp(`^(?:${pattern})$`).test(value) ? "accepts" : "rejects";
-  } catch {
-    return "unusable";
+  let usable = false;
+  for (const source of [`^(?:${pattern})$`, `^${pattern}$`]) {
+    try {
+      if (new RegExp(source).test(value)) return "accepts";
+      usable = true;
+    } catch {
+      // the other form may still compile: Hono's routers differ on what they accept
+    }
   }
+  return usable ? "rejects" : "unusable";
 }
 
 /**

@@ -149,26 +149,6 @@ describe('route()', () => {
     expect(await res.json()).toEqual({ file })
   })
 
-  it('keeps "/" encoded for a ".+" or "[^.]+" pattern, so a value cannot reach a sibling route (C8 B1)', async () => {
-    for (const [pattern, path] of [
-      ['.+', '/files/:f{.+}'],
-      ['[^.]+', '/files/:f{[^.]+}'],
-    ] as const) {
-      const app = new Hono()
-      // registered first: a static sibling wins over a param route whenever the raw path matches it
-      app.delete('/files/admin/all', () => new Response('sibling'))
-      app.delete(path, (c) => c.json({ f: c.req.param('f') }))
-      expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
-      const url = buildUrl(path, { params: { f: 'admin/all' } })
-      // the encoded value stays one segment, so the sibling's path is never spelled out
-      expect(url).toBe('/files/admin%2Fall')
-      const res = await app.request(url, { method: 'DELETE' })
-      expect(res.status).toBe(200)
-      // Hono decodes the param: the :f route read the value whole, and the sibling never ran
-      expect(await res.json()).toEqual({ f: 'admin/all' })
-    }
-  })
-
   it('refuses a named wildcard route through buildUrl, naming the path', () => {
     Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/files/*', () => 'ok').name('files.all')])
     expect(() => route('files.all')).toThrow(
@@ -231,6 +211,31 @@ describe('route()', () => {
     expect(() => route('users.posts.show', { user: {} as never, post: 1 })).toThrow(
       new TypeError('[@laratype/http] route: param "user" got an object that is not a model (no getRouteKey())'),
     )
+  })
+})
+
+describe('buildUrl through a real Hono app', () => {
+  it('keeps "/" one segment, so a value cannot reach a sibling route (C8 #253 B1)', async () => {
+    for (const [path, expected] of [
+      ['/files/:f{.+}', 'admin/all'],
+      ['/files/:f{[^.]+}', 'admin/all'],
+      // Hono's trie router compiles a top-level "|" bare ("^a|.+/.+$"): the encoded value starts with "a", so the
+      // :f route reads "a", and the sibling is a path that pattern does not take
+      ['/files/:f{a|.+/.+}', 'a'],
+    ] as const) {
+      const app = new Hono()
+      // registered first: a static sibling wins over a param route whenever the raw path matches it
+      app.delete('/files/admin/all', () => new Response('sibling'))
+      app.delete(path, (c) => c.json({ f: c.req.param('f') }))
+      expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+      const url = buildUrl(path, { params: { f: 'admin/all' } })
+      // the encoded value stays one segment, so the sibling's path is never spelled out
+      expect(url).toBe('/files/admin%2Fall')
+      const res = await app.request(url, { method: 'DELETE' })
+      expect(res.status).toBe(200)
+      // the :f route read the encoded value, and the sibling never ran
+      expect(await res.json()).toEqual({ f: expected })
+    }
   })
 })
 
