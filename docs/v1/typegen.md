@@ -13,7 +13,7 @@ last-verified: 2026-10-13
 | Section | Status |
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR <leader fills> @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
 
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR <leader fills> @ 4387e215 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -122,7 +122,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-proposed: PR <leader fills> @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha).
+proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha).
 
 ### Public API
 [`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/commands/dev.ts)
