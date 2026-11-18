@@ -43,9 +43,8 @@ const checkDelay = (delay: number | undefined): number => {
 
 /**
  * Watches the contract folder tree (docs/v1/contract.md › Contract folder tree) and refreshes the generated files
- * without restarting the app: an add or delete of a contract or `_scope.ts`, or a config change, is debounced into one
- * `refresh()`; a failed scan is reported and the last good output stays. Events on the generated output and outside
- * the tree are ignored, so the watch's own writes never loop.
+ * without a restart: relevant add/delete/config events are debounced into one `refresh()`, and a failed scan keeps the
+ * last good output. Events on the generated output and outside the tree are ignored, so the watch's own writes never loop.
  */
 export class ContractTypeWatch {
   private readonly delay: number;

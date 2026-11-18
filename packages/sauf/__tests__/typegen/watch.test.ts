@@ -208,7 +208,7 @@ describe("ContractTypeWatch", () => {
     expect(errors).toHaveLength(1);
   });
 
-  it("does not scan on a content edit: the generated files import the contract file, so the FE type changes anyway", async () => {
+  it("does not scan on a content edit", async () => {
     const dir = project("content");
     const { api, index } = await opened(dir);
     mkdirSync(join(dir, "fe"), { recursive: true });
@@ -302,7 +302,7 @@ describe("ContractTypeWatch", () => {
     expect(max).toBe(1);
   });
 
-  it("resets the debounce on every event, so a slow burst is one scan", async () => {
+  it("resets the debounce on every event", async () => {
     vi.useFakeTimers();
     try {
       const events = fakeEvents();
