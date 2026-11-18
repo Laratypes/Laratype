@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { createPathClient } from "@laratype/client";
-import type { ClientOptions, FetchLike } from "@laratype/client";
+import type { ClientOptions, FetchLike, PathClientOptions } from "@laratype/client";
 import type { ApiTypes } from "@laratype/contract";
 import type { AppApi } from "./fixtures/.laratype/api/index.gen";
 
@@ -96,7 +96,7 @@ describe("createPathClient", () => {
     const first = fakeFetch();
     const second = fakeFetch();
     const seen: string[] = [];
-    const options: ClientOptions = {
+    const options: PathClientOptions = {
       fetch: first.fetch,
       onRequest: (r) => void seen.push(`> ${r.url}`),
       onResponse: (r) => void seen.push(`< ${r.status}`),
@@ -151,7 +151,10 @@ describe("createPathClient", () => {
   it("takes any 2xx status as the success when its body is JSON, since the route contract is not available at runtime", async () => {
     // users.store declares 201; a 200 is still the success of this type-only client, and its JSON body is the data
     const fetch = vi.fn<FetchLike>(async () => Response.json({ id: 7, title: "T" }, { status: 200 }));
-    const result = await createPathClient<Api>({ fetch }).post("/api/users", { body: { name: "A", email: "a@b.c" } });
+    const result = await createPathClient<Api>({ fetch }).post("/api/users", {
+      body: { name: "A", email: "a@b.c" },
+      headers: { "x-tenant": "t" },
+    });
     expect(result).toMatchObject({ ok: true, status: 200, data: { id: 7, title: "T" } });
   });
 
