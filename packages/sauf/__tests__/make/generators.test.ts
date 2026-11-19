@@ -34,6 +34,8 @@ type RunName =
   | "resource"
   | "nestedResource"
   | "gate"
+  | "gateNamedGate"
+  | "underscoreGate"
   | "nestedGate"
   | "escapeController"
   | "escapeRequest"
@@ -52,7 +54,8 @@ type RunName =
   | "reservedController"
   | "policy"
   | "policyModel"
-  | "policyModelOk";
+  | "policyModelOk"
+  | "policyModelUser";
 
 /** The runs that are expected to fail, so the type-check test does not demand their files. */
 const failingRuns = new Set<RunName>([
@@ -130,6 +133,10 @@ beforeAll(async () => {
     resource: await sauf("make:resource", "Draft", "--collection"),
     nestedResource: await sauf("make:resource", "admin/Note", "--collection"),
     gate: await sauf("make:gate", "UpdateUserGate"),
+    // A file named `Gate` must not shadow the framework class in the usage comment
+    gateNamedGate: await sauf("make:gate", "Gate"),
+    // Underscores are kebab-case in the diagnostic name, while the file and its default import keep the underscore
+    underscoreGate: await sauf("make:gate", "Update_UserGate"),
     // A sub-path and a trailing `.ts`: the import in the usage comment drops the extension and keeps the folders
     nestedGate: await sauf("make:gate", "admin/AdminGate.ts"),
     escapeController: await sauf("make:controller", "../x"),
@@ -152,8 +159,10 @@ beforeAll(async () => {
     policy: await sauf("make:policy", "DraftPolicy"),
     policyModel: await sauf("make:policy", "RejectedPolicy", "-m", "my-note"),
     policyModelOk: await sauf("make:policy", "PostPolicy", "-m", "Post"),
+    // `-m User` reuses the actor's import and must not emit a duplicate parameter
+    policyModelUser: await sauf("make:policy", "UserPolicy", "-m", "User"),
   };
-}, 240_000);
+}, 360_000);
 
 afterAll(() => {
   if (project) rmSync(project, { recursive: true, force: true });
@@ -342,12 +351,14 @@ describe("make generators", () => {
     expect(existsSync(join(project, "src/policies/EscapedPolicy.ts"))).toBe(false);
   }, 120_000);
 
-  it("make:policy -m writes the model import and the camelCase parameter", () => {
+  it("make:policy -m writes the model import and a distinct subject parameter", () => {
     expectOk(runs.policyModelOk);
     const stub = readFileSync(join(project, "src/policies/PostPolicy.ts"), "utf8");
     expect(stub).toContain('import type Post from "../models/Post";');
     expect(stub).toContain("viewAny(user: User)");
-    expect(stub).toContain("update(user: User, post: Post)");
+    // A fixed subject name, so a model called `User` does not collide with the actor (`update(user, user)`)
+    expect(stub).toContain("update(user: User, subject: Post)");
+    expect(stub).not.toContain("post: Post");
     // A v1 policy is a plain class, with no 0.5 base class to extend
     expect(stub).toContain("export default class PostPolicy {");
     expect(stub).not.toContain("extends Policy");
@@ -355,6 +366,15 @@ describe("make generators", () => {
     expect(stub).toContain("export default interface Post extends HasPolicy<PostPolicy> {}");
     expect(stub).toContain("beside its `export default class`");
     expect(stub).not.toContain("`interface Post");
+  });
+
+  it("make:policy -m User reuses the actor import and a distinct subject name", () => {
+    expectOk(runs.policyModelUser);
+    const stub = readFileSync(join(project, "src/policies/UserPolicy.ts"), "utf8");
+    // One `User` import binding, not the actor's plus the model's
+    expect(stub.match(/import type User from "\.\.\/models\/User";/g)).toHaveLength(1);
+    expect(stub).toContain("update(user: User, subject: User)");
+    expect(stub).not.toContain("update(user: User, user: User)");
   });
 
   it("make:policy without -m shows the default-exported interface merge too", () => {
@@ -372,16 +392,38 @@ describe("make generators", () => {
     expect(stub).toContain('export default Gate.define("update-user", (user: User, target: User) => user.id === target.id);');
     expect(stub).not.toContain("extends Gate");
     // The usage example names the imported value, never the kebab name that is only the diagnostic name
-    expect(stub).toContain('`import UpdateUserGate from "../gates/UpdateUserGate"`');
-    expect(stub).toContain("`Gate.allows(user, UpdateUserGate, target)`");
+    expect(stub).toContain('`import gateAbility from "../gates/UpdateUserGate"`');
+    expect(stub).toContain("`Gate.allows(user, gateAbility, target)`");
     expect(stub).not.toContain("Gate.allows(user, update-user,");
+    // The generated value is a default export, so a distinct local name keeps `Gate` for the framework class
+    expect(stub).not.toContain("import UpdateUserGate from");
+  });
+
+  it("make:gate Gate keeps a distinct import name for the generated value", () => {
+    expectOk(runs.gateNamedGate);
+    const stub = readFileSync(join(project, "src/gates/Gate.ts"), "utf8");
+    expect(stub).toContain('import { Gate } from "@laratype/auth";');
+    expect(stub).toContain('export default Gate.define("gate",');
+    expect(stub).toContain('`import gateAbility from "../gates/Gate"`');
+    expect(stub).toContain("`Gate.allows(user, gateAbility, target)`");
+    // One `Gate` binding: the framework class is not shadowed by the generated value
+    expect(stub).not.toContain("import Gate from");
+    expect(stub).not.toContain("`import Gate from");
+  });
+
+  it("make:gate keeps an underscore file name and kebab-cases the gate name", () => {
+    expectOk(runs.underscoreGate);
+    const stub = readFileSync(join(project, "src/gates/Update_UserGate.ts"), "utf8");
+    expect(stub).toContain('`import gateAbility from "../gates/Update_UserGate"`');
+    expect(stub).toContain('export default Gate.define("update-user",');
+    expect(stub).toContain('`Gate.allows(user, gateAbility, target)`');
   });
 
   it("make:gate keeps a sub-path and drops a trailing .ts in the usage comment", () => {
     expectOk(runs.nestedGate);
     const stub = readFileSync(join(project, "src/gates/admin/AdminGate.ts"), "utf8");
-    expect(stub).toContain('`import AdminGate from "../gates/admin/AdminGate"`');
-    expect(stub).toContain("`Gate.allows(user, AdminGate, target)`");
+    expect(stub).toContain('`import gateAbility from "../gates/admin/AdminGate"`');
+    expect(stub).toContain("`Gate.allows(user, gateAbility, target)`");
     expect(stub).toContain('export default Gate.define("admin",');
     expect(stub).not.toContain("AdminGate.ts\"`");
   });
@@ -423,10 +465,13 @@ describe("make generators", () => {
       // A sub-path is a folder, never part of an exported name
       "app/http/resources/admin/NoteResource.ts",
       "app/http/resources/admin/NoteResourceCollection.ts",
-      // The v1 policy and gate stubs (A3 #121), both policy setup branches
+      // The v1 policy and gate stubs (A3 #121), both policy setup branches, `-m User`, and every gate name case
       "src/policies/PostPolicy.ts",
       "src/policies/DraftPolicy.ts",
+      "src/policies/UserPolicy.ts",
       "src/gates/UpdateUserGate.ts",
+      "src/gates/Gate.ts",
+      "src/gates/Update_UserGate.ts",
     ].map((path) => join(project, path));
     for (const file of generated) expect(existsSync(file), file).toBe(true);
 
