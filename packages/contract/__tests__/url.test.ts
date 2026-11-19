@@ -192,6 +192,10 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{.+/.+(?=/raw)}/:x/raw', { params: { file: 'a/b', x: 1 } })).toBe(
       '/files/a%2Fb/1/raw',
     )
+    // a wildcard right after the param is no static context either: buildUrl refuses the "*" segment as usual
+    expect(() => buildUrl('/files/:file{.+/.+}/*', { params: { file: 'a/b' } })).toThrow(/has a "\*" segment/)
+    // a static segment is literal in the pattern's context, even when it holds a regex metacharacter
+    expect(buildUrl('/files/:file{.+/.+}/a|b', { params: { file: 'a/b' } })).toBe('/files/a/b/a|b')
   })
 
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {

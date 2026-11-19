@@ -81,6 +81,8 @@ describe('buildUrl', () => {
     const filters: Filters = { on: true, at: new Date() }
     expectTypeOf(buildUrl('/users', { query: search })).toEqualTypeOf<string>()
     expectTypeOf(buildUrl('/users', { query: filters })).toEqualTypeOf<string>()
+    // an explicit `query: undefined` is the same as omitting it
+    expectTypeOf(buildUrl('/users', { query: undefined })).toEqualTypeOf<string>()
     // an optional field absent is still a flat query
     expectTypeOf(buildUrl('/users', { query: { page: 1 } satisfies SearchQuery })).toEqualTypeOf<string>()
     // @ts-expect-error an array is not a query object
