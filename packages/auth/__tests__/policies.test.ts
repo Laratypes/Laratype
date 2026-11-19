@@ -5,8 +5,7 @@ import { Container, Facade, __laratype_deps, depsRegistry } from '@laratype/core
 import { errors } from '@laratype/contract'
 import { Model } from '@laratype/database'
 import { ContextApi, InternalException } from '@laratype/support'
-import { ForbiddenException, Gate, GateManager, policyAllows, policyAuthorize, policyCheck } from '../src'
-import { Authenticated } from '../src/verifications/AuthVerification'
+import { Authenticated, ForbiddenException, Gate, GateManager, policyAllows, policyAuthorize, policyCheck } from '../src'
 import type { GateAbility, HasPolicy } from '../src'
 
 class User extends Model {
@@ -148,19 +147,24 @@ describe('Gate.allows: policies', () => {
   it('lets before allow, deny or fall through, receiving the user, the ability and the subject', async () => {
     const answers: unknown[] = [true, false, null]
     const seen: unknown[][] = []
+    const updateCalls: unknown[][] = []
     class BeforePolicy {
       before(...args: unknown[]) {
         seen.push(args)
         return answers.shift() ?? null
       }
-      update() {
+      update(...args: unknown[]) {
+        updateCalls.push(args)
         return true
       }
     }
     Gate.policy(PostModel, BeforePolicy)
+    // A boolean before short-circuits: the ability runs only for the third check, where before() answers null (#394)
     expect(await allows(user, 'update', post)).toBe(true)
     expect(await allows(user, 'update', post)).toBe(false)
+    expect(updateCalls).toEqual([])
     expect(await allows(user, 'update', post)).toBe(true)
+    expect(updateCalls).toEqual([[user, post]])
     expect(seen[0]).toEqual([user, 'update', post])
   })
 
@@ -193,6 +197,29 @@ describe('Gate.allows: policies', () => {
     expect(await allows(user, 'update', post)).toBe(true)
     await expect(allows(user, 'update', new AdminPost())).rejects.toThrow(
       'no policy is defined for AdminPost',
+    )
+  })
+
+  it('reads the class from the prototype, never an own constructor field (#394)', async () => {
+    const { Policy, calls } = policyWith(() => true)
+    Gate.policy(PostModel, Policy)
+    class OtherPost extends Model {}
+    // Another model's policy that denies: reading the own field would take this answer instead
+    class OtherPolicy {
+      update() {
+        return false
+      }
+    }
+    Gate.policy(OtherPost, OtherPolicy)
+    const spoofed = Object.assign(new PostModel(), { id: 7, userId: 1, constructor: OtherPost })
+    expect(spoofed.constructor).toBe(OtherPost)
+    expect(await allows(user, 'update', spoofed)).toBe(true)
+    expect(calls).toEqual([[user, spoofed]])
+
+    // The missing-policy diagnostic names the prototype's class too, not the own field's
+    const spoofedComment = Object.assign(new Comment(), { constructor: PostModel })
+    await expect(allows(user, 'update', spoofedComment)).rejects.toThrow(
+      '[@laratype/auth] Gate.allows: no policy is defined for Comment.',
     )
   })
 
@@ -291,9 +318,20 @@ describe('Gate.policy: registration', () => {
   })
 
   it('keeps a registry per container, bound on first use', () => {
-    expect(GateManager.current()).toBe(GateManager.current())
+    const { Policy } = policyWith(() => true)
+    Gate.policy(PostModel, Policy)
+    const appManager = GateManager.current()
+    expect(GateManager.current()).toBe(appManager)
+    expect(appManager.policyFor(post)).toBe(Policy)
+
+    // `current()` follows the facade application: another container gets its own singleton, with none of app's policies
     const other = new Container()
-    expect(other.make(GateManager)).not.toBe(GateManager.current())
+    Facade.setFacadeApplication(other)
+    const otherManager = GateManager.current()
+    expect(GateManager.current()).toBe(otherManager)
+    expect(otherManager).not.toBe(appManager)
+    expect(otherManager.policyFor(post)).toBeUndefined()
+    expect(appManager.policyFor(post)).toBe(Policy)
   })
 })
 
@@ -416,6 +454,24 @@ describe('hand-built gates: exact true (#394)', () => {
     expect(await Gate.allows(user, handBuilt(thenable(1)))).toBe(false)
     expect(await Gate.denies(user, handBuilt(thenable(1)))).toBe(true)
     expect(await Gate.allows(user, handBuilt(thenable(true)))).toBe(true)
+  })
+
+  it('reads check once and calls that function with the gate as its receiver (#394)', async () => {
+    let reads = 0
+    let receiver: unknown
+    // The first read passes validation and must be the call; the second would deny
+    const getterGate = {
+      get check() {
+        reads++
+        return function (this: unknown) {
+          receiver = this
+          return reads === 1
+        }
+      },
+    }
+    expect(await Gate.allows(user, getterGate as never)).toBe(true)
+    expect(reads).toBe(1)
+    expect(receiver).toBe(getterGate)
   })
 
   it('reads check from a prototype, a non-enumerable own property or an accessor, and still allows only true', async () => {

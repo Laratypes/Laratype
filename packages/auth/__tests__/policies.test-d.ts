@@ -1,9 +1,19 @@
 // Type tests for typed policies and gates (A3 #121): run by `bunx vitest run --project types`.
 import { describe, expectTypeOf, test } from "vitest";
 import { Model } from "@laratype/database";
-import { ForbiddenException, Gate, policyAllows, policyAuthorize, policyCheck } from "../src";
-import { Authenticated } from "../src/verifications/AuthVerification";
-import type { GateAbility, HasPolicy, ModelPolicy, PolicyAbility, PolicyArgs, PolicyBrand, SubjectAbility, SubjectArgs } from "../src";
+import { Authenticated, ForbiddenException, Gate, policyAllows, policyAuthorize, policyCheck } from "../src";
+import type {
+  GateAbility,
+  HasPolicy,
+  ModelPolicy,
+  PolicyAbility,
+  PolicyArgs,
+  PolicyBrand,
+  PolicySubject,
+  SubjectAbility,
+  SubjectArgs,
+  SubjectParam,
+} from "../src";
 
 class User extends Model {
   email!: string
@@ -70,10 +80,17 @@ describe("policies: abilities and arguments (A3 #121)", () => {
     expectTypeOf<PolicyAbility<PostPolicy>>().toEqualTypeOf<"viewAny" | "update" | "delete">();
     expectTypeOf<PolicyArgs<PostPolicy, "update">>().toEqualTypeOf<[]>();
     expectTypeOf<PolicyArgs<SharingPolicy, "share">>().toEqualTypeOf<[target: User]>();
+    expectTypeOf<PolicySubject<PostPolicy, "update">>().toEqualTypeOf<Post>();
+    expectTypeOf<PolicySubject<PostPolicy, "viewAny">>().toEqualTypeOf<never>();
+    expectTypeOf<PolicySubject<SharingPolicy, "share">>().toEqualTypeOf<SharingPost>();
     expectTypeOf<SubjectAbility<Post>>().toEqualTypeOf<"viewAny" | "update" | "delete">();
     expectTypeOf<SubjectAbility<PlainModel>>().toEqualTypeOf<string>();
     expectTypeOf<SubjectArgs<Post, "delete">>().toEqualTypeOf<[]>();
     expectTypeOf<SubjectArgs<PlainModel, "anything">>().toEqualTypeOf<unknown[]>();
+    // The subject parameter constrains the instance, but a class stays valid for an ability with no subject
+    expectTypeOf<SubjectParam<Post, "update">>().toEqualTypeOf<Post>();
+    expectTypeOf<SubjectParam<Post, "viewAny">>().toEqualTypeOf<unknown>();
+    expectTypeOf<SubjectParam<PlainModel, "anything">>().toEqualTypeOf<unknown>();
   });
 
   test("Gate.allows, denies and authorize are typed by the subject's policy", () => {
@@ -108,10 +125,14 @@ describe("policies: abilities and arguments (A3 #121)", () => {
       Gate.allows(user, "update", post, 1);
       // @ts-expect-error a subject with no declared policy
       Gate.allows(user, "update", new PlainModel());
+      // @ts-expect-error update(user, post) needs a Post instance, not the model class
+      Gate.allows(user, "update", PostClass);
       // @ts-expect-error a model with another policy: the brand must match
       Gate.policy(PostClass, OtherPolicy);
       // @ts-expect-error an ability the policy does not have
       authenticated.can("nope", post);
+      // @ts-expect-error update(user, post) needs a Post instance here too
+      authenticated.can("update", PostClass);
     });
   });
 });
