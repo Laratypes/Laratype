@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "async_hooks";
+import { peekAppContainer } from "@laratype/core";
 import type { Request } from "@laratype/http"; 
 
 export default class ContextApi {
@@ -37,9 +38,13 @@ export default class ContextApi {
     return this.getRequestStore().getStore()?.modelBindings ?? {};
   }
 
-  /** The request scope of the app container for the current request (D6 #112), set by `RequestKernel` (undefined outside a booted app). */
+  /**
+   * The request scope of the app container for the current request (D6 #112), set by `RequestKernel`; outside a request,
+   * the app container or the shared fallback (D11 #318), so a facade and a controller-side lookup agree there.
+   */
   static getContainer() {
-    return this.getRequestStore().getStore()?.container;
+    const store = this.getRequestStore().getStore();
+    return store ? store.container : peekAppContainer();
   }
 
   static setRequest(request: Request) {

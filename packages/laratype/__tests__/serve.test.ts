@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { __laratype_deps, Container, Facade } from "@laratype/core";
-import { AppServiceProvider, ServiceProvider } from "@laratype/support";
+import { __laratype_deps, Container, depsRegistry, Facade } from "@laratype/core";
+import { AppServiceProvider, bootProviders, ContextApi, Hash, Hasher, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
 
 class Clock {}
@@ -10,6 +10,13 @@ class Greeter {
 }
 // What the `laratype:di` transform emits after the class.
 __laratype_deps(Greeter, [() => Clock], { params: ["clock"] });
+
+/** A Hasher whose make() is replaced, for the facade tests. */
+class Fixed extends Hasher {
+  override make() {
+    return "fixed";
+  }
+}
 
 describe("Serve.getContainer", () => {
   afterEach(() => Serve.down());
@@ -90,5 +97,66 @@ describe("Serve.stop", () => {
 
   it("reports several failures together", async () => {
     await expect(Serve.stop([() => { throw new Error("x"); }, () => { throw new Error("y"); }])).rejects.toBeInstanceOf(AggregateError);
+  });
+});
+
+describe("facade application (D11 #318)", () => {
+  afterEach(() => {
+    Serve.down();
+    Facade.setFacadeApplication(undefined);
+  });
+
+  it("getContainer() re-sets the facade application on every call, so provider bindings still apply after a clear", () => {
+    const container = Serve.getContainer().bind(Hasher, Fixed);
+    // A test afterEach of another suite cleared it while Serve's container lives
+    Facade.setFacadeApplication(undefined);
+    expect(Serve.getContainer()).toBe(container);
+    expect(Facade.getFacadeApplication()).toBe(container);
+    expect(Hash.make("secret")).toBe("fixed");
+  });
+
+  it("a Hash.fake() made before bootProvider() survives the boot", async () => {
+    const fake = new Fixed();
+    const restore = Hash.fake(fake);
+    await Serve.bootProvider([ServiceProvider]);
+    expect(Serve.getContainer().make(Hasher)).toBe(fake);
+    expect(Hash.make("secret")).toBe("fixed");
+    restore();
+    // The undo carried into the app container removes the fake there too
+    expect(Hash.make("secret")).not.toBe("fixed");
+  });
+
+  it("carries a fake into an app container a bare bootProviders() sets", async () => {
+    const app = new Container({ deps: depsRegistry });
+    const fake = new Fixed();
+    Hash.fake(fake);
+    const downs = await bootProviders(app, [ServiceProvider]);
+    expect(app.make(Hasher)).toBe(fake);
+    for (const down of downs) await down();
+    // The bare boot keeps the facade application after a success, as before
+    expect(Facade.getFacadeApplication()).toBe(app);
+  });
+
+  it("concurrent boots share one container and one facade application", async () => {
+    const [first, second] = await Promise.all([
+      Serve.bootProvider([ServiceProvider]),
+      Serve.bootProvider([ServiceProvider]),
+    ]);
+    const container = Serve.getContainer();
+    expect(Facade.getFacadeApplication()).toBe(container);
+    expect(ContextApi.getContainer()).toBe(container);
+    for (const down of [...first, ...second]) await down();
+  });
+
+  it("ContextApi.getContainer() is the Serve container outside a request, and the facade sees a binding made there", () => {
+    const container = Serve.getContainer();
+    expect(ContextApi.getContainer()).toBe(container);
+    const other = new Fixed();
+    ContextApi.getContainer()!.instance(Hasher, other);
+    expect(Hash.make("secret")).toBe("fixed");
+    const fake = new Fixed();
+    const restore = Hash.fake(fake);
+    expect(ContextApi.getContainer()!.make(Hasher)).toBe(fake);
+    restore();
   });
 });

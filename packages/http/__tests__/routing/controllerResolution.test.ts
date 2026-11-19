@@ -109,11 +109,11 @@ describe('controller resolution', () => {
     expect(scope).toBeInstanceOf(Container)
     expect(scope).not.toBe(container)
     expect(greeter).toBe(container.make(Greeter))
-    // outside a request, and on a bare app: one autowire-only container, created once
-    expect(ContextApi.getContainer()).toBeUndefined()
-    const fallback = RequestKernel.container()
+    // outside a request, and on a bare app: the shared app-container lookup, created once (D11 #318)
+    const fallback = ContextApi.getContainer()
     expect(fallback).toBeInstanceOf(Container)
     expect(fallback).not.toBe(container)
+    expect(ContextApi.getContainer()).toBe(fallback)
     expect(RequestKernel.container()).toBe(fallback)
   })
 

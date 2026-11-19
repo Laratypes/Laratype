@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { Container, depsRegistry, Facade } from "@laratype/core";
+import { Container, depsRegistry, Facade, peekAppContainer } from "@laratype/core";
 import { bootProviders, HTTP_APP } from "@laratype/support";
 import type { ServiceProvider } from "@laratype/support";
 import { register } from "./bootstrap";
@@ -19,13 +19,16 @@ export default class Serve {
     return this.instance
   }
 
-  /** The application container, with the Hono instance bound. Facades resolve from it. */
+  /**
+   * The application container, with the Hono instance bound. Every call sets it as the facade application, so one
+   * cleared while the container lives (a test `afterEach`) is already back for the next facade call.
+   */
   public static getContainer() {
     if(!this.container) {
       this.container = new Container({ deps: depsRegistry });
       this.container.instance(HTTP_APP, this.getInstance());
-      Facade.setFacadeApplication(this.container);
     }
+    Facade.setFacadeApplication(this.container);
     return this.container
   }
 
@@ -64,7 +67,8 @@ export default class Serve {
   }
 
   public static down() {
-    if(this.container && Facade.getFacadeApplication() === this.container) Facade.setFacadeApplication(undefined);
+    // peek, not get: down() must not allocate a fallback just to compare
+    if(this.container && peekAppContainer() === this.container) Facade.setFacadeApplication(undefined);
     this.instance = null;
     this.container = null;
   }

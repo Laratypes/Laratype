@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { Container, DiError, Facade, token } from '@laratype/core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { appContainer, Container, DiError, Facade, peekAppContainer, token } from '@laratype/core'
 
 abstract class Greeter {
   abstract greet(name: string): string
@@ -170,5 +170,119 @@ describe('Facade', () => {
   it('throws on a facade without an accessor', () => {
     class Broken extends Facade {}
     expect(() => Broken.fake({})).toThrow('Facade Broken has no accessor.')
+  })
+})
+
+describe('appContainer', () => {
+  const FALLBACK_WARNED = Symbol.for('laratype.di.fallbackWarned')
+
+  afterEach(() => {
+    Facade.setFacadeApplication(undefined)
+    delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED]
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the container set by setFacadeApplication(), and peek() never allocates a fallback', () => {
+    expect(peekAppContainer()).toBeUndefined()
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(appContainer()).toBe(app)
+    expect(peekAppContainer()).toBe(app)
+    expect(Facade.getFacadeApplication()).toBe(app)
+  })
+
+  it('creates one shared fallback on first use and warns once in dev', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('__PROD__', false)
+    const fallback = appContainer()
+    expect(fallback).toBeInstanceOf(Container)
+    expect(peekAppContainer()).toBe(fallback)
+    expect(appContainer()).toBe(fallback)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]![0]).toContain('No app container')
+  })
+
+  it('does not warn in production', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('__PROD__', true)
+    appContainer()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('treats null and undefined as unset', () => {
+    Facade.setFacadeApplication(new Container())
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    Facade.setFacadeApplication(null as unknown as undefined)
+    expect(Facade.hasFacadeApplication()).toBe(false)
+    expect(peekAppContainer()).toBeUndefined()
+    Facade.setFacadeApplication(undefined)
+    expect(Facade.hasFacadeApplication()).toBe(false)
+  })
+
+  it('does not validate or read the container it is given: a wrong object fails on use, not on set', () => {
+    const wrong = {} as Container
+    Facade.setFacadeApplication(wrong)
+    expect(peekAppContainer()).toBe(wrong)
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    expect(() => Count.fake(new Counter())).toThrow(TypeError)
+  })
+
+  it('sets a proxy container without reading it, so a throwing get trap is never hit', () => {
+    const proxy = new Proxy({}, { get: () => { throw new Error('the container was read') } }) as unknown as Container
+    Facade.setFacadeApplication(proxy)
+    expect(peekAppContainer()).toBe(proxy)
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    expect(appContainer()).toBe(proxy)
+  })
+
+  it('keeps one app or one fallback across repeated set/clear calls', () => {
+    vi.stubGlobal('__PROD__', true)
+    const first = appContainer()
+    Facade.setFacadeApplication(new Container())
+    Facade.setFacadeApplication(undefined)
+    expect(peekAppContainer()).toBeUndefined()
+    const second = appContainer()
+    expect(second).not.toBe(first)
+    expect(appContainer()).toBe(second)
+  })
+})
+
+describe('setFacadeApplication() carry-over', () => {
+  afterEach(() => {
+    Facade.setFacadeApplication(undefined)
+    vi.unstubAllGlobals()
+  })
+
+  it('carries a swap made in the fallback into the app container', () => {
+    vi.stubGlobal('__PROD__', true)
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(app.make(Counter).next()).toBe(10)
+    expect(Count.next()).toBe(11)
+    restore()
+    // the undo carried with the swap removes the app container's instance too
+    expect(app.has(Counter)).toBe(false)
+    expect(Count.next()).toBe(1)
+  })
+
+  it('does not carry a swap restored before the app container is set', () => {
+    vi.stubGlobal('__PROD__', true)
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    restore()
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(app.has(Counter)).toBe(false)
+    expect(Count.next()).toBe(1)
+  })
+
+  it('keeps the app container binding over a fallback swap', () => {
+    vi.stubGlobal('__PROD__', true)
+    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const bound = new Counter()
+    const app = new Container().instance(Counter, bound)
+    Facade.setFacadeApplication(app)
+    expect(app.make(Counter)).toBe(bound)
   })
 })
