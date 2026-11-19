@@ -7,13 +7,11 @@ import ResponseSupport from "../supports/Response";
 import JsonResource from "../resource/json/JsonResource";
 import ResponseKernel from "./Response";
 import { isBodyHeader } from "./bodyHeaders";
+import { isProduction } from "../supports/runtime";
 
 const fail = (route: string, message: string): never => {
   throw new Error(`[@laratype/http] ${route}: ${message}`);
 };
-
-/** Dev and test: the output check runs unless the app is a production build (`__PROD__`) or `NODE_ENV=production`. */
-const isProduction = () => globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
 
 /** The JSON text sent for a value: `JSON.stringify` gives none for `undefined` (or a function), which is sent as `null`. */
 const serialize = (value: unknown): string => JSON.stringify(value) ?? "null";
