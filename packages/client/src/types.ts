@@ -344,7 +344,8 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    * `client.md` › Dev-mode response validation). Default: off.
    *
    * This is a development switch: wire it to the bundler's dev flag, so a production build never runs it, e.g.
-   * `createClient(appApi, { validateResponses: import.meta.env.DEV })` (Vite) or `NODE_ENV !== "production"` on SSR.
+   * `createClient(appApi, { validateResponses: import.meta.env.DEV })` (Vite) or `process.env.NODE_ENV !== "production"`
+   * on SSR.
    * The client can't detect dev itself: `process` does not exist in a browser bundle, `import.meta.env` is
    * bundler-specific, and the package also builds for Node (CJS and ESM).
    *
