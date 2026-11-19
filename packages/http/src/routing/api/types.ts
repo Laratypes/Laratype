@@ -114,17 +114,31 @@ export type AdHocMethod = "get" | "post" | "put" | "patch" | "delete";
 /**
  * `r.get('/health', () => 'ok')`: a route without a contract (docs/v1/http.md › Ad-hoc routes). Its params come from
  * the path and `R` from what the handler returns; it has no schema, so it is not in OpenAPI or the generated types.
+ * `N` is the name `.name()` gave it, `undefined` until then (H13 #162): `route('health')` builds its URL.
  */
-export interface MountedRoute<M extends AdHocMethod = AdHocMethod, P extends string = string, R = unknown> {
+export interface MountedRoute<
+  M extends AdHocMethod = AdHocMethod,
+  P extends string = string,
+  R = unknown,
+  N extends string | undefined = undefined,
+> {
   readonly kind: "route";
   readonly method: M;
   readonly path: P;
   /** Runs as a controller method does: the request, then the raw path params. */
   handler(req: Request, params: PathParams<P>): R | Promise<R>;
   readonly middleware: readonly MiddlewareItem[];
+  /** The name `.name()` gave it, or `undefined`; the registry entry's `name` reads it. */
+  readonly routeName: N;
+  /**
+   * Names the route for `route()` (H13 #162): a new frozen route with the name, never this one. The name is a
+   * non-empty string, and only one route in the process may have it.
+   */
+  name<const Name extends string>(name: Name): MountedRoute<M, P, R, Name>;
 }
 
-export type ApiRouteItem = MountedContract<object> | MountedScope | MountedRoute;
+/** An item of the routes callback: a mounted contract, a scope policy, or an ad-hoc route (named or not). */
+export type ApiRouteItem = MountedContract<object> | MountedScope | MountedRoute<any, any, any, any>;
 
 /** `r.get(path, handler)`, and the other methods: the path starts with `/` and is served as written. */
 export type AdHocRouteMethod<M extends AdHocMethod> = <const P extends `/${string}`, R>(
@@ -298,11 +312,11 @@ export interface RouteEntry extends ApiRoute {
   readonly domain: string | undefined;
 }
 
-/** The registry entry of an ad-hoc route. It has no name (`.name()` is H13 #162), contract or controller. */
+/** The registry entry of an ad-hoc route. It has no contract or controller; `.name()` gives it a name (H13 #162). */
 export interface AdHocRouteEntry {
   readonly method: AdHocMethod;
   readonly path: string;
-  readonly name: undefined;
+  readonly name: string | undefined;
   readonly controller: undefined;
   readonly handler: MountedRoute["handler"];
   readonly middleware: readonly MiddlewareItem[];

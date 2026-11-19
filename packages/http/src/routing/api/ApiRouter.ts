@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { UNENFORCED_NOTICE } from "./types";
 import { throttled } from "./throttle";
+import { registerRoutes } from "../routeUrl";
 
 const fail = (message: string): never => {
   throw new Error(`[@laratype/http] Route.api: ${message}`);
@@ -77,11 +78,26 @@ class RouteBuilder {
   patch(path: string, handler: MountedRoute["handler"]) { return this.route("patch", path, handler); }
   delete(path: string, handler: MountedRoute["handler"]) { return this.route("delete", path, handler); }
 
-  /** An ad-hoc route (H12 #139): served at `path` as written, with no contract. */
-  private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"]): MountedRoute {
+  /** An ad-hoc route (H12 #139): served at `path` as written, with no contract. `.name()` names it for route() (H13). */
+  private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"], routeName?: string): MountedRoute {
     if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}('${String(path)}'): the path must start with "/"`);
     if (typeof handler !== "function") fail(`r.${method}('${path}') needs a handler function`);
-    return Object.freeze({ kind: "route", method, path, handler, middleware: this.stack });
+    const route = {
+      kind: "route" as const,
+      method,
+      path,
+      handler,
+      middleware: this.stack,
+      routeName,
+      // A new frozen route: naming one never changes a route another list already holds
+      name: (next: string) => {
+        if (typeof next !== "string" || next.trim() === "") {
+          throw new TypeError(`[@laratype/http] Route.api: r.${method}('${path}').name() needs a name, a non-empty string`);
+        }
+        return this.route(method, path, handler, next);
+      },
+    };
+    return Object.freeze(route) as unknown as MountedRoute;
   }
 }
 
@@ -306,12 +322,13 @@ const checkAdHocPaths = (routes: readonly RouteEntry[], adHoc: readonly AdHocRou
   }
 };
 
-/** The registry entry of `r.get(path, handler)`: no name, contract or controller, and no capabilities to enforce. */
+/** The registry entry of `r.get(path, handler)`: no contract or controller, and no capabilities to enforce. */
 const adHocEntry = (item: MountedRoute): AdHocRouteEntry =>
   Object.freeze({
     method: item.method,
     path: item.path,
-    name: undefined,
+    // `.name()` stores the name on the value (H13 #162); the entry has it for route() and `sauf route:list`
+    name: (item as { readonly routeName?: string }).routeName,
     controller: undefined,
     handler: item.handler,
     middleware: Object.freeze([...new Set(item.middleware)]),
@@ -487,13 +504,21 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     name: route.name,
     modelBinding: false,
     endpoint: route.endpoint,
+    // The route's declared errors, derived ones included: the dev/test undeclared-error check reads them (X3 #157)
+    errors: route.errors,
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...route.middleware],
   };
 };
 
-/** The routes of one `Route.api(...)`, checked and ready to mount. */
-export class ApiRoutes {
+/**
+ * The routes of one `Route.api(...)`, checked and ready to mount. `A` is the API tree it was mounted for and `M` the
+ * items of its callback: they are a phantom, so `Register.routes` (H13 #162) types `route()` without putting server
+ * values in the FE or the registry.
+ */
+export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly ApiRouteItem[]> {
+  /** @internal Phantom: the API tree and the mounted items, read by `RouteName` / `RouteParamsOf`. */
+  declare readonly __type: { readonly api: A; readonly items: M };
   /** One entry per contract route, depth-first in tree order. */
   public readonly routes: readonly RouteEntry[];
   /** The ad-hoc routes (`r.get()`, ...), in callback order. They have no contract, so they are not in `routes`. */
@@ -506,9 +531,9 @@ export class ApiRoutes {
   }
 
   /** Serves these routes on `domain` only (the request port is ignored). Other hosts fall through to the next route. */
-  domain(domain: string): ApiRoutes {
+  domain(domain: string): ApiRoutes<A, M> {
     const host = checkDomain(domain);
-    return new ApiRoutes(
+    return new ApiRoutes<A, M>(
       this.routes.map((route) => Object.freeze({ ...route, domain: host })),
       this.adHoc.map((route) => Object.freeze({ ...route, domain: host })),
     );
@@ -537,14 +562,15 @@ export class ApiRoutes {
 /**
  * `Route.api(appApi, (r) => [...])` (docs/v1/http.md › Router v2): mounts the contracts of the folder tree.
  * Their URLs come from the tree, so there is no route prefix. A missing or duplicate contract, and a scope with
- * `authorize` and no policy, are compile errors and runtime errors.
+ * `authorize` and no policy, are compile errors and runtime errors. The mounted names are registered for `route()`.
  */
 export function api<A extends { readonly [API_ROOT]: true }, const M extends readonly ApiRouteItem[]>(
   appApi: A,
   routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>,
-): ApiRoutes {
+): ApiRoutes<A, M> {
   if (typeof routes !== "function") fail("expected a routes callback: Route.api(appApi, (r) => [...])");
   const entries = treeEntries(appApi);
   const { routes: planned, adHoc } = plan(appApi, entries, routes(new RouteBuilder([], entries) as unknown as ApiRouteBuilder<A>));
-  return new ApiRoutes(planned, adHoc);
+  registerRoutes([...planned, ...adHoc]);
+  return new ApiRoutes<A, M>(planned, adHoc);
 }
