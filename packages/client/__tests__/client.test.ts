@@ -998,7 +998,7 @@ describe('createClient(manifest), the separate-repo FE', () => {
       },
     }
     type Calls = { a: { b: () => Promise<{ ok: boolean; code?: string; unexpected?: boolean; status: number }> } }
-    const api = (status: number) => createClient(two, { fetch: json({ code: 'MISSING' }, status) }) as never as Calls;
+    const api = (status: number) => createClient(two, { fetch: json({ code: 'MISSING' }, status) }) as never as Calls
     expect(await api(404).a.b()).toMatchObject({ ok: false, code: 'MISSING', status: 404 })
     expect(await api(410).a.b()).toMatchObject({ ok: false, code: 'MISSING', status: 410 })
     expect(await api(400).a.b()).toMatchObject({ ok: false, unexpected: true })
@@ -1031,11 +1031,11 @@ describe('createClient(manifest), the separate-repo FE', () => {
     const cases: Array<[unknown, TypeError]> = [
       [{ ...route, method: 'fetch' }, message('the method must be one of get, post, put, patch, delete, got "fetch"')],
       [{ ...route, method: 42 }, message('the method must be one of get, post, put, patch, delete, got 42')],
-      [{ ...route, path: 'x' }, message('the path must start with one "/", got "x"')],
-      [{ ...route, path: '' }, message('the path must start with one "/", got ""')],
-      [{ ...route, path: '//evil.com/x' }, message('the path must start with one "/", got "//evil.com/x"')],
-      [{ ...route, path: '/\\evil.com/x' }, message('the path must start with one "/", got "/\\\\evil.com/x"')],
-      [{ ...route, path: '/\t/evil.com/x' }, message('the path must not contain control characters, got "/\\t/evil.com/x"')],
+      [{ ...route, path: 'x' }, message('the path must start with one "/" and must not contain control characters, got "x"')],
+      [{ ...route, path: '' }, message('the path must start with one "/" and must not contain control characters, got ""')],
+      [{ ...route, path: '//evil.com/x' }, message('the path must start with one "/" and must not contain control characters, got "//evil.com/x"')],
+      [{ ...route, path: '/\\evil.com/x' }, message('the path must start with one "/" and must not contain control characters, got "/\\\\evil.com/x"')],
+      [{ ...route, path: '/\t/evil.com/x' }, message('the path must start with one "/" and must not contain control characters, got "/\\t/evil.com/x"')],
       [{ ...route, status: 99 }, message('the status must be an integer from 100 to 599, got 99')],
       [{ ...route, status: 600 }, message('the status must be an integer from 100 to 599, got 600')],
       [{ ...route, status: 404 }, message('the status must be a 2xx success status (200-299), got 404')],
@@ -1046,6 +1046,11 @@ describe('createClient(manifest), the separate-repo FE', () => {
       [{ ...route, status: 204, response: true }, message('a 204 or 205 has no body; response must be false')],
     ]
     for (const [value, error] of cases) expect(() => createClient({ 'a.b': value } as never)).toThrow(error)
+    // a route with neither field, or not an object at all, is still named instead of the generic "expected ..." error
+    expect(() => createClient({ 'a.b': {} } as never)).toThrow(
+      message('the method must be one of get, post, put, patch, delete, got undefined'),
+    )
+    expect(() => createClient({ 'a.b': null } as never)).toThrow(message('a route must be a plain object, got null'))
   })
 
   it('checks the manifest errors at createClient: an array of codes or { status, code } entries', () => {
@@ -1086,8 +1091,8 @@ describe('createClient(manifest), the separate-repo FE', () => {
       '[@laratype/client] createClient: the manifest must be a plain object, got a non-plain object',
     )
     class Route {
-      method = 'get';
-      path = '/x';
+      method = 'get'
+      path = '/x'
     }
     expect(() => createClient({ 'a.b': new Route() } as never)).toThrow(
       '[@laratype/client] createClient: "a.b": a route must be a plain object, got an instance of Route',
@@ -1118,53 +1123,53 @@ describe('createClient(manifest), the separate-repo FE', () => {
     let reads = 0
     const getter = {
       get method() {
-        reads++;
-        return reads === 1 ? 'get' : 'post';
+        reads++
+        return reads === 1 ? 'get' : 'post'
       },
       path: '/api/x',
     }
-    const first = createClient({ 'a.b': getter }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } };
-    expect(reads).toBe(1);
-    await first.a.b();
+    const first = createClient({ 'a.b': getter }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } }
+    expect(reads).toBe(1)
+    await first.a.b()
 
-    let methodReads = 0;
+    let methodReads = 0
     const proxy = new Proxy(
-      { path: '/api/y' },
+      { method: 'get', path: '/api/y' },
       {
         get(target, key, receiver) {
-          if (key === 'method') return ['get', 'post', 'delete'][methodReads++] ?? 'delete';
-          return Reflect.get(target, key, receiver) as unknown;
+          if (key === 'method') return ['get', 'post', 'delete'][methodReads++] ?? 'delete'
+          return Reflect.get(target, key, receiver) as unknown
         },
       },
-    );
-    const second = createClient({ 'a.b': proxy }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } };
-    expect(methodReads).toBe(1);
-    await second.a.b();
+    )
+    const second = createClient({ 'a.b': proxy }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } }
+    expect(methodReads).toBe(1)
+    await second.a.b()
   })
 
   it('never echoes a long or non-finite value raw', () => {
-    const long = 'x'.repeat(10_000);
-    let error = '';
+    const long = 'x'.repeat(10_000)
+    let error = ''
     try {
-      createClient({ 'a.b': { method: 'get', path: long } } as never);
+      createClient({ 'a.b': { method: 'get', path: long } } as never)
     } catch (e) {
-      error = (e as Error).message;
+      error = (e as Error).message
     }
-    expect(error).toContain('the path must start with one "/"');
-    expect(error).not.toContain(long);
-    expect(error.length).toBeLessThan(300);
+    expect(error).toContain('the path must start with one "/"')
+    expect(error).not.toContain(long)
+    expect(error.length).toBeLessThan(300)
     // a long key is truncated too
-    let keyError = '';
+    let keyError = ''
     try {
-      createClient({ [long]: { method: 'get', path: '/x' } } as never);
+      createClient({ [long]: { method: 'get', path: '/x' } } as never)
     } catch (e) {
-      keyError = (e as Error).message;
+      keyError = (e as Error).message
     }
-    expect(keyError).toContain('invalid route name');
-    expect(keyError).not.toContain(long);
+    expect(keyError).toContain('invalid route name')
+    expect(keyError).not.toContain(long)
     // a lone surrogate is escaped by the diagnostic
     expect(() => createClient({ 'a.\ud800': { method: 'get', path: 'x' } } as never)).toThrow(
-      '[@laratype/client] createClient: "a.\\ud800": the path must start with one "/", got "x"',
+      '[@laratype/client] createClient: "a.\\ud800": the path must start with one "/" and must not contain control characters, got "x"',
     )
   })
 

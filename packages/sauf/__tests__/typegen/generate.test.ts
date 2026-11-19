@@ -169,7 +169,8 @@ describe('sauf types:generate', () => {
       outFile: '.laratype/api.ts',
     });
     const typed: Manifest = api.manifest;
-    expect(typed).toBe(api.manifest);
+    expect(typed['users.store']).toMatchObject({ status: 201, response: true });
+    expect(typed['users.destroy']).toMatchObject({ status: 202, response: false });
     const client = createClient(api.manifest);
     expect(Object.keys(client)).toEqual(['users', 'v1']);
   }, 60_000);

@@ -122,8 +122,11 @@ export type ApiNodeShape = AnyApiNode;
 /** The `defineApi` root, told by its brand: a hand-made object (`{ posts: appApi.users.posts }`) is not one. */
 export type ApiRootShape = { readonly [API_ROOT]: true };
 
-/** A diagnostic value: a string is quoted and escaped, anything else is named by its type, and never more than 120 characters. */
-const show = (value: unknown): string => {
+/** A value cut to 120 characters: a diagnostic may echo a getter's 1 MB answer, but not whole. */
+const cap = (text: string): string => (text.length > 120 ? `${text.slice(0, 117)}...` : text);
+
+/** A diagnostic value: a string is quoted and escaped, anything else is named by its type, never more than 120 characters. */
+const preview = (value: unknown): string => {
   let text: string;
   switch (typeof value) {
     case "string":
@@ -151,8 +154,7 @@ const show = (value: unknown): string => {
       // never read an object's fields, toJSON or Symbol.toStringTag here: the value is already refused
       text = value === null ? "null" : Array.isArray(value) ? "an array" : "an object";
   }
-  // a getter can return a string of any size: never echo it whole
-  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  return cap(text);
 };
 
 /** A plain object: the manifest and each route must be one. Arrays, Maps, class instances and a set prototype are not. */
@@ -166,24 +168,20 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   }
 };
 
-/** What a non-plain value is, for the diagnostic: "an array", "a Map", "an instance of Route", "a non-plain object". */
-const describe = (value: object): string => {
+/** What a non-object value (or non-plain object) is, for the diagnostic: "null", "a number", "a Map", "an instance of Route". */
+const kindOf = (value: unknown): string => {
+  if (value === null) return "null";
+  if (typeof value !== "object") return `a ${typeof value}`;
   if (Array.isArray(value)) return "an array";
   try {
     const tag = Object.prototype.toString.call(value).slice(8, -1);
-    if (tag !== "Object") return `a ${tag}`;
+    if (tag !== "Object") return cap(`a ${tag}`);
     const name = (value as { constructor?: { name?: unknown } }).constructor?.name;
-    return typeof name === "string" && name !== "Object" ? `an instance of ${name}` : "a non-plain object";
+    return typeof name === "string" && name !== "Object" ? cap(`an instance of ${name}`) : "a non-plain object";
   } catch {
     return "a non-plain object";
   }
 };
-
-const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
-
-/** Whether a value looks like a manifest route: an object with an own `method` or `path`, whatever the value's type. */
-const isManifestRouteLike = (value: unknown): boolean =>
-  typeof value === "object" && value !== null && (hasOwn(value, "method") || hasOwn(value, "path"));
 
 /** The origin a path-only `baseUrl` is parsed against; a path must keep it (`//host` would not). */
 const SENTINEL = "http://__laratype_base__";
@@ -473,7 +471,7 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
     const segments = name.split(".");
     // manifest names are full route names (folder + endpoint key); apiPaths names are valid by construction
     if (segments.some((s) => s === "") || (isManifest && (segments.length < 2 || /[\u0000-\u001f\u007f]/.test(name)))) {
-      fail(`createClient: invalid route name ${show(name)}${where}`);
+      fail(`createClient: invalid route name ${preview(name)}${where}`);
     }
     const key = segments.pop()!;
     let node = root;
@@ -512,6 +510,9 @@ const pathsOf = (api: object): RouteSpec[] => {
 /** The methods of `PathClient` and of a manifest route, in declaration order. */
 const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
 
+/** The fields a manifest route may carry; anything else on the object is ignored, for forward compatibility. */
+const MANIFEST_FIELDS = ["name", "method", "path", "status", "response", "errors"] as const;
+
 /** The most error entries one manifest route may list; a longer or sparse array is refused before any iteration. */
 const MAX_MANIFEST_ERRORS = 1000;
 
@@ -524,71 +525,66 @@ interface ManifestCode {
 /**
  * The manifest's routes, validated and snapshotted: every route field is read once from the caller's objects, and only
  * the snapshot reaches the client, so a Proxy or a getter that changes its answer on a second read cannot affect a call.
- * `undefined` when the object is not a manifest (a value does not look like a route); a bad route throws, naming its key.
+ * `undefined` when the object is not a manifest; a bad route throws, naming its key.
  */
 const manifestRoutes = (manifest: Record<string, unknown>): RouteSpec[] | undefined => {
   const keys = Object.keys(manifest);
   const values: unknown[] = [];
   for (const key of keys) values.push(manifest[key]);
-  if (!values.every(isManifestRouteLike)) return undefined;
+  // The four branded inputs are never a manifest route, so `{ posts: endpoint }`, `{ users: contract }` and
+  // `{ users: node }` stay "not a manifest". Otherwise a manifest's values are route objects; a dotted key makes any
+  // other value a bad route, so `{ 'a.b': null }` names the key while `{ nope: 1 }` keeps the generic "expected ...".
+  if (values.some((value) => isEndpoint(value) || isContract(value) || isApiNode(value))) return undefined;
+  if (!values.every((value) => typeof value === "object" && value !== null) && !keys.some((key) => key.includes("."))) return undefined;
   return keys.map((key, i) => manifestRoute(key, values[i]));
 };
 
 /** One manifest route: snapshot the fields once, validate them, and build the route spec the call uses. */
 const manifestRoute = (key: string, value: unknown): RouteSpec => {
-  const where = `createClient: ${show(key)}`;
-  if (!isPlainObject(value)) fail(`${where}: a route must be a plain object, got ${describe(value as object)}`);
-  // one read per field, into a null-prototype snapshot: every check below and every call uses only the snapshot
+  const where = `createClient: ${preview(key)}`;
+  if (!isPlainObject(value)) fail(`${where}: a route must be a plain object, got ${kindOf(value)}`);
+  // one read per own field, into a null-prototype snapshot: every check below and every call uses only the snapshot
   const snapshot: Record<string, unknown> = Object.create(null);
-  for (const field of ["name", "method", "path", "status", "response", "errors"]) snapshot[field] = value[field];
-  const name: unknown = snapshot.name;
-  const method: unknown = snapshot.method;
-  const path: unknown = snapshot.path;
-  const status: unknown = snapshot.status;
-  const response: unknown = snapshot.response;
-  const errors: unknown = snapshot.errors;
+  for (const field of MANIFEST_FIELDS) snapshot[field] = Object.hasOwn(value, field) ? value[field] : undefined;
+  const { name, method, path, status, response, errors } = snapshot;
   // the key is authoritative; the emitter writes no `name`, so one that disagrees was hand-edited
-  if (name !== undefined && name !== key) fail(`${where}: the route name ${show(name)} does not match its manifest key`);
+  if (name !== undefined && name !== key) fail(`${where}: the route name ${preview(name)} does not match its manifest key`);
   if (typeof method !== "string" || !METHODS.includes(method as Method)) {
-    fail(`${where}: the method must be one of ${METHODS.join(", ")}, got ${show(method)}`);
+    fail(`${where}: the method must be one of ${METHODS.join(", ")}, got ${preview(method)}`);
   }
-  if (!isContractPath(path)) {
-    if (typeof path === "string" && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\")) {
-      fail(`${where}: the path must not contain control characters, got ${show(path)}`);
-    }
-    fail(`${where}: the path must start with one "/", got ${show(path)}`);
-  }
+  // one rule, the contract's own: one leading "/" (not "//" or "/\"), no control characters
+  if (!isContractPath(path)) fail(`${where}: the path must start with one "/" and must not contain control characters, got ${preview(path)}`);
   if (status !== undefined) {
     if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
-      fail(`${where}: the status must be an integer from 100 to 599, got ${show(status)}`);
+      fail(`${where}: the status must be an integer from 100 to 599, got ${preview(status)}`);
     }
-    if (status < 200 || status > 299) fail(`${where}: the status must be a 2xx success status (200-299), got ${show(status)}`);
+    if (status < 200 || status > 299) fail(`${where}: the status must be a 2xx success status (200-299), got ${preview(status)}`);
   }
-  if (response !== undefined && typeof response !== "boolean") fail(`${where}: response must be a boolean, got ${show(response)}`);
-  if (response === true && (status === 204 || status === 205)) fail(`${where}: a 204 or 205 has no body; response must be false`);
+  if (response !== undefined && typeof response !== "boolean") fail(`${where}: response must be a boolean, got ${preview(response)}`);
+  if (response === true && status !== undefined && isBodylessStatus(status)) fail(`${where}: a 204 or 205 has no body; response must be false`);
   const declared: ManifestCode[] = [];
   if (errors !== undefined) {
     // array-like objects (a `{ length: 1e9 }`) are refused by this check, without reading a single entry
     if (!Array.isArray(errors)) {
-      fail(`${where}: errors must be an array of error codes (strings) or { status, code } entries, got ${show(errors)}`);
+      fail(`${where}: errors must be an array of error codes (strings) or { status, code } entries, got ${preview(errors)}`);
     }
     // checked from length before iterating, so a sparse `new Array(1e9)` cannot hang
     if (errors.length > MAX_MANIFEST_ERRORS) fail(`${where}: errors has ${errors.length} entries, more than the ${MAX_MANIFEST_ERRORS} supported`);
     for (let i = 0; i < errors.length; i++) {
       const entry: unknown = errors[i];
       if (typeof entry === "string") {
-        if (entry === "") fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${show(entry)}`);
+        if (entry === "") fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${preview(entry)}`);
         // an older manifest's entry: the code matches any 4xx or 5xx, as before CL8
         declared.push({ code: entry });
         continue;
       }
-      if (!isPlainObject(entry)) fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${show(entry)}`);
+      if (!isPlainObject(entry)) fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${preview(entry)}`);
       const errorStatus: unknown = entry.status;
       const code: unknown = entry.code;
       if (typeof errorStatus !== "number" || !Number.isInteger(errorStatus) || errorStatus < 400 || errorStatus > 599) {
-        fail(`${where}: errors[${i}].status must be an integer from 400 to 599, got ${show(errorStatus)}`);
+        fail(`${where}: errors[${i}].status must be an integer from 400 to 599, got ${preview(errorStatus)}`);
       }
-      if (typeof code !== "string" || code === "") fail(`${where}: errors[${i}].code must be a non-empty string, got ${show(code)}`);
+      if (typeof code !== "string" || code === "") fail(`${where}: errors[${i}].code must be a non-empty string, got ${preview(code)}`);
       declared.push({ status: errorStatus, code });
     }
   }
@@ -659,7 +655,7 @@ export function createClient(api: object, options: ClientOptions = {}): object {
     }
   } else if (typeof api === "object" && api !== null) {
     // a Map, a Set, a class instance, an array or an object with a set prototype is not a manifest, and must not read as empty
-    fail(`createClient: the manifest must be a plain object, got ${describe(api)}`);
+    fail(`createClient: the manifest must be a plain object, got ${kindOf(api)}`);
   }
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }

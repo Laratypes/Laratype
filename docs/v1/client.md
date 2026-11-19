@@ -176,7 +176,7 @@ if (result.ok) result.data.title                     // see Result union
 - `[@laratype/client] createClient: the manifest must be a plain object, got a Map` (also `an array`, `an instance of <Class>`, `a non-plain object`)
 - `[@laratype/client] createClient: "<key>": a route must be a plain object, got <value>`
 - `[@laratype/client] createClient: "<key>": the method must be one of get, post, put, patch, delete, got <value>`
-- `[@laratype/client] createClient: "<key>": the path must start with one "/", got <value>` and `... the path must not contain control characters, got <value>`
+- `[@laratype/client] createClient: "<key>": the path must start with one "/" and must not contain control characters, got <value>`
 - `[@laratype/client] createClient: "<key>": the status must be an integer from 100 to 599, got <value>` and `... the status must be a 2xx success status (200-299), got <value>`
 - `[@laratype/client] createClient: "<key>": response must be a boolean, got <value>` and `... a 204 or 205 has no body; response must be false`
 - `[@laratype/client] createClient: "<key>": errors must be an array of error codes (strings) or { status, code } entries, got <value>`, `... errors has <n> entries, more than the 1000 supported`, `... errors[<i>] must be an error code (a non-empty string) or { status, code }, got <value>`, `... errors[<i>].status must be an integer from 400 to 599, got <value>`, `... errors[<i>].code must be a non-empty string, got <value>`
