@@ -6,23 +6,31 @@ import type { ApiPluginApi, ContractTypeWatchOptions, WatchEvents } from "../../
 declare const events: WatchEvents;
 declare const tree: Pick<ApiPluginApi, "affectsTree" | "isGenerated" | "refresh">;
 
+const typeOnly = (_fn: () => void) => {};
+
 describe("ContractTypeWatch types", () => {
   test("takes a tree source and exposes idle() and dispose()", () => {
-    const watch = new ContractTypeWatch({ events, tree, delay: 10, onError: () => {} });
-    expectTypeOf(watch).toEqualTypeOf<ContractTypeWatch>();
-    expectTypeOf(watch.idle()).toEqualTypeOf<Promise<void>>();
-    expectTypeOf(watch.dispose()).toEqualTypeOf<void>();
+    typeOnly(() => {
+      const watch = new ContractTypeWatch({ events, tree, delay: 10, onError: () => {} });
+      expectTypeOf(watch).toEqualTypeOf<ContractTypeWatch>();
+      expectTypeOf(watch.idle()).toEqualTypeOf<Promise<void>>();
+      expectTypeOf(watch.dispose()).toEqualTypeOf<void>();
+    });
   });
 
   test("the host opens one watch and reports whether one is live", () => {
-    const host = new ContractTypeWatchHost();
-    expectTypeOf(host.open({ events, tree })).toEqualTypeOf<ContractTypeWatch>();
-    expectTypeOf(host.active).toEqualTypeOf<boolean>();
-    expectTypeOf(host.close()).toEqualTypeOf<void>();
+    typeOnly(() => {
+      const host = new ContractTypeWatchHost();
+      expectTypeOf(host.open({ events, tree })).toEqualTypeOf<ContractTypeWatch>();
+      expectTypeOf(host.active).toEqualTypeOf<boolean>();
+      expectTypeOf(host.close()).toEqualTypeOf<void>();
+    });
   });
 
   test("requires refresh() on the tree source", () => {
-    // @ts-expect-error the type watch needs refresh() to generate
-    new ContractTypeWatch({ events, tree: { affectsTree: () => true, isGenerated: () => false } });
+    typeOnly(() => {
+      // @ts-expect-error the type watch needs refresh() to generate
+      new ContractTypeWatch({ events, tree: { affectsTree: () => true, isGenerated: () => false } });
+    });
   });
 });

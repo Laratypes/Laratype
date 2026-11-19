@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,7 +181,7 @@ describe("ContractTypeWatch", () => {
     writeFileSync(bad, "export default {}\n");
     events.emit("add", bad);
     await watch.idle();
-    expect(errors.map(String)).toEqual(['ScanError: [laratype:api] bad.name.ts: file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)']);
+    expect(errors.map(String)).toEqual(['ScanError: [laratype:api] "bad.name.ts": file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)']);
     expect(indexOf(dir)).toBe(before);
   });
 
@@ -302,6 +302,41 @@ describe("ContractTypeWatch", () => {
     expect(max).toBe(1);
   });
 
+  it("runs once more for events that arrive after the scan's last check but before its completion callback", async () => {
+    const events = fakeEvents();
+    let started!: () => void;
+    const scanning = new Promise<void>((resolve) => (started = resolve));
+    let release!: () => void;
+    const first = new Promise<void>((resolve) => (release = resolve));
+    let runs = 0;
+    const watch = new ContractTypeWatch({
+      events,
+      delay: 0,
+      tree: {
+        affectsTree: () => true,
+        isGenerated: () => false,
+        refresh: () => {
+          runs++;
+          if (runs === 1) {
+            started();
+            return first;
+          }
+          return Promise.resolve();
+        },
+      },
+    });
+    events.emit("add", "app/api/a.ts");
+    await scanning;
+    release();
+    // The scan's continuation has already checked `requested`; these two events land before its completion callback
+    await Promise.resolve().then(() => {
+      events.emit("add", "app/api/b.ts");
+      events.emit("add", "app/api/c.ts");
+    });
+    await watch.idle();
+    expect(runs).toBe(2);
+  });
+
   it("resets the debounce on every event", async () => {
     vi.useFakeTimers();
     try {
@@ -388,7 +423,7 @@ describe("ContractTypeWatch", () => {
     writeFileSync(cafe, "export default {}\n");
     events.emit("add", cafe);
     await watch.idle();
-    expect(errors.map(String)).toEqual(['ScanError: [laratype:api] café.ts: file name "café" may only use letters, digits, "_" and "-" (use a [x] folder for params)']);
+    expect(errors.map(String)).toEqual(['ScanError: [laratype:api] "café.ts": file name "café" may only use letters, digits, "_" and "-" (use a [x] folder for params)']);
     expect(indexOf(dir)).toBe(before);
 
     rmSync(cafe);
@@ -460,6 +495,68 @@ describe("ContractTypeWatch", () => {
     await (filePlugin.resolveId as (source: string) => Promise<string | null>)("$api");
     expect(indexOf(dir)).not.toContain("secret-link");
     expect(readFileSync(join(outside, "nested", "secret.ts"), "utf8")).toBe("export default {}\n");
+  });
+
+  it("refuses a junction or symlink under .laratype that points outside the project, and writes nothing outside", async (ctx) => {
+    const dir = project("realpath");
+    const outside = join(tmp, "outside-realpath");
+    const outsideTypes = join(tmp, "outside-types");
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(outsideTypes, { recursive: true });
+    const { api } = await opened(dir);
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    const typesDir = join(dir, ".laratype/types");
+    const usersDir = join(typesDir, "app/api/users");
+    const index = indexOf(dir);
+    const typesFile = readFileSync(typeFile(dir, "app/api"), "utf8");
+
+    // A junction/symlink planted inside the tree wins over the target's lexical path: the write must be refused
+    rmSync(usersDir, { recursive: true, force: true });
+    try {
+      symlinkSync(outside, usersDir, linkType);
+    } catch {
+      ctx.skip(`the OS refused to create a ${linkType} under .laratype/types`);
+      return;
+    }
+    const events = fakeEvents();
+    const errors: unknown[] = [];
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0, onError: (e) => errors.push(e) });
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('the output path ".laratype/types/app/api/users/[user]/$types.d.ts" resolves outside the project');
+    expect(String(errors[0])).toContain("a junction or symlink under the output folder must stay inside it");
+    expect(readdirSync(outside)).toEqual([]);
+    // checked before removeStaleTypes and the writes: the last good output is untouched
+    expect(indexOf(dir)).toBe(index);
+    expect(readFileSync(typeFile(dir, "app/api"), "utf8")).toBe(typesFile);
+
+    // The output folder itself, not just a folder inside it, can be the planted link
+    rmSync(usersDir, { recursive: true, force: true });
+    rmSync(typesDir, { recursive: true, force: true });
+    symlinkSync(outsideTypes, typesDir, linkType);
+    errors.length = 0;
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('the output path ".laratype/types" resolves outside the project');
+    expect(readdirSync(outsideTypes)).toEqual([]);
+    expect(indexOf(dir)).toBe(index);
+
+    // A broken link cannot be shown to stay inside either; only an OS that can create one runs this branch
+    rmSync(typesDir, { recursive: true, force: true });
+    try {
+      symlinkSync(join(tmp, "missing-realpath-target"), typesDir, linkType);
+    } catch {
+      watch.dispose();
+      return;
+    }
+    errors.length = 0;
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('the output path ".laratype/types" resolves outside the project');
+    watch.dispose();
   });
 
   it("keeps the last output when the whole tree is deleted, and regenerates when it comes back", async () => {
@@ -588,6 +685,28 @@ describe("coalesce", () => {
     await expect(task.run()).rejects.toThrow("first fails");
     await task.run();
     expect(calls).toBe(2);
+  });
+
+  it("does not cache a task that throws synchronously: the next run runs, and the rejection is handled", async () => {
+    let calls = 0;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const task = coalesce(() => {
+        calls++;
+        // The first step throws before any await, so drain() settles during run()'s synchronous call
+        if (calls === 1) throw new Error("first fails synchronously");
+        return Promise.resolve();
+      });
+      await expect(task.run()).rejects.toThrow("first fails synchronously");
+      await task.run();
+      expect(calls).toBe(2);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
   });
 
   it("does not drop a call that arrives during a failed run: it runs the follow-up and resolves", async () => {

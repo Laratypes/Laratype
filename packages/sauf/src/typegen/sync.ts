@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT } from "./config";
 import { emitTree } from "./emit";
@@ -80,9 +80,44 @@ function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[]
   return removed;
 }
 
+/** The nearest existing path at or above `target` (a link itself included), so its realpath can be resolved. */
+function nearestExisting(target: string): string | undefined {
+  for (let current = target; ; current = dirname(current)) {
+    try {
+      lstatSync(current);
+      return current;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (dirname(current) === current) return undefined;
+  }
+}
+
+/**
+ * Refuses a write or delete through a junction or symlink that leaves the project: the nearest existing parent of
+ * `target`, realpath-resolved, must stay inside `projectReal`. One `ScanError` names the path; a caller that checks
+ * every target first writes nothing at all. The realpath also catches a link whose name still looks inside the project.
+ */
+function checkOutputPath(projectReal: string, projectDir: string, target: string): void {
+  const existing = nearestExisting(target);
+  let real: string | undefined;
+  if (existing !== undefined) {
+    try {
+      real = realpathSync(existing);
+    } catch {
+      // A broken link: it cannot be proven to stay inside, so it is refused like one that leaves.
+    }
+  }
+  if (real !== undefined && (real === projectReal || inside(projectReal, real))) return;
+  const rel = slash(relative(projectDir, target));
+  const found = real === undefined ? "" : ` ("${real}")`;
+  throw new ScanError(`the output path "${rel}" resolves outside the project${found}: a junction or symlink under the output folder must stay inside it`);
+}
+
 /** Writes a file only when its content differs, so an unchanged tree touches nothing (no watcher event). */
 export const writeGenerated = (projectDir: string, file: GeneratedFile): boolean => {
   const target = join(projectDir, file.path);
+  checkOutputPath(realpathSync(projectDir), projectDir, target);
   if (existsSync(target) && readFileSync(target, "utf8") === file.content) return false;
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, file.content);
@@ -119,8 +154,14 @@ export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncRe
   // With `--root .` the output folder is inside the root: its generated files are not contracts
   const tree = scanTree(resolve(projectDir, root), base, [resolve(projectDir, outDir)]);
   const files = emitTree(tree, { root, outDir });
+  // Check the types folder and every target before any write or stale-file delete, so a junction or symlink planted
+  // under the output folder that points outside the project is refused with one diagnostic and nothing is touched.
+  const projectReal = realpathSync(projectDir);
+  const typesDir = join(projectDir, outDir, "types");
+  checkOutputPath(projectReal, projectDir, typesDir);
+  for (const file of files) checkOutputPath(projectReal, projectDir, join(projectDir, file.path));
   // $types.d.ts files of removed folders must not linger
-  const removed = removeStaleTypes(join(projectDir, outDir, "types"), new Set(files.map((f) => resolve(projectDir, f.path))));
+  const removed = removeStaleTypes(typesDir, new Set(files.map((f) => resolve(projectDir, f.path))));
   const written = files.filter((file) => writeGenerated(projectDir, file)).map((file) => file.path);
   return { tree, files, changed: [...written, ...removed.map((p) => slash(relative(projectDir, p)))] };
 }

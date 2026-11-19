@@ -110,11 +110,24 @@ export class ContractTypeWatch {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      this.running = this.drain().finally(() => {
-        this.running = undefined;
-        this.settle();
-      });
+      this.start();
     }, this.delay);
+  }
+
+  /**
+   * Starts the pending scan. `drain()` runs synchronously up to its first `await`, so a listener the refresh fires
+   * synchronously still sees `running` unset and schedules a timer; `start()` then finds `running` set and leaves the
+   * request to the in-flight drain instead of starting a concurrent one.
+   */
+  private start(): void {
+    if (this.running || this.disposed) return;
+    this.running = this.drain().finally(() => {
+      this.running = undefined;
+      // An event can arrive after drain()'s last `requested` check but before this callback: run it instead of
+      // dropping it, and settle only once no request is left.
+      if (this.requested && !this.disposed) this.request();
+      else this.settle();
+    });
   }
 
   private async drain(): Promise<void> {

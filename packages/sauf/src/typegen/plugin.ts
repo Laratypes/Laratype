@@ -162,11 +162,13 @@ export interface CoalescedTask {
 /**
  * Serializes `task` and coalesces concurrent calls: while a run is in flight any number of `run()` calls queue exactly
  * one follow-up. The queue drains even when a run throws and the shared promise rejects only when the last run failed,
- * so a call that arrives during a failed run is not dropped and a failing scan is not cached.
+ * so a call that arrives during a failed run is not dropped and a failing scan, even one that throws synchronously, is
+ * not cached.
  */
 export function coalesce(task: () => Promise<void>): CoalescedTask {
   let running: Promise<void> | undefined;
   let requested = false;
+  let settled = 0;
   const drain = async (): Promise<void> => {
     let failed = false;
     let failure: unknown;
@@ -184,13 +186,19 @@ export function coalesce(task: () => Promise<void>): CoalescedTask {
       if (failed) throw failure;
     } finally {
       running = undefined;
+      settled++;
     }
   };
   return {
     run() {
       requested = true;
-      const run = running ?? (running = drain());
-      return run;
+      if (running) return running;
+      const before = settled;
+      const current = drain();
+      // `drain` runs synchronously up to its first `await`, so a task that throws synchronously settles it (and clears
+      // `running`) before this assignment. Storing that rejected promise would cache the failure and drop later calls.
+      if (settled === before) running = current;
+      return current;
     },
   };
 }
