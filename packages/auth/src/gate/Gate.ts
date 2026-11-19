@@ -4,12 +4,24 @@ import type { PromiseAble } from "@laratype/support";
 import type { GateAbility } from "./GateAbility";
 import GateManager, { describeValue } from "./GateManager";
 import ForbiddenException from "../exceptions/ForbiddenException";
-import type { CheckPolicy, ModelPolicy, PolicyClass, SubjectAbility, SubjectArgs } from "../policies/Policy";
+import type {
+  CheckPolicy,
+  ModelPolicy,
+  PolicyClass,
+  SubjectAbility,
+  SubjectArgs,
+  SubjectParam,
+} from "../policies/Policy";
 
-/** A gate value: the object `Gate.define()` returns, told from an ability name by its `check()`. */
-const asGate = (caller: string, ability: unknown): GateAbility<readonly unknown[]> => {
-  if (typeof ability === "object" && ability !== null && typeof (ability as { check?: unknown }).check === "function") {
-    return ability as GateAbility<readonly unknown[]>;
+/**
+ * A gate value: the object `Gate.define()` returns, told from an ability name by its `check()`. `check` is read once,
+ * and the function validated is the one called with the gate as its receiver: an accessor that answers a function on
+ * the first read and `undefined` on the second cannot pass validation and then fail the call (#394).
+ */
+const asGate = (caller: string, ability: unknown): ((user: unknown, ...args: unknown[]) => unknown) => {
+  const check = typeof ability === "object" && ability !== null ? (ability as { check?: unknown }).check : undefined;
+  if (typeof check === "function") {
+    return (user: unknown, ...args: unknown[]) => (check as (...params: unknown[]) => unknown).apply(ability, [user, ...args]);
   }
   throw new InternalException(
     `[@laratype/auth] ${caller}: the ability must be an ability name or a gate from Gate.define(), got ${describeValue(ability)}.`,
@@ -39,7 +51,7 @@ export default abstract class Gate {
   static allows<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
     user: unknown,
     ability: K,
-    subject: M & CheckPolicy<M>,
+    subject: M & CheckPolicy<M> & SubjectParam<M, K>,
     ...args: A
   ): Promise<boolean>;
   static allows<Args extends readonly unknown[]>(
@@ -56,14 +68,14 @@ export default abstract class Gate {
     }
     // Only an explicit true allows, as Gate.define() and the policy checks do: a hand-built gate's truthy value,
     // object or promise of one denies (#394)
-    return (await asGate("Gate.allows", ability).check(user, ...rest)) === true;
+    return (await asGate("Gate.allows", ability)(user, ...rest)) === true;
   }
 
   /** The inverse of `allows()`: `true` only when the policy or gate denies. */
   static denies<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
     user: unknown,
     ability: K,
-    subject: M & CheckPolicy<M>,
+    subject: M & CheckPolicy<M> & SubjectParam<M, K>,
     ...args: A
   ): Promise<boolean>;
   static denies<Args extends readonly unknown[]>(
@@ -74,7 +86,7 @@ export default abstract class Gate {
   static async denies(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
     if (user === undefined || user === null) return true;
     if (typeof ability !== "string") {
-      return (await asGate("Gate.denies", ability).check(user, ...rest)) !== true;
+      return (await asGate("Gate.denies", ability)(user, ...rest)) !== true;
     }
     const [subject, ...args] = rest;
     return GateManager.current().denies(user, ability, subject, ...args);
@@ -84,7 +96,7 @@ export default abstract class Gate {
   static authorize<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
     user: unknown,
     ability: K,
-    subject: M & CheckPolicy<M>,
+    subject: M & CheckPolicy<M> & SubjectParam<M, K>,
     ...args: A
   ): Promise<void>;
   static authorize<Args extends readonly unknown[]>(
@@ -98,7 +110,7 @@ export default abstract class Gate {
       const [subject, ...args] = rest;
       return GateManager.current().authorize(user, ability, subject, ...args);
     }
-    if ((await asGate("Gate.authorize", ability).check(user, ...rest)) !== true) {
+    if ((await asGate("Gate.authorize", ability)(user, ...rest)) !== true) {
       throw new ForbiddenException();
     }
   }

@@ -8,7 +8,9 @@ export type {
   PolicyArgs,
   PolicyBrand,
   PolicyClass,
+  PolicySubject,
   SubjectAbility,
   SubjectArgs,
+  SubjectParam,
 } from "./Policy";
 export { policyAllows, policyAuthorize, policyCheck } from "./authorize";

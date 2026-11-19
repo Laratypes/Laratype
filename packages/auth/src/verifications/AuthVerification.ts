@@ -4,7 +4,7 @@ import type { JWTSignOptions } from "../guard/TokenGuard";
 import { authManager } from "../guard/resolve";
 import type { GuardName } from "../Register";
 import { GateManager } from "../gate";
-import type { CheckPolicy, SubjectAbility, SubjectArgs } from "../policies/Policy";
+import type { CheckPolicy, SubjectAbility, SubjectArgs, SubjectParam } from "../policies/Policy";
 
 export class Authenticated<T extends Model = any> {
 
@@ -23,7 +23,7 @@ export class Authenticated<T extends Model = any> {
    */
   can<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
     ability: K,
-    subject: M & CheckPolicy<M>,
+    subject: M & CheckPolicy<M> & SubjectParam<M, K>,
     ...args: A
   ): Promise<boolean> {
     return GateManager.current().allows(this.user, ability, subject, ...args);
@@ -32,7 +32,7 @@ export class Authenticated<T extends Model = any> {
   /** The inverse of `can()`: `true` only when the user may not run the ability. */
   async cannot<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
     ability: K,
-    subject: M & CheckPolicy<M>,
+    subject: M & CheckPolicy<M> & SubjectParam<M, K>,
     ...args: A
   ): Promise<boolean> {
     return GateManager.current().denies(this.user, ability, subject, ...args);

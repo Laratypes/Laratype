@@ -10,6 +10,18 @@ export const describeValue = (value: unknown): string =>
   typeof value === "function" ? `<${value.name || "anonymous class"}>` : value === null ? "null" : typeof value;
 
 /**
+ * The model class of a subject: a class is used as is, and an instance's class is the constructor of its immediate
+ * prototype, never an own `constructor` field. A subject object with `{ constructor: OtherModel }` must not pick
+ * `OtherModel`'s policy (docs/v1/auth.md › Invariants, #394).
+ */
+const modelOf = (subject: unknown): AbstractNewable<object> | undefined => {
+  if (typeof subject === "function") return subject as AbstractNewable<object>;
+  if (subject === null || typeof subject !== "object") return undefined;
+  const model: unknown = Object.getPrototypeOf(subject)?.constructor;
+  return typeof model === "function" ? model as AbstractNewable<object> : undefined;
+};
+
+/**
  * The policy registry and checks behind `Gate` (#121, docs/v1/auth.md › Policies and gates): `Gate.policy()` records a
  * model class -> policy class, and `Gate.allows()` resolves one by the subject's own class. A singleton in the current
  * request's container, else the facade application, as `ModelBindingRegistry` does (docs/v1/di.md › Container-backed
@@ -53,11 +65,8 @@ export default class GateManager {
    * class only, no parent walk: a subclass needs its own `Gate.policy()` (docs/v1/auth.md › Invariants).
    */
   policyFor(subject: unknown): PolicyClass | undefined {
-    const model = typeof subject === "function"
-      ? subject
-      : subject !== null && typeof subject === "object" ? (subject as object).constructor : undefined;
-    if (typeof model !== "function") return undefined;
-    return this.policies.get(model as AbstractNewable<object>);
+    const model = modelOf(subject);
+    return model ? this.policies.get(model) : undefined;
   }
 
   /**
@@ -89,9 +98,9 @@ export default class GateManager {
   protected instance(caller: string, subject: unknown): object {
     const policy = this.policyFor(subject);
     if (policy) return GateManager.container().make(policy);
-    const model = typeof subject === "function" ? subject.name : (subject as { constructor?: { name?: string } } | null)
-      ?.constructor?.name;
-    const name = model || describeValue(subject);
+    // The same resolved class as the lookup: the diagnostic names the model whose policy is missing, never an own
+    // `constructor` field's name (#394)
+    const name = modelOf(subject)?.name || describeValue(subject);
     throw new InternalException(
       `[@laratype/auth] ${caller}: no policy is defined for ${name}.`
       + ` Fix: register it with Gate.policy(${name}, <Policy>) in a service provider.`,

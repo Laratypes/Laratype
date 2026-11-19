@@ -29,6 +29,13 @@ export type PolicyArgs<P, K extends PolicyAbility<P>> =
   PolicyParams<P, K> extends [subject: any, ...args: infer A] ? A : [];
 
 /**
+ * The subject parameter of an ability: `update(user, post)` and `share(user, post, target)` give `Post`, while an
+ * ability with no model of its own (`viewAny(user)`) gives `never` (docs/v1/auth.md › Invariants).
+ */
+export type PolicySubject<P, K extends PolicyAbility<P>> =
+  PolicyParams<P, K> extends [subject: infer S, ...params: any[]] ? S : never;
+
+/**
  * The unique symbol that brands a model type with its policy. A symbol key never shows up as a string key of the
  * model, so typed columns (DB1 #145) and resources do not see it; `HasPolicy` is the only public name.
  */
@@ -77,6 +84,18 @@ export type SubjectAbility<M> = [ModelPolicy<M>] extends [never] ? string : Poli
 export type SubjectArgs<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
   ? unknown[]
   : PolicyArgs<ModelPolicy<M>, K & PolicyAbility<ModelPolicy<M>>>;
+
+/**
+ * The subject `Gate.allows()` requires for an ability: the policy's subject parameter when it declares one
+ * (`update(user, post)` needs a `Post`), and no constraint for an ability with no model of its own (`viewAny(user)` and
+ * `create(user)` still take the model class as their subject). `unknown` before a policy is declared: `CheckPolicy`
+ * reports that instead.
+ */
+export type SubjectParam<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
+  ? unknown
+  : [PolicySubject<ModelPolicy<M>, K & PolicyAbility<ModelPolicy<M>>>] extends [never]
+    ? unknown
+    : PolicySubject<ModelPolicy<M>, K & PolicyAbility<ModelPolicy<M>>>;
 
 /**
  * The compile check of a subject with no declared policy (`.claude/rules/types.md` › Compile-time checks): the type
