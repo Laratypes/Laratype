@@ -1083,6 +1083,19 @@ describe('createClient(manifest), the separate-repo FE', () => {
     expect(() => createClient({ 'a.b': { ...route, errors: new Array(1e9) } } as never)).toThrow(
       message('errors has 1000000000 entries, more than the 1000 supported'),
     )
+    // a Proxy array whose length grows after the cap check is walked only up to the length it reported once
+    const indexes: number[] = []
+    let lengthReads = 0
+    const growing = new Proxy(['X'], {
+      get(target, key, receiver) {
+        if (key === 'length') return lengthReads++ === 0 ? 1 : 1e9
+        if (typeof key === 'string' && /^\d+$/.test(key)) indexes.push(Number(key))
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    expect(() => createClient({ 'a.b': { ...route, errors: growing } } as never)).not.toThrow()
+    expect(lengthReads).toBe(1)
+    expect(indexes).toEqual([0])
     // absent, duplicates and the same code at two statuses are fine
     expect(() => createClient({ 'a.b': route })).not.toThrow()
     expect(() =>

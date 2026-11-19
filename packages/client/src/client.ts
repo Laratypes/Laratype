@@ -575,9 +575,11 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
     if (!Array.isArray(errors)) {
       fail(`${where}: errors must be an array of error codes (strings) or { status, code } entries, got ${preview(errors)}`);
     }
-    // checked from length before iterating, so a sparse `new Array(1e9)` cannot hang
-    if (errors.length > MAX_MANIFEST_ERRORS) fail(`${where}: errors has ${errors.length} entries, more than the ${MAX_MANIFEST_ERRORS} supported`);
-    for (let i = 0; i < errors.length; i++) {
+    // checked from length before iterating, so a sparse `new Array(1e9)` cannot hang; read once, so a Proxy array whose
+    // length grows after the check is still walked only up to the checked count
+    const count = errors.length;
+    if (count > MAX_MANIFEST_ERRORS) fail(`${where}: errors has ${count} entries, more than the ${MAX_MANIFEST_ERRORS} supported`);
+    for (let i = 0; i < count; i++) {
       const entry: unknown = errors[i];
       if (typeof entry === "string") {
         if (entry === "") fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${preview(entry)}`);
