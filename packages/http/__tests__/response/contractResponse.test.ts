@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
-import { defineApi, defineContract, endpoint } from '@laratype/contract'
+import { defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
 import { Controller, JsonResource, Middleware, Request as LaratypeRequest, RequestKernel, Response as LaratypeResponse, ResponseKernel, Route } from '../../src/index'
 
 const User = z.object({ id: z.number(), name: z.string() })
@@ -110,11 +110,41 @@ describe('status from the contract', () => {
     }))
   })
 
-  it('a 0.5 redirect is sent as it is', async () => {
-    result = new LaratypeResponse(null).redirect('/login')
+  it('a 0.5 redirect keeps the handler\'s non-body headers, the redirect its own Location', async () => {
+    // H32 #312: a redirect drops the body headers (it sends no body) and the handler's Location (the redirect names
+    // its target), but Set-Cookie and every other header the handler set stay
+    result = new LaratypeResponse(null, undefined, {
+      'Set-Cookie': 'sid=abc; Path=/',
+      'X-Foo': 'bar',
+      'Content-Type': 'text/html',
+      'Location': '/ignored',
+    }).redirect('/login')
     const response = await bootApp().request('/api/users/1')
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/login')
+    expect(response.headers.getSetCookie()).toEqual(['sid=abc; Path=/'])
+    expect(response.headers.get('x-foo')).toBe('bar')
+    expect(response.headers.get('content-type')).toBeNull()
+  })
+
+  it('a handler-returned 5xx Response runs the same header scrub as a thrown error', async () => {
+    // H32 #312: the status and body are the handler's; the cookie and cache headers are not an error response's (#272)
+    result = new LaratypeResponse({ message: 'db down' }, 503, {
+      'Set-Cookie': 'sid=abc; Path=/',
+      'Cache-Control': 'public, max-age=60',
+      'ETag': '"v1"',
+      'Retry-After': '5',
+      'X-Detail': 'kept',
+    })
+    const response = await bootApp().request('/api/users/1')
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ message: 'db down' })
+    expect(response.headers.getSetCookie()).toEqual([])
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('etag')).toBeNull()
+    // headers that don't cache or set a cookie are the handler's, and stay
+    expect(response.headers.get('retry-after')).toBe('5')
+    expect(response.headers.get('x-detail')).toBe('kept')
   })
 
   it('a middleware answering a non-2xx 0.5 Response without calling next keeps it', async () => {
@@ -139,10 +169,12 @@ describe('status from the contract', () => {
     const denied = await app.request('/api/users/1')
     expect(denied.status).toBe(401)
     expect(denied.headers.get('www-authenticate')).toBe('Bearer')
-    answer = new LaratypeResponse({}, 304, { ETag: '"v1"' })
+    answer = new LaratypeResponse({}, 304, { ETag: '"v1"', 'Content-Type': 'text/html' })
     const cached = await app.request('/api/users/1')
     expect(cached.status).toBe(304)
     expect(cached.headers.get('etag')).toBe('"v1"')
+    // a bodyless 304 carries no body, so no Content-Type either (H32 #312)
+    expect(cached.headers.get('content-type')).toBeNull()
     expect(await cached.text()).toBe('')
   })
 
@@ -192,20 +224,40 @@ describe('status from the contract', () => {
 
 describe('Location on a contract response', () => {
   // RFC 9110 §15.3.2: a 201 Created names the created resource in Location, which is not about the body
-  it('a 201 Created keeps the handler\'s Location', async () => {
+  it('a 201 Created keeps the handler\'s Location and Content-Location', async () => {
     // a header name is case-insensitive
-    result = new LaratypeResponse({ id: 6, name: 'Ada' }, 201, { location: '/api/users/6' })
+    result = new LaratypeResponse({ id: 6, name: 'Ada' }, 201, {
+      location: '/api/users/6',
+      'cOnTeNt-LoCaTiOn': '/api/users/6',
+    })
     const response = await bootApp().request('/api/users/create', { method: 'POST' })
     expect(response.status).toBe(201)
     expect(response.headers.get('location')).toBe('/api/users/6')
+    // RFC 9110 §8.7: the resource the representation is about, kept like Location on a 201
+    expect(response.headers.get('content-location')).toBe('/api/users/6')
     expect(await response.json()).toEqual({ id: 6, name: 'Ada' })
   })
 
-  it('a 200 drops it with the other body headers', async () => {
-    result = new LaratypeResponse({ id: 1, name: 'Ada' }, 200, { Location: '/api/users/1', 'X-Foo': 'bar' })
+  it('a 201 Response without an explicit status keeps them too: the endpoint decides the status', async () => {
+    result = new LaratypeResponse({ id: 6, name: 'Ada' }, undefined, {
+      Location: '/api/users/6',
+      'Content-Location': '/api/users/6',
+      'X-Foo': 'bar',
+    })
+    const response = await bootApp().request('/api/users/create', { method: 'POST' })
+    expect(response.status).toBe(201)
+    expect(response.headers.get('location')).toBe('/api/users/6')
+    expect(response.headers.get('content-location')).toBe('/api/users/6')
+    expect(response.headers.get('x-foo')).toBe('bar')
+    expect(await response.json()).toEqual({ id: 6, name: 'Ada' })
+  })
+
+  it('a 200 drops them with the other body headers', async () => {
+    result = new LaratypeResponse({ id: 1, name: 'Ada' }, 200, { Location: '/api/users/1', 'Content-Location': '/api/users/1', 'X-Foo': 'bar' })
     const response = await bootApp().request('/api/users/1')
     expect(response.status).toBe(200)
     expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('content-location')).toBeNull()
     expect(response.headers.get('x-foo')).toBe('bar')
     expect(await response.json()).toEqual({ id: 1, name: 'Ada' })
   })
@@ -223,6 +275,31 @@ describe('Location on a contract response', () => {
     expect(response.status).toBe(500)
     expect(response.headers.get('location')).toBeNull()
     expect(await response.json()).toEqual({ message: 'Server Error' })
+  })
+
+  it('a thrown contract error after a declared-201 handler set Location drops it', async () => {
+    // H32 #312: the test guards the order of the filter, which deletes the body and redirect headers before the
+    // contract-error branch builds its own body
+    const Conflict = defineError(409, 'CONFLICT', () => ({ message: 'Taken.' }))
+    const creates = defineContract()({ store: endpoint.post('/').response(User, 201).throws(Conflict) })
+    class Creates extends Controller {
+      store() {
+        return new LaratypeResponse({ id: 6, name: 'Ada' }, undefined, {
+          Location: '/api/creates/6',
+          'Content-Location': '/api/creates/6',
+        })
+      }
+    }
+    const app = bootApp((app) => app.use(async (_c, next) => {
+      await next()
+      throw Conflict()
+    }))
+    Route.api(defineApi({ creates: { contract: creates, path: '/api/creates', scopes: [], dirs: [] } }), (r) => [r.contract(creates, Creates)]).mount(app)
+    const response = await app.request('/api/creates', { method: 'POST' })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ code: 'CONFLICT', message: 'Taken.' })
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('content-location')).toBeNull()
   })
 })
 
@@ -298,6 +375,22 @@ describe('dev-mode output validation', () => {
     Route.api(defineApi({ ids: { contract: ids, path: '/api/ids', scopes: [], dirs: [] } }), (r) => [r.contract(ids, Ids)]).mount(app)
     expect((await app.request('/api/ids/1')).status).toBe(500)
     expect(await (await app.request('/api/ids')).json()).toEqual({ at: '1970-01-01T00:00:00.000Z', a: 1 })
+  })
+
+  it('the response schema runs once (zod\'s safeParseAsync, never its twice-running validate)', async () => {
+    // H32 #312: an async refinement is what makes zod's `~standard.validate` run the schema a second time; the
+    // contract's adapter takes safeParseAsync for zod, so a side effect runs once
+    let calls = 0
+    const once = defineContract()({
+      show: endpoint.get('/:id').response(z.object({ id: z.number() }).superRefine(async () => { calls++ })),
+    })
+    class Once extends Controller { show() { return { id: 1 } } }
+    const app = new Hono()
+    Route.api(defineApi({ once: { contract: once, path: '/api/once', scopes: [], dirs: [] } }), (r) => [r.contract(once, Once)]).mount(app)
+    const response = await app.request('/api/once/1')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 1 })
+    expect(calls).toBe(1)
   })
 
   it('is skipped in production (__PROD__, or NODE_ENV=production without it)', async () => {

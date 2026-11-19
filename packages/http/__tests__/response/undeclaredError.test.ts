@@ -562,19 +562,22 @@ describe('guarded diagnostics', () => {
     })
   }
 
-  it('a toJson() that throws keeps the original error, logged on the check-failed line', async () => {
+  it('a toJson() that throws keeps the exception status with the generic body, logged', async () => {
     // The check reads the body code, so a broken toJson() is a check failure, not a route error replacement. The filter
-    // cannot serialize that body either (it throws in onError), so the fetch wrapper answers the generic 500 and logs it
+    // cannot serialize that body either: it keeps the exception's own status with the generic body (H32 #312), never
+    // losing the status to its own failure
     class BrokenBody extends UnauthorizedException {
       override toJson(): any { throw new TypeError('broken body') }
     }
-    const response = await bootApp([throwingMiddleware(() => new BrokenBody())]).request('/api/users/declared')
-    expect(response.status).toBe(500)
+    const failure = new BrokenBody()
+    const response = await bootApp([throwingMiddleware(() => failure)]).request('/api/users/declared')
+    expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ message: 'Server Error' })
     expect(logged).toHaveBeenCalledWith(
       '[@laratype/http] the undeclared-error check failed, the thrown error is unchanged:',
       expect.any(TypeError),
     )
+    expect(logged).toHaveBeenCalledWith(failure, expect.any(TypeError))
   })
 
   it('a body whose code descriptor throws is a check failure, not a route error replacement', async () => {
