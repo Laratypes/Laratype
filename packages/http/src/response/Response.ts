@@ -8,6 +8,7 @@ import { isContractError, isFailureStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 import { BODY_HEADERS, REDIRECT_HEADERS, isBodyHeader, isRedirectHeader } from "./bodyHeaders";
 import { isBodylessResponse } from "./bodyless";
+import { quietLog } from "./undeclaredError";
 
 /** The type a returned string is sent as (H41 #336): HTML needs an explicit `Response` content type. */
 const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
@@ -418,7 +419,7 @@ export default class Response extends AppServiceProvider {
       }
       catch (failure) {
         // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
-        console.error(err, failure);
+        quietLog(err, failure);
         return answer(c.json({ message: "Server Error" }, 500));
       }
     }
@@ -432,7 +433,7 @@ export default class Response extends AppServiceProvider {
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
     if ((err as { reportable?: unknown }).reportable || status >= 500) {
-      console.error(err);
+      quietLog(err);
     }
     // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
     // no route or controller status overrides, with the generic body of docs/v1/http.md › Exceptions
@@ -483,7 +484,7 @@ export default class Response extends AppServiceProvider {
       return answer(Response.resolveResponse(c, new ResponseSupport(body, status as StatusCode)));
     }
     catch (failure) {
-      console.error(err, failure);
+      quietLog(err, failure);
       return answer(Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode)));
     }
   }

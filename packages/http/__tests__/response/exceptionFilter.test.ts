@@ -260,6 +260,16 @@ describe('an Exception body that cannot be built', () => {
     expect(logged).toHaveBeenCalledWith(failure, expect.any(TypeError))
   })
 
+  it('a console that throws while the toJson failure is logged still keeps the original status and the generic body', async () => {
+    quiet()
+    // a broken console adapter (or a util.inspect.custom that throws) must not turn the answer into the adapter's raw 500
+    logged.mockImplementation(() => { throw new Error('console broke') })
+    const response = await throwing(() => new BrokenBody())
+    await expectBody(response, 409, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(logged).toHaveBeenCalled()
+  })
+
   it('a body JSON cannot hold keeps the original 4xx status too', async () => {
     quiet()
     const response = await throwing(() => new UnserializableBody())
