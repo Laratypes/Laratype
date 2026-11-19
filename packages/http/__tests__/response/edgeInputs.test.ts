@@ -59,7 +59,7 @@ describe('a 0.5 Response status the platform cannot send', () => {
     ['99', 99],
     ['600', 600],
     ['a fractional number', 1.5],
-    ['null', null],
+    ['0', 0],
     ['a { length: 1e9 } object', { length: 1e9 }],
   ])('%s answers the generic 500, never 200', async (_, status) => {
     quiet()
@@ -70,6 +70,18 @@ describe('a 0.5 Response status the platform cannot send', () => {
     // a server bug is logged once, as any unknown error, with the refusal's diagnostic
     expect(logged).toHaveBeenCalledTimes(1)
     expect((logged.mock.calls[0]![0] as Error).message).toContain('cannot be sent: use an integer from 200 to 599')
+  })
+
+  it('an explicit null status means unset, like undefined: 200 with the handler headers (0.5 code sets headers this way)', async () => {
+    quiet()
+    class Unset extends Controller { index() { return new LaratypeResponse({ ok: true }, null as never, { 'X-Custom': 'kept' }) } }
+    const app = bootApp()
+    route(app, '/unset', Unset)
+    const response = await app.request('/unset')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(response.headers.get('X-Custom')).toBe('kept')
+    expect(logged).not.toHaveBeenCalled()
   })
 
   it('a status decorator the platform cannot send answers the generic 500 too', async () => {

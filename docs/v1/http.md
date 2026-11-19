@@ -570,7 +570,7 @@ No new API: a `Route.api` route answers through `resolveContractResponse` ([`pac
 
 ### Diagnostics
 - `[@laratype/http] <route>: the handler answered status <n>, but the endpoint declares <status>: declare it on the endpoint (.response(schema, <n>) or .status(<n>))` (logged, 500)
-- `[@laratype/http] the response status <value> cannot be sent: use an integer from 200 to 599` (a 0.5 `Response`'s explicit or decorator status; logged, generic 500)
+- `[@laratype/http] the response status <value> cannot be sent: use an integer from 200 to 599` (a 0.5 `Response`'s explicit or decorator status; logged, generic 500. An explicit `null` status means unset, like `undefined`: the decorator or method-name guess, then 200)
 - `[@laratype/http] the redirect status <value> cannot be sent: use 301, 302, 303, 307 or 308` (a 0.5 `Response`'s redirect status; logged, generic 500)
 - `[@laratype/http] <route>: the handler's value does not match the endpoint's response schema (<path>: <messages>; ...)` (dev and test only; logged, 500). `(root)` names an issue without a path.
 - `[@laratype/http] <route>: the endpoint's response schema changes the handler's value (a transform, or a key it strips), so the client's type would not match what is sent: return the schema's output` (dev and test only; logged, 500)

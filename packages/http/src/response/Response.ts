@@ -258,13 +258,14 @@ export default class Response extends AppServiceProvider {
   protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: KernelRouteParams): ContentfulStatusCode & 204 {
     let contentFullStatusCode = response.getHttpStatus();
 
-    // A handler's explicit status is app data: a string, a bigint, NaN, Infinity, a negative number or 1e9 must not
-    // answer 200 with the handler's body (H32 #312). The decorator and the method-name guess are refused the same way
-    if(contentFullStatusCode !== undefined && !isHttpStatus(contentFullStatusCode)) {
+    // A handler's explicit status is app data: 0, a string, a bigint, NaN, Infinity, a negative number or 1e9 must not
+    // answer 200 with the handler's body (H32 #312). `null` means unset, like `undefined` (0.5 code passes it to set
+    // headers only). The decorator and the method-name guess are refused the same way
+    if(contentFullStatusCode != null && !isHttpStatus(contentFullStatusCode)) {
       refuseStatus(contentFullStatusCode);
     }
 
-    if(contentFullStatusCode === undefined && routeOption?.controller) {
+    if(contentFullStatusCode == null && routeOption?.controller) {
       const [controllerClass, controllerMethodName] = routeOption.controller;
 
       const statusCodeFromMetadata = Reflect.getMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, controllerClass.prototype, controllerMethodName)
