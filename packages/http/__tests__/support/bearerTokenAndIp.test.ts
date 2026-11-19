@@ -9,7 +9,7 @@ import type { GetConnInfo } from 'hono/conninfo'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { Controller, mountConnInfo, Request as LaratypeRequest, RequestKernel, ResponseKernel } from '../../src/index'
-import { HONO_CONTEXT } from '../../src/supports/Request'
+import { HONO_CONTEXT, connInfoSource } from '../../src/supports/Request'
 
 const bearerToken = (authorization?: string) => {
   const headers: Record<string, string> = authorization === undefined ? {} : { Authorization: authorization }
@@ -65,15 +65,17 @@ class WhoAmI extends Controller {
 
 /**
  * An app booted like `sauf dev`, with one route answering the request's ip() and bearerToken(). The adapter's getConnInfo
- * is mounted before RequestKernel.boot(), as the node entry mounts it before the providers add the routes.
+ * is mounted before RequestKernel.boot(), as the node entry mounts it before the providers add the routes. `beforeRoutes`
+ * mounts anything else that has to run before `/whoami` (a middleware added after a route runs after it).
  */
-const bootApp = (getConnInfo?: GetConnInfo) => {
+const bootApp = (getConnInfo?: GetConnInfo, beforeRoutes?: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   if (getConnInfo) mountConnInfo(app, getConnInfo)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
+  beforeRoutes?.(app)
   app.get('/whoami', RequestKernel.handle({ method: 'get', path: '/whoami', controller: [WhoAmI, 'index'] }))
   return app
 }
@@ -121,6 +123,44 @@ describe('request.ip()', () => {
     expect(ctx.req.path).toBe('/whoami')
   })
 
+  it('reads the getter once, when its middleware runs, before a middleware that awaits', async () => {
+    const getConnInfo = vi.fn((c: Context) => ({ remote: { address: (c.env as { address?: string }).address } }))
+    const app = bootApp(getConnInfo, (app) => {
+      // A global middleware that awaits before the route, as a session or auth load does: the capture must be older
+      app.use('*', async (c, next) => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        ;(c.env as { address?: string }).address = '203.0.113.99'
+        await next()
+      })
+    })
+    expect(await whoami(app, {}, { address: '203.0.113.7' })).toEqual({ ip: '203.0.113.7', token: '' })
+    expect(getConnInfo).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a getter an older copy stored itself, the one lazy path left', async () => {
+    const CONN_INFO = Symbol.for('laratype.http.connInfo')
+    const app = bootApp(undefined, (app) => {
+      app.use('*', async (c, next) => {
+        (c as unknown as { set(key: symbol, value: unknown): void }).set(CONN_INFO, () => ({ remote: { address: '192.0.2.20' } }))
+        await next()
+      })
+    })
+    expect(await whoami(app)).toEqual({ ip: '192.0.2.20', token: '' })
+  })
+
+  it('reads only a capture, or the getter an older copy stored', () => {
+    expect(connInfoSource(undefined)).toEqual({ registered: false, address: undefined })
+    const fromContext = (value: unknown) => ({ get: () => value }) as unknown as Context
+    for (const value of [undefined, null, 42, 'getter', {}, { registered: false }, { address: '203.0.113.7' }]) {
+      expect(connInfoSource(fromContext(value)), String(value)).toEqual({ registered: false, address: undefined })
+    }
+    expect(connInfoSource(fromContext({ registered: true, address: '203.0.113.7' }))).toEqual({ registered: true, address: '203.0.113.7' })
+    expect(connInfoSource(fromContext({ registered: true, address: 42 }))).toEqual({ registered: true, address: undefined })
+    expect(connInfoSource(fromContext({ registered: true }))).toEqual({ registered: true, address: undefined })
+    expect(connInfoSource(fromContext(() => ({ remote: { address: '203.0.113.8' } })))).toEqual({ registered: true, address: '203.0.113.8' })
+    expect(connInfoSource(fromContext(() => { throw new Error('no socket') }))).toEqual({ registered: true, address: undefined })
+  })
+
   it('returns undefined when no adapter registered a getConnInfo', async () => {
     const body = await whoami(bootApp())
     expect(body).toEqual({ token: '' })
@@ -144,7 +184,11 @@ describe('request.ip()', () => {
   })
 
   it('returns undefined when the getter answers no connection info, or no address', async () => {
-    const answers: unknown[] = [undefined, null, 42, '203.0.113.7', {}, { remote: null }, { remote: {} }]
+    const answers: unknown[] = [
+      undefined, null, 42, '203.0.113.7', {}, { remote: null }, { remote: {} },
+      // Not an object, or a remote whose read throws: no address either, and never a failed route
+      () => ({ remote: { address: '203.0.113.7' } }), Symbol('address'), { get remote() { throw new Error('no socket') } },
+    ]
     for (const answer of answers) {
       const body = await whoami(bootApp(() => answer as never))
       expect(body, String(answer)).toEqual({ token: '' })
@@ -213,6 +257,25 @@ describe('request.ip()', () => {
         new TypeError(`[@laratype/http] mountConnInfo(): expected a Hono app, got ${value === null ? 'null' : typeof value}`),
       )
     }
+  })
+
+  it('refuses a mount after a route or middleware, and still accepts a second mount first', () => {
+    const getConnInfo = () => ({ remote: { address: '127.0.0.1' } })
+
+    const withRoute = new Hono()
+    withRoute.get('/', (c) => c.text('ok'))
+    expect(() => mountConnInfo(withRoute, getConnInfo)).toThrow(
+      '[@laratype/http] mountConnInfo(): call it before any route or middleware, so the address is captured before one can await; the app already has 1 route or middleware',
+    )
+
+    const withMiddleware = new Hono()
+    withMiddleware.use('*', async (_c, next) => next())
+    expect(() => mountConnInfo(withMiddleware, getConnInfo)).toThrow('the app already has 1 route or middleware')
+
+    // The same middleware mounted again is not a late mount: it stores the same capture, and the last one runs last
+    const twice = new Hono()
+    mountConnInfo(twice, getConnInfo)
+    expect(() => mountConnInfo(twice, getConnInfo)).not.toThrow()
   })
 
   it('keeps the Hono context out of what logging or serializing the request copies', async () => {

@@ -3,7 +3,7 @@
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import type { Context } from 'hono'
+import type { Context, Next } from 'hono'
 import type { GetConnInfo } from 'hono/conninfo'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
@@ -367,6 +367,18 @@ describe('MemoryThrottleStore', () => {
 })
 
 describe('throttled', () => {
+  /** A context with the capture a registered getter that found no address leaves on it. */
+  const addresslessContext = ({ signal = { aborted: false }, env = {} }: { signal?: unknown, env?: unknown } = {}) => ({
+    get: () => ({ registered: true, address: undefined }),
+    req: { raw: { signal } },
+    env,
+  }) as unknown as Context
+
+  const next = (async () => {}) as Next
+
+  const connectionRoute = { name: 'posts.store', method: 'post', path: '/posts', domain: undefined }
+  const connectionLimit = { limit: 1, per: 60 }
+
   it('rejects a window that never ends at mount', () => {
     const route = { name: 'posts.index', method: 'get', path: '/posts', domain: undefined }
     const handle = async () => new Response()
@@ -375,5 +387,53 @@ describe('throttled', () => {
     )
     expect(() => throttled(route, { limit: 1, per: 0.5 }, handle)).toThrow(/from 1 second/)
     expect(() => throttled(route, { limit: 1, per: 60 }, handle)).not.toThrow()
+  })
+
+  it('fails closed without running the handler when the client is gone and no address was read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+
+    const aborted = addresslessContext({ signal: { aborted: true } })
+    expect(((await middleware(aborted, next)) as Response).status).toBe(204)
+    const destroyed = addresslessContext({ env: { incoming: { socket: { destroyed: true } } } })
+    expect(((await middleware(destroyed, next)) as Response).status).toBe(204)
+
+    expect(handle).not.toHaveBeenCalled()
+    // A reset connection is not a deployment fact: the warning waits for a live request with no address
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('treats a connection it cannot read as live: the warning, then the handler', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+    const envs: unknown[] = [
+      null, undefined, 'env', 42, [], { incoming: 42 }, { incoming: { socket: 'socket' } }, { incoming: { socket: { destroyed: 'yes' } } },
+      { get incoming() { throw new Error('no env') } },
+    ]
+    for (const env of envs) expect(((await middleware(addresslessContext({ env }), next)) as Response).status).toBe(200)
+    // A raw request whose signal read throws is live too
+    const throwingSignal = {
+      get: () => ({ registered: true, address: undefined }),
+      req: { raw: { get signal() { throw new Error('no request') } } },
+      env: {},
+    } as unknown as Context
+    expect(((await middleware(throwingSignal, next)) as Response).status).toBe(200)
+    expect(handle).toHaveBeenCalledTimes(envs.length + 1)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('still counts a captured address when the client has gone', async () => {
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+    const captured = {
+      get: () => ({ registered: true, address: '127.0.0.1' }),
+      req: { raw: { signal: { aborted: true } } },
+      env: {},
+    } as unknown as Context
+    expect(((await middleware(captured, next)) as Response).status).toBe(200)
+    await expect(middleware(captured, next)).rejects.toMatchObject({ status: 429 })
+    expect(handle).toHaveBeenCalledTimes(1)
   })
 })

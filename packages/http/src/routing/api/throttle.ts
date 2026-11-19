@@ -146,6 +146,25 @@ const warnNoConnInfo = (name: string) =>
 const warnNoAddress = (name: string) =>
   warnOnce(NO_ADDRESS_WARNED, `[@laratype/http] Route.api: the registered getConnInfo found no client address (a unix socket or named pipe, or a getter for another runtime), so .throttle() routes serve such requests without a limit; behind a proxy or a unix socket the limit needs the trusted-proxy setting (#320) (first: ${name})`);
 
+/** The numeric status of the empty answer a closed connection gets: the client is gone and cannot receive a body. */
+const NO_CONTENT = 204 as const
+
+/**
+ * Whether the client's connection is already gone before its address was read (H30 #299 round 4). A reset connection
+ * leaves the node adapter's socket `destroyed`; the request signal is aborted only when something read it before the
+ * close, so both are checked. A `c.env` that throws on a read is treated as live: a unix socket with no address keeps
+ * the warning-and-handle behaviour, and the check never fails the request.
+ */
+const connectionClosed = (c: Context): boolean => {
+  try {
+    if (c.req.raw.signal?.aborted) return true
+    return (c.env as { incoming?: { socket?: { destroyed?: unknown } } } | null | undefined)?.incoming?.socket?.destroyed === true
+  }
+  catch {
+    return false
+  }
+}
+
 /** The catalog 429 on the wire (`{ code, ...body }`, http.md › Exceptions), built once: it never changes. */
 const TOO_MANY_REQUESTS = (() => {
   const error = errors.tooManyRequests();
@@ -189,6 +208,10 @@ export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handl
     const source = connInfoSource(c);
     const bucket = ipBucket(source.address);
     if (bucket === undefined) {
+      // The client reset its connection before the address was captured (H30 #299 round 4): fail closed, there is no
+      // one to answer and a side-effecting handler must not run unthrottled. A live request with no address (a unix
+      // socket) keeps the warning and the handler.
+      if (source.registered && connectionClosed(c)) return new Response(null, { status: NO_CONTENT });
       // A missing source is app wiring; a registered getter that found no address can be a unix socket or another runtime's
       // getter, and both leave every throttled route without a limit, so each logs once per process
       if (source.registered) warnNoAddress(route.name);

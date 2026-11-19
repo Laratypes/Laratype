@@ -20,11 +20,19 @@ const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
 export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
 
 /**
- * The context variable the serving adapter's middleware stores its runtime's `getConnInfo` under. A `Symbol.for` key,
- * so the middleware and `ip()` agree across two copies of @laratype/http (CJS and ESM), even when the adapter loaded
- * one copy and the app the other.
+ * The context variable `mountConnInfo`'s middleware stores its capture under (what its `getConnInfo` answered when the
+ * middleware ran), or, from an older copy of @laratype/http, the getter itself. A `Symbol.for` key, so the middleware
+ * and `ip()` agree across two copies of the package (CJS and ESM), even when the adapter loaded one copy and the app
+ * the other.
  */
 const CONN_INFO: unique symbol = Symbol.for("laratype.http.connInfo")
+
+/**
+ * The middlewares `mountConnInfo` mounted on an app, so a second mount is still accepted while a mount after anything
+ * else is refused (the capture has to run before a middleware can await). A `Symbol.for` key like `CONN_INFO`, for the
+ * same two-copies reason.
+ */
+const CONN_INFO_MOUNTS: unique symbol = Symbol.for("laratype.http.connInfoMounts")
 
 /**
  * The brand of the default `rules()`: the kernel skips validation for a request class that doesn't override it. A
@@ -33,12 +41,31 @@ const CONN_INFO: unique symbol = Symbol.for("laratype.http.connInfo")
 export const DEFAULT_RULES: unique symbol = Symbol.for("laratype.http.defaultRules");
 
 /** The context methods `mountConnInfo` and `clientIp` use with the symbol key, which Hono's string-keyed types omit. */
-type ConnInfoContext = { get(key: symbol): unknown, set(key: symbol, value: GetConnInfo): void }
+type ConnInfoContext = { get(key: symbol): unknown, set(key: symbol, value: unknown): void }
+
+/** What `mountConnInfo`'s middleware stores when it runs: `ConnInfoSource` for the request that ran it. */
+type CapturedConnInfo = { readonly registered: true, readonly address: string | undefined }
+
+/** What `mountConnInfo`'s `getConnInfo` answered, normalized: `remote.address` when it is a connection info object. */
+const readAddress = (ctx: Context, getConnInfo: GetConnInfo): string | undefined => {
+  try {
+    const info: unknown = getConnInfo(ctx);
+    const address = typeof info === "object" && info !== null
+      ? (info as { remote?: { address?: unknown } }).remote?.address
+      : undefined;
+    return normalizeIp(address)
+  }
+  catch {
+    return undefined
+  }
+}
 
 /**
  * Mounts the serving adapter's `getConnInfo` (docs/v1/http.md › Request.ip()): `sauf`'s node entry and `sauf dev`
- * mount the node server's, a Bun entry `hono/bun`'s. The middleware runs before the routes, so `ip()` and the rate
- * limit find the getter on the context; without it `ip()` answers `undefined`, never a guess from the runtime's env.
+ * mount the node server's, a Bun entry `hono/bun`'s. The middleware runs before the routes and captures the address
+ * once, synchronously, so a client that resets its connection during a later `await` still has its address counted by
+ * the rate limit. Mount it before any route or middleware that can await; a late mount is refused, because the lazy
+ * read after that await is exactly what loses the address of a reset connection.
  */
 export const mountConnInfo = (app: Hono, getConnInfo: GetConnInfo): void => {
   if (typeof getConnInfo !== "function") {
@@ -47,41 +74,50 @@ export const mountConnInfo = (app: Hono, getConnInfo: GetConnInfo): void => {
   if (typeof (app as { use?: unknown } | undefined)?.use !== "function") {
     throw new TypeError(`[@laratype/http] mountConnInfo(): expected a Hono app, got ${app === null ? "null" : typeof app}`)
   }
+  const mounted = app as Hono & { [CONN_INFO_MOUNTS]?: readonly MiddlewareHandler[] }
+  const previous = mounted[CONN_INFO_MOUNTS] ?? []
+  // Hono runs a middleware registered after a route only after that route, and after an earlier middleware: the capture
+  // would run after its await. Our own earlier mounts are fine, so mounting twice stays harmless.
+  const routes = Array.isArray(app.routes) ? app.routes : []
+  const late = routes.filter((route) => !previous.includes(route.handler))
+  if (late.length > 0) {
+    throw new Error(`[@laratype/http] mountConnInfo(): call it before any route or middleware, so the address is captured before one can await; the app already has ${late.length} route${late.length === 1 ? "" : "s"} or middleware`)
+  }
   const middleware: MiddlewareHandler = async (ctx, next) => {
-    (ctx as unknown as ConnInfoContext).set(CONN_INFO, getConnInfo)
+    const captured: CapturedConnInfo = { registered: true, address: readAddress(ctx, getConnInfo) }
+    ;(ctx as unknown as ConnInfoContext).set(CONN_INFO, captured)
     await next()
   }
   app.use("*", middleware)
+  mounted[CONN_INFO_MOUNTS] = [...previous, middleware]
 }
 
 /**
  * What the serving adapter's `getConnInfo` answered (A5 #288, H30 #299): whether one is registered at all, and the
  * client address it found. `registered: false` is the app-wiring gap the rate limit warns about once per process; a
- * registered getter that finds no address (a unix socket, a gone connection) is a per-request fact and logs nothing.
+ * registered getter that finds no address (a unix socket, a gone connection) is a per-request fact.
  */
 export type ConnInfoSource =
   | { readonly registered: false, readonly address: undefined }
   | { readonly registered: true, readonly address: string | undefined }
 
+/** Whether `value` is the capture `mountConnInfo`'s middleware stores, rather than a getter an older copy stored. */
+const isCaptured = (value: unknown): value is CapturedConnInfo =>
+  typeof value === "object" && value !== null && (value as { registered?: unknown }).registered === true
+
 /**
- * The client address `request.ip()` answers, read from the getConnInfo the serving adapter registered on the context
- * (A5 #288, H30 #299), or `undefined` when none is registered or it has no address. A getConnInfo that throws (a Bun
- * server's `requestIP()` answering null, a socket gone) is no address either: it never fails the request.
+ * The client address `request.ip()` answers, read from what `mountConnInfo`'s middleware captured when it ran (A5
+ * #288, H30 #299), or `undefined` when no middleware ran or the getter found no address. The getter is not called
+ * again: after an `await` a reset connection has no address left to read. The one lazy path left is a getter an older
+ * copy of the package stored itself, for a request whose app never ran this copy's middleware; a getter that throws or
+ * answers no address is no address either, and never fails the request.
  */
 export const connInfoSource = (ctx: Context | undefined): ConnInfoSource => {
   if (ctx === undefined) return { registered: false, address: undefined };
-  const getConnInfo = (ctx as unknown as Partial<ConnInfoContext>).get?.(CONN_INFO)
-  if (typeof getConnInfo !== "function") return { registered: false, address: undefined };
-  try {
-    const info: unknown = getConnInfo(ctx);
-    const address = typeof info === "object" && info !== null
-      ? (info as { remote?: { address?: unknown } }).remote?.address
-      : undefined;
-    return { registered: true, address: normalizeIp(address) }
-  }
-  catch {
-    return { registered: true, address: undefined }
-  }
+  const stored = (ctx as unknown as Partial<ConnInfoContext>).get?.(CONN_INFO)
+  if (typeof stored === "function") return { registered: true, address: readAddress(ctx, stored as GetConnInfo) }
+  if (isCaptured(stored)) return { registered: true, address: normalizeIp(stored.address) }
+  return { registered: false, address: undefined };
 }
 
 /** The address `ip()` answers: `connInfoSource(ctx).address`, `undefined` for every reason it can be unknown. */
@@ -164,10 +200,10 @@ export default class Request implements RequestInterface {
   }
 
   /**
-   * The client address of the socket the serving adapter's `getConnInfo` reads (docs/v1/http.md › Request.ip()), or
-   * `undefined` when no adapter registered one (an in-process `app.request()`, another runtime) or the socket is gone.
-   * It never reads `X-Forwarded-For` or `X-Real-IP`: behind a proxy, this is the proxy's address until the trusted-proxy
-   * setting ([#320](https://github.com/Laratypes/Laratype/issues/320)) names the proxies.
+   * The client address of the socket `mountConnInfo`'s `getConnInfo` read when its middleware ran (docs/v1/http.md ›
+   * Request.ip()), or `undefined` when no adapter mounted one (an in-process `app.request()`, another runtime) or the
+   * socket is gone. It never reads `X-Forwarded-For` or `X-Real-IP`: behind a proxy, this is the proxy's address until
+   * the trusted-proxy setting ([#320](https://github.com/Laratypes/Laratype/issues/320)) names the proxies.
    */
   ip(): string | undefined {
     return clientIp((this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT])
