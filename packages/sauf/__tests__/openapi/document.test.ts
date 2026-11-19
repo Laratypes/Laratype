@@ -106,6 +106,28 @@ describe("generateOpenApiDocument", () => {
     expect(operation("/api/v1/health", "get").security).toEqual([]);
   });
 
+  it("gives two guards whose sanitized names collide distinct schemes, in any definition order", () => {
+    const slashGuard = defineContract()({ show: endpoint.get("/a") }, { auth: "staff/login" });
+    const underscoreGuard = defineContract()({ show: endpoint.get("/b") }, { auth: "staff_login" });
+    const one = defineApi({
+      slash: { contract: slashGuard, path: "/api/slash", scopes: [] },
+      underscore: { contract: underscoreGuard, path: "/api/underscore", scopes: [] },
+    });
+    const two = defineApi({
+      underscore: { contract: underscoreGuard, path: "/api/underscore", scopes: [] },
+      slash: { contract: slashGuard, path: "/api/slash", scopes: [] },
+    });
+    const first = openApi(one).document;
+    // sorted guard names: "staff/login" gets the plain key, "staff_login" the next one
+    expect(first.components.securitySchemes).toEqual({
+      guard_staff_login: { type: "http", scheme: "bearer", description: "The staff/login guard." },
+      guard_staff_login_2: { type: "http", scheme: "bearer", description: "The staff_login guard." },
+    });
+    expect(first.paths["/api/slash/a"]!.get!.security).toEqual([{ guard_staff_login: [] }]);
+    expect(first.paths["/api/underscore/b"]!.get!.security).toEqual([{ guard_staff_login_2: [] }]);
+    expect(JSON.stringify(first)).toBe(JSON.stringify(openApi(two).document));
+  });
+
   it("maps query and header properties to parameters, with required from the schema", () => {
     const index = operation("/api/users", "get");
     expect(index.parameters?.map((item) => [item.name, item.in, item.required])).toEqual([
@@ -114,6 +136,27 @@ describe("generateOpenApiDocument", () => {
       ["x-trace", "header", false],
     ]);
     expect(parameter(index, "tag", "query").schema).toEqual({ type: "array", items: { type: "string" } });
+  });
+
+  it("warns for a header OpenAPI reserves, and still documents ordinary headers", () => {
+    const contract = defineContract()({
+      index: endpoint.get("/").headers(
+        z.object({
+          Authorization: z.string(),
+          "Content-Type": z.string(),
+          accept: z.string().optional(),
+          "X-Trace": z.string().optional(),
+        }),
+      ),
+    });
+    const result = openApi(defineApi({ h: { contract, path: "/api/h", scopes: [] } }));
+    const index = result.document.paths["/api/h"]!.get!;
+    expect(index.parameters?.map((item) => item.name)).toEqual(["Authorization", "Content-Type", "accept", "X-Trace"]);
+    expect(result.warnings).toEqual([
+      '"h.index": the header "Authorization" is reserved by OpenAPI; its definition is ignored',
+      '"h.index": the header "Content-Type" is reserved by OpenAPI; its definition is ignored',
+      '"h.index": the header "accept" is reserved by OpenAPI; its definition is ignored',
+    ]);
   });
 
   it("maps a required query property and a path parameter regex", () => {
@@ -395,6 +438,30 @@ describe("warning hygiene", () => {
     expect(result.warnings[1]).toContain(JSON.stringify(ansi));
   });
 
+  it("escapes control characters in a converter's reason, not only in quoted names", () => {
+    const hostile = {
+      "~standard": {
+        version: 1,
+        vendor: "hostile-reason",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => {
+            throw new Error("bad \u0001 and \u001b[31mred\u001b[0m");
+          },
+          output: () => {
+            throw new Error("bad \u0001 and \u001b[31mred\u001b[0m");
+          },
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ show: endpoint.get("/").response(hostile) });
+    const result = openApi(defineApi({ r: { contract, path: "/api/r", scopes: [] } }));
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("bad \\u0001 and \\u001b[31mred\\u001b[0m");
+    expect(result.warnings[0]).not.toContain("\u0001");
+    expect(result.warnings[0]).not.toContain("\u001b");
+  });
+
   it("escapes control characters in a duplicate-route warning", () => {
     const control = "\u0001one";
     const ansi = "\u001b[32mtwo";
@@ -435,21 +502,141 @@ describe("recursive schemas", () => {
     expect(refs(result.document).every((ref) => ref.startsWith("#/components/schemas/"))).toBe(true);
   });
 
-  it("hoists a recursive query property on its own, with the parent $defs when it needs them", () => {
+  it("hoists the query schema once and points the parameter at the property's original location", () => {
     const contract = defineContract()({
       index: endpoint.get("/").query(z.object({ tree: NodeDto })),
     });
     const result = openApi(defineApi({ q: { contract, path: "/api/q", scopes: [] } }));
     const index = result.document.paths["/api/q"]!.get!;
     expect(index.parameters).toEqual([
-      { name: "tree", in: "query", required: true, schema: { $ref: "#/components/schemas/q.index.query.tree" } },
+      {
+        name: "tree",
+        in: "query",
+        required: true,
+        schema: { $ref: "#/components/schemas/q.index.query/properties/tree" },
+      },
     ]);
-    // zod's nested recursion is a root $ref into $defs; the hoisted property keeps (and rebases) both
-    const component = result.document.components.schemas["q.index.query.tree"]!;
-    expect(component).toMatchObject({ $ref: "#/components/schemas/q.index.query.tree/$defs/__schema0" });
+    // zod's nested recursion is a root $ref into $defs; the hoisted root keeps the property's base and definitions
+    const component = result.document.components.schemas["q.index.query"]!;
+    expect(component.properties).toMatchObject({ tree: { $ref: "#/components/schemas/q.index.query/$defs/__schema0" } });
     const defs = component.$defs as Record<string, JsonSchema>;
     expect(defs.__schema0).toMatchObject({ type: "object" });
     expect((refs(result.document)).every((ref) => ref.startsWith("#/components/schemas/"))).toBe(true);
+  });
+
+  it("escapes ~ and / in a hoisted query property's JSON Pointer", () => {
+    const escaped = {
+      "~standard": {
+        version: 1,
+        vendor: "escaped-pointer",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: {
+              "a/b": { $ref: "#/$defs/x" },
+              "a~b": { $ref: "#/$defs/x" },
+            },
+            $defs: { x: { type: "string" } },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ index: endpoint.get("/").query(escaped) });
+    const result = openApi(defineApi({ p: { contract, path: "/api/p", scopes: [] } }));
+    expect(result.document.paths["/api/p"]!.get!.parameters).toEqual([
+      {
+        name: "a/b",
+        in: "query",
+        required: false,
+        schema: { $ref: "#/components/schemas/p.index.query/properties/a~1b" },
+      },
+      {
+        name: "a~b",
+        in: "query",
+        required: false,
+        schema: { $ref: "#/components/schemas/p.index.query/properties/a~0b" },
+      },
+    ]);
+    expect(result.document.components.schemas["p.index.query"]).toMatchObject({
+      properties: {
+        "a/b": { $ref: "#/components/schemas/p.index.query/$defs/x" },
+        "a~b": { $ref: "#/components/schemas/p.index.query/$defs/x" },
+      },
+      $defs: { x: { type: "string" } },
+    });
+    expect(JSON.parse(JSON.stringify(result.document))).toEqual(result.document);
+  });
+
+  it("keeps a property's root reference to the query schema itself", () => {
+    const selfRef = {
+      "~standard": {
+        version: 1,
+        vendor: "self-ref",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              tree: { type: "array", items: { $ref: "#" } },
+            },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ index: endpoint.get("/").query(selfRef) });
+    const result = openApi(defineApi({ q: { contract, path: "/api/q", scopes: [] } }));
+    expect(result.document.paths["/api/q"]!.get!.parameters).toEqual([
+      { name: "name", in: "query", required: false, schema: { type: "string" } },
+      {
+        name: "tree",
+        in: "query",
+        required: false,
+        schema: { $ref: "#/components/schemas/q.index.query/properties/tree" },
+      },
+    ]);
+    // `#` in the item still means the query object, not the hoisted array property it came from
+    expect(result.document.components.schemas["q.index.query"]).toMatchObject({
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        tree: { type: "array", items: { $ref: "#/components/schemas/q.index.query" } },
+      },
+    });
+  });
+
+  it("resolves a named anchor against the source schema's own resource when hoisting", () => {
+    const anchored = {
+      "~standard": {
+        version: 1,
+        vendor: "anchored",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: { item: { $ref: "#node" }, root: { $ref: "#" } },
+            $defs: { node: { $anchor: "node", type: "string" } },
+          }),
+          output: () => ({
+            type: "object",
+            properties: { item: { $ref: "#node" }, root: { $ref: "#" } },
+            $defs: { node: { $anchor: "node", type: "string" } },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ show: endpoint.get("/").response(anchored) });
+    const result = openApi(defineApi({ a: { contract, path: "/api/a", scopes: [] } }));
+    expect(content(result.document.paths["/api/a"]!.get!.responses["200"]!)).toEqual({
+      $ref: "#/components/schemas/a.show.response",
+    });
+    const component = result.document.components.schemas["a.show.response"]!;
+    expect(component.properties).toEqual({
+      item: { $ref: "#/components/schemas/a.show.response/$defs/node" },
+      root: { $ref: "#/components/schemas/a.show.response" },
+    });
+    expect(refs(result.document).every((ref) => ref.startsWith("#/components/schemas/"))).toBe(true);
   });
 
   it("rebases a registered schema's root $ref and keeps its $defs reachable", () => {
@@ -525,20 +712,23 @@ describe("paths OpenAPI cannot tell apart", () => {
     const result = openApi(api);
     expect(Object.keys(result.document.paths["/api/x/{a}"]!)).toEqual(["get"]);
     expect(result.document.paths["/api/x/{a}"]!.get!.operationId).toBe("first.one");
+    // the two paths match the same requests, so tree order is only the document's tie-breaker
     expect(result.warnings).toEqual([
-      '"second.two" and "first.one" both answer GET /api/x/{a}; keeping "first.one"',
+      '"second.two" and "first.one" both answer GET /api/x/{a}; keeping "first.one" (first in tree order)',
     ]);
   });
 
-  it("drops a same-method route whose param differs only by a regex", () => {
+  it("drops a same-method route whose param differs only by a regex, and says what is not described", () => {
     const contract = defineContract()({
       plain: endpoint.get("/:id"),
       patterned: endpoint.get("/:id{[0-9]+}"),
     });
     const result = openApi(defineApi({ pattern: { contract, path: "/api/x", scopes: [] } }));
     expect(result.document.paths["/api/x/{id}"]!.get!.operationId).toBe("pattern.plain");
+    // the router does not use tree order here: it answers /api/x/42 with the constrained route, which the retained
+    // operation does not describe; the warning names it instead of claiming the router keeps the first route
     expect(result.warnings).toEqual([
-      '"pattern.patterned" and "pattern.plain" both answer GET /api/x/{id}; keeping "pattern.plain"',
+      '"pattern.patterned" and "pattern.plain" both answer GET /api/x/{id}; keeping "pattern.plain" (first in tree order); requests that the router answers with "pattern.patterned" ("/api/x/:id{[0-9]+}") are not described by the retained operation',
     ]);
   });
 });
@@ -595,7 +785,7 @@ describe("hostile contract input", () => {
     expect(JSON.parse(JSON.stringify(result.document))).toEqual(result.document);
   });
 
-  it("treats a non-JSON-schema response value as a fallback, and NaN/Infinity as JSON nulls", () => {
+  it("treats a non-JSON-schema response value as a fallback, and rejects NaN/Infinity bounds", () => {
     const forged = endpoint.get("/forged").response(null as unknown as StandardSchemaV1);
     const contract = defineContract()({ forged });
     const result = openApi(defineApi({ forged: { contract, path: "/api/x", scopes: [] } }));
@@ -619,12 +809,11 @@ describe("hostile contract input", () => {
     const numbersResult = openApi(
       defineApi({ numbers: { contract: numbersContract, path: "/api/numbers", scopes: [] } }),
     );
-    // JSON cannot hold NaN or Infinity: the round trip makes them null, so the document stays JSON
-    expect(content(numbersResult.document.paths["/api/numbers"]!.get!.responses["200"]!)).toEqual({
-      type: "number",
-      minimum: null,
-      maximum: null,
-    });
+    // draft 2020-12 requires finite numbers in these keywords: the schema falls back instead of emitting null
+    expect(content(numbersResult.document.paths["/api/numbers"]!.get!.responses["200"]!)).toEqual({});
+    expect(numbersResult.warnings).toEqual([
+      '"numbers.show": the response schema has no JSON Schema (it has a minimum (number) that is not a finite number); it is documented as {}',
+    ]);
   });
 
   it("does not depend on an enumerable ~standard", () => {
@@ -665,6 +854,36 @@ describe("hostile contract input", () => {
     const second = openApi(two).document;
     expect(Object.keys(first.components.schemas)).toEqual(["a_b.show.response", "a_b.show.response_2"]);
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it("rejects a malformed error entry before response assembly, and accepts an empty errors array", () => {
+    const routeWith = (errors: unknown) =>
+      ({
+        apiRoutes: () => [
+          { name: "a", method: "get", path: "/a", endpoint: { def: { status: 200 } }, errors },
+        ],
+        isApiRoot: () => true,
+      }) as unknown as OpenApiContract;
+    for (const errors of [
+      [null],
+      [undefined],
+      [{}],
+      [{ status: 400 }],
+      [{ status: 400, code: "" }],
+      [{ status: Number.NaN, code: "X" }],
+      [{ status: 200, code: "X" }],
+      [{ status: 400, code: 5 }],
+    ]) {
+      expect(() => generateOpenApiDocument({}, { contract: routeWith(errors) })).toThrow(
+        "[sauf openapi:generate] apiRoutes() returned an invalid route",
+      );
+    }
+    // an empty array is valid: a route with no errors (the contract always derives some, but a custom runtime may not)
+    const empty = generateOpenApiDocument({}, { contract: routeWith([]) });
+    expect(empty.document.paths["/a"]!.get!.operationId).toBe("a");
+    // an object with a valid status and code is accepted like an ErrorDef function
+    const objectEntries = generateOpenApiDocument({}, { contract: routeWith([{ status: 409, code: "TAKEN" }]) });
+    expect(objectEntries.document.paths["/a"]!.get!.responses["409"]!.description).toBe("TAKEN");
   });
 
   it("handles a very long regex pattern and a wrong contract runtime with one diagnostic", () => {

@@ -1,14 +1,9 @@
 import { apiRoutes, isApiRoot } from "@laratype/contract";
-import type { Api } from "@laratype/contract";
 import { generateOpenApiDocument } from "../../src/openapi";
 import type { GeneratedOpenApi, OpenApiContract, OpenApiOptions } from "../../src/openapi";
 
 /** The project's contract runtime, as `load.ts` takes it from the app (tests use the workspace copy). */
-export const contractRuntime: OpenApiContract = {
-  // The overloads take the appApi / a contract; a test walks whatever value the builder validates at run time
-  apiRoutes: (api) => apiRoutes(api as unknown as Api),
-  isApiRoot,
-};
+export const contractRuntime: OpenApiContract = { apiRoutes, isApiRoot };
 
 /** `generateOpenApiDocument` with the fixed test metadata. */
 export const openApi = (api: object, options: Omit<OpenApiOptions, "contract"> = {}): GeneratedOpenApi =>

@@ -82,6 +82,9 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   const out = slash(options.out ?? DEFAULT_OPENAPI);
   const warnings: string[] = [];
 
+  // The scan writes under --gen before the document does: an --out there would overwrite its own input, and on a
+  // first run the target does not exist yet for the "existing file must be OpenAPI" rule to catch it.
+  checkOutputOutsideGen(projectDir, gen, out);
   checkOutputFile(projectDir, out);
 
   // Both flags: the config is not needed, so it is not imported (it may need env or providers), as in types:generate
@@ -117,8 +120,21 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   return { document: generated.document, warnings, file: out, changed };
 }
 
+/** `--out` must not be a file the scan writes: the whole generated folder, since a first run has no target yet. */
+function checkOutputOutsideGen(projectDir: string, gen: string, out: string): void {
+  const genDir = resolve(projectDir, gen);
+  const target = resolve(projectDir, out);
+  // `--gen .` is refused by the scan (the project itself): leave that diagnostic to it rather than refusing every out.
+  if (genDir !== projectDir && (target === genDir || inside(genDir, target))) {
+    throw new OpenApiGenerationError(
+      `the output file "${out}" (--out) must not be the generated folder "${gen}" (--gen) or inside it; the scan writes there`,
+    );
+  }
+}
+
 /** `--out` is a file of its own inside the project: a command never writes outside it, over a directory, over a
- * file it did not write, or through a symlink or junction. */
+ * file it did not write, through a symlink or junction, or through a hard link (which would replace the other name's
+ * content too). */
 function checkOutputFile(projectDir: string, out: string): void {
   const target = resolve(projectDir, out);
   if (out === "" || isAbsolute(out) || /^[a-zA-Z]:/.test(out) || !inside(projectDir, target)) {
@@ -140,6 +156,11 @@ function checkOutputFile(projectDir: string, out: string): void {
     }
     if (!info.isFile()) {
       throw new OpenApiGenerationError(`the output file "${out}" (--out) is not a file`);
+    }
+    if (info.nlink > 1) {
+      throw new OpenApiGenerationError(
+        `the output file "${out}" (--out) has more than one hard link; refusing to overwrite it`,
+      );
     }
     if (!isOpenApiDocument(target)) {
       throw new OpenApiGenerationError(
@@ -271,10 +292,21 @@ function readPackageMetadata(projectDir: string): { readonly title: string; read
   return { title: "Laratype API", version: "0.0.0" };
 }
 
-/** Writes the document only when its content changed, so a repeated run leaves the file (and its mtime) alone. */
+/**
+ * Writes the document only when its content changed, so a repeated run leaves the file (and its mtime) alone. The
+ * target is checked again right before the write: the scan and the project imports ran since the preflight, and a
+ * file created in that window must not be replaced on the strength of the earlier decision.
+ *
+ * The check and the write still resolve the path twice, so a process that can write the project could swap an
+ * ancestor for a link in between; Node's synchronous `fs` API has no descriptor-relative open to close that, and it
+ * is a residual race (a process with that access can change the imported project code anyway).
+ */
 function writeDocument(projectDir: string, out: string, document: OpenApiDocument): boolean {
   const content = `${JSON.stringify(document, null, 2)}\n`;
   const target = resolve(projectDir, out);
+  // First, before the target is read: a link or a directory created in the window gets the documented diagnostic,
+  // not a raw read error, and a hard-linked file's content is never read through the other name.
+  checkOutputFile(projectDir, out);
   if (existsSync(target) && readFileSync(target, "utf8") === content) return false;
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);

@@ -1,6 +1,7 @@
 import {
   cpSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -44,6 +45,20 @@ const project = (name: string, config?: string): string => {
   }
   return dir;
 };
+
+// A hard link needs a filesystem that supports them (NTFS and ext4 do): the case says why it is skipped elsewhere
+const canHardLink = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "laratype-hardlink-"));
+  try {
+    writeFileSync(join(dir, "target.json"), "{}");
+    linkSync(join(dir, "target.json"), join(dir, "link.json"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 // A Windows file symlink needs a privilege the CI account may lack: the case says why it is skipped
 const canSymlinkFile = (() => {
@@ -154,6 +169,93 @@ describe("sauf openapi:generate", () => {
       generateOpenApiFile({ projectDir: dir, out: "file.json/nested.json", load, contract: contractRuntime }),
     ).rejects.toThrow('the output file "file.json/nested.json" (--out) is below a path that is not a folder');
     expect(existsSync(join(dir, ".laratype"))).toBe(false);
+  }, 60_000);
+
+  it("refuses an --out at or inside --gen on a first run, before anything is written", async () => {
+    const dir = project("out-gen");
+    for (const out of [".laratype", ".laratype/api/index.gen.ts", ".laratype/types/users/$types.d.ts"]) {
+      await expect(generateOpenApiFile({ projectDir: dir, out, load, contract: contractRuntime })).rejects.toThrow(
+        `the output file "${out}" (--out) must not be the generated folder ".laratype" (--gen) or inside it; the scan writes there`,
+      );
+    }
+    expect(existsSync(join(dir, ".laratype"))).toBe(false);
+    // a non-default --gen is guarded the same way, by path containment (a sibling with the same prefix is outside)
+    await expect(
+      generateOpenApiFile({
+        projectDir: dir,
+        gen: "build/gen",
+        out: "build/gen/api/index.gen.ts",
+        load,
+        contract: contractRuntime,
+      }),
+    ).rejects.toThrow(
+      'the output file "build/gen/api/index.gen.ts" (--out) must not be the generated folder "build/gen" (--gen) or inside it; the scan writes there',
+    );
+    expect(existsSync(join(dir, "build"))).toBe(false);
+    // `--gen .` is refused by the scan's own output-folder rule, not by the overlap guard (which would refuse every out)
+    await expect(generateOpenApiFile({ projectDir: dir, gen: ".", load, contract: contractRuntime })).rejects.toThrow(
+      'the output folder "."',
+    );
+    // the same run with an --out outside the generated folder still writes the document
+    const result = await generateOpenApiFile({
+      projectDir: dir,
+      gen: "build/gen",
+      out: "build/gen-openapi.json",
+      load,
+      contract: contractRuntime,
+    });
+    expect(result.changed).toBe(true);
+    expect(existsSync(join(dir, "build", "gen", "api", "index.gen.ts"))).toBe(true);
+    expect(existsSync(join(dir, "build", "gen-openapi.json"))).toBe(true);
+  }, 60_000);
+
+  it("refuses an --out target that is a hard link, so the other name's file is not replaced", async (context) => {
+    if (!canHardLink) {
+      context.skip("the OS or filesystem refused to create a hard link");
+      return;
+    }
+    const dir = project("out-hardlink");
+    const outside = join(tmp, "outside-hardlink.json");
+    const content = JSON.stringify({ openapi: "3.1.0", info: { title: "SECRET-CONTENT", version: "1.0.0" } });
+    writeFileSync(outside, content);
+    linkSync(outside, join(dir, "openapi.json"));
+
+    const error = await generateOpenApiFile({
+      projectDir: dir,
+      out: "openapi.json",
+      load,
+      contract: contractRuntime,
+    }).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(OpenApiGenerationError);
+    // the target's content is never printed, and neither name's content changed through the other
+    expect((error as Error).message).toBe(
+      '[sauf openapi:generate] the output file "openapi.json" (--out) has more than one hard link; refusing to overwrite it',
+    );
+    expect((error as Error).message).not.toContain("SECRET-CONTENT");
+    expect(readFileSync(outside, "utf8")).toBe(content);
+    expect(readFileSync(join(dir, "openapi.json"), "utf8")).toBe(content);
+    expect(existsSync(join(dir, ".laratype"))).toBe(false);
+  }, 60_000);
+
+  it("refuses a file created at --out after the preflight, instead of replacing it", async () => {
+    const dir = project("out-race");
+    const planted = "this file was not written by the command";
+    const loadAndPlant = async (url: string) => {
+      mkdirSync(join(dir, "docs"), { recursive: true });
+      writeFileSync(join(dir, "docs", "openapi.json"), planted);
+      return load(url);
+    };
+    await expect(
+      generateOpenApiFile({
+        projectDir: dir,
+        out: "docs/openapi.json",
+        load: loadAndPlant,
+        contract: contractRuntime,
+      }),
+    ).rejects.toThrow(
+      'the output file "docs/openapi.json" (--out) already exists and is not an OpenAPI document this command wrote; refusing to overwrite it',
+    );
+    expect(readFileSync(join(dir, "docs", "openapi.json"), "utf8")).toBe(planted);
   }, 60_000);
 
   it("refuses to overwrite a file that is not an OpenAPI document this command wrote", async () => {

@@ -1,3 +1,5 @@
+import { apiRoutes, isApiRoot } from "@laratype/contract";
+import type { Api } from "@laratype/contract";
 import { describe, expectTypeOf, it } from "vitest";
 import { OpenApiGenerationError, generateOpenApiDocument, generateOpenApiFile } from "../../src/openapi";
 import type {
@@ -53,6 +55,10 @@ describe("the OpenAPI document types", () => {
     expectTypeOf<OpenApiGenerationError>().toMatchTypeOf<Error>();
 
     typeOnly(() => {
+      // the project's own @laratype/contract exports are an OpenApiContract without a cast, and its `Api` brand
+      // is what the runtime predicate narrows to
+      const runtime: OpenApiContract = { apiRoutes, isApiRoot };
+      generateOpenApiDocument({} as Api, { contract: runtime, title: "typed", version: "1.0.0" });
       // @ts-expect-error options.contract is required
       generateOpenApiDocument({}, {});
     });

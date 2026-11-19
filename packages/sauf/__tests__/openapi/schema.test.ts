@@ -5,9 +5,9 @@ import {
   hasLocalRefs,
   isParentRef,
   isSchemaResource,
+  oneLine,
   rebaseRefs,
   standardJsonSchema,
-  withParentDefs,
 } from "../../src/openapi/schema";
 
 describe("standardJsonSchema", () => {
@@ -89,6 +89,44 @@ describe("standardJsonSchema", () => {
     };
     expect(standardJsonSchema(value, "input").ok).toBe(false);
   });
+
+  it("rejects a non-finite numeric bound instead of letting JSON turn it into null", () => {
+    const schemaFor = (minimum: unknown) => ({
+      "~standard": {
+        version: 1,
+        vendor: "bounds",
+        validate: () => ({ value: 1 }),
+        jsonSchema: { input: () => ({ type: "number", minimum }), output: () => ({ type: "number", minimum }) },
+      },
+    });
+    // finite bounds and a schema without a bound are unchanged
+    expect(standardJsonSchema(schemaFor(0), "input")).toEqual({ ok: true, schema: { type: "number", minimum: 0 } });
+    expect(standardJsonSchema(schemaFor(Number.NEGATIVE_INFINITY), "input")).toEqual({
+      ok: false,
+      reason: "it has a minimum (number) that is not a finite number",
+    });
+    expect(standardJsonSchema(schemaFor(Number.NaN), "output")).toEqual({
+      ok: false,
+      reason: "it has a minimum (number) that is not a finite number",
+    });
+    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({
+      ok: false,
+      reason: "it has a minimum (string) that is not a finite number",
+    });
+    // a nested bound is found too, and each numeric keyword is checked
+    const nested = {
+      "~standard": {
+        version: 1,
+        vendor: "nested",
+        validate: () => ({ value: 1 }),
+        jsonSchema: { input: () => ({ type: "object", properties: { n: { type: "number", multipleOf: Infinity } } }) },
+      },
+    };
+    expect(standardJsonSchema(nested, "input")).toEqual({
+      ok: false,
+      reason: "it has a multipleOf (number) that is not a finite number",
+    });
+  });
 });
 
 describe("refs", () => {
@@ -134,17 +172,115 @@ describe("refs", () => {
     expect(properties.n!.self).toEqual({ $ref: "#" });
   });
 
-  it("copies the parent $defs onto a hoisted property, unless it brings its own", () => {
-    const root = { $defs: { x: { type: "string" } } };
-    expect(withParentDefs(root, { $ref: "#/$defs/x" })).toEqual({
-      $ref: "#/$defs/x",
+  it("leaves $ref-shaped keys under const, enum, default and examples as instance values", () => {
+    const instance = { const: { $ref: "#" }, default: { $ref: "#/$defs/x" }, examples: [{ $ref: "#item" }] };
+    expect(hasLocalRefs({ ...instance, enum: [{ $ref: "#/$defs/x" }] })).toBe(false);
+    expect(rebaseRefs(instance, "k")).toEqual(instance);
+    // a ref in a real subschema is still found and rebased, next to the untouched instances
+    const schema = { properties: { a: { $ref: "#/$defs/x" } }, ...instance, $defs: { x: { type: "string" } } };
+    expect(hasLocalRefs(schema)).toBe(true);
+    expect(rebaseRefs(schema, "k")).toEqual({
+      properties: { a: { $ref: "#/components/schemas/k/$defs/x" } },
+      ...instance,
       $defs: { x: { type: "string" } },
     });
-    expect(withParentDefs(root, { $ref: "#/$defs/y", $defs: { y: { type: "number" } } })).toEqual({
-      $ref: "#/$defs/y",
-      $defs: { y: { type: "number" } },
+  });
+
+  it("rebases a local ref in every schema-valued keyword position", () => {
+    const ref = { $ref: "#/$defs/x" };
+    const source = {
+      properties: { a: ref },
+      patternProperties: { "^x": ref },
+      dependentSchemas: { a: ref },
+      definitions: { d: ref },
+      additionalProperties: ref,
+      contains: ref,
+      propertyNames: ref,
+      items: ref,
+      not: ref,
+      if: ref,
+      then: ref,
+      else: ref,
+      unevaluatedProperties: ref,
+      unevaluatedItems: ref,
+      contentSchema: ref,
+      allOf: [ref],
+      anyOf: [ref],
+      oneOf: [ref],
+      prefixItems: [ref],
+      $defs: { x: { type: "string" }, d: ref },
+    };
+    expect(hasLocalRefs(source)).toBe(true);
+    const found: string[] = [];
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(walk);
+      } else if (typeof value === "object" && value !== null) {
+        for (const [key, child] of Object.entries(value)) {
+          if (key === "$ref" && typeof child === "string") found.push(child);
+          else walk(child);
+        }
+      }
+    };
+    walk(rebaseRefs(source, "k"));
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.every((refValue) => refValue === "#/components/schemas/k/$defs/x")).toBe(true);
+  });
+
+  it("applies the $id boundary to the nested schema's own $ref", () => {
+    const source = {
+      properties: {
+        outer: { $ref: "#/$defs/value" },
+        nested: { $id: "https://example.com/n", $ref: "#/$defs/value" },
+      },
+      $defs: { value: { type: "string" } },
+    };
+    expect(rebaseRefs(source, "k")).toEqual({
+      properties: {
+        outer: { $ref: "#/components/schemas/k/$defs/value" },
+        nested: { $id: "https://example.com/n", $ref: "#/$defs/value" },
+      },
+      $defs: { value: { type: "string" } },
     });
-    expect(withParentDefs({}, { type: "string" })).toEqual({ type: "string" });
+  });
+
+  it("resolves a named anchor to the pointer of its $anchor before rebasing", () => {
+    const source = {
+      properties: {
+        item: { $ref: "#item" },
+        root: { $ref: "#" },
+        known: { $ref: "#/$defs/x" },
+        unknown: { $ref: "#missing" },
+      },
+      $defs: { node: { $anchor: "item", type: "string" }, x: { type: "number" } },
+    };
+    expect(hasLocalRefs(source)).toBe(true);
+    expect(rebaseRefs(source, "k")).toEqual({
+      properties: {
+        item: { $ref: "#/components/schemas/k/$defs/node" },
+        root: { $ref: "#/components/schemas/k" },
+        known: { $ref: "#/components/schemas/k/$defs/x" },
+        // an anchor that is not in the root resource stays as written: there is no target to point at
+        unknown: { $ref: "#missing" },
+      },
+      $defs: { node: { $anchor: "item", type: "string" }, x: { type: "number" } },
+    });
+    // an anchor inside a nested $id resource does not resolve from the root's scope
+    expect(rebaseRefs({ properties: { a: { $ref: "#item" } }, $defs: { n: { $id: "x", $anchor: "item" } } }, "k")).toEqual({
+      properties: { a: { $ref: "#item" } },
+      $defs: { n: { $id: "x", $anchor: "item" } },
+    });
+  });
+
+  it("escapes JSON Pointer segments in an anchor's target path", () => {
+    const source = {
+      properties: { a: { $ref: "#item" } },
+      $defs: { "a/b~c": { $anchor: "item", type: "string" } },
+    };
+    expect(rebaseRefs(source, "k")).toEqual({
+      properties: { a: { $ref: "#/components/schemas/k/$defs/a~1b~0c" } },
+      $defs: { "a/b~c": { $anchor: "item", type: "string" } },
+    });
   });
 
   it("recognizes a property that only refers to its parent", () => {
@@ -161,5 +297,15 @@ describe("errorReason", () => {
     expect(errorReason(null)).toBe("null");
     expect(errorReason(undefined)).toBe("undefined");
     expect(errorReason({ toString() { throw new Error("no"); } })).toBe("an error that cannot be printed");
+  });
+});
+
+describe("oneLine", () => {
+  it("collapses whitespace and escapes every control character in the whole message", () => {
+    expect(oneLine(new Error("first\nsecond\tthird"))).toBe("first second third");
+    expect(oneLine(new Error("bad \u0001 and \u001b[31mred\u001b[0m and \u007f"))).toBe(
+      "bad \\u0001 and \\u001b[31mred\\u001b[0m and \\u007f",
+    );
+    expect(oneLine("  ")).toBe("an unknown error");
   });
 });

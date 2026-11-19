@@ -1,26 +1,20 @@
-import type { ApiRoute, Method } from "@laratype/contract";
+import type { Api, ApiRoute, Method } from "@laratype/contract";
 import { OpenApiGenerationError } from "./errors";
-import {
-  hasLocalRefs,
-  isJsonObject,
-  isParentRef,
-  oneLine,
-  rebaseRefs,
-  standardJsonSchema,
-  withParentDefs,
-} from "./schema";
+import { hasLocalRefs, isJsonObject, isParentRef, oneLine, rebaseRefs, standardJsonSchema } from "./schema";
 import type { JsonSchema, JsonSchemaIo } from "./schema";
 
 /**
  * The contract side of the generator, loaded from the project's own `@laratype/contract` (`load.ts`): `apiRoutes()`
  * resolves the full paths, the inherited capabilities and the derived errors exactly as the router does, and
- * `isApiRoot()` recognizes the `defineApi` root by its brand. `sauf` takes no dependency on the contract package.
+ * `isApiRoot()` recognizes the `defineApi` root by its brand. `sauf` takes no dependency on the contract package: the
+ * types are type-only and the project supplies the runtime.
  */
 export interface OpenApiContract {
-  readonly apiRoutes: (api: object) => ReadonlyArray<ApiRoute>;
-  readonly isApiRoot: (value: unknown) => value is object;
+  readonly apiRoutes: (api: Api) => ReadonlyArray<ApiRoute>;
+  readonly isApiRoot: (value: unknown) => value is Api;
 }
 
+/** What `generateOpenApiDocument` needs: the project's contract runtime and the document's `info` metadata. */
 export interface OpenApiOptions {
   /** The project's contract runtime (see `OpenApiContract`). */
   readonly contract: OpenApiContract;
@@ -30,6 +24,7 @@ export interface OpenApiOptions {
   readonly version?: string;
 }
 
+/** A successful build: the document, plus the warnings for what it could not represent (it is still valid). */
 export interface GeneratedOpenApi {
   readonly document: OpenApiDocument;
   /** One line per endpoint/schema or path the document cannot represent; the command prints them. */
@@ -114,7 +109,25 @@ const REASON: Readonly<Record<number, string>> = {
 
 const METHOD_ORDER: readonly Method[] = ["get", "post", "put", "patch", "delete"];
 
+/** The header names OpenAPI reserves for its own use: a parameter with one of them is ignored by consumers. */
+const RESERVED_HEADERS: ReadonlySet<string> = new Set(["accept", "authorization", "content-type"]);
+
 const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** An `ErrorDef` is a function carrying `status` and `code`; a custom contract runtime can return anything, which
+ * must become one diagnostic rather than a TypeError in `responses()`. */
+const isErrorEntry = (value: unknown): boolean => {
+  if (typeof value !== "function" && !isJsonObject(value)) return false;
+  const { status, code } = value as { status?: unknown; code?: unknown };
+  return (
+    typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 400 &&
+    status <= 599 &&
+    typeof code === "string" &&
+    code !== ""
+  );
+};
 
 /** A non-empty string, or the fallback: `info` requires both fields. */
 const metadataText = (value: unknown, fallback: string): string =>
@@ -223,6 +236,16 @@ const pathTemplate = (segments: readonly PathSegment[]): string =>
 /** Two templates OpenAPI cannot tell apart: `/x/{a}` and `/x/{b}` group on `/x/{}`. */
 const pathGroupKey = (template: string): string => template.replace(/\{[^}]*\}/g, "{}");
 
+/** What a path matches, without its parameter names: two paths with the same shape answer the same requests. */
+const pathShape = (segments: readonly PathSegment[]): string =>
+  segments
+    .map((segment) =>
+      segment.kind === "param"
+        ? `:${segment.pattern ?? ""}${segment.optional ? "?" : ""}`
+        : `=${encodeLiteral(segment.text)}`,
+    )
+    .join("/");
+
 // ---- the document ---------------------------------------------------------------------------------------------------
 
 /**
@@ -253,6 +276,7 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
       typeof route.endpoint?.def !== "object" ||
       route.endpoint.def === null ||
       !Array.isArray(route.errors) ||
+      !route.errors.every(isErrorEntry) ||
       (route.auth !== undefined && route.auth !== true && typeof route.auth !== "string")
     ) {
       throw new OpenApiGenerationError(
@@ -263,16 +287,25 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   const warnings: string[] = [];
   const components = new Map<string, { readonly base: string; readonly schema: JsonSchema }>();
   let nextComponent = 0;
-  const guards = new Map<string, Set<string>>();
+  // Guard identity -> its provisional security scheme key (chosen finally below, in sorted name order).
+  const guards = new Map<string, string>();
 
-  const component = (base: string, build: (key: string) => JsonSchema): JsonSchema => {
+  /** Registers a component and returns its provisional key; the final key is chosen below, in sorted base order. */
+  const hoist = (base: string, build: (key: string) => JsonSchema): string => {
     // A provisional key, marked with NUL (which no final key or sane ref has): the final one is chosen below, in
     // sorted base order, so it does not depend on the tree's definition order (two route names can sanitize alike).
     const provisional = `\u0000${nextComponent}`;
     nextComponent += 1;
     components.set(provisional, { base, schema: build(provisional) });
-    return { $ref: `#/components/schemas/${provisional}` };
+    return provisional;
   };
+
+  const component = (base: string, build: (key: string) => JsonSchema): JsonSchema => ({
+    $ref: `#/components/schemas/${hoist(base, build)}`,
+  });
+
+  /** A JSON Pointer segment for a property name, escaped as RFC 6901 requires. */
+  const pointer = (name: string): string => name.replace(/~/g, "~0").replace(/\//g, "~1");
 
   const convert = (route: string, label: string, schema: unknown, io: JsonSchemaIo): JsonSchema => {
     const result = standardJsonSchema(schema, io);
@@ -292,8 +325,9 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
 
   /**
    * The query or headers parameters of one endpoint: the schema's `properties`, in declaration order, `required` from
-   * its `required` list. A property with a local `$ref` is hoisted on its own, since a parameter schema's refs resolve
-   * against the document, not against the parent schema.
+   * its `required` list. A property with a local `$ref` is served by hoisting the whole query/headers schema (once per
+   * endpoint and slot) and referencing the property inside it: the refs keep the root schema as their base, so `#`,
+   * `#/$defs/...` and `#anchor` still point at what they meant in the source schema.
    */
   const propertyParameters = (route: ApiRoute, label: "query" | "headers"): OpenApiParameter[] => {
     const def = route.endpoint.def;
@@ -316,6 +350,7 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     );
     const location = label === "query" ? ("query" as const) : ("header" as const);
     const parameters: OpenApiParameter[] = [];
+    let rootKey: string | undefined;
     for (const [name, property] of Object.entries(root.properties)) {
       let json: JsonSchema;
       if (!isJsonObject(property)) {
@@ -330,9 +365,17 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
         warnings.push(oneLine(`${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} ${itself}`));
         json = {};
       } else if (hasLocalRefs(property)) {
-        json = component(`${route.name}.${label}.${name}`, (key) => rebaseRefs(withParentDefs(root, property), key));
+        rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
+        json = { $ref: `#/components/schemas/${rootKey}/properties/${pointer(name)}` };
       } else {
         json = property;
+      }
+      if (location === "header" && RESERVED_HEADERS.has(name.toLowerCase())) {
+        warnings.push(
+          oneLine(
+            `${JSON.stringify(route.name)}: the header ${JSON.stringify(name)} is reserved by OpenAPI; its definition is ignored`,
+          ),
+        );
       }
       parameters.push({ name, in: location, required: required.has(name), schema: json });
     }
@@ -402,10 +445,13 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   const schemeOf = (route: ApiRoute): ReadonlyArray<Record<string, readonly string[]>> => {
     if (route.auth === undefined) return [];
     const guard = route.auth === true ? "default" : route.auth;
-    const key = `guard_${guard.replace(/[^A-Za-z0-9._-]/g, "_")}`;
-    const labels = guards.get(key) ?? new Set<string>();
-    labels.add(guard);
-    guards.set(key, labels);
+    let key = guards.get(guard);
+    if (key === undefined) {
+      // Provisional, like a component key: the final key is chosen below in sorted guard-name order, so two names
+      // that sanitize alike (`staff/login`, `staff_login`) stay distinct whatever order the tree defines them in.
+      key = `\u0000guard_${guards.size}`;
+      guards.set(guard, key);
+    }
     return [{ [key]: [] }];
   };
 
@@ -458,19 +504,25 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   for (const group of groups.values()) {
     const canonical = paramSegments(group.segments).map((segment) => segment.name);
     const methods = new Map<Method, OpenApiOperation>();
-    const served = new Map<Method, string>();
+    const served = new Map<Method, { readonly route: ApiRoute; readonly own: readonly PathSegment[] }>();
     for (const { route, own } of group.entries) {
       const first = served.get(route.method);
       if (first !== undefined) {
-        // Hono answers with the first of two routes with the same method and path: keep it, as the router does.
+        // Which route the router serves for a template is registration order, not tree order, and it differs for the
+        // two routes when their shapes do (a regex or an optional segment). Keep the first in tree order as the
+        // document's choice, and say what the retained operation then leaves out rather than claiming the router.
+        const sameRequests = pathShape(own) === pathShape(first.own);
+        const retained = `${JSON.stringify(route.name)} and ${JSON.stringify(first.route.name)} both answer ${route.method.toUpperCase()} ${group.template}; keeping ${JSON.stringify(first.route.name)} (first in tree order)`;
         warnings.push(
           oneLine(
-            `${JSON.stringify(route.name)} and ${JSON.stringify(first)} both answer ${route.method.toUpperCase()} ${group.template}; keeping ${JSON.stringify(first)}`,
+            sameRequests
+              ? retained
+              : `${retained}; requests that the router answers with ${JSON.stringify(route.name)} (${JSON.stringify(route.path)}) are not described by the retained operation`,
           ),
         );
         continue;
       }
-      served.set(route.method, route.name);
+      served.set(route.method, { route, own });
       methods.set(route.method, operation(route, group.template, own, canonical));
     }
     paths.push([
@@ -481,20 +533,43 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     ]);
   }
 
-  const securitySchemes = [...guards]
-    .sort(([a], [b]) => compare(a, b))
-    .map(([key, labels]): [string, OpenApiSecurityScheme] => {
-      const names = [...labels].sort(compare);
-      return [
-        key,
+  // One scheme per guard identity: two names that sanitize alike (`staff/login`, `staff_login`) get `_2` in sorted
+  // name order, the same rule as the component keys, so the document does not depend on the tree's definition order.
+  const guardNames = [...guards.keys()].sort(compare);
+  const usedGuards = new Set<string>();
+  const guardKeys = new Map<string, string>(); // provisional key -> final key
+  for (const name of guardNames) {
+    const clean = `guard_${name.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+    let key = clean;
+    for (let n = 2; usedGuards.has(key); n += 1) key = `${clean}_${n}`;
+    usedGuards.add(key);
+    guardKeys.set(guards.get(name)!, key);
+  }
+  const securitySchemes = guardNames.map((name): [string, OpenApiSecurityScheme] => [
+    guardKeys.get(guards.get(name)!)!,
+    {
+      type: "http",
+      scheme: "bearer",
+      // The contract names a guard, not what it reads: A2 (#120) decides the real scheme per guard.
+      description: `The ${name} guard.`,
+    },
+  ]);
+  const finalPaths = paths.map(([template, item]): [string, OpenApiPathItem] => [
+    template,
+    Object.fromEntries(
+      Object.entries(item).map(([method, value]) => [
+        method,
         {
-          type: "http",
-          scheme: "bearer",
-          // The contract names a guard, not what it reads: A2 (#120) decides the real scheme per guard.
-          description: names.length === 1 ? `The ${names[0]} guard.` : `The ${names.join(", ")} guards.`,
+          ...value,
+          security: value.security.map((requirement) =>
+            Object.fromEntries(
+              Object.entries(requirement).map(([key, values]) => [guardKeys.get(key) ?? key, values]),
+            ),
+          ),
         },
-      ];
-    });
+      ]),
+    ),
+  ]);
 
   // The final component keys are chosen in sorted base order, not creation (tree) order: two route names that sanitize
   // to the same key get the same keys whichever order the tree defines them in.
@@ -516,7 +591,7 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     openapi: "3.1.0",
     info: { title: metadataText(options?.title, "Laratype API"), version: metadataText(options?.version, "0.0.0") },
     servers: [{ url: "/" }],
-    paths: Object.fromEntries(paths.sort(([a], [b]) => compare(a, b))),
+    paths: Object.fromEntries(finalPaths.sort(([a], [b]) => compare(a, b))),
     components: {
       schemas: Object.fromEntries(schemas),
       securitySchemes: Object.fromEntries(securitySchemes),
