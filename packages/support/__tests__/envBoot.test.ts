@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import * as z from 'zod/v4'
@@ -6,7 +9,7 @@ import { bootProviders, ConfigLoadServiceProvider, EnvLoadServiceProvider, EnvVa
 import type { AppManifest, ManifestEntry } from '@laratype/support'
 
 const SECRET = 'sk_live_9f8e7d6c5b4a'
-const VARS = ['K1_APP_KEY', 'K1_DB_PORT'] as const
+const VARS = ['K1_APP_KEY', 'K1_DB_PORT', 'K4_ENV_NO_MANIFEST'] as const
 
 const env = defineEnv(z.object({
   K1_APP_KEY: z.string().min(32),
@@ -22,11 +25,29 @@ const manifest = (configs: ManifestEntry[]): AppManifest => ({
 const boot = () => bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider, ConfigLoadServiceProvider])
 
 describe('env validation at boot (K1 #152)', () => {
-  const store = globalThis as { __laratype_manifest?: unknown; __laratype_configs?: unknown; __laratype_config?: unknown }
+  const store = globalThis as {
+    __laratype_manifest?: unknown
+    __laratype_configs?: unknown
+    __laratype_config?: unknown
+    __laratype_env_file?: unknown
+  }
   let saved: Record<string, string | undefined>
+  let savedEnvFile: unknown
+  const dirs: string[] = []
+  const root = process.cwd()
+
+  /** A project directory with a `.env`, made the process cwd (`loadEnv()` without a projectDir reads the cwd). */
+  const projectWithEnv = (contents: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'laratype-env-boot-'))
+    dirs.push(dir)
+    writeFileSync(join(dir, '.env'), contents)
+    process.chdir(dir)
+    return dir
+  }
 
   beforeEach(() => {
     saved = Object.fromEntries(VARS.map(name => [name, process.env[name]]))
+    savedEnvFile = store.__laratype_env_file
   })
 
   afterEach(() => {
@@ -34,6 +55,10 @@ describe('env validation at boot (K1 #152)', () => {
       if (saved[name] === undefined) delete process.env[name]
       else process.env[name] = saved[name]
     }
+    if (savedEnvFile === undefined) delete store.__laratype_env_file
+    else store.__laratype_env_file = savedEnvFile
+    process.chdir(root)
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
     delete store.__laratype_manifest
     delete store.__laratype_configs
     delete store.__laratype_config
@@ -76,6 +101,32 @@ describe('env validation at boot (K1 #152)', () => {
     setAppManifest(manifest([entry('config', { name: 'app' })]))
     await boot()
     expect(config('config.name')).toBe('app')
+  })
+
+  it('loads .env without the app manifest', async () => {
+    const dir = projectWithEnv('K4_ENV_NO_MANIFEST=loaded\n')
+    // Only the env provider: no manifest means ConfigLoadServiceProvider has nothing to load
+    await bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider])
+    expect(process.env.K4_ENV_NO_MANIFEST).toBe('loaded')
+    expect(globalThis.__laratype_env_file).toBe(join(dir, '.env'))
+  })
+
+  it('still loads .env and validates when the app has a manifest', async () => {
+    const key = 'k'.repeat(32)
+    const dir = projectWithEnv(`K1_APP_KEY=${key}\nK1_DB_PORT=3306\n`)
+    delete process.env.K1_APP_KEY
+    delete process.env.K1_DB_PORT
+    setAppManifest(manifest([entry('env', env), entry('config', {})]))
+    await bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider])
+    expect(process.env.K1_APP_KEY).toBe(key)
+    expect(process.env.K1_DB_PORT).toBe('3306')
+    expect(globalThis.__laratype_env_file).toBe(join(dir, '.env'))
+  })
+
+  it('still fails on a manifest scan error', async () => {
+    setAppManifest({ ...manifest([]), error: 'config name app is used twice' })
+    await expect(bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider]))
+      .rejects.toThrow('config name app is used twice')
   })
 
   it('fails when the env file does not export defineEnv(schema), with the 0.5 rename hint', async () => {

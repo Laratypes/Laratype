@@ -270,3 +270,90 @@ describe('validateEnv', () => {
     await expect(validateEnv(undefined as never, {})).rejects.toThrow(TypeError)
   })
 })
+
+describe('validateEnv, edge inputs (K4 #314)', () => {
+  it('prints no schema text for a non-secret ambient value', async () => {
+    // #314 decided against an allow-list: a message can quote any value, not just the failing one
+    const definition = defineEnv(z.object({ NODE_ENV: z.string().refine(() => false, 'NODE_ENV=production is not allowed here') }))
+    const error = await failure(definition, { NODE_ENV: 'production' })
+    expect(error.issues).toEqual([{ name: 'NODE_ENV', message: INVALID_MESSAGE }])
+    expect(error.message).not.toContain('production')
+    expect(printed(error)).not.toContain('production')
+  })
+
+  it('does not print NaN, Infinity or a very long value', async () => {
+    const definition = defineEnv(z.object({ NAN: z.string(), INF: z.string(), LONG: z.string().max(10) }))
+    const long = 'x'.repeat(100_000)
+    const error = await failure(definition, { NAN: Number.NaN, INF: Infinity, LONG: long } as never)
+    expect(error.issues.map(issue => issue.name)).toEqual(['NAN', 'INF', 'LONG'])
+    const text = printed(error)
+    expect(text).not.toContain('NaN')
+    expect(text).not.toContain('Infinity')
+    expect(text).not.toContain(long)
+  })
+
+  it('does not print a lone surrogate or control characters from a value', async () => {
+    const value = `\uD800\x00\x07\n\r\t${SECRET}`
+    const definition = defineEnv(z.object({ APP_KEY: z.string().min(32).regex(/^sk_/) }))
+    const error = await failure(definition, { APP_KEY: value })
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
+    const text = printed(error)
+    expect(text).not.toContain(SECRET)
+    expect(text).not.toContain('\uD800')
+    expect(text).not.toContain('\x00')
+  })
+
+  it('prints a variable name with a lone surrogate and control characters, but no value', async () => {
+    // The name is the issue path: it is printed when it is a variable of the environment, whatever its characters
+    const name = 'K4_\uD800\n\x00'
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${SECRET}`, path: [name] }] }) },
+    } as const
+    const error = await failure(defineEnv(schema), { [name]: SECRET })
+    expect(error.issues).toEqual([{ name, message: INVALID_MESSAGE }])
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('prints a very long variable name, and no value', async () => {
+    const name = 'K'.repeat(100_000)
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${SECRET}`, path: [name] }] }) },
+    } as const
+    const error = await failure(defineEnv(schema), { [name]: SECRET })
+    expect(error.issues).toEqual([{ name, message: INVALID_MESSAGE }])
+    expect(error.message).toContain(name)
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('names an issue whose path segment is not a string as the environment', async () => {
+    const symbol = Symbol('SECRET')
+    const issue = (path: unknown) => ({ message: `bad ${SECRET}`, path: [path] })
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [issue(symbol), issue({ key: symbol }), issue(1)] }) },
+    } as const
+    const error = await failure(defineEnv(schema), {})
+    expect(error.issues).toEqual([{ name: '(environment)', message: INVALID_MESSAGE }])
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('keeps a __proto__ variable a name, never a prototype or a value', async () => {
+    // JSON.parse defines an own key, unlike an object literal's __proto__ setter
+    const source = JSON.parse(`{"__proto__":"${SECRET}"}`) as Record<string, string>
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${SECRET}`, path: ['__proto__'] }] }) },
+    } as const
+    const error = await failure(defineEnv(schema), source)
+    expect(error.issues).toEqual([{ name: '__proto__', message: INVALID_MESSAGE }])
+    expect(printed(error)).not.toContain(SECRET)
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('validates a source that is not a record as an empty environment', async () => {
+    const definition = defineEnv(z.object({ APP_KEY: z.string() }))
+    for (const source of [undefined, null, 1, 'abc', { length: 1e9 }]) {
+      const error = await failure(definition, source as never)
+      expect(error).toBeInstanceOf(EnvValidationError)
+      expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
+    }
+  })
+})
