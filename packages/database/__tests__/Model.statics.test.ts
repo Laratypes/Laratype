@@ -2,7 +2,7 @@
 // (docs/v1/database.md › Model, › BindableModel). The repository is stubbed over arrays, as Model.test.ts does.
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
-import type { ColumnType } from 'typeorm'
+import type { ColumnType, ValueTransformer } from 'typeorm'
 import { isException } from '@laratype/support'
 import Model from '../src/eloquent/Model'
 import ModelNotFoundException from '../src/exceptions/ModelNotFoundException'
@@ -15,7 +15,17 @@ interface FakeColumn {
   readonly propertyPath: string
   readonly type: ColumnType
   readonly relationMetadata?: unknown
+  readonly transformer?: ValueTransformer | ValueTransformer[]
 }
+
+/** An integer column whose hydrated value is "item-<n>", as an app's route key transformer does. */
+const itemTransformer: ValueTransformer = {
+  to: (value: unknown) => (typeof value === 'string' ? Number(value.replace('item-', '')) : value),
+  from: (value: unknown) => (value === null || value === undefined ? value : `item-${value}`),
+}
+
+/** A transformer that returns an object, which a route lookup must not bind. */
+const toObject: ValueTransformer = { to: () => ({ id: 1 }), from: (value: unknown) => value }
 
 const COLUMNS: FakeColumn[] = [
   { propertyName: 'id', propertyPath: 'id', type: Number },
@@ -25,6 +35,16 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'isActive', propertyPath: 'isActive', type: Boolean },
   { propertyName: 'createdAt', propertyPath: 'createdAt', type: Date },
   { propertyName: 'tenantId', propertyPath: 'tenantId', type: String },
+  // A time-only column: TypeORM hydrates it as a string, never a Date
+  { propertyName: 'opensAt', propertyPath: 'opensAt', type: 'time' },
+  // A UUID route key: PostgreSQL rejects a malformed bind value
+  { propertyName: 'externalId', propertyPath: 'externalId', type: 'uuid' },
+  // A fractional route key is refused as a configuration (a canonical number string cannot round trip its scale)
+  { propertyName: 'price', propertyPath: 'price', type: 'decimal' },
+  { propertyName: 'ratio', propertyPath: 'ratio', type: 'float' },
+  // A transformed route key: getRouteKey() emits the hydrated value, which transformer.to takes back
+  { propertyName: 'serial', propertyPath: 'serial', type: Number, transformer: itemTransformer },
+  { propertyName: 'hostileRoute', propertyPath: 'hostileRoute', type: String, transformer: toObject },
   // An embedded column: its leaf `street` is not an own model property
   { propertyName: 'street', propertyPath: 'address.street', type: String },
   // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
@@ -47,6 +67,7 @@ const model = (options: {
   const findOneCalls: any[] = []
   const findCalls: any[] = []
   const raw: [string, unknown[] | undefined][] = []
+  const routeLookups: { sql: string; parameters: Row }[] = []
 
   class User extends Model {
     declare id: number
@@ -77,7 +98,18 @@ const model = (options: {
       findCalls.push(options)
       return options?.where ? rows.filter(matches(options.where)) : rows
     },
-    createQueryBuilder: () => ({}),
+    // A transformed route key binds a condition built from the metadata, bypassing TypeORM's own transformer
+    createQueryBuilder: () => {
+      const builder = {
+        alias: 'User',
+        where(sql: string, parameters: Row) {
+          routeLookups.push({ sql, parameters })
+          return builder
+        },
+        getOne: async () => rows[0] ?? null,
+      }
+      return builder
+    },
     query: async (sql: string, parameters?: unknown[]) => {
       raw.push([sql, parameters])
       return [{ ok: 1 }]
@@ -85,7 +117,7 @@ const model = (options: {
   }
   ;(User as any).getRepository = () => repository
 
-  return { User, rows, findOneCalls, findCalls, raw }
+  return { User, rows, findOneCalls, findCalls, routeLookups, raw }
 }
 
 describe('Model.primaryKey', () => {
@@ -270,6 +302,60 @@ describe('Model.findByRouteKey', () => {
     expect(miss.findOneCalls).toEqual([])
   })
 
+  it('keeps a time-only route key as a string, instead of sending it to new Date()', async () => {
+    // TypeORM hydrates a MySQL TIME as "12:34:56"; new Date("12:34:56") is Invalid Date, so the key must pass through
+    const { User, findOneCalls } = model({
+      routeKeyName: 'opensAt',
+      rows: [{ id: 1, opensAt: '12:34:56' }],
+    })
+    await expect(User.findByRouteKey('12:34:56')).resolves.toMatchObject({ id: 1 })
+    expect(findOneCalls).toEqual([{ where: { opensAt: '12:34:56' } }])
+  })
+
+  it('lets a canonical uuid reach the lookup and answers a malformed one as a miss', async () => {
+    const id = '123E4567-E89B-12D3-A456-426614174000'
+    const hit = model({ routeKeyName: 'externalId', rows: [{ id: 1, externalId: id }] })
+    await expect(hit.User.findByRouteKey(id)).resolves.toMatchObject({ id: 1 })
+    expect(hit.findOneCalls).toEqual([{ where: { externalId: id } }])
+
+    // PostgreSQL rejects these as a bind error; the lookup answers null before the database parses them
+    for (const key of [
+      '',
+      'not-a-uuid',
+      '123e4567-e89b-12d3-a456-42661417400',
+      '123e4567e89b12d3a456426614174000',
+      `{${id}}`,
+      ' 123e4567-e89b-12d3-a456-426614174000',
+    ]) {
+      const miss = model({ routeKeyName: 'externalId', rows: [{ id: 1, externalId: id }] })
+      await expect(miss.User.findByRouteKey(key)).resolves.toBeNull()
+      expect(miss.findOneCalls, key).toEqual([])
+    }
+  })
+
+  it('refuses a float or decimal route key as a configuration error', async () => {
+    for (const routeKeyName of ['price', 'ratio']) {
+      const { User } = model({ routeKeyName })
+      await expect(User.findByRouteKey('1.5')).rejects.toThrow(
+        `[@laratype/database] User route key "${routeKeyName}" is a float or decimal column:`
+        + ' a route key must be an integer or string column, or a column with a transformer',
+      )
+    }
+  })
+
+  it('converts a transformed route key through transformer.to exactly once', async () => {
+    const { User, routeLookups } = model({ routeKeyName: 'serial', rows: [{ id: 1, serial: 'item-42' }] })
+    await expect(User.findByRouteKey('item-42')).resolves.toMatchObject({ id: 1, serial: 'item-42' })
+    // A metadata-built condition binds the converted 42; TypeORM's find form would run transformer.to a second time
+    expect(routeLookups).toEqual([{ sql: 'User.serial = :routeKey', parameters: { routeKey: 42 } }])
+  })
+
+  it('answers a transformer that does not return a scalar as a miss', async () => {
+    const { User, routeLookups } = model({ routeKeyName: 'hostileRoute' })
+    await expect(User.findByRouteKey('ada')).resolves.toBeNull()
+    expect(routeLookups).toEqual([])
+  })
+
   it('throws when routeKeyName is not a column of the model, so no caller string reaches the lookup', async () => {
     for (const routeKeyName of [
       'handle',
@@ -284,6 +370,10 @@ describe('Model.findByRouteKey', () => {
     ]) {
       const { User } = model({ routeKeyName })
       await expect(User.findByRouteKey('ada')).rejects.toThrow(
+        `[@laratype/database] User.routeKeyName ${JSON.stringify(routeKeyName)} is not a column of the model`,
+      )
+      // getRouteKey() refuses the same configuration instead of returning an unusable undefined
+      expect(() => (Object.assign(new User(), { id: 1 }) as InstanceType<typeof User>).getRouteKey()).toThrow(
         `[@laratype/database] User.routeKeyName ${JSON.stringify(routeKeyName)} is not a column of the model`,
       )
     }
@@ -323,6 +413,46 @@ describe('Model.getRouteKey', () => {
     expect(user.getRouteKey()).toBe(createdAt)
     // The ISO string keeps the milliseconds findByRouteKey()'s new Date(key) reads back
     expect(new Date(createdAt.toISOString()).getTime()).toBe(createdAt.getTime())
+  })
+
+  it('returns a time-only route key as the string TypeORM hydrates', () => {
+    const { User } = model({ routeKeyName: 'opensAt' })
+    const user = Object.assign(new User(), { opensAt: '12:34:56' })
+    expect(user.getRouteKey()).toBe('12:34:56')
+  })
+
+  it('returns the hydrated value of a transformed route key', () => {
+    const { User } = model({ routeKeyName: 'serial' })
+    const user = Object.assign(new User(), { serial: 'item-42' })
+    expect(user.getRouteKey()).toBe('item-42')
+  })
+
+  it('refuses a float or decimal route key as a configuration error', () => {
+    for (const routeKeyName of ['price', 'ratio']) {
+      const { User } = model({ routeKeyName })
+      const user = Object.assign(new User(), { price: 1.5, ratio: 1.5 })
+      expect(() => user.getRouteKey()).toThrow(
+        `[@laratype/database] User route key "${routeKeyName}" is a float or decimal column:`
+        + ' a route key must be an integer or string column, or a column with a transformer',
+      )
+    }
+  })
+
+  it('throws when a partial select omits the route key, keeping 0, false and "" valid', () => {
+    const { User } = model({ routeKeyName: 'slug' })
+    expect(() => Object.assign(new User(), { id: 7 }).getRouteKey()).toThrow(
+      '[@laratype/database] User has no route key "slug" loaded: select the column before getRouteKey()',
+    )
+    // A null column value is not a usable key either
+    expect(() => Object.assign(new User(), { slug: null }).getRouteKey()).toThrow(
+      '[@laratype/database] User has no route key "slug" loaded: select the column before getRouteKey()',
+    )
+
+    for (const [routeKeyName, value] of [['id', 0], ['isActive', false], ['slug', '']] as const) {
+      const { User } = model({ routeKeyName })
+      const user = Object.assign(new User(), { id: 0, isActive: false, slug: '' })
+      expect(user.getRouteKey()).toBe(value)
+    }
   })
 })
 

@@ -3,6 +3,7 @@ import {
   BaseEntity,
   type ColumnType,
   type DeepPartial,
+  type EntityMetadata,
   type FindManyOptions,
   type FindOneOptions,
   type FindOptionsWhere,
@@ -10,7 +11,14 @@ import {
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
-import { formatValue, ownColumn, valueType } from "./internal";
+import {
+  type ColumnMetadata,
+  formatValue,
+  isScalarValue,
+  ownColumn,
+  transformTo,
+  valueType,
+} from "./internal";
 import ModelQueryBuilder from "./ModelQueryBuilder";
 
 /** A primary key value `find()` and `findOrFail()` take: a numeric id, a UUID / string id, or a bigint id. */
@@ -20,8 +28,8 @@ export type PrimaryKeyValue = string | number | bigint;
 export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
 
 /**
- * Column types whose route key is a number. `bigint` stays a string on purpose: a Number conversion loses precision
- * above 2^53, and TypeORM reads a bigint column as a string anyway.
+ * Integer column types whose route key is a number. `bigint` stays a string on purpose: a Number conversion loses
+ * precision above 2^53, and TypeORM reads a bigint column as a string anyway.
  */
 const NUMERIC_TYPES: readonly ColumnType[] = [
   Number,
@@ -32,6 +40,35 @@ const NUMERIC_TYPES: readonly ColumnType[] = [
   "smallint",
   "mediumint",
   "tinyint",
+];
+
+const DATE_TYPES: readonly ColumnType[] = [
+  Date,
+  "date",
+  "datetime",
+  "datetime2",
+  "datetimeoffset",
+  "smalldatetime",
+  "timestamp",
+  "timestamp without time zone",
+  "timestamp with time zone",
+  "timestamp with local time zone",
+  "timestamptz",
+  "seconddate",
+];
+
+/**
+ * Time-only column types keep the path string: TypeORM hydrates a MySQL `TIME` as `"12:34:56"`, which `new Date()`
+ * rejects, so they take the pass-through branch (docs/v1/database.md › BindableModel).
+ */
+const TIME_TYPES: readonly ColumnType[] = ["time", "timetz", "time with time zone", "time without time zone"];
+
+/**
+ * Fractional column types are not route keys: `getRouteKey()` returns a `1.5` that a canonical number string cannot
+ * round trip with a decimal's scale (e.g. `"1.50"`), so the configuration is refused instead of answering a 404 for
+ * an existing row. A transformer owns the conversion when a model needs one.
+ */
+const FRACTIONAL_TYPES: readonly ColumnType[] = [
   "float",
   "float4",
   "float8",
@@ -49,26 +86,13 @@ const NUMERIC_TYPES: readonly ColumnType[] = [
   "number",
 ];
 
-const DATE_TYPES: readonly ColumnType[] = [
-  Date,
-  "date",
-  "datetime",
-  "datetime2",
-  "datetimeoffset",
-  "smalldatetime",
-  "timestamp",
-  "timestamp without time zone",
-  "timestamp with time zone",
-  "timestamp with local time zone",
-  "timestamptz",
-  "timetz",
-  "time",
-  "time with time zone",
-  "time without time zone",
-  "seconddate",
-];
-
 const BOOLEAN_TYPES: readonly ColumnType[] = [Boolean, "boolean", "bool"];
+
+/** The UUID column types (PostgreSQL `uuid`, SQL Server `uniqueidentifier`): a canonical 8-4-4-4-12 hexadecimal key. */
+const UUID_TYPES: readonly ColumnType[] = ["uuid", "uniqueidentifier"];
+
+/** A canonical UUID in any case; a malformed key is a miss before the database parses it (`uuid` rejects one). */
+const UUID_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** An integer string: no sign but `-`, no leading zero, no exponent, no space, no decimal point. */
 const INTEGER_KEY = /^-?(?:0|[1-9][0-9]*)$/;
@@ -86,9 +110,36 @@ const errors = {
     + " primary key, so set static routeKeyName to the property a lookup uses",
   routeKeyNameNotAColumn: (model: string, name: string): string =>
     `[@laratype/database] ${model}.routeKeyName ${formatValue(name)} is not a column of the model`,
+  fractionalRouteKey: (model: string, name: string): string =>
+    `[@laratype/database] ${model} route key ${formatValue(name)} is a float or decimal column:`
+    + " a route key must be an integer or string column, or a column with a transformer",
+  missingRouteKey: (model: string, name: string): string =>
+    `[@laratype/database] ${model} has no route key ${formatValue(name)} loaded:`
+    + " select the column before getRouteKey()",
   findOrFailId: (model: string, value: unknown): string =>
     `[@laratype/database] ${model}.findOrFail() takes a string, number or bigint primary key,`
     + ` got ${valueType(value)}`,
+};
+
+/**
+ * The route key property and its column, checked as a configuration (docs/v1/database.md › BindableModel): an own
+ * column, and not a float / decimal column unless a transformer owns its conversion. A bad configuration throws.
+ */
+const routeKeyColumn = (model: typeof Model): {
+  metadata: EntityMetadata;
+  property: string;
+  column: ColumnMetadata;
+} => {
+  const metadata = model.getRepository().metadata;
+  const property = model.routeKeyName ?? model.primaryKey;
+  const column = ownColumn(metadata, property);
+  if (column === undefined) {
+    throw new ModelError(errors.routeKeyNameNotAColumn(metadata.targetName, property));
+  }
+  if (column.transformer === undefined && FRACTIONAL_TYPES.includes(column.type)) {
+    throw new ModelError(errors.fractionalRouteKey(metadata.targetName, property));
+  }
+  return { metadata, property, column };
 };
 
 /**
@@ -102,9 +153,17 @@ const convertRouteKey = (type: ColumnType, key: string): string | number | boole
       ? Number(key)
       : undefined;
   }
+  if (TIME_TYPES.includes(type)) {
+    // A MySQL TIME hydrates as "HH:MM:SS" and a PostgreSQL time as a string too, never a Date
+    return key;
+  }
   if (DATE_TYPES.includes(type)) {
     const date = new Date(key);
     return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  if (UUID_TYPES.includes(type)) {
+    // PostgreSQL rejects a malformed uuid as a bind error; answer it as the documented miss before the lookup
+    return UUID_KEY.test(key) ? key : undefined;
   }
   if (BOOLEAN_TYPES.includes(type)) {
     if (key === "true" || key === "1") return true;
@@ -112,6 +171,22 @@ const convertRouteKey = (type: ColumnType, key: string): string | number | boole
     return undefined;
   }
   return key;
+};
+
+/**
+ * Looks the model up by an already converted route key, binding it as a parameter. The facade builds the condition
+ * so TypeORM's object form cannot apply `transformer.to` a second time (ModelQueryBuilder › where).
+ */
+const findOneByRouteKey = <T extends BaseEntity>(
+  model: ModelClass<T>,
+  column: ColumnMetadata,
+  value: unknown,
+): Promise<T | null> => {
+  const query = model.getRepository().createQueryBuilder();
+  // The alias and property come from the entity metadata, never from the caller's path string
+  return query.where(`${query.alias}.${column.propertyName} = :routeKey`, { routeKey: value }).getOne() as Promise<
+    T | null
+  >;
 };
 
 const cast = (input: Record<string, any>, passwordField: string) => {
@@ -240,8 +315,8 @@ export default class Model extends BaseEntity {
 
   /**
    * Looks a model up by its route key (docs/v1/database.md › BindableModel): `routeKeyName`, or the primary key.
-   * The raw path string is converted to the route key column's type first; a miss or a key that cannot convert
-   * resolves `null`.
+   * The raw path string is converted to the route key column's type first (or through the column's transformer),
+   * and a key that cannot convert resolves `null`.
    */
   static findByRouteKey<T extends BaseEntity>(
     this: ModelClass<T>,
@@ -249,17 +324,18 @@ export default class Model extends BaseEntity {
   ): Promise<T | null>;
 
   static async findByRouteKey(key: string): Promise<any> {
-    const metadata = this.getRepository().metadata;
-    const property = this.routeKeyName ?? this.primaryKey;
-    const column = ownColumn(metadata, property);
-    if (column === undefined) {
-      throw new ModelError(errors.routeKeyNameNotAColumn(metadata.targetName, property));
-    }
-    const converted = convertRouteKey(column.type, key);
-    if (converted === undefined) {
+    const { property, column } = routeKeyColumn(this);
+    // A transformer owns the conversion: the path string is what getRouteKey() emitted, so transformer.to takes it
+    const converted = column.transformer === undefined
+      ? convertRouteKey(column.type, key)
+      : transformTo(column.transformer, key);
+    if (converted === undefined || !isScalarValue(converted)) {
       return null;
     }
-    return this.findOne({ where: { [property]: converted } } as FindOneOptions<Model>);
+    if (column.transformer === undefined) {
+      return this.findOne({ where: { [property]: converted } } as FindOneOptions<Model>);
+    }
+    return findOneByRouteKey(this, column, converted);
   }
 
   /**
@@ -331,12 +407,17 @@ export default class Model extends BaseEntity {
 
   /**
    * The value of this model's route key (docs/v1/database.md › BindableModel): `static routeKeyName`, or the primary
-   * key, in the type the column declares.
+   * key, in the type the column declares. The column must be loaded: a partial select that omits it throws instead of
+   * emitting an unusable `undefined`.
    */
   getRouteKey(): string | number | bigint | boolean | Date {
     const model = this.constructor as typeof Model;
-    return (this as unknown as Record<string, string | number | bigint | boolean | Date>)[
-      model.routeKeyName ?? model.primaryKey
-    ];
+    const { metadata, property } = routeKeyColumn(model);
+    const value = (this as unknown as Record<string, unknown>)[property];
+    // A falsey key (0, false, "", 0n) is valid; a missing or null one is not loaded and cannot route
+    if (value === undefined || value === null) {
+      throw new ModelError(errors.missingRouteKey(metadata.targetName, property));
+    }
+    return value as string | number | bigint | boolean | Date;
   }
 }
