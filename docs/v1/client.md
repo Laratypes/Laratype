@@ -16,14 +16,14 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)); manifest overloads take `ManifestClientOptions` proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)); `validateResponses` refused at compile time and at `createPathClient`: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
+| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)); `validateResponses` refused at compile time and at `createPathClient`: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -99,7 +99,7 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb.
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb. The manifest overloads taking `ManifestClientOptions`, which narrows `validateResponses` to `false`, are proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)).
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
@@ -317,10 +317,10 @@ export interface ClientRequest {
 ## Path-style calls
 
 ### Status
-proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary. The `validateResponses` refusal is CL6: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb.
+proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary. The `validateResponses` refusal is CL6: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc.
 
 ### Public API
-[`packages/client/src/client.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/client.ts), [`packages/client/src/types.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/types.ts)
+[`packages/client/src/client.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/client.ts), [`packages/client/src/types.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/types.ts)
 
 ```ts
 export function createPathClient<A extends ApiShape<A> = never>(options?: PathClientOptions): PathClient<A>;
@@ -471,10 +471,10 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ 12859dfb ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
+proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
 ### Public API
-[`packages/client/src/validate.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/validate.ts), [`packages/client/src/types.ts` @ 12859dfb](https://github.com/Laratypes/Laratype/blob/12859dfb0805b4ba57b561d22e6c0690337e8b79/packages/client/src/types.ts)
+[`packages/client/src/validate.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/validate.ts), [`packages/client/src/types.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/types.ts)
 
 ```ts
 export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
@@ -504,7 +504,7 @@ if (!result.ok && result.unexpected && result.error instanceof ResponseValidatio
 ```
 
 ### Invariants
-- **Opt-in, off by default; no dev detection.** The client cannot tell a development build from a production one: `process` does not exist in a browser bundle, `import.meta.env` is Vite's and not standard, the package also builds CJS and ESM for Node, and the server's `__PROD__` is not set in a browser. The app wires the option to its bundler's dev flag, `validateResponses: import.meta.env.DEV` (Vite) or `NODE_ENV !== "production"` on SSR; a production build passes `false` and never runs the check.
+- **Opt-in, off by default; no dev detection.** The client cannot tell a development build from a production one: `process` does not exist in a browser bundle, `import.meta.env` is Vite's and not standard, the package also builds CJS and ESM for Node, and the server's `__PROD__` is not set in a browser. The app wires the option to its bundler's dev flag, `validateResponses: import.meta.env.DEV` (Vite) or `process.env.NODE_ENV !== "production"` on SSR; a production build passes `false` and never runs the check.
 - **What is checked:** the parsed JSON body of a body-carrying 2xx whose endpoint has a response schema, with [`validate()`](./contract.md#validation-adapter) from `@laratype/contract` (sync or async). The inputs with schemas are option (a): the `appApi`, an API node and a contract file. A 204/205 or an endpoint without a response schema is skipped, and so is every declared error body: the contract has no schema for those (`ErrorDef` carries the status, the code and the body type only), so a 401/403/404/409/422 answer is classified exactly as it is with the option off.
 - **The manifest and the path-style client have no schemas:** `ManifestClientOptions` and `PathClientOptions` make `validateResponses: true` a type error, and `createClient` / `createPathClient` throw the diagnostics below. Neither is a silent no-op: the generated manifest carries no response schemas, and a [path-style call](#path-style-calls) has no contract at runtime.
 - **The success keeps the wire value:** only the schema's input side is checked (Standard Schema has no output validation). `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output. This assumes the response schema's output is a value its own parse accepts, which holds when output equals input. A transform whose output its parse rejects (`{ raw: string }` → `{ count: number }`, a `z.string().transform()` field) makes a correct server response fail the check with a `ResponseValidationError`: leave `validateResponses` off for such a response schema (see Open questions). A leaf coercion (`z.coerce.date()`) parses the wire string and does not change `data`; a `z.date()` field fails, since the wire carries the ISO string.
