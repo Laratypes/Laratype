@@ -147,10 +147,15 @@ export default class ModelQueryBuilder<T extends object = object> {
       if (typeof columnOrWhere !== "object" || columnOrWhere === null || Array.isArray(columnOrWhere)) {
         throw new ModelError(errors.firstArgument(columnOrWhere));
       }
+      // Validate and transform every key first, so a refused one leaves the builder untouched
+      const conditions: [ColumnMetadata, unknown][] = [];
       for (const [name, value] of Object.entries(columnOrWhere as Record<string, unknown>)) {
         const property = this.column(name, "where");
         this.assertValue(property.propertyName, value);
-        this.pushEquality(property, value);
+        conditions.push([property, this.transformed(property, value)]);
+      }
+      for (const [property, value] of conditions) {
+        this.pushComparison(property.propertyName, "=", value);
       }
       return this;
     }
@@ -158,7 +163,8 @@ export default class ModelQueryBuilder<T extends object = object> {
     const column = this.column(columnOrWhere, "where");
     if (rest.length === 1) {
       this.assertValue(column.propertyName, rest[0]);
-      this.pushEquality(column, rest[0]);
+      // The facade builds the equality condition itself: TypeORM's object form would apply transformer.to again
+      this.pushComparison(column.propertyName, "=", this.transformed(column, rest[0]));
       return this;
     }
 
@@ -287,15 +293,10 @@ export default class ModelQueryBuilder<T extends object = object> {
   }
 
   /**
-   * Adds `column = :parameter` with the column's transformer applied once. The facade builds the condition itself
-   * for every form: TypeORM's object form would apply `transformer.to` again, and an object it returns would reach
-   * mysql2 as `key = value` text (docs/v1/database.md › Model).
+   * Adds `column <comparison> :parameter`; the operator comes from the closed table and the value is bound. Every
+   * form builds its condition here: TypeORM's object form would apply `transformer.to` again, and an object it
+   * returns would reach mysql2 as `key = value` text (docs/v1/database.md › Model).
    */
-  private pushEquality(column: ColumnMetadata, value: unknown): void {
-    this.pushComparison(column.propertyName, "=", this.transformed(column, value));
-  }
-
-  /** Adds `column <comparison> :parameter`; the operator comes from the closed table and the value is bound. */
   private pushComparison(column: string, operator: WhereComparison, value: unknown): void {
     const name = `where_${this.parameterCount++}`;
     this.query.andWhere(`${this.query.alias}.${column} ${SQL_COMPARISONS[operator]} :${name}`, { [name]: value });

@@ -678,6 +678,11 @@ describe('ModelQueryBuilder.where transformers', () => {
     const objectForm = builder()
     expect(() => objectForm.UserQuery.where({ hostile: 'ada' } as never)).toThrow(message)
     expect(objectForm.query.conditions).toEqual([])
+
+    // A valid key before the refused one is not half-added: the call validates every key before it writes
+    const mixed = builder()
+    expect(() => mixed.UserQuery.where({ email: 'ada@example.com', hostile: 'ada' } as never)).toThrow(message)
+    expect(mixed.query.conditions).toEqual([])
   })
 })
 
