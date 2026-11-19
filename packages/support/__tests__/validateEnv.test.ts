@@ -273,7 +273,7 @@ describe('validateEnv', () => {
 
 describe('validateEnv, edge inputs (K4 #314)', () => {
   it('prints no schema text for a non-secret ambient value', async () => {
-    // #314 decided against an allow-list: a message can quote any value, not just the failing one
+    // K4 #314 decided against an allow-list: a message can quote any value, not just the failing one
     const definition = defineEnv(z.object({ NODE_ENV: z.string().refine(() => false, 'NODE_ENV=production is not allowed here') }))
     const error = await failure(definition, { NODE_ENV: 'production' })
     expect(error.issues).toEqual([{ name: 'NODE_ENV', message: INVALID_MESSAGE }])
@@ -346,6 +346,38 @@ describe('validateEnv, edge inputs (K4 #314)', () => {
     expect(error.issues).toEqual([{ name: '__proto__', message: INVALID_MESSAGE }])
     expect(printed(error)).not.toContain(SECRET)
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('prints constructor and prototype as variable names, never as prototype access', async () => {
+    const issue = (path: string) => ({ message: `bad ${SECRET}`, path: [path] })
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [issue('constructor'), issue('prototype')] }) },
+    } as const
+    const error = await failure(defineEnv(schema), { constructor: SECRET, prototype: SECRET })
+    expect(error.issues).toEqual([
+      { name: 'constructor', message: INVALID_MESSAGE },
+      { name: 'prototype', message: INVALID_MESSAGE },
+    ])
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('prints an empty variable name for an empty key', async () => {
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${SECRET}`, path: [''] }] }) },
+    } as const
+    const error = await failure(defineEnv(schema), { '': SECRET })
+    expect(error.issues).toEqual([{ name: '', message: INVALID_MESSAGE }])
+    expect(printed(error)).not.toContain(SECRET)
+  })
+
+  it('reads only the first segment of a 100k-segment path', async () => {
+    const path = ['APP_KEY', ...Array.from({ length: 99_999 }, () => 'a')]
+    const schema = {
+      '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [{ message: `bad ${SECRET}`, path }] }) },
+    } as const
+    const error = await failure(defineEnv(schema), { APP_KEY: SECRET })
+    expect(error.issues).toEqual([{ name: 'APP_KEY', message: INVALID_MESSAGE }])
+    expect(printed(error)).not.toContain(SECRET)
   })
 
   it('validates a source that is not a record as an empty environment', async () => {

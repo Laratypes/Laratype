@@ -47,7 +47,7 @@ describe('config() (K1 #152)', () => {
     expect(config('app.url.host')).toBe('app.test')
     expect(config('app.client.host')).toBe('redis.local')
     expect(config('app.client.port')).toBe(6379)
-    // A method is a data property on the prototype: returning it would return an unbound method (#314)
+    // A method is a data property on the prototype: returning it would return an unbound method (K4 #314)
     expect(config('app.url.toString')).toBeUndefined()
     expect(config('app.url.toJSON')).toBeUndefined()
     expect(config('app.client.constructor')).toBeUndefined()
@@ -77,6 +77,11 @@ describe('config() (K1 #152)', () => {
     expect(port).toHaveBeenCalledOnce()
   })
 
+  it('propagates the error a getter throws, since a getter is app code', () => {
+    setConfigs({ app: { get boom(): string { throw new Error('getter ran') } } })
+    expect(() => config('app.boom')).toThrow('getter ran')
+  })
+
   it('gives undefined for __proto__, constructor and prototype segments, even own keys', () => {
     // JSON.parse defines own keys, unlike the __proto__ setter of an object literal
     const app = JSON.parse('{"__proto__":{"polluted":true},"constructor":"fn","prototype":"proto","ok":1}') as Record<string, unknown>
@@ -92,18 +97,14 @@ describe('config() (K1 #152)', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 
-  it('rejects a path that is not a string, without running app code on it', () => {
-    setConfigs({ app: {} })
+  it('treats a path that is not a string as a miss, without running app code on it', () => {
     const toString = vi.fn(() => { throw new Error('converted') })
     const paths = [undefined, null, 1, Number.NaN, {}, { length: 1e9 }, { toString }, Promise.resolve('app')]
-    for (const path of paths) {
-      expect(() => config(path as never)).toThrow('[@laratype/core] config(path): path must be a string')
-    }
+    // Before the configs load too: the type check comes before the loaded check
+    for (const path of paths) expect(config(path as never)).toBeUndefined()
+    setConfigs({ app: {} })
+    for (const path of paths) expect(config(path as never)).toBeUndefined()
     expect(toString).not.toHaveBeenCalled()
-  })
-
-  it('rejects a non-string path before the loaded check', () => {
-    expect(() => config(1 as never)).toThrow('path must be a string')
   })
 
   it('gives undefined for empty paths and empty segments', () => {

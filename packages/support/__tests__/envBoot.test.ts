@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import * as z from 'zod/v4'
 import { config, Container, defineEnv, Facade } from '@laratype/core'
 import { bootProviders, ConfigLoadServiceProvider, EnvLoadServiceProvider, EnvValidationError, HTTP_APP, setAppManifest } from '@laratype/support'
-import type { AppManifest, ManifestEntry } from '@laratype/support'
+import { entryWithValue as entry, manifestWith as manifest } from './fixtures/manifest'
 
 const SECRET = 'sk_live_9f8e7d6c5b4a'
 const VARS = ['K1_APP_KEY', 'K1_DB_PORT', 'K4_ENV_NO_MANIFEST'] as const
@@ -16,13 +16,8 @@ const env = defineEnv(z.object({
   K1_DB_PORT: z.coerce.number<string>().int(),
 }))
 
-const entry = (name: string, value: unknown): ManifestEntry => ({ name, path: `app/config/${name}.ts`, load: async () => ({ default: value }) })
-
-const manifest = (configs: ManifestEntry[]): AppManifest => ({
-  configs, routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [], lang: [],
-})
-
 const boot = () => bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider, ConfigLoadServiceProvider])
+const bootEnvOnly = () => bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider])
 
 describe('env validation at boot (K1 #152)', () => {
   const store = globalThis as {
@@ -106,7 +101,7 @@ describe('env validation at boot (K1 #152)', () => {
   it('loads .env without the app manifest', async () => {
     const dir = projectWithEnv('K4_ENV_NO_MANIFEST=loaded\n')
     // Only the env provider: no manifest means ConfigLoadServiceProvider has nothing to load
-    await bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider])
+    await bootEnvOnly()
     expect(process.env.K4_ENV_NO_MANIFEST).toBe('loaded')
     expect(globalThis.__laratype_env_file).toBe(join(dir, '.env'))
   })
@@ -117,7 +112,7 @@ describe('env validation at boot (K1 #152)', () => {
     delete process.env.K1_APP_KEY
     delete process.env.K1_DB_PORT
     setAppManifest(manifest([entry('env', env), entry('config', {})]))
-    await bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider])
+    await bootEnvOnly()
     expect(process.env.K1_APP_KEY).toBe(key)
     expect(process.env.K1_DB_PORT).toBe('3306')
     expect(globalThis.__laratype_env_file).toBe(join(dir, '.env'))
@@ -125,8 +120,7 @@ describe('env validation at boot (K1 #152)', () => {
 
   it('still fails on a manifest scan error', async () => {
     setAppManifest({ ...manifest([]), error: 'config name app is used twice' })
-    await expect(bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider]))
-      .rejects.toThrow('config name app is used twice')
+    await expect(bootEnvOnly()).rejects.toThrow('config name app is used twice')
   })
 
   it('fails when the env file does not export defineEnv(schema), with the 0.5 rename hint', async () => {

@@ -69,8 +69,8 @@ export const setConfigs = (configs: Readonly<Record<string, unknown>>): void => 
   store.__laratype_configs = configs
 }
 
-/** Segments that never name a config value: they read the prototype machinery, not the app's config. */
-const unsafeKeys: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+/** Keys that never name a config value: they read the prototype machinery, not the app's config. */
+const UNSAFE_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 
 /** A key that is a config value: its value, which may itself be `undefined`. */
 interface ReadKey {
@@ -78,19 +78,19 @@ interface ReadKey {
 }
 
 /**
- * The value at `key` of `target`, when it is a config value: an own data property, or a getter. A class instance's
- * accessor is read because `ConfigPath` types its members (`URL.host`, a client's `port`); a data property above the
- * object is a method (`URL.prototype.toString`), and an unbound method is not config data, so it is not. Never
- * `Object.prototype` members (`hasOwnProperty`), `constructor`, `prototype` or `__proto__`.
+ * The value at `key` of `target`, when it is a config value: an own data property, or a getter, own or inherited (a
+ * class instance's `URL.host`), because `ConfigPath` types a class instance's members. A data property above the
+ * object (a method, `URL.prototype.toString`) is never read: an unbound method is not config data. Never an
+ * `Object.prototype` member (`hasOwnProperty`), nor `constructor`, `prototype` or `__proto__`.
  */
 const readKey = (target: unknown, key: string): ReadKey | undefined => {
-  if (typeof target !== 'object' || target === null || unsafeKeys.has(key)) return undefined
+  if (typeof target !== 'object' || target === null || UNSAFE_KEYS.has(key)) return undefined
   for (let level: object | null = target; level !== null && level !== Object.prototype; level = Object.getPrototypeOf(level)) {
     const descriptor = Object.getOwnPropertyDescriptor(level, key)
     // The nearest declaration hides the rest, as in a property read
     if (descriptor === undefined) continue
     // A getter runs with `target` as its receiver: `new URL(...).host` reads the instance, not the prototype
-    if (descriptor.get !== undefined || descriptor.set !== undefined) return { value: Reflect.get(target, key) }
+    if (descriptor.get !== undefined) return { value: Reflect.get(target, key) }
     return level === target ? { value: descriptor.value } : undefined
   }
   return undefined
@@ -98,13 +98,13 @@ const readKey = (target: unknown, key: string): ReadKey | undefined => {
 
 /**
  * Reads a config value by dot path, typed from the registered configs: `config('database.default')`.
- * A key missing at run time gives `undefined`, and so does a method or a prototype data property (`app.url.toString`).
- * Throws before the configs are loaded, and when the path is not a string.
+ * A key missing at run time gives `undefined`, and so does a method or a prototype data property (`app.url.toString`),
+ * or a path that is not a string. Throws before the configs are loaded.
  */
 export function config<const P extends ConfigPath>(path: P): ConfigValue<P>
 export function config(path: string): unknown {
-  // Before any use: a path object's `toString`/`indexOf` is app code that must not run
-  if (typeof path !== 'string') throw new TypeError('[@laratype/core] config(path): path must be a string')
+  // Before any read: a path object's `toString`/`indexOf` is app code that must not run
+  if (typeof path !== 'string') return undefined
   let target: unknown = store.__laratype_configs
   if (target === undefined) {
     throw new Error(`[@laratype/core] config('${path}') ran before the configs were loaded (ConfigLoadServiceProvider)`)
