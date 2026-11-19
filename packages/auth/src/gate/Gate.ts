@@ -4,6 +4,7 @@ import type { PromiseAble } from "@laratype/support";
 import type { GateAbility } from "./GateAbility";
 import GateManager, { describeValue } from "./GateManager";
 import ForbiddenException from "../exceptions/ForbiddenException";
+import { isGuest } from "../support/guest";
 import type {
   CheckPolicy,
   ModelPolicy,
@@ -61,7 +62,7 @@ export default abstract class Gate {
   ): Promise<boolean>;
   static async allows(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
     // A guest denies, and a gate is not asked about a user it was not written for
-    if (user === undefined || user === null) return false;
+    if (isGuest(user)) return false;
     if (typeof ability === "string") {
       const [subject, ...args] = rest;
       return GateManager.current().allows(user, ability, subject, ...args);
@@ -84,7 +85,7 @@ export default abstract class Gate {
     ...args: Args
   ): Promise<boolean>;
   static async denies(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
-    if (user === undefined || user === null) return true;
+    if (isGuest(user)) return true;
     if (typeof ability !== "string") {
       return (await asGate("Gate.denies", ability)(user, ...rest)) !== true;
     }
@@ -105,7 +106,7 @@ export default abstract class Gate {
     ...args: Args
   ): Promise<void>;
   static async authorize(user: unknown, ability: unknown, ...rest: unknown[]): Promise<void> {
-    if (user === undefined || user === null) throw new ForbiddenException();
+    if (isGuest(user)) throw new ForbiddenException();
     if (typeof ability === "string") {
       const [subject, ...args] = rest;
       return GateManager.current().authorize(user, ability, subject, ...args);

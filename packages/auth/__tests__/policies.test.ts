@@ -299,6 +299,64 @@ describe('Gate.allows: policies', () => {
   })
 })
 
+describe('a guest is any non-object user (#394 round 5)', () => {
+  /** What a caller can hand over: `TokenGuard.user()` answers false for a request with no token, and primitives fail closed. */
+  const guests: [label: string, value: unknown][] = [
+    ['false', false],
+    ['0', 0],
+    ['""', ''],
+    ['"user"', 'user'],
+    ['1', 1],
+    ['a symbol', Symbol('user')],
+    ['NaN', NaN],
+    ['a function', () => true],
+  ]
+
+  it('denies every non-object user through a policy, a gate and the single check, without running either', async () => {
+    const { Policy, calls } = policyWith(() => true)
+    Gate.policy(PostModel, Policy)
+    let gateCalls = 0
+    const SignedIn = Gate.define('signed-in', () => {
+      gateCalls++
+      return true
+    })
+
+    for (const [label, guest] of guests) {
+      // A policy ability, through Gate and GateManager
+      expect(await allows(guest, 'update', post), label).toBe(false)
+      expect(await denies(guest, 'update', post), label).toBe(true)
+      await expect(authorize(guest, 'update', post), label).rejects.toBeInstanceOf(ForbiddenException)
+      expect(await GateManager.current().allows(guest, 'update', post), label).toBe(false)
+      expect(await GateManager.current().denies(guest, 'update', post), label).toBe(true)
+      await expect(GateManager.current().authorize(guest, 'update', post), label)
+        .rejects.toBeInstanceOf(ForbiddenException)
+      // A gate value
+      expect(await Gate.allows(guest, SignedIn), label).toBe(false)
+      expect(await Gate.denies(guest, SignedIn), label).toBe(true)
+      await expect(Gate.authorize(guest, SignedIn), label).rejects.toBeInstanceOf(ForbiddenException)
+      // The single check #105 calls
+      expect(await policyCheck(new Policy(), guest, 'update', post), label).toBe(false)
+      await expect(policyAuthorize(new Policy(), guest, 'update', post), label)
+        .rejects.toBeInstanceOf(ForbiddenException)
+    }
+    expect(calls).toEqual([])
+    expect(gateCalls).toBe(0)
+    // A real user is an object, so it is not a guest: the same policy and gate still allow
+    expect(await allows(user, 'update', post)).toBe(true)
+    expect(await Gate.allows(user, SignedIn)).toBe(true)
+  })
+
+  it('denies a false user through Authenticated too, as TokenGuard.user() answers it', async () => {
+    const { Policy, calls } = policyWith(() => true)
+    Gate.policy(PostModel, Policy)
+    // TokenGuard.user() answers false; a wrapper built from it (or a login(false)) must fail closed
+    const authenticated = new Authenticated(false as never, undefined as never)
+    expect(await authenticated.can('update', post)).toBe(false)
+    expect(await authenticated.cannot('update', post)).toBe(true)
+    expect(calls).toEqual([])
+  })
+})
+
 describe('Gate.policy: registration', () => {
   it('registers a policy once: the same class is a no-op, another one throws', async () => {
     class FirstPolicy {}

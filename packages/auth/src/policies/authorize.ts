@@ -1,4 +1,5 @@
 import ForbiddenException from "../exceptions/ForbiddenException";
+import { isGuest } from "../support/guest";
 
 /** The `before` hook of a policy: `true` allows, `false` denies, anything else (usually `null`) has no opinion. */
 const before = async (policy: object, user: unknown, ability: string, args: readonly unknown[]): Promise<boolean | null> => {
@@ -30,8 +31,9 @@ const abilityMethod = (policy: object, ability: string): ((...args: unknown[]) =
 
 /**
  * Runs one check of a policy instance (#121): `before` first, then the ability method (docs/v1/auth.md › Policies and
- * gates). `true` allows and `false` denies; `null` means neither decided, which a scope hook (http.md › Authorization
- * from the contract) reads as "no opinion", while `policyAllows()` and `policyAuthorize()` deny it.
+ * gates). `true` allows and `false` denies; `null` means `before` had no opinion and the ability name matches no
+ * method (an ability that returns `null` denies), which a scope hook (http.md › Authorization from the contract) reads
+ * as "no opinion", while `policyAllows()` and `policyAuthorize()` deny it.
  */
 export const policyCheck = async (
   policy: object,
@@ -40,8 +42,9 @@ export const policyCheck = async (
   ...args: unknown[]
 ): Promise<boolean | null> => {
   // A guest never reaches a policy, whatever the caller passed: a policy written for a signed-in user must not decide
-  // on `undefined` (docs/v1/auth.md › Invariants)
-  if (user === undefined || user === null) return false;
+  // on `undefined`, and `false` (TokenGuard.user() for a request with no token) or another non-object denies too
+  // (docs/v1/auth.md › Invariants)
+  if (isGuest(user)) return false;
   const hook = await before(policy, user, ability, args);
   if (hook !== null) return hook;
   const method = abilityMethod(policy, ability);
