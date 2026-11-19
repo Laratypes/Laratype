@@ -123,10 +123,14 @@ export class Endpoint<
   constructor(def: EndpointDef) {
     // The builder checks the path once in make() and the GET-body rule in body()/the route walker. The constructor is
     // public, so a def built by hand gets one labelled throw instead of a raw failure; the walker re-checks a forged one.
-    if (typeof def !== "object" || def === null || !isEndpointPath(def.path) || !Array.isArray(def.throws)) {
-      fail('endpoint: the def must have a path starting with one "/", without control characters, and a throws list');
+    // Own fields only, and the copy is what gets stored: a non-enumerable or inherited path never becomes the def's path.
+    const label = 'endpoint: the def must have a path starting with one "/", without control characters, and a throws list';
+    if (typeof def !== "object" || def === null || !Object.hasOwn(def, "path") || !Object.hasOwn(def, "throws") || !Array.isArray(def.throws)) {
+      fail(label);
     }
-    this.def = freeze(def);
+    const copy = freeze(def);
+    if (!isEndpointPath(copy.path)) fail(label);
+    this.def = copy;
     Object.defineProperty(this, ENDPOINT, { value: true });
   }
 

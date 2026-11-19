@@ -75,9 +75,23 @@ describe('endpoint builder', () => {
       { method: 'post', status: 204, throws: [] },
       { method: 'post', path: '/x', status: 204 },
       { method: 'post', path: '/x', status: 204, throws: null },
+      { method: 'post', path: '/x', status: 204, throws: 42 },
       { length: 1e9 },
     ]) {
       expect(() => new Endpoint(def as never)).toThrow(bypass)
+    }
+    // an inherited or non-enumerable path is not a field the stored def gets: both are the one labelled throw
+    expect(() => new Endpoint(Object.create({ path: '/x', throws: [] }) as never)).toThrow(bypass)
+    const hiddenPath = { method: 'post', status: 204, throws: [] } as { path?: string }
+    Object.defineProperty(hiddenPath, 'path', { value: '/x' })
+    expect(() => new Endpoint(hiddenPath as never)).toThrow(bypass)
+    // a prototype-polluted Object.prototype.path is never read as the def's path
+    const observed = Object.prototype as Record<string, unknown>
+    try {
+      observed.path = '/polluted'
+      expect(() => new Endpoint({ method: 'post', status: 204, throws: [] } as never)).toThrow(bypass)
+    } finally {
+      delete observed.path
     }
     // the one check never reads a "length", and a valid hand-built def still works, frozen included
     expect(() => new Endpoint(null as never)).toThrow(bypass)
