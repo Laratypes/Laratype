@@ -19,9 +19,27 @@ export const ownColumn = (metadata: EntityMetadata, name: string): ColumnMetadat
 /** The most characters a diagnostic echoes from a value; a longer one is cut with an ellipsis. */
 const MAX_VALUE_LENGTH = 100;
 
-/** A diagnostic value: a string is quoted, anything else stringified, cut to 100 characters plus `…`. */
+/**
+ * A diagnostic value: a string is quoted, anything else stringified, cut to 100 characters plus `…`. A value that
+ * cannot be converted to a string (a null-prototype object, a throwing `toString`, a revoked Proxy) is named by its
+ * type instead, so formatting a diagnostic never replaces the documented `ModelError` with a `TypeError`.
+ */
 export const formatValue = (value: unknown): string => {
-  const text = typeof value === "string" ? JSON.stringify(value) : String(value);
+  let text: string;
+  if (typeof value === "string") {
+    text = JSON.stringify(value);
+  } else {
+    try {
+      text = String(value);
+    } catch {
+      try {
+        text = valueType(value);
+      } catch {
+        // A revoked Proxy makes even Array.isArray() throw: its typeof is still safe
+        text = typeof value;
+      }
+    }
+  }
   return text.length > MAX_VALUE_LENGTH ? `${text.slice(0, MAX_VALUE_LENGTH)}…` : text;
 };
 
@@ -41,6 +59,22 @@ export const valueType = (value: unknown): string => {
   if (types.isDate(value)) return isValidDate(value) ? "Date" : "invalid Date";
   return typeof value;
 };
+
+/** A value `where()` accepts: something mysql2 binds as one parameter, never as SQL text. */
+export type ScalarValue = string | number | bigint | boolean | Date | Buffer;
+
+/**
+ * Whether a value is a scalar `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date or a
+ * Buffer. mysql2 binds only a Buffer as one parameter: it expands a plain Uint8Array (and every other typed array,
+ * ArrayBuffer or DataView) into SQL text, so those are refused.
+ */
+export const isScalarValue = (value: unknown): value is ScalarValue =>
+  typeof value === "string" ||
+  typeof value === "bigint" ||
+  typeof value === "boolean" ||
+  (typeof value === "number" && Number.isFinite(value)) ||
+  isValidDate(value) ||
+  Buffer.isBuffer(value);
 
 /**
  * Applies a column's `transformer.to` the way TypeORM's `find` does: a transformer array runs in declaration order

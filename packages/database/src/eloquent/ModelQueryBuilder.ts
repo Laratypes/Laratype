@@ -1,17 +1,25 @@
 import type { ObjectLiteral, Repository, SelectQueryBuilder } from "typeorm";
 import ModelError from "../exceptions/ModelError";
-import { type ColumnMetadata, formatValue, isValidDate, ownColumn, transformTo, valueType } from "./internal";
+import {
+  type ColumnMetadata,
+  formatValue,
+  isScalarValue,
+  ownColumn,
+  transformTo,
+  valueType,
+} from "./internal";
 
 /**
  * A property of `T` that holds data, not a method: the columns `where()` and `orderBy()` accept at the type level,
- * so `where('save', ...)` does not compile. Only string keys count: a symbol-keyed brand is not a column.
+ * so `where('save', ...)` does not compile. Only string keys count: a symbol-keyed brand is not a column. The bare
+ * name is a row with any string key.
  */
-export type ColumnKey<T> = {
+export type ColumnKey<T = any> = {
   [K in Extract<keyof T, string>]: T[K] extends (...args: any[]) => any ? never : K;
 }[Extract<keyof T, string>];
 
-/** A plain equality filter over the model's columns, the object form of `where()`. */
-export type ModelWhere<T> = { [K in ColumnKey<T>]?: Exclude<T[K], undefined> };
+/** A plain equality filter over the model's columns, the object form of `where()`; the bare name is any row. */
+export type ModelWhere<T = any> = { [K in ColumnKey<T>]?: Exclude<T[K], undefined | null> };
 
 /** The comparisons the three-argument `where()` accepts. */
 const COMPARISONS = ["=", "!=", "<", "<=", ">", ">=", "like", "not like"] as const;
@@ -40,8 +48,11 @@ export type WhereOperator = (typeof OPERATORS)[number];
 /** The direction `orderBy()` accepts; checked at runtime, any case. */
 export type OrderDirection = "asc" | "desc";
 
-/** A page of models with plain meta fields: what `paginate()` resolves and http.md › Resources accepts as is. */
-export interface Page<T> {
+/**
+ * A page of models with plain meta fields: what `paginate()` resolves and http.md › Resources accepts as is. The
+ * bare name is a page of any row.
+ */
+export interface Page<T = any> {
   readonly data: readonly T[];
   readonly total: number;
   readonly perPage: number;
@@ -59,36 +70,22 @@ const isWhereOperator = (value: unknown): value is WhereOperator =>
 /** The largest `in` / `not in` list `where()` accepts: Postgres allows 65,535 parameters, sqlite 32,766. */
 const MAX_IN_VALUES = 1000;
 
-/** A value `where()` accepts: something mysql2 binds as one parameter, never as SQL text. */
-type ScalarValue = string | number | bigint | boolean | Date | Buffer;
-
-/**
- * Whether a value is a scalar `where()` accepts: a string, a finite number, a bigint, a boolean, a valid Date or a
- * Buffer. mysql2 binds only a Buffer as one parameter: it expands a plain Uint8Array (and every other typed array,
- * ArrayBuffer or DataView) into SQL text, so those are refused.
- */
-const isScalarValue = (value: unknown): value is ScalarValue =>
-  typeof value === "string" ||
-  typeof value === "bigint" ||
-  typeof value === "boolean" ||
-  (typeof value === "number" && Number.isFinite(value)) ||
-  isValidDate(value) ||
-  Buffer.isBuffer(value);
-
 /** The scalar kinds a diagnostic lists. */
 const SCALAR_KINDS = "a string, a finite number, a bigint, a boolean, a valid Date or a Buffer";
 
 /** The builder's message text, in one place (errors-and-comments.md › Errors). */
 const errors = {
   firstArgument: (value: unknown): string =>
-    `[@laratype/database] where() takes a column name or a where object, got ${formatValue(value)}`,
+    `[@laratype/database] where() takes a column name or a where object, got ${
+      Array.isArray(value) ? "array" : formatValue(value)
+    }`,
+  arrayOperand: (operator: string, value: unknown): string =>
+    `[@laratype/database] where() takes an array for ${formatValue(operator)}, got ${valueType(value)}`,
   noColumn: (model: string, name: string, method: "where" | "orderBy"): string =>
     `[@laratype/database] ${model} has no column ${formatValue(name)}: ${method}() takes a column property`
     + " of the model",
   operator: (operator: unknown): string =>
     `[@laratype/database] where() takes one of ${OPERATORS.join(", ")}, got ${valueType(operator)}`,
-  arrayOperand: (operator: string, value: unknown): string =>
-    `[@laratype/database] where() takes an array for ${formatValue(operator)}, got ${valueType(value)}`,
   nullishValue: (column: string, value: unknown): string =>
     `[@laratype/database] where() cannot filter ${formatValue(column)} with ${formatValue(value)}:`
     + " IS NULL filters are not part of the v1 surface",
@@ -136,30 +133,32 @@ export default class ModelQueryBuilder<T extends object = object> {
   }
 
   /** Adds an equality filter, a comparison, or the object form; `where()` calls combine with AND. */
-  where<K extends ColumnKey<T>>(column: K, value: Exclude<T[K], undefined>): this;
-  where<K extends ColumnKey<T>>(column: K, operator: "in" | "not in", value: readonly Exclude<T[K], undefined>[]): this;
-  where<K extends ColumnKey<T>>(column: K, operator: WhereComparison, value: Exclude<T[K], undefined>): this;
+  where<K extends ColumnKey<T>>(column: K, value: Exclude<T[K], undefined | null>): this;
+  where<K extends ColumnKey<T>>(
+    column: K,
+    operator: "in" | "not in",
+    value: readonly Exclude<T[K], undefined | null>[],
+  ): this;
+  where<K extends ColumnKey<T>>(column: K, operator: WhereComparison, value: Exclude<T[K], undefined | null>): this;
   where(where: ModelWhere<T>): this;
   where(columnOrWhere: ColumnKey<T> | ModelWhere<T>, ...rest: unknown[]): this {
     if (typeof columnOrWhere !== "string") {
-      // A plain JS caller can pass anything: only an object is the object form, and null / a number is refused
-      if (typeof columnOrWhere !== "object" || columnOrWhere === null) {
+      // A plain JS caller can pass anything: an array carries no field names, and null / a number is refused
+      if (typeof columnOrWhere !== "object" || columnOrWhere === null || Array.isArray(columnOrWhere)) {
         throw new ModelError(errors.firstArgument(columnOrWhere));
       }
-      const conditions: Record<string, unknown> = {};
       for (const [name, value] of Object.entries(columnOrWhere as Record<string, unknown>)) {
         const property = this.column(name, "where");
         this.assertValue(property.propertyName, value);
-        conditions[property.propertyName] = value;
+        this.pushEquality(property, value);
       }
-      this.query.andWhere(conditions as ObjectLiteral);
       return this;
     }
 
     const column = this.column(columnOrWhere, "where");
     if (rest.length === 1) {
       this.assertValue(column.propertyName, rest[0]);
-      this.query.andWhere({ [column.propertyName]: rest[0] } as ObjectLiteral);
+      this.pushEquality(column, rest[0]);
       return this;
     }
 
@@ -170,8 +169,8 @@ export default class ModelQueryBuilder<T extends object = object> {
     }
     this.assertDefined(column.propertyName, value);
     if (operator === "in" || operator === "not in") {
-      this.assertInOperand(column.propertyName, operator, value);
-      this.pushIn(column, operator, value);
+      const values = this.inValues(column.propertyName, operator, value);
+      this.pushIn(column, operator, values);
     } else {
       this.assertValue(column.propertyName, value);
       this.pushComparison(column.propertyName, operator, this.transformed(column, value));
@@ -212,7 +211,8 @@ export default class ModelQueryBuilder<T extends object = object> {
 
   /**
    * A plain page of the query (docs/v1/database.md › Model): `page` is 1-based, `perPage` defaults to 15 and is
-   * capped at 100, and `lastPage` is 1 for no rows. The page window replaces any earlier `limit()`.
+   * capped at 100, and `lastPage` is 1 for no rows. The page runs on a clone, so its window and any filter added
+   * while it waits cannot reach this builder or a concurrent call; the page window replaces an earlier `limit()`.
    */
   async paginate(page = 1, perPage = 15): Promise<Page<T>> {
     if (!Number.isSafeInteger(page) || page < 1) {
@@ -225,10 +225,16 @@ export default class ModelQueryBuilder<T extends object = object> {
     if (!Number.isSafeInteger(offset)) {
       throw new ModelError(errors.offset(page, perPage));
     }
-    this.query.offset(offset).limit(perPage);
-    // TypeORM's count ignores the page window, so `total` is the full number of matches
-    const [data, total] = await this.query.getManyAndCount();
-    return { data, total, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(total / perPage)) };
+    // One clone, taken before the first await: a where() / limit() on this builder afterwards cannot change the
+    // page or its count, and a concurrent paginate() gets its own copy
+    const query = this.query.clone().offset(offset).limit(perPage);
+    // TypeORM's count ignores the page window, but its lazyCount returns offset + rows for a short page: an empty
+    // non-first page would report offset (not the full total), so that one case counts again without the window
+    const [data, total] = await query.getManyAndCount();
+    const fullTotal = data.length === 0 && offset > 0
+      ? await query.offset(undefined).limit(undefined).getCount()
+      : total;
+    return { data, total: fullTotal, perPage, currentPage: page, lastPage: Math.max(1, Math.ceil(fullTotal / perPage)) };
   }
 
   /** A nullish value is refused: TypeORM would bind `= NULL`, which never matches, and some drivers reject it. */
@@ -247,26 +253,27 @@ export default class ModelQueryBuilder<T extends object = object> {
   }
 
   /**
-   * An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined.
+   * An in / not in operand: an array of at most 1,000 scalars, with no holes, null or undefined. Each element is
+   * read once, into a fresh list, so an array getter cannot return a different value to the transform / bind.
    */
-  private assertInOperand(
-    column: string,
-    operator: "in" | "not in",
-    value: unknown,
-  ): asserts value is readonly unknown[] {
+  private inValues(column: string, operator: "in" | "not in", value: unknown): unknown[] {
     if (!Array.isArray(value)) {
       throw new ModelError(errors.arrayOperand(operator, value));
     }
-    if (value.length > MAX_IN_VALUES) {
-      throw new ModelError(errors.inLength(column, operator, value.length));
+    const length = value.length;
+    if (length > MAX_IN_VALUES) {
+      throw new ModelError(errors.inLength(column, operator, length));
     }
-    for (let index = 0; index < value.length; index++) {
-      const element = (value as unknown[])[index];
+    const values: unknown[] = [];
+    for (let index = 0; index < length; index++) {
+      const element = value[index];
       this.assertDefined(column, element);
       if (!isScalarValue(element)) {
         throw new ModelError(errors.inElement(column, operator, element, index));
       }
+      values.push(element);
     }
+    return values;
   }
 
   /** An operator value with the column's `transformer.to` applied, which must still be a scalar. */
@@ -279,6 +286,15 @@ export default class ModelQueryBuilder<T extends object = object> {
     return transformed;
   }
 
+  /**
+   * Adds `column = :parameter` with the column's transformer applied once. The facade builds the condition itself
+   * for every form: TypeORM's object form would apply `transformer.to` again, and an object it returns would reach
+   * mysql2 as `key = value` text (docs/v1/database.md › Model).
+   */
+  private pushEquality(column: ColumnMetadata, value: unknown): void {
+    this.pushComparison(column.propertyName, "=", this.transformed(column, value));
+  }
+
   /** Adds `column <comparison> :parameter`; the operator comes from the closed table and the value is bound. */
   private pushComparison(column: string, operator: WhereComparison, value: unknown): void {
     const name = `where_${this.parameterCount++}`;
@@ -286,25 +302,25 @@ export default class ModelQueryBuilder<T extends object = object> {
   }
 
   /** Adds `column IN / NOT IN (:...parameter)` with every element transformed once; an empty list matches none/all. */
-  private pushIn(column: ColumnMetadata, operator: "in" | "not in", value: readonly unknown[]): void {
-    const values = value.map((element, index) => {
+  private pushIn(column: ColumnMetadata, operator: "in" | "not in", values: readonly unknown[]): void {
+    const transformed = values.map((element, index) => {
       if (column.transformer === undefined) return element;
-      const transformed = transformTo(column.transformer, element);
-      if (!isScalarValue(transformed)) {
+      const value = transformTo(column.transformer, element);
+      if (!isScalarValue(value)) {
         throw new ModelError(
-          errors.transformerInElement(column.propertyName, operator, valueType(transformed), index),
+          errors.transformerInElement(column.propertyName, operator, valueType(value), index),
         );
       }
-      return transformed;
+      return value;
     });
-    if (values.length === 0) {
+    if (transformed.length === 0) {
       this.query.andWhere(operator === "in" ? "0=1" : "1=1");
       return;
     }
     const name = `where_${this.parameterCount++}`;
     this.query.andWhere(
       `${this.query.alias}.${column.propertyName} ${operator === "in" ? "IN" : "NOT IN"} (:...${name})`,
-      { [name]: values },
+      { [name]: transformed },
     );
   }
 

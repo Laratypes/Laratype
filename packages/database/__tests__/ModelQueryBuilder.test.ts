@@ -7,8 +7,9 @@ import {
   DataSource,
   EntitySchema,
   type ObjectLiteral,
+  type QueryRunner,
   type Repository,
-  type SelectQueryBuilder,
+  SelectQueryBuilder,
   type ValueTransformer,
 } from 'typeorm'
 import ModelError from '../src/exceptions/ModelError'
@@ -29,11 +30,29 @@ class FakeQueryBuilder {
   readonly orderBys: [string, string][] = []
   readonly limits: number[] = []
   readonly offsets: number[] = []
+  /** The window this builder itself carries, as a clone copies it; `limits` / `offsets` are the calls it saw. */
+  limitValue?: number
+  offsetValue?: number
+  /** Every builder `clone()` returned, so a test can tell the page query from the one the facade keeps. */
+  readonly clones: FakeQueryBuilder[] = []
 
   constructor(
     private readonly rows: Row[],
     private readonly total = rows.length,
   ) {}
+
+  clone() {
+    const copy = new FakeQueryBuilder(this.rows, this.total)
+    // A TypeORM clone keeps the conditions and orderBys set so far, not the calls made after it
+    copy.conditions.push(...this.conditions)
+    copy.orderBys.push(...this.orderBys)
+    copy.limits.push(...this.limits)
+    copy.offsets.push(...this.offsets)
+    copy.limitValue = this.limitValue
+    copy.offsetValue = this.offsetValue
+    this.clones.push(copy)
+    return copy
+  }
 
   andWhere(where: string | ObjectLiteral, parameters?: ObjectLiteral) {
     this.conditions.push({ sql: where, parameters })
@@ -45,13 +64,15 @@ class FakeQueryBuilder {
     return this
   }
 
-  limit(count: number) {
-    this.limits.push(count)
+  limit(count?: number) {
+    if (count !== undefined) this.limits.push(count)
+    this.limitValue = count
     return this
   }
 
-  offset(count: number) {
-    this.offsets.push(count)
+  offset(count?: number) {
+    if (count !== undefined) this.offsets.push(count)
+    this.offsetValue = count
     return this
   }
 
@@ -66,6 +87,10 @@ class FakeQueryBuilder {
   async getManyAndCount() {
     return [this.rows, this.total] as [Row[], number]
   }
+
+  async getCount() {
+    return this.total
+  }
 }
 
 /** A transformer that lower-cases a string, as an app's email column does. */
@@ -74,9 +99,9 @@ const lower: ValueTransformer = {
   from: (value: unknown) => value,
 }
 
-/** A transformer array: its `to()` functions run in declaration order. */
+/** A transformer array: its `to()` functions run in declaration order, as `ID-` + lower-casing and lower-casing + `ID-` differ. */
 const prefix: ValueTransformer = {
-  to: (value: unknown) => (typeof value === 'string' ? `id-${value}` : value),
+  to: (value: unknown) => (typeof value === 'string' ? `ID-${value}` : value),
   from: (value: unknown) => value,
 }
 
@@ -164,13 +189,16 @@ describe('ModelQueryBuilder.where', () => {
   it('adds an equality condition for the two-argument form', () => {
     const { query, UserQuery } = builder()
     expect(UserQuery.where('email', 'ada@example.com')).toBe(UserQuery)
-    expect(query.conditions).toEqual([{ sql: { email: 'ada@example.com' }, parameters: undefined }])
+    expect(query.conditions).toEqual([{ sql: 'User.email = :where_0', parameters: { where_0: 'ada@example.com' } }])
   })
 
-  it('adds every column of the object form in one condition', () => {
+  it('adds every column of the object form as its own equality condition', () => {
     const { query, UserQuery } = builder()
     UserQuery.where({ email: 'ada@example.com', isActive: true })
-    expect(query.conditions).toEqual([{ sql: { email: 'ada@example.com', isActive: true }, parameters: undefined }])
+    expect(query.conditions).toEqual([
+      { sql: 'User.email = :where_0', parameters: { where_0: 'ada@example.com' } },
+      { sql: 'User.isActive = :where_1', parameters: { where_1: true } },
+    ])
   })
 
   it('maps every comparison to its SQL comparison, with the value bound as a parameter', () => {
@@ -461,6 +489,23 @@ describe('ModelQueryBuilder.where', () => {
     }
   })
 
+  it('reads each in / not in element once, so an array getter cannot swap the bound value', () => {
+    for (const operator of ['in', 'not in'] as const) {
+      const values = [1, 2, 3]
+      let reads = 0
+      // The old code read index 0 once to validate and again to bind: the second read returned undefined
+      Object.defineProperty(values, 0, {
+        enumerable: true,
+        configurable: true,
+        get: () => (reads++ === 0 ? 1 : undefined),
+      })
+      const { query, UserQuery } = builder()
+      UserQuery.where('id', operator, values)
+      expect(reads, operator).toBe(1)
+      expect(parameters(query), operator).toEqual({ where_0: [1, 2, 3] })
+    }
+  })
+
   it('refuses an in / not in list over 1,000 elements', () => {
     const list = Array.from({ length: 1001 }, (_, index) => index)
     for (const operator of ['in', 'not in'] as const) {
@@ -503,6 +548,44 @@ describe('ModelQueryBuilder.where', () => {
     expect(query.conditions).toEqual([])
   })
 
+  it('refuses an array as the where object, which would otherwise add no filter', () => {
+    for (const value of [[], [1, 2], ['email']]) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.where(value as never)).toThrow(
+        '[@laratype/database] where() takes a column name or a where object, got array',
+      )
+      expect(query.conditions).toEqual([])
+    }
+  })
+
+  it('names a value it cannot stringify by its type instead of throwing a TypeError', () => {
+    // Object.create(null) has no toString, the second object's toString throws, and the Proxy's get trap throws:
+    // formatting the refused value's diagnostic must still give the documented ModelError, not a TypeError
+    const noPrototype = Object.create(null) as object
+    const throwingToString = {
+      toString: () => {
+        throw new Error('toString() must not escape')
+      },
+    }
+    const throwingProxy = new Proxy({}, {
+      get: () => {
+        throw new Error('get() must not escape')
+      },
+    })
+    for (const value of [noPrototype, throwingToString, throwingProxy]) {
+      const { query, UserQuery } = builder()
+      expect(() => UserQuery.limit(value as never)).toThrow(
+        '[@laratype/database] limit() takes a positive safe integer, got object',
+      )
+      expect(query.limits).toEqual([])
+    }
+    // A symbol reaches the first-argument diagnostic, where String(symbol) is defined
+    const { UserQuery } = builder()
+    expect(() => UserQuery.where(Symbol('ada') as never)).toThrow(
+      '[@laratype/database] where() takes a column name or a where object, got Symbol(ada)',
+    )
+  })
+
   it('ignores inherited and non-enumerable keys in the object form', () => {
     const where = Object.create({ email: 'ada@example.com' }) as Record<string, unknown>
     Object.defineProperty(where, 'isActive', { value: true, enumerable: false })
@@ -510,7 +593,7 @@ describe('ModelQueryBuilder.where', () => {
     const { query, UserQuery } = builder()
     UserQuery.where(where as never)
     // Only own enumerable keys reach the condition; an inherited or hidden key is not a column filter
-    expect(query.conditions).toEqual([{ sql: { id: 1 }, parameters: undefined }])
+    expect(query.conditions).toEqual([{ sql: 'User.id = :where_0', parameters: { where_0: 1 } }])
   })
 
   it('refuses a hostile own key in the object form', () => {
@@ -538,7 +621,7 @@ describe('ModelQueryBuilder.where transformers', () => {
     // A non-idempotent transformer proves the value goes through it once, not twice
     const prefixed = builder()
     prefixed.UserQuery.where('prefixed', '=', 'ADA')
-    expect(parameters(prefixed.query)).toEqual({ where_0: 'id-ADA' })
+    expect(parameters(prefixed.query)).toEqual({ where_0: 'ID-ADA' })
   })
 
   it('applies the transformer to every in / not in element', () => {
@@ -552,7 +635,8 @@ describe('ModelQueryBuilder.where transformers', () => {
   it('runs a transformer array in declaration order', () => {
     const { query, UserQuery } = builder()
     UserQuery.where('serial', '=', 'ADA')
-    expect(parameters(query)).toEqual({ where_0: 'id-ada' })
+    // lower() then prefix() gives "ID-ada"; the reverse order would give "id-ada", so this assertion detects it
+    expect(parameters(query)).toEqual({ where_0: 'ID-ada' })
   })
 
   it('refuses a transformer that returns an object, so mysql2 never gets one', () => {
@@ -573,11 +657,27 @@ describe('ModelQueryBuilder.where transformers', () => {
     expect(query.conditions).toEqual([])
   })
 
-  it('leaves a column without a transformer, and the object form, to TypeORM', () => {
+  it('applies the transformer to the two-argument and object forms once, for a scalar value', () => {
     const { query, UserQuery } = builder()
     UserQuery.where('email', '=', 'ADA@EXAMPLE.COM').where({ lowerEmail: 'ADA@EXAMPLE.COM' })
     expect(parameters(query, 0)).toEqual({ where_0: 'ADA@EXAMPLE.COM' })
-    expect(query.conditions[1]?.sql).toEqual({ lowerEmail: 'ADA@EXAMPLE.COM' })
+    expect(query.conditions[1]).toEqual({
+      sql: 'User.lowerEmail = :where_1',
+      parameters: { where_1: 'ada@example.com' },
+    })
+  })
+
+  it('refuses an object-returning transformer in the two-argument and object forms, so mysql2 never gets one', () => {
+    const message = '[@laratype/database] where() transformer for "hostile" returned object:'
+      + ' a transformer must return a scalar value (a string, a finite number, a bigint, a boolean, a valid Date or a Buffer)'
+    const twoArgument = builder()
+    expect(() => twoArgument.UserQuery.where('hostile', 'ada')).toThrow(message)
+    expect(twoArgument.query.conditions).toEqual([])
+
+    // The object form builds every condition itself, so TypeORM cannot apply the transformer again outside the check
+    const objectForm = builder()
+    expect(() => objectForm.UserQuery.where({ hostile: 'ada' } as never)).toThrow(message)
+    expect(objectForm.query.conditions).toEqual([])
   })
 })
 
@@ -649,8 +749,11 @@ describe('ModelQueryBuilder.paginate', () => {
       currentPage: 3,
       lastPage: 3,
     })
-    expect(query.offsets).toEqual([20])
-    expect(query.limits).toEqual([10])
+    // The page runs on a clone: the base builder keeps no window for a later get()
+    expect(query.clones[0]?.offsets).toEqual([20])
+    expect(query.clones[0]?.limits).toEqual([10])
+    expect(query.offsets).toEqual([])
+    expect(query.limitValue).toBeUndefined()
   })
 
   it('defaults to page 1 and 15 per page, and gives an empty result lastPage 1', async () => {
@@ -662,14 +765,14 @@ describe('ModelQueryBuilder.paginate', () => {
       currentPage: 1,
       lastPage: 1,
     })
-    expect(query.offsets).toEqual([0])
-    expect(query.limits).toEqual([15])
+    expect(query.clones[0]?.offsets).toEqual([0])
+    expect(query.clones[0]?.limits).toEqual([15])
   })
 
   it('accepts a huge safe page whose offset is still safe', async () => {
     const { query, UserQuery } = builder()
     await UserQuery.paginate(1_000_000_000, 15)
-    expect(query.offsets).toEqual([14_999_999_985])
+    expect(query.clones[0]?.offsets).toEqual([14_999_999_985])
   })
 
   it('refuses a page that is not a positive safe integer', async () => {
@@ -678,6 +781,7 @@ describe('ModelQueryBuilder.paginate', () => {
       await expect(UserQuery.paginate(page)).rejects.toThrow(
         '[@laratype/database] paginate() takes a page of 1 or more (a safe integer), got',
       )
+      expect(query.clones).toEqual([])
       expect(query.offsets).toEqual([])
     }
   })
@@ -688,6 +792,7 @@ describe('ModelQueryBuilder.paginate', () => {
       await expect(UserQuery.paginate(1, perPage)).rejects.toThrow(
         '[@laratype/database] paginate() takes a perPage of 1 to 100, got',
       )
+      expect(query.clones).toEqual([])
       expect(query.limits).toEqual([])
     }
   })
@@ -697,7 +802,19 @@ describe('ModelQueryBuilder.paginate', () => {
     await expect(UserQuery.paginate(Number.MAX_SAFE_INTEGER, 100)).rejects.toThrow(
       '[@laratype/database] paginate() takes a page and perPage whose offset is a safe integer, got page 9007199254740991 and perPage 100',
     )
+    expect(query.clones).toEqual([])
     expect(query.offsets).toEqual([])
+  })
+
+  it('keeps an earlier limit on the base builder and gives the page its own window', async () => {
+    const rows = [{ id: 1, email: 'ada@example.com' }]
+    const { query, UserQuery } = builder(rows, 21)
+    UserQuery.limit(5)
+    await UserQuery.paginate(2, 10)
+    expect(query.limitValue).toBe(5)
+    expect(query.offsetValue).toBeUndefined()
+    expect(query.clones[0]?.limitValue).toBe(10)
+    expect(query.clones[0]?.offsetValue).toBe(10)
   })
 })
 
@@ -710,7 +827,9 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
       columns: {
         id: { type: Number, primary: true, generated: true },
         email: { type: String },
+        isActive: { type: Boolean },
         lowerEmail: { type: String, transformer: lower },
+        hostile: { type: String, transformer: toObject },
       },
     })
     const dataSource = new DataSource({
@@ -725,6 +844,38 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     // buildMetadatas is protected; the query builder needs the metadata, not a connection
     await (dataSource as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas()
     return dataSource.getRepository<Row>('User')
+  }
+
+  /** A repository whose `createQueryBuilder()` is the given builder, for the pagination probes. */
+  const repositoryUsing = (repository: Repository<Row>, query: SelectQueryBuilder<Row>): Repository<Row> =>
+    ({ metadata: repository.metadata, createQueryBuilder: () => query } as unknown as Repository<Row>)
+
+  /**
+   * A real `SelectQueryBuilder` whose two terminal reads are answered from memory, so `getManyAndCount()`'s real
+   * `lazyCount()` branch runs without a database. `clone()` keeps the class, and the closure gives every clone the
+   * same read function.
+   */
+  const inMemoryBuilder = (
+    source: SelectQueryBuilder<Row>,
+    read: (builder: SelectQueryBuilder<Row>) => Promise<{ rows: Row[]; total: number }>,
+  ) => {
+    const queryRunner = { isTransactionActive: false } as unknown as QueryRunner
+    class InMemoryQueryBuilder extends SelectQueryBuilder<Row> {
+      constructor(queryBuilder: SelectQueryBuilder<Row>) {
+        super(queryBuilder)
+        this.queryRunner = queryRunner
+      }
+
+      protected override async executeEntitiesAndRawResults(): Promise<{ entities: Row[]; raw: Row[] }> {
+        const { rows } = await read(this)
+        return { entities: rows, raw: rows }
+      }
+
+      protected override async executeCountQuery(): Promise<number> {
+        return (await read(this)).total
+      }
+    }
+    return new InMemoryQueryBuilder(source)
   }
 
   it('sends an accepted value as a parameter', async () => {
@@ -759,7 +910,7 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     expect(parameters).toEqual(['ada@example.com', 'bob@example.com'])
   })
 
-  it('keeps the two-argument form to TypeORM, which applies the transformer once', async () => {
+  it('applies a transformer to the two-argument form once, before TypeORM sees it', async () => {
     const repository = await realRepository()
     const query = new ModelQueryBuilder<Row>(repository)
     query.where('lowerEmail', 'ADA@EXAMPLE.COM')
@@ -767,6 +918,17 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     const [sql, parameters] = builder.getQueryAndParameters()
     expect(sql).toContain('WHERE `User`.`lowerEmail` = ?')
     expect(parameters).toEqual(['ada@example.com'])
+  })
+
+  it('applies each object-form transformer once and keeps both filters', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    query.where({ lowerEmail: 'ADA@EXAMPLE.COM', email: 'ADA@EXAMPLE.COM' })
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).toContain('WHERE `User`.`lowerEmail` = ?')
+    expect(sql).toContain('AND `User`.`email` = ?')
+    expect(parameters).toEqual(['ada@example.com', 'ADA@EXAMPLE.COM'])
   })
 
   it('never lets a refused value reach the builder', async () => {
@@ -777,5 +939,66 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     const [sql, parameters] = builder.getQueryAndParameters()
     expect(sql).not.toContain('WHERE')
     expect(parameters).toEqual([])
+  })
+
+  it('never lets an object-returning transformer reach the builder, in either form', async () => {
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    expect(() => query.where('hostile', 'ada')).toThrow(ModelError)
+    expect(() => query.where({ hostile: 'ada' } as never)).toThrow(ModelError)
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).not.toContain('WHERE')
+    expect(parameters).toEqual([])
+  })
+
+  it('counts an empty non-first page again, where TypeORM lazyCount would return the offset', async () => {
+    const repository = await realRepository()
+    const state = { total: 21, counts: [] as [number | undefined, number | undefined][] }
+    const builder = inMemoryBuilder(repository.createQueryBuilder(), async (query) => {
+      if (query.expressionMap.limit !== undefined) {
+        // The page itself: 10 rows past the end of 21
+        return { rows: [], total: state.total }
+      }
+      // The separate count: the page window is gone
+      state.counts.push([query.expressionMap.offset, query.expressionMap.limit])
+      return { rows: [], total: state.total }
+    })
+    const query = new ModelQueryBuilder<Row>(repositoryUsing(repository, builder))
+    // Read lazily: TypeORM returns offset + rows (20) for this page, not the full 21
+    await expect(query.paginate(4, 10)).resolves.toEqual({
+      data: [],
+      total: 21,
+      perPage: 10,
+      currentPage: 4,
+      lastPage: 3,
+    })
+    expect(state.counts).toEqual([[undefined, undefined]])
+  })
+
+  it('gives two concurrent paginate() calls their own filters, window and total', async () => {
+    const repository = await realRepository()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const builder = inMemoryBuilder(repository.createQueryBuilder(), async (query) => {
+      await gate
+      // A full page makes TypeORM run its count; the count follows the builder's own, snapshotted filters
+      return {
+        rows: Array.from({ length: 10 }, (_, id) => ({ id })),
+        total: 10 * query.expressionMap.wheres.length,
+      }
+    })
+    const query = new ModelQueryBuilder<Row>(repositoryUsing(repository, builder))
+    const first = query.where('isActive', true).paginate(1, 10)
+    const second = query.where('email', 'ada@example.com').paginate(2, 10)
+    release()
+    const [one, two] = await Promise.all([first, second])
+    // The clones were taken before either filter could leak: one filter counts 10, two count 20
+    expect([one.total, two.total]).toEqual([10, 20])
+    expect([one.currentPage, two.currentPage]).toEqual([1, 2])
+    expect(builder.expressionMap.offset).toBeUndefined()
+    expect(builder.expressionMap.limit).toBeUndefined()
   })
 })

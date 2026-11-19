@@ -32,8 +32,16 @@ describe('Model and ModelQueryBuilder types', () => {
       email?: string
       isActive?: boolean
       createdAt?: Date
-      deletedAt?: Date | null
+      // null is not a where() value, in any form (docs/v1/database.md › Model)
+      deletedAt?: Date
     }>()
+  })
+
+  it('gives the public generic types a wide default, so the bare name is usable', () => {
+    expectTypeOf<ColumnKey>().toEqualTypeOf<string>()
+    expectTypeOf<Page>().toEqualTypeOf<Page<any>>()
+    const where: ModelWhere = { anything: 1, another: 'ada' }
+    expectTypeOf(where).toExtend<{ [key: string]: any }>()
   })
 
   it('returns the typed builder from query()', () => {
@@ -89,7 +97,17 @@ describe('Model and ModelQueryBuilder types', () => {
       User.query().orderBy('email', 'sideways')
       // @ts-expect-error "nope" is not a column of User
       User.query().where({ nope: 1 })
+      // @ts-expect-error null is not a where value, even for a nullable column
+      User.query().where('deletedAt', null)
+      // @ts-expect-error the object form excludes null too
+      User.query().where({ deletedAt: null })
+      // @ts-expect-error a comparison value excludes null
+      User.query().where('deletedAt', '=', null)
+      // @ts-expect-error an in list element excludes null
+      User.query().where('deletedAt', 'in', [null])
     })
+    // A Date stays a valid value for the nullable column
+    expectTypeOf(User.query().where('deletedAt', new Date())).toEqualTypeOf<ModelQueryBuilder<User>>()
   })
 
   it('types find, findOrFail, findByRouteKey and getRouteKey', () => {
