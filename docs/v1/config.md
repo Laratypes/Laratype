@@ -18,18 +18,18 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR <leader fills> @ 2dc8b3e |
-| [Environment validation](#environment-validation) | proposed: PR <leader fills> @ 2dc8b3e |
+| [Config files and config()](#config-files-and-config) | proposed: PR <leader fills> @ 2b6fd00 |
+| [Environment validation](#environment-validation) | proposed: PR <leader fills> @ 2b6fd00 |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR <leader fills> @ 2dc8b3e (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR <leader fills> @ 2b6fd00 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/config.ts` @ 2dc8b3e](https://github.com/Laratypes/Laratype/blob/2dc8b3e209acf166ca2c4903a0a46310e89aeb44/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 2dc8b3e](https://github.com/Laratypes/Laratype/blob/2dc8b3e209acf166ca2c4903a0a46310e89aeb44/packages/support/src/config/ConfigLoadServiceProvider.ts)
+[`core/src/config.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/support/src/config/ConfigLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -53,13 +53,12 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
   Without a registration, any string path is accepted and the value is `unknown`.
 - **Paths:** the first segment is the file name: `config('database.default')` reads `default` of `app/config/database.ts`. 0.5's single file reads as `config('config.<key>')`.
 - **Typing:** `defineConfig` keeps literal values (`'mysql'`, `3306`), so driver names are typed. A path stops at arrays, functions and classes, and after 8 levels. An optional key, or a key read through an index signature, adds `| undefined`. A key that contains a dot ends a path.
-- **Lookup:** at each level, the whole rest of the path as a key first, then the segment before the first dot. Own data properties are values, and so is a getter, own or inherited (`URL.host` on an instance): `ConfigPath` types a class instance's members (`config('mail.url.host')` is `string`). A data property above the object is a method (`URL.prototype.toString`), and an unbound method is not config data: `config('app.url.toString')` is `undefined`. The keys `constructor`, `prototype` and `__proto__` never name a value (as a whole path or a segment), nor does an `Object.prototype` member; a path that is not a string throws instead of reading app code. A key missing at run time gives `undefined`.
-- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports `app/config/config.ts` first, fills 0.5's `Config.get()`, then imports the other config files together, in parallel, and fills the store in file order. A failing file fails the boot with the first failure in file order, not the first to settle. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. `app/config/config.ts` stays required.
+- **Lookup:** at each level, the whole rest of the path as a key first, then the segment before the first dot. Own data properties are values, and so is a getter, own or inherited (`URL.host` on an instance): `ConfigPath` types a class instance's members (`config('mail.url.host')` is `string`). A getter is app code: it runs when the path reads it, and an error it throws propagates. A data property above the object (a method such as `URL.prototype.toString`, or a class's prototype constant) is never read, so `config('app.url.toString')` is `undefined` even though the type still lists it as a function leaf, like `config('mail.transport')` (an own function). The keys `constructor`, `prototype` and `__proto__` never name a value (as a whole path or a segment), nor does an `Object.prototype` member; a path that is not a string is a miss (`undefined`), so app code on it never runs. A key missing at run time gives `undefined`.
+- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports `app/config/config.ts` first, fills 0.5's `Config.get()`, then imports the other config files together, in parallel, and fills the store in file order. A failing file fails the boot with the first failure in file order, not the first to settle; every other file settles before the failure is raised, so a file that never settles hangs the boot. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. `app/config/config.ts` stays required.
 - The store is kept on `globalThis` (`__laratype_configs`), like `HTTP_APP`, until the `@laratype` packages are real externals ([#188](https://github.com/Laratypes/Laratype/issues/188)).
 
 ### Diagnostics
 - Runtime, before boot: `[@laratype/core] config('<path>') ran before the configs were loaded (ConfigLoadServiceProvider)`.
-- Runtime, a path that is not a string: `TypeError: [@laratype/core] config(path): path must be a string`, raised before the loaded check; a path object's `toString`/`indexOf` is never run.
 - Runtime, no config file: `app/config/config.ts not found: the app manifest has no config` (unchanged from 0.5).
 - Type-only (`core/__tests__/config.test-d.ts`): an unknown path, a path into an array, a function, a class or through a dotted key fails with TS2345, the parameter type being the union of the registered paths. With the [example](./examples/config/proposed/config.ts)'s registration, `config('cache.default')` gives:
   `error TS2345: Argument of type '"cache.default"' is not assignable to parameter of type '"database" | "database.default" | "database.connections" | "database.connections.mysql" | "database.connections.mysql.host" | "database.connections.mysql.port"'.`
@@ -82,10 +81,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR <leader fills> @ 2dc8b3e (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR <leader fills> @ 2b6fd00 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/env.ts` @ 2dc8b3e](https://github.com/Laratypes/Laratype/blob/2dc8b3e209acf166ca2c4903a0a46310e89aeb44/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 2dc8b3e](https://github.com/Laratypes/Laratype/blob/2dc8b3e209acf166ca2c4903a0a46310e89aeb44/packages/support/src/environ/validateEnv.ts)
+[`core/src/env.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/support/src/environ/validateEnv.ts)
 
 ```ts
 // @laratype/core
@@ -132,7 +131,7 @@ export class EnvValidationError extends Error {
 ### Open questions
 - Resolved: `defineEnv` lives in `app/config/env.ts`, which the manifest loads (Q18, [#152](https://github.com/Laratypes/Laratype/issues/152#issuecomment-6099909669)).
 - Resolved: an invalid env lists every failing variable and fails boot; values are never printed (Q19, [#152](https://github.com/Laratypes/Laratype/issues/152#issuecomment-6099909669)).
-- Open: no allow-list of non-secret ambient variables (`NODE_ENV`, `APP_ENV`) whose schema text would be printed. K4 [#314](https://github.com/Laratypes/Laratype/issues/314): this spec names no such list, and a schema message can quote any value (even another variable's), so every variable keeps the fixed message and secrecy wins by default.
+- Open: no allow-list of non-secret ambient variables (`NODE_ENV`, `APP_ENV`) that would get their schema text printed. K4 [#314](https://github.com/Laratypes/Laratype/issues/314): this spec names no such list, and printing a message for a listed variable still prints schema text, which can quote any value (another variable's, a transformed one), so every variable keeps the fixed message: secrecy wins by default.
 
 ### Acceptance
 [#152 Done when](https://github.com/Laratypes/Laratype/issues/152)
