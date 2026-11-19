@@ -112,7 +112,7 @@ planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), w
 ## Policies and gates
 
 ### Status
-proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 8899d065 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants).
+proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 8899d065 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants-1).
 
 ### Public API
 [`Policy.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.
@@ -128,6 +128,8 @@ export type PolicyAbility<P> = Exclude<Extract<{
 
 /** The parameters of an ability after the user and the subject: update(user, post) gives [], share(user, post, target) gives [target] */
 export type PolicyArgs<P, K extends PolicyAbility<P>> = /* PolicyParams<P, K> extends [subject: any, ...args: infer A] ? A : [] */;
+/** The subject parameter of an ability: update(user, post) gives Post, viewAny(user) gives never */
+export type PolicySubject<P, K extends PolicyAbility<P>> = /* PolicyParams<P, K> extends [subject: infer S, ...params: any[]] ? S : never */;
 
 /** The type half of Gate.policy(Model, Policy); the brand is an optional unique-symbol method, never a string key */
 export interface HasPolicy<P extends object> { [policyBrand]?(): P }
@@ -135,6 +137,7 @@ export type PolicyBrand = /* typeof policyBrand */;
 export type ModelPolicy<M> = /* the policy M declares, a model class read as its instance; never without one */;
 export type SubjectAbility<M> = /* PolicyAbility<ModelPolicy<M>>, or string without a declared policy */;
 export type SubjectArgs<M, K extends SubjectAbility<M>> = /* PolicyArgs<ModelPolicy<M>, K>, or unknown[] without one */;
+export type SubjectParam<M, K extends SubjectAbility<M>> = /* PolicySubject<ModelPolicy<M>, K>, or unknown for an ability with no subject */;
 export type CheckPolicy<M> = /* { error: "the subject has no policy: ..." } without a declared policy */;
 
 export interface GateAbility<Args extends readonly unknown[] = readonly unknown[]> {
@@ -149,7 +152,7 @@ export abstract class Gate {
     policy: [ModelPolicy<M>] extends [never] ? PolicyClass : AbstractNewable<ModelPolicy<M>>,
   ): void;
   static allows<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
-    user: unknown, ability: K, subject: M & CheckPolicy<M>, ...args: A): Promise<boolean>;
+    user: unknown, ability: K, subject: M & CheckPolicy<M> & SubjectParam<M, K>, ...args: A): Promise<boolean>;
   static allows<Args extends readonly unknown[]>(user: unknown, ability: GateAbility<Args>, ...args: Args): Promise<boolean>;
   static denies</* the same two overloads */>(...): Promise<boolean>;
   static authorize</* the same two overloads */>(...): Promise<void>;   // throws ForbiddenException
@@ -171,7 +174,7 @@ export class GateManager {                                       // a singleton 
 
 export class Authenticated<T extends Model> {
   can<M, K extends SubjectAbility<M>, A extends SubjectArgs<M, K> & unknown[]>(
-    ability: K, subject: M & CheckPolicy<M>, ...args: A): Promise<boolean>;
+    ability: K, subject: M & CheckPolicy<M> & SubjectParam<M, K>, ...args: A): Promise<boolean>;
   cannot</* can() */>(...): Promise<boolean>;
 }
 
@@ -192,12 +195,12 @@ class PostPolicy {
 ```
 
 ### Invariants
-- **Abilities are methods.** An ability is a string method name of the policy, minus `before`; a field that is not a method is not an ability, as in the router's policy proof ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)). The policy is looked up from the subject's class, and the subject is the ability's first parameter after the user: `Gate.allows(user, "update", post)` runs `update(user, post)`, and any extra arguments follow it. An ability with no model of its own (`viewAny(user)`) is checked with the model class as the subject, which it ignores — `create(user)` works the same.
+- **Abilities are methods.** An ability is a string method name of the policy, minus `before`; a field that is not a method is not an ability, as in the router's policy proof ([http.md › Route proof at r.contract()](./http.md#route-proof-at-rcontract)). The policy is looked up from the subject's class, and the subject is the ability's first parameter after the user: `Gate.allows(user, "update", post)` runs `update(user, post)`, and any extra arguments follow it. An ability that declares a subject parameter types its subject (`SubjectParam`): `update(user, post: Post)` takes a `Post` instance, not the `Post` class, and the same constraint applies to `Authenticated.can()` and `cannot()`. An ability with no model of its own (`viewAny(user)`) is checked with the model class as the subject, which it ignores — `create(user)` works the same.
 - **The policy declares its abilities, not `Object.prototype`.** Only a function the policy instance or a class below `Object.prototype` declares is an ability; `Object.prototype`'s own names (`hasOwnProperty`, `propertyIsEnumerable`, `toString`, `valueOf`, `isPrototypeOf`, `toLocaleString`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, `__proto__`), `constructor` and `before` never run. Otherwise `hasOwnProperty(user)` would ask whether the policy has a field named `String(user)` and answer `true` for an injected `repo` ([#394](https://github.com/Laratypes/Laratype/issues/394)). An accessor is never an ability: the lookup reads the property descriptor, so a getter does not run and its value is not used — a getter returning `() => true` is no ability, so `Gate.allows()` and `Gate.authorize()` deny it (`policyCheck()` answers `null`, as when the method is missing), and a getter that throws does not reach a 500. Every method of a policy class is an ability at runtime, `protected` and `private` included (neither exists at runtime), so keep a helper `#private` (a real private field) or outside the class.
 - **Only `true` allows.** An ability allows when it resolves exactly `true`; `null`, `undefined`, a truthy string or object deny. `before(user, ability, ...args)` short-circuits only on a boolean: `true` allows, `false` denies, anything else falls through to the ability. 0.5 policies declare `before(actor, ability)`, which keeps working: the extra arguments are ignored.
 - **Async is awaited.** `before` and the ability may return a value or a promise; `Gate.allows()`, `Gate.denies()` and `Gate.authorize()` always return a promise.
 - **Registration.** `Gate.policy(Model, Policy)` in a service provider's `register()` or `boot()` links a model class to its policy. A model has one policy: registering the same class again is a no-op, another class throws. The model class is also a valid subject, for an ability with no model yet, such as `Gate.allows(user, "create", Post)`. Registration is a boot-time act: `Gate.policy()` is refused inside a request — any request store, container or not — with `InternalException`, because the registry is the app's singleton and a policy added there would outlive the request and reach every later one ([#394](https://github.com/Laratypes/Laratype/issues/394)); register policies in a service provider, and do not work around it. `Gate.define()` registers nothing — it returns a value — so it is usable anywhere, a request included.
-- **Exact class only.** The policy is looked up by the subject's own class (`subject.constructor` for an instance, the class itself for a class), with no parent walk: a subclass needs its own `Gate.policy()`.
+- **Exact class only.** The policy is looked up by the subject's own class (`Object.getPrototypeOf(subject).constructor` for an instance, never an own `constructor` field the subject object could spoof; the class itself for a class), with no parent walk: a subclass needs its own `Gate.policy()`. The same resolved class names the missing-policy diagnostic.
 - **Where the registry and the policy live.** `GateManager.current()` is a singleton in the current request's container, else the facade application, and is bound on its first use, as `RouteRegistry` and `ModelBindingRegistry` are ([di.md › Container-backed registries and facades](./di.md#container-backed-registries-and-facades)). A new container starts with none. The policy instance is built by `GateManager.container().make(policy)`, so constructor injection works and reaches request-scoped dependencies ([http.md › Controller resolution](./http.md#controller-resolution), H21 #269).
 - **Guests deny, without the policy.** A `null` or `undefined` user answers `false` from `allows()`, `true` from `denies()` and the 403 from `authorize()`, and neither a policy nor a gate runs. On a route the auth guard answers the 401 first ([Authentication from the contract](#authentication-from-the-contract)).
 - **A missing policy is an internal error.** `allows()`, `denies()` and `authorize()` reject with `InternalException` (500) when the subject's class has no policy: a bug must not read as a denial, and a caller's `.catch()` / `.then()` sees it. `GateManager.allows()` is `async` for that reason (and `Authenticated.can()` returns its promise), so the error never escapes synchronously. A policy without the ability method (and without a `before` that decided) denies.
@@ -222,8 +225,9 @@ The 403's body: `{ "code": "FORBIDDEN", "message": "This action is unauthorized.
 
 Type-level, from `Gate.allows()` and `Authenticated.can()`:
 - Unknown ability: `Argument of type '"nope"' is not assignable to parameter of type '"viewAny" | "update" | "delete"'`.
-- Wrong argument: `Argument of type '[1]' is not assignable to parameter of type '[post: Post] & unknown[]'` (the rest parameter is the ability's own arguments).
-- A subject with no declared policy: the `CheckPolicy` intersection fails, `Property 'error' is missing in type 'Comment' but required in type '{ error: "the subject has no policy: add `export default interface <Model> extends HasPolicy<<Policy>> {}` beside its class and register the policy with Gate.policy(<Model>, <Policy>)"; }'`.
+- Wrong argument, `Gate.allows(user, "share", post, 1)` against `share(user: User, post: Post, target: User)`: `Argument of type '[number]' is not assignable to parameter of type '[target User] & unknown[]'` (the rest parameter is the ability's own arguments).
+- A subject that is not the ability's subject, `Gate.allows(user, "update", Post)` against `update(user: User, post: Post)`: `Argument of type 'typeof Post' is not assignable to parameter of type 'typeof Post & Post'`.
+- A subject with no declared policy: the `CheckPolicy` intersection fails, ``Property 'error' is missing in type 'Comment' but required in type '{ error: "the subject has no policy: add `export default interface <Model> extends HasPolicy<<Policy>> {}` beside its class and register the policy with Gate.policy(<Model>, <Policy>)"; }'``.
 - `Gate.policy(Post, OtherPolicy)` on a declared `HasPolicy<PostPolicy>`: `Argument of type 'typeof OtherPolicy' is not assignable to parameter of type 'AbstractNewable<PostPolicy>'`.
 - A gate's wrong argument or arity: `Argument of type 'Post' is not assignable to parameter of type 'User'`, and `Expected 1 arguments, but got 0` for a gate whose `fn` takes one.
 
@@ -238,7 +242,7 @@ Type-level, from `Gate.allows()` and `Authenticated.can()`:
 - No per-guard user type in a policy: the ability declares its own `user` parameter.
 
 ### Open questions
-- [#105](https://github.com/Laratypes/Laratype/issues/105): the scope-policy order and the `before` fall-through it uses (see Invariants › Route integration).
+- [#105](https://github.com/Laratypes/Laratype/issues/105)
 
 ### Acceptance
 [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
