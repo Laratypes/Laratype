@@ -70,7 +70,7 @@ const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispo
 const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.for('Symbol.dispose')
 
 /** A name on one line: control characters, line separators, bidi controls and backslashes are escaped. */
-const oneLine = (name: string): string =>
+const escapeName = (name: string): string =>
   name.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
     char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
 
@@ -78,14 +78,14 @@ const oneLine = (name: string): string =>
 const keyName = (key: unknown): string => {
   if (typeof key !== 'function') {
     try {
-      return oneLine(String(key))
+      return escapeName(String(key))
     } catch {
       return '<unprintable key>'
     }
   }
   try {
     const name = key.name
-    return name ? oneLine(typeof name === 'string' ? name : String(name)) : '<anonymous class>'
+    return name ? escapeName(typeof name === 'string' ? name : String(name)) : '<anonymous class>'
   } catch {
     return '<anonymous class>'
   }
@@ -208,12 +208,12 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
 }
 
 /** Per-class cache, `null` for a source that cannot be read: HMR makes a new class object, so it re-reads there. */
-const leadingParamCounts = new WeakMap<Function, number | null>()
+const LEADING_PARAM_COUNTS = new WeakMap<Function, number | null>()
 
 const leadingConstructorParamCount = (cls: Function): number | undefined => {
-  if (leadingParamCounts.has(cls)) return leadingParamCounts.get(cls) ?? undefined
+  if (LEADING_PARAM_COUNTS.has(cls)) return LEADING_PARAM_COUNTS.get(cls) ?? undefined
   const count = readLeadingConstructorParamCount(cls) ?? null
-  leadingParamCounts.set(cls, count)
+  LEADING_PARAM_COUNTS.set(cls, count)
   return count ?? undefined
 }
 
@@ -224,13 +224,14 @@ const isProduction = (): boolean => {
 }
 
 /**
- * `Cannot autowire` hints. Production `sauf build` runs no laratype:di transform yet (B2 #126, B4 #128), so only a
- * factory binding can add the class. In dev both fixes exist, and the factory comes first because the plugin only
- * reaches app code under the Vite root: a class outside the app (a third-party class) can only be bound.
+ * `Cannot autowire` hints (di.md › Resolution errors with fix hints). Production `sauf build` runs no laratype:di
+ * transform yet (B2 #126, B4 #128), so only a factory binding can add the class. In dev both fixes exist, and the
+ * factory comes first because the plugin only reaches app code under the Vite root: a class outside the app (a
+ * third-party class) can only be bound.
  */
-const noMetadataDevHint = ' Fix: bind it with a factory in a service provider `register()` of the app container'
+const NO_METADATA_DEV_HINT = ' Fix: bind it with a factory in a service provider `register()` of the app container'
   + ' (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under `sauf dev`.'
-const noMetadataProductionHint = ' Fix: bind it with a factory in a service provider `register()` of the app container;'
+const NO_METADATA_PRODUCTION_HINT = ' Fix: bind it with a factory in a service provider `register()` of the app container;'
   + ' a production `sauf build` does not run the laratype:di plugin yet, so it cannot add the metadata.'
 
 /** `DiError` messages with fix hints (D5a). The first sentence of each is the D1 base message. */
@@ -253,7 +254,7 @@ const errors = {
   noMetadata: (cls: Function, requiredBy?: string, paramCount = cls.length): string =>
     `Cannot autowire ${keyName(cls)}: its constructor takes ${paramCount} param(s) but no dependency metadata was found.`
     + (requiredBy ? ` Required by ${requiredBy}.` : '')
-    + (isProduction() ? noMetadataProductionHint : noMetadataDevHint),
+    + (isProduction() ? NO_METADATA_PRODUCTION_HINT : NO_METADATA_DEV_HINT),
   conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
     `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
     + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
@@ -429,6 +430,7 @@ export class Container {
     if (typeof target !== 'function') {
       throw new DiError(`Cannot bind ${keyName(token)} to itself: only a class can be self-bound.`)
     }
+    // A factory keeps its one-argument signature; only a class target needs the requester for a no-metadata error.
     const create = isFactory(target as Concrete<unknown>)
       ? (container: Container) => (target as Factory<unknown>)(container)
       : (container: Container, requiredBy?: string) => container.build(target as Newable, requiredBy)
@@ -558,17 +560,14 @@ export class Container {
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
   protected build(cls: Newable, requiredBy?: string): unknown {
     const entry = this.deps.get(cls)
-    if (!entry) {
-      // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
-      const params = cls.length > 0 ? cls.length : leadingConstructorParamCount(cls) ?? 0
-      if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
-      return new cls()
-    }
     // An inherited entry with no slots does not cover a constructor whose defaults hide its params; an own entry
     // was written by the transform from the same source, so it is authoritative.
-    if (entry.slots.length === 0 && cls.length === 0 && !hasOwnDeps(cls)) {
-      const params = leadingConstructorParamCount(cls) ?? 0
+    const hiddenParams = entry !== undefined && entry.slots.length === 0 && cls.length === 0 && !hasOwnDeps(cls)
+    if (!entry || hiddenParams) {
+      // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
+      const params = leadingConstructorParamCount(cls) ?? cls.length
       if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
+      if (!entry) return new cls()
     }
     const injected = injectTokens(cls)
     const args: unknown[] = []

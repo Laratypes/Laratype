@@ -160,13 +160,13 @@ describe('an untransformed subclass fails closed from dist/', () => {
     `],
   ])('%s: refuses to autowire a subclass of @laratype/http Controller with no metadata', (_, args, load) => {
     const result = JSON.parse(runNode(args, refuseUnregisteredSubclass(load)));
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       threw: true,
       name: 'DiError',
+      message: 'Cannot autowire UserController: its constructor takes 1 param(s) but no dependency metadata was found.',
       baseOwnDeps: true,
       baseSlots: 0,
     });
-    expect(result.message).toContain('Cannot autowire UserController: its constructor takes 1 param(s) but no dependency metadata was found.');
   }, 30_000);
 });
 

@@ -1,8 +1,18 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Container, DiError, Inject, __laratype_deps, depsRegistry, token } from '@laratype/core'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Container, DiError, Inject, Injectable, __laratype_deps, depsRegistry, token } from '@laratype/core'
 import type { DepsEntry } from '@laratype/core'
 
 /** Resolution error messages with fix hints (D5a #100). */
+
+// The dev hint is the default in this file; the production tests opt in with __PROD__.
+beforeEach(() => {
+  vi.stubGlobal('__PROD__', false)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 
 const MAILER = token<{ send(to: string): void }>('mailer')
 
@@ -84,12 +94,44 @@ describe('no dependency metadata', () => {
   })
 })
 
-describe('no dependency metadata: hint wording', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.unstubAllEnvs()
+describe('no dependency metadata: more requesters', () => {
+  it('for a class an @Inject record needs', () => {
+    class NoMeta {
+      constructor(readonly mailer: unknown) {}
+    }
+    class App {
+      constructor(@Inject(NoMeta) readonly noMeta: unknown) {}
+    }
+    __laratype_deps(App, [{ unresolved: 'NoMeta', index: 0 }], { params: ['noMeta'] })
+    expect(messageOf(() => new Container({ deps: depsRegistry }).make(App))).toMatchInlineSnapshot(`"Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. Required by App constructor param #0 \`noMeta\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
+  it('for a singleton a constructor param needs', () => {
+    @Injectable({ scope: 'singleton' })
+    class NoMeta {
+      constructor(readonly mailer: unknown) {}
+    }
+    class App {
+      constructor(readonly noMeta: NoMeta) {}
+    }
+    __laratype_deps(App, [() => NoMeta], { params: ['noMeta'] })
+    expect(messageOf(() => new Container({ deps: depsRegistry }).make(App))).toMatchInlineSnapshot(`"Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. Required by App constructor param #0 \`noMeta\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('for a request-scoped class a constructor param needs', () => {
+    @Injectable({ scope: 'request' })
+    class NoMeta {
+      constructor(readonly mailer: unknown) {}
+    }
+    class App {
+      constructor(readonly noMeta: NoMeta) {}
+    }
+    __laratype_deps(App, [() => NoMeta], { params: ['noMeta'] })
+    expect(messageOf(() => new Container({ deps: depsRegistry }).createRequestScope().make(App))).toMatchInlineSnapshot(`"Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. Required by App constructor param #0 \`noMeta\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+})
+
+describe('no dependency metadata: hint wording', () => {
   it('in production names the factory, not the plugin', () => {
     vi.stubGlobal('__PROD__', true)
     expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata."`)
@@ -111,6 +153,7 @@ describe('no dependency metadata: hint wording', () => {
       constructor(readonly url: string) {}
     }
     const message = messageOf(() => new Container().make(Redis))
+    // Core cannot tell where a class comes from, so dev has one wording for both; it must read factory-first.
     expect(message).toContain('the only fix for a class outside the app, such as a third-party class')
     expect(message.indexOf('bind it with a factory')).toBeLessThan(message.indexOf('laratype:di'))
     expect(message).toMatchInlineSnapshot(`"Cannot autowire Redis: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
@@ -158,11 +201,13 @@ describe('no dependency metadata: hostile class names', () => {
 
   it('keeps a lone surrogate in the name without throwing', () => {
     const name = 'Sur\uD800rogate'
+    // A lone surrogate is not a control character; it stays in the name and must not throw.
     expect(messageOf(() => new Container().make(namedClass(name)))).toContain(`Cannot autowire ${name}:`)
   })
 
   it('reads a proxied class name', () => {
     const Proxied = new Proxy(namedClass('Redis'), {})
+    // A proxy with no traps forwards `name`; the wrapped class is Redis.
     expect(messageOf(() => new Container().make(Proxied))).toMatchInlineSnapshot(`"Cannot autowire Redis: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
@@ -192,6 +237,7 @@ describe('no dependency metadata: hostile class names', () => {
       deps.set(cls, { slots: [() => Dep], meta: { params: ['dep'] } })
       next = cls
     }
+    // Level0 is the class that directly requires Leaf; the 999 levels above it only deepen the stack.
     expect(messageOf(() => new Container({ deps }).make(next))).toMatchInlineSnapshot(`"Cannot autowire Leaf: its constructor takes 1 param(s) but no dependency metadata was found. Required by Level0 constructor param #0 \`dep\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 })
@@ -213,6 +259,14 @@ describe('zero-length constructors', () => {
       }
     }
     expect(messageOf(() => new Container().make(Defaults))).toMatchInlineSnapshot(`"Cannot autowire Defaults: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('reads the full param count when only a later param has a default', () => {
+    class PartlyDefaulted {
+      constructor(readonly clock: Clock, readonly retries = 3) {}
+    }
+    // cls.length is 1 here, so the count has to come from the source too.
+    expect(messageOf(() => new Container().make(PartlyDefaulted))).toMatchInlineSnapshot(`"Cannot autowire PartlyDefaulted: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
   it('builds a rest-only constructor with no args', () => {
@@ -262,6 +316,20 @@ describe('zero-length constructors', () => {
       }
     }
     expect(messageOf(() => new Container({ deps: depsRegistry }).make(Sub))).toMatchInlineSnapshot(`"Cannot autowire Sub: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('still applies an inherited entry with slots to an all-default constructor (known limit)', () => {
+    class Base {
+      constructor(readonly clock: Clock) {}
+    }
+    __laratype_deps(Base, [() => Clock], { params: ['clock'] })
+    class Sub extends Base {
+      constructor(readonly clock: Clock = new Clock()) {
+        super(clock)
+      }
+    }
+    // Sub.length is 0, so the registry applies Base's one-slot entry and passes the clock positionally.
+    expect(new Container({ deps: depsRegistry }).make(Sub).clock).toBeInstanceOf(Clock)
   })
 })
 
