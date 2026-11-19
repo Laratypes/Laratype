@@ -931,6 +931,20 @@ describe('ModelQueryBuilder over the real TypeORM builder', () => {
     expect(parameters).toEqual(['ada@example.com', 'ADA@EXAMPLE.COM'])
   })
 
+  it('refuses an array as the where object before TypeORM can build an unfiltered query', async () => {
+    // The probe: an empty object form adds no WHERE, and mysql2.format() would send the unfiltered statement
+    expect(format('SELECT * FROM `user`')).not.toContain('WHERE')
+    const repository = await realRepository()
+    const query = new ModelQueryBuilder<Row>(repository)
+    expect(() => query.where([] as never)).toThrow(
+      '[@laratype/database] where() takes a column name or a where object, got array',
+    )
+    const builder = (query as unknown as { query: SelectQueryBuilder<Row> }).query
+    const [sql, parameters] = builder.getQueryAndParameters()
+    expect(sql).not.toContain('WHERE')
+    expect(format(sql, parameters)).not.toContain('WHERE')
+  })
+
   it('never lets a refused value reach the builder', async () => {
     const repository = await realRepository()
     const query = new ModelQueryBuilder<Row>(repository)
