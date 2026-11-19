@@ -13,7 +13,7 @@ last-verified: 2026-10-13
 | Section | Status |
 |---|---|
 | [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ e105b879 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [OpenAPI](#openapi) | planned → #143 |
 | [Detective](#detective) | planned → #144 |
 
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ e105b879 ([#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -73,7 +73,7 @@ The app's tsconfig needs:
 ### Invariants
 - **Scan:** the tree is read from file and folder names only, never from file contents ([contract.md › Contract folder tree](./contract.md#contract-folder-tree) has the rules).
 - **Options:** the root and base come from config `api.root` / `api.base` (`app/config/config.ts`), and `--root` / `--base` override them; the defaults are `app/api` → `/api` (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The command does not load the app (`static bootsApp = false`: no `register()`, so no `$api` import or dev scan) and boots no provider, so it needs no database or auth env. It loads the project `.env`, then imports `app/config/config.ts` in isolation (jiti, no module cache). With both `--root` and `--base` given it does not import the config at all. When the file itself can't be imported on its own (a Vite or tsconfig path alias, a module that needs Vite transforms, a `$api` import), the command warns and goes on with the flags and the defaults, as it did before the config key; an `api` key that loads but is invalid still fails. The dev scan behind `$api` fails on both. `--out` is a flag only (default `.laratype`).
-- **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. The root may be the project itself (`--root .` or `api.root: '.'`); the output folder is then inside the root, and the scan and the dev watcher skip it. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted.
+- **Generated folder:** `.laratype/` is generated and belongs in `.gitignore`. `--out` must be a folder inside the project that doesn't contain the tree root. The root may be the project itself (`--root .` or `api.root: '.'`); the output folder is then inside the root, and the scan and the dev watcher skip it. Each run rewrites its own files, deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty. Other files under `--out` are never deleted. Before any write or stale-file delete, each run resolves the output folder's realpath and the nearest existing parent of every target; a junction or symlink under `--out` that leaves the project is refused with one diagnostic and nothing outside it is written or deleted.
 - **`index.gen.ts`:** one entry per contract, sorted by tree name. Its imports are relative and extension-less.
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
 - **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. It tells endpoints from nodes by type, as `ApiTypes` does (`AnyEndpoint`), not by a `method` field, so an endpoint key such as `method` stays an endpoint; an `AppApi` without the `API_ROOT` brand fails ([#258](https://github.com/Laratypes/Laratype/issues/258)). No contract module is executed. A type error in the tree fails the command.
@@ -83,18 +83,19 @@ The app's tsconfig needs:
 - **`typescript` is an optional peer dependency** of `sauf` (`>=5`). It is loaded with a dynamic `import()` in `types:generate` only, so `sauf dev` and the app never load it.
 
 ### Diagnostics
-Errors are printed by the command, which exits with code 1, prefixed `[sauf types:generate] `. The scan and config errors (`ScanError`) carry no prefix of their own, so the dev scan behind `$api` prints the same messages prefixed `[laratype:api] `:
+Errors are printed by the command, which exits with code 1, prefixed `[sauf types:generate] `. The scan and config errors (`ScanError`) carry no prefix of their own, so the dev scan behind `$api` prints the same messages prefixed `[laratype:api] `. Names in these messages (file, folder, stem, route and base) are `JSON.stringify`-quoted, so a control character or ANSI escape prints as `\uXXXX`, never raw:
 - `the contract tree root "<root>" does not exist (set it with --root or config api.root)`
 - `the output folder "<dir>" (--out, or the dev plugin's outDir) must be a folder inside the project, not the project itself or outside it`
 - `the output folder "<dir>" must not contain the contract tree root "<root>" (--root or config api.root)`
+- `the output path "<path>" resolves outside the project ("<real>"): a junction or symlink under the output folder must stay inside it` (the `("<real>")` part is absent for a broken link; the write or stale-file delete is refused and nothing outside the project is touched)
 - `the contract tree root "<root>" (--root | config api.root) must be a folder inside the project` (one rule for the flag and the config: the root must be a relative path, so absolute paths, drive letters included, are rejected even when they point inside the project, and so is `..` leading outside; `.`, the project itself, is accepted)
 - `base "<base>"` / `config api.base` ` must be "" or a path that starts with "/" and does not end with "/", such as "/api"` (one rule for the scan and the config)
-- `<file> and <file> are the same contract (<path>): keep one` (`users.ts` and `users/index.ts`)
-- `<file> and <file> have the same name "<name>" ([x] folders are dropped from names)`
-- `<file>: a contract needs a name; put it in a named folder (the root index.ts has none)`
-- `<dir>: "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
-- `<dir>: folder name "<name>" may only use letters, digits, "_" and "-"`
-- `<file>: file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
+- `"<file>" and "<file>" are the same contract ("<path>"): keep one` (`users.ts` and `users/index.ts`)
+- `"<file>" and "<file>" have the same name "<name>" ([x] folders are dropped from names)`
+- `"<file>": a contract needs a name; put it in a named folder (the root index.ts has none)`
+- `"<dir>": "<folder>" is not a valid param folder: use [name]; optional and rest param folders are not supported`
+- `"<dir>": folder name "<name>" may only use letters, digits, "_" and "-"`
+- `"<file>": file name "<stem>" may only use letters, digits, "_" and "-" (use a [x] folder for params)`
 - `config api must be { root?, base? }`, `config api.root must be a folder, relative to the project`, `config api.base must be "" or a path that starts with "/" and does not end with "/", such as "/api"`, `could not load app/config/config.ts (see the error above)`, `app/config/config.ts could not be imported on its own (no Vite or tsconfig path aliases there): <error>` (the config, or a module it imports, failed to import, for example through a path alias). For these import failures (and `must not import $api`), `sauf types:generate` prints a warning instead, `[sauf types:generate] <message>; using --root / --base and the defaults (app/api, /api) instead of config api`, and goes on
 - `the contract types need strictNullChecks: set "strict": true in <tsconfig>`
 - `the contract tree does not type-check:` followed by the tsc diagnostics
@@ -122,10 +123,10 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 4387e215 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha).
+proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ e105b879 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha).
 
 ### Public API
-[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/4387e215c464b1c218916d956d9c639a082b06ba/packages/sauf/src/commands/dev.ts)
+[`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/e105b87930c9d6e60822b2e87fa30259bc625fec/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/e105b87930c9d6e60822b2e87fa30259bc625fec/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/e105b87930c9d6e60822b2e87fa30259bc625fec/packages/sauf/src/commands/dev.ts)
 
 ```ts
 // ApiPluginApi (laratype:api), used by sauf dev
@@ -160,13 +161,14 @@ export class ContractTypeWatchHost {                       // one live watch for
 - **A content edit needs no regeneration: the generated files import the contract file.** The scan reads names only; `index.gen.ts` imports every contract and `$types.d.ts` imports its scope files. An FE program that imports `$api` (or a contract file) therefore sees an edited body or response schema immediately, with no scan and no write. The content-edit test type-checks the same FE program before and after editing `app/api/users.ts`, asserts the type changes, and asserts zero scans and unchanged generated files.
 - **Coalescing.** A 30 ms debounce after the last relevant event, then one `refresh()`. `laratype:api` serializes scans (`coalesce`): a call during a scan queues exactly one follow-up, and two generations never overlap. A burst of 1,000 events runs one generation. `idle()` resolves when the debounce and the scan are done, so tests await it instead of sleeping.
 - **H1 gate.** Like `restart()`, `refresh()` rescans only after the app has imported `$api`: an app that never imports it is never scanned, so a 0.5 app with helpers in `app/api` still boots. The first `$api` import is the first scan.
-- **Incremental output.** Each generation rescans the whole tree by names (no TS checker, no `api.ts`) and writes only the files whose content changed: `$types.d.ts` per folder and `api/index.gen.ts`. `removeStaleTypes()` deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty; no other file under `.laratype/` is deleted, and nothing outside it is ever touched. A changed `api.root` / `api.base` moves the output on the next event.
+- **Incremental output.** Each generation rescans the whole tree by names (no TS checker, no `api.ts`) and writes only the files whose content changed: `$types.d.ts` per folder and `api/index.gen.ts`. `removeStaleTypes()` deletes the `$types.d.ts` of a deleted folder and prunes the folders left empty; no other file under `.laratype/` is deleted, and nothing outside it is ever touched. The same realpath guard as `sauf types:generate` refuses a junction or symlink under `.laratype/` that leaves the project: one diagnostic, and nothing is written outside. A changed `api.root` / `api.base` moves the output on the next event.
 - **Lifecycle.** `ContractTypeWatchHost` keeps one live watch: `open()` disposes the previous one on the first boot and on every `--hmr` restart, and the `laratype:dev-server` plugin's `closeBundle()` closes it when the Vite server closes, so listeners and timers never stack. A scan already in flight finishes (the plugin serializes it).
 - **Deleted root.** Deleting the whole contract root keeps the last good output and the dev server keeps running; recreating the tree regenerates on the next event. Importing `$api` while the root is gone still fails with the existing `[laratype:api] ... does not exist` error.
 - **Server.** The watch writes the type files only; it does not rebuild the running app. Routes are mounted at boot from `appApi`, so a new or removed route still needs a `--hmr` restart (Non-goals).
 
 ### Diagnostics
-- A refresh that ends in a failed scan is reported once, prefixed `[laratype:api]`, through `Console.error`. The scan and emit run before any write, so the last good output stays and the dev server keeps running; the next relevant event retries. The messages are the ones in [sauf types:generate › Diagnostics](#diagnostics), for example `[laratype:api] file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)`.
+- A refresh that ends in a failed scan is reported once, prefixed `[laratype:api]`, through `Console.error`. The scan and emit run before any write, so the last good output stays and the dev server keeps running; the next relevant event retries. The messages are the ones in [sauf types:generate › Diagnostics](#diagnostics), for example `[laratype:api] "bad.name.ts": file name "bad.name" may only use letters, digits, "_" and "-" (use a [x] folder for params)`.
+- A junction or symlink under `.laratype/` that leaves the project is the same one-shot error, before any write: `[laratype:api] the output path ".laratype/types/app/api/users/[user]/$types.d.ts" resolves outside the project ("<real>"): a junction or symlink under the output folder must stay inside it`.
 - A syntax or type error in a contract is not a dev-scan error (the scan never reads contents): it surfaces in the FE's TypeScript tooling and, with `--hmr`, in the app restart.
 - A `TypeError` from the watcher's options names the option: `the type watch needs an options object`, `the type watch events must provide on() and off()`, `the type watch tree needs affectsTree(), isGenerated() and refresh()`, `the type watch onError must be a function`, `the type watch delay must be a finite number of milliseconds, 0 or more, got <value>`.
 
@@ -179,6 +181,7 @@ export class ContractTypeWatchHost {                       // one live watch for
 - a content edit: the FE program's type changes, with zero scans;
 - a 1,000-event burst: one scan; events during a scan: one follow-up, no overlap;
 - a symlink/junction out of the tree, a path outside the tree, unicode/control/long names, a whole-tree delete, `dispose()`, and a real Vite `server.watcher` add/change/unlink plus server close;
+- a junction/symlink under `.laratype` that leaves the project (a folder inside the output and the output folder itself): one diagnostic, the last output intact, and nothing written outside;
 - the dev wiring, as a proposed example: [`docs/v1/examples/typegen/proposed/watch.ts`](./examples/typegen/proposed/watch.ts).
 
 ### Non-goals
