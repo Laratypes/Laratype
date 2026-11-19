@@ -913,21 +913,60 @@ describe('createClient(manifest), the separate-repo FE', () => {
     const { fetch, calls } = fakeFetch()
     const api = createClient<AppApi>(manifest, { fetch, baseUrl: 'https://api.example.com' })
     expect(Object.keys(api)).toEqual(['users', 'v1'])
-    expect(Object.keys(api.users)).toEqual(['index', 'posts', 'show', 'store'])
+    expect(Object.keys(api.users)).toEqual(['destroy', 'index', 'posts', 'show', 'store'])
     expect(Object.isFrozen(api.users.posts)).toBe(true)
 
     await api.users.posts.update({ params: { user: 'a/b', post: 2 }, body: { title: 'T' } })
     await api.users.index({ query: { page: 3 } })
     await api.v1.health.check()
+    await api.users.destroy({ params: { user: 1 } })
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ['PATCH', 'https://api.example.com/api/users/a%2Fb/posts/2', '{"title":"T"}'],
       ['GET', 'https://api.example.com/api/users?page=3', undefined],
       ['GET', 'https://api.example.com/api/v1/health', undefined],
+      ['DELETE', 'https://api.example.com/api/users/1', undefined],
     ])
     expect(calls[0]!.headers['content-type']).toBe('application/json')
   })
 
-  it('classifies errors with the manifest codes (codes only, any status)', async () => {
+  it('applies the success status and the body flag of a generated manifest', async () => {
+    const store = { body: { name: 'A', email: 'a' } }
+    const user = {
+      id: 1,
+      name: 'A',
+      role: 'admin' as const,
+      address: { street: 's' },
+      tags: [],
+      pair: [1, 'a'] as [number, string],
+      meta: {},
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    expect(await createClient<AppApi>(manifest, { fetch: json(user, 201) }).users.store(store)).toMatchObject({ ok: true, status: 201, data: user })
+    // 200 is not the declared 201
+    expect(await createClient<AppApi>(manifest, { fetch: json({ id: 1 }, 200) }).users.store(store)).toMatchObject({
+      ok: false,
+      unexpected: true,
+      status: 200,
+      error: { id: 1 },
+    })
+    // an empty body where the manifest declares a response
+    const empty = await createClient<AppApi>(manifest, { fetch: respond('', 200) }).v1.health.check()
+    expect(empty).toMatchObject({ ok: false, unexpected: true, status: 200 })
+    expect((empty as { error: unknown }).error).toBeInstanceOf(TypeError)
+    // response: false: a 202 answers undefined without a schema, and any other 2xx is unexpected
+    expect(await createClient<AppApi>(manifest, { fetch: json({ ignored: true }, 202) }).users.destroy({ params: { user: 1 } })).toMatchObject({
+      ok: true,
+      status: 202,
+      data: undefined,
+    })
+    expect(await createClient<AppApi>(manifest, { fetch: json({}, 200) }).users.destroy({ params: { user: 1 } })).toMatchObject({
+      ok: false,
+      unexpected: true,
+      status: 200,
+    })
+  })
+
+  it('classifies errors by code and by status, as the contract client does', async () => {
     const api = (body: unknown, status: number) => createClient<AppApi>(manifest, { fetch: json(body, status) })
     const store = { body: { name: 'A', email: 'a' } }
     expect(await api({ code: 'EMAIL_TAKEN', message: 'x', email: 'a' }, 409).users.store(store)).toMatchObject({
@@ -935,75 +974,198 @@ describe('createClient(manifest), the separate-repo FE', () => {
       code: 'EMAIL_TAKEN',
       error: { message: 'x', email: 'a' },
     })
+    // the code is declared at 409 only
+    expect(await api({ code: 'EMAIL_TAKEN', message: 'x', email: 'a' }, 400).users.store(store)).toMatchObject({ ok: false, unexpected: true, status: 400 })
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
   })
 
-  it('a 3xx is unexpected even when its body carries a declared code (the manifest knows codes only)', async () => {
+  it('a code declared at two statuses matches both, and only those', async () => {
+    const two = {
+      'a.b': {
+        method: 'get',
+        path: '/x',
+        status: 200,
+        response: true,
+        errors: [
+          { status: 404, code: 'MISSING' },
+          { status: 410, code: 'MISSING' },
+          { status: 409, code: 'TAKEN' },
+          // a string entry keeps the pre-CL8 any-4xx/5xx rule for its code, next to object entries
+          'TAKEN',
+        ],
+      },
+    }
+    type Calls = { a: { b: () => Promise<{ ok: boolean; code?: string; unexpected?: boolean; status: number }> } }
+    const api = (status: number) => createClient(two, { fetch: json({ code: 'MISSING' }, status) }) as never as Calls;
+    expect(await api(404).a.b()).toMatchObject({ ok: false, code: 'MISSING', status: 404 })
+    expect(await api(410).a.b()).toMatchObject({ ok: false, code: 'MISSING', status: 410 })
+    expect(await api(400).a.b()).toMatchObject({ ok: false, unexpected: true })
+    // TAKEN is any 4xx/5xx because of its string entry
+    const taken = (status: number) => createClient(two, { fetch: json({ code: 'TAKEN' }, status) }) as never as Calls
+    expect(await taken(418).a.b()).toMatchObject({ ok: false, code: 'TAKEN', status: 418 })
+  })
+
+  it('a 3xx is unexpected even when its body carries a declared code', async () => {
     const result = await createClient<AppApi>(manifest, { fetch: json({ code: 'EMAIL_TAKEN', message: 'x' }, 302) }).users.store({
       body: { name: 'A', email: 'a' },
     })
     expect(result).toMatchObject({ ok: false, unexpected: true, status: 302, error: { code: 'EMAIL_TAKEN', message: 'x' } })
   })
 
-  it('always puts a "/" before a route path: a ".evil.com" param cannot extend the host', async () => {
-    // a contract path must start with "/", but a manifest or a forged endpoint can still hold one that doesn't
-    const forged = { 't.tenant': { method: 'get', path: ':tenant/x' }, 't.root': { method: 'get', path: 'x' } }
-    type Calls = { t: Record<'tenant' | 'root', (input?: object) => Promise<unknown>> }
-    const { fetch, calls } = fakeFetch()
-    const api = createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls
-    await api.t.tenant({ params: { tenant: '.evil.com' } })
-    await api.t.tenant({ params: { tenant: '.evil.com' }, query: { q: 1 } })
-    await api.t.root()
-    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com/api' }) as never as Calls).t.tenant({ params: { tenant: '.evil.com' } })
-    expect(calls.map((c) => c.url)).toEqual([
-      'https://api.example.com/.evil.com/x',
-      'https://api.example.com/.evil.com/x?q=1',
-      'https://api.example.com/x',
-      'https://api.example.com/api/.evil.com/x',
-    ])
-    for (const { url } of calls) expect(new URL(url).host).toBe('api.example.com')
+  it('accepts a manifest generated before CL8: no status/response, string errors, lenient answers', async () => {
+    const legacy = { 'a.b': { method: 'get', path: '/api/a', errors: ['NOT_FOUND'] } }
+    type Calls = { a: { b: () => Promise<{ ok: boolean; status: number; code?: string; unexpected?: boolean; data?: unknown }> } }
+    const api = (body: unknown, status: number) => createClient(legacy, { fetch: json(body, status) }) as never as Calls
+    // any 2xx, the body parsed if there is one
+    expect(await api({ ok: true }, 203).a.b()).toMatchObject({ ok: true, status: 203, data: { ok: true } })
+    // a code string matches any 4xx or 5xx
+    expect(await api({ code: 'NOT_FOUND', message: 'x' }, 410).a.b()).toMatchObject({ ok: false, code: 'NOT_FOUND', status: 410 })
+    expect(await api({ code: 'NOT_FOUND' }, 302).a.b()).toMatchObject({ ok: false, unexpected: true, status: 302 })
   })
 
-  it('rejects a route path that would leave the page\'s origin under a same-origin baseUrl', async () => {
-    const forged = {
-      't.slashes': { method: 'get', path: '//evil.com/x' },
-      't.backslash': { method: 'get', path: '/\\evil.com/x' },
-      't.tab': { method: 'get', path: '/\t/evil.com/x' },
-      't.newline': { method: 'get', path: '/\n\\evil.com' },
-      't.invalid': { method: 'get', path: '//[bad' },
-      't.sentinel': { method: 'get', path: '//__laratype_base__/x' },
-      // no leading "/": buildUrl's "\t/evil.com/x" is a path, but "/" + it is not
-      't.joined': { method: 'get', path: '\t/evil.com/x' },
-      't.joinedSentinel': { method: 'get', path: '\t/__laratype_other__/x' },
-    }
-    type Calls = { t: Record<keyof typeof forged extends `t.${infer K}` ? K : never, () => Promise<unknown>> }
-    const { fetch, calls } = fakeFetch()
-    const api = createClient(forged, { fetch }) as never as Calls
-    // buildUrl refuses a route path URL parsing reads as another host, whatever the baseUrl
-    for (const call of [api.t.slashes, api.t.backslash, api.t.tab, api.t.newline, api.t.invalid, api.t.sentinel]) {
-      await expect(call()).rejects.toThrow(/which a URL reads as another host/)
-    }
-    // the client checks the joined path, parsed against two origins so a path naming either one fails too
-    await expect(api.t.joined()).rejects.toThrow(
-      new TypeError('[@laratype/client] route path "\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
-    )
-    await expect(api.t.joinedSentinel()).rejects.toThrow(/would leave the page's origin/)
-    expect(calls).toEqual([])
-    // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
-    await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.joined()
-    expect(new URL(calls[0]!.url).host).toBe('api.example.com')
-  })
-
-  it('checks the manifest errors at createClient: absent or an array of strings', () => {
+  it('validates the route method, path, status and body flag at createClient, naming the key', () => {
     const route = { method: 'get', path: '/x' }
+    const message = (text: string) => new TypeError(`[@laratype/client] createClient: "a.b": ${text}`)
+    const cases: Array<[unknown, TypeError]> = [
+      [{ ...route, method: 'fetch' }, message('the method must be one of get, post, put, patch, delete, got "fetch"')],
+      [{ ...route, method: 42 }, message('the method must be one of get, post, put, patch, delete, got 42')],
+      [{ ...route, path: 'x' }, message('the path must start with one "/", got "x"')],
+      [{ ...route, path: '' }, message('the path must start with one "/", got ""')],
+      [{ ...route, path: '//evil.com/x' }, message('the path must start with one "/", got "//evil.com/x"')],
+      [{ ...route, path: '/\\evil.com/x' }, message('the path must start with one "/", got "/\\\\evil.com/x"')],
+      [{ ...route, path: '/\t/evil.com/x' }, message('the path must not contain control characters, got "/\\t/evil.com/x"')],
+      [{ ...route, status: 99 }, message('the status must be an integer from 100 to 599, got 99')],
+      [{ ...route, status: 600 }, message('the status must be an integer from 100 to 599, got 600')],
+      [{ ...route, status: 404 }, message('the status must be a 2xx success status (200-299), got 404')],
+      [{ ...route, status: '200' }, message('the status must be an integer from 100 to 599, got "200"')],
+      [{ ...route, status: Number.NaN }, message('the status must be an integer from 100 to 599, got NaN')],
+      [{ ...route, status: Infinity }, message('the status must be an integer from 100 to 599, got Infinity')],
+      [{ ...route, response: 'yes' }, message('response must be a boolean, got "yes"')],
+      [{ ...route, status: 204, response: true }, message('a 204 or 205 has no body; response must be false')],
+    ]
+    for (const [value, error] of cases) expect(() => createClient({ 'a.b': value } as never)).toThrow(error)
+  })
+
+  it('checks the manifest errors at createClient: an array of codes or { status, code } entries', () => {
+    const route = { method: 'get', path: '/x' }
+    const message = (text: string) => new TypeError(`[@laratype/client] createClient: "a.b": ${text}`)
+    const cases: Array<[unknown, TypeError]> = [
+      ['NOT_FOUND', message('errors must be an array of error codes (strings) or { status, code } entries, got "NOT_FOUND"')],
+      [{ 0: 'X' }, message('errors must be an array of error codes (strings) or { status, code } entries, got an object')],
+      [{ length: 1e9 }, message('errors must be an array of error codes (strings) or { status, code } entries, got an object')],
+      [[404], message('errors[0] must be an error code (a non-empty string) or { status, code }, got 404')],
+      [[null], message('errors[0] must be an error code (a non-empty string) or { status, code }, got null')],
+      [[''], message('errors[0] must be an error code (a non-empty string) or { status, code }, got ""')],
+      [[{}], message('errors[0].status must be an integer from 400 to 599, got undefined')],
+      [[{ status: 600, code: 'X' }], message('errors[0].status must be an integer from 400 to 599, got 600')],
+      [[{ status: Number.NaN, code: 'X' }], message('errors[0].status must be an integer from 400 to 599, got NaN')],
+      [[{ status: 401 }], message('errors[0].code must be a non-empty string, got undefined')],
+      [[{ status: 401, code: '' }], message('errors[0].code must be a non-empty string, got ""')],
+    ]
+    for (const [errors, error] of cases) expect(() => createClient({ 'a.b': { ...route, errors } } as never)).toThrow(error)
+    // 1000 is the cap, checked from length before any entry is read: a sparse 1e9 array is refused, not walked
+    expect(() => createClient({ 'a.b': { ...route, errors: new Array(1e9) } } as never)).toThrow(
+      message('errors has 1000000000 entries, more than the 1000 supported'),
+    )
+    // absent, duplicates and the same code at two statuses are fine
     expect(() => createClient({ 'a.b': route })).not.toThrow()
-    for (const errors of ['NOT_FOUND', [404], [null], { 0: 'X' }]) {
-      expect(() => createClient({ 'a.b': { ...route, errors } } as never)).toThrow(
-        new TypeError('[@laratype/client] createClient: "a.b" errors in the manifest must be an array of error codes (strings)'),
-      )
+    expect(() =>
+      createClient({ 'a.b': { ...route, errors: [{ status: 401, code: 'X' }, { status: 401, code: 'X' }, { status: 403, code: 'X' }, 'X'] } } as never),
+    ).not.toThrow()
+  })
+
+  it('rejects a manifest or route that is not a plain object', () => {
+    const route = { method: 'get', path: '/x' }
+    expect(() => createClient(new Map([['a.b', route]]) as never)).toThrow(
+      '[@laratype/client] createClient: the manifest must be a plain object, got a Map',
+    )
+    expect(() => createClient([] as never)).toThrow('[@laratype/client] createClient: the manifest must be a plain object, got an array')
+    expect(() => createClient(Object.assign(Object.create({}), { 'a.b': route }) as never)).toThrow(
+      '[@laratype/client] createClient: the manifest must be a plain object, got a non-plain object',
+    )
+    class Route {
+      method = 'get';
+      path = '/x';
     }
+    expect(() => createClient({ 'a.b': new Route() } as never)).toThrow(
+      '[@laratype/client] createClient: "a.b": a route must be a plain object, got an instance of Route',
+    )
+    // an object whose __proto__ is set carries no own route and is not plain
+    expect(() => createClient({ __proto__: { 'a.b': route } } as never)).toThrow(/the manifest must be a plain object/)
+  })
+
+  it('keeps __proto__ and constructor route names as ordinary keys', async () => {
+    const manifest = {
+      'a.__proto__.b': { method: 'get', path: '/api/proto' },
+      'a.constructor.b': { method: 'get', path: '/api/ctor' },
+    }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(manifest, { fetch, baseUrl: 'https://api.example.com' }) as never as {
+      a: Record<string, { b: () => Promise<unknown> }>
+    }
+    await api.a['__proto__']!.b()
+    await api.a['constructor']!.b()
+    expect(Object.getPrototypeOf(api)).toBeNull()
+    expect(Object.keys(api.a)).toEqual(['__proto__', 'constructor'])
+    expect(calls.map((c) => c.url)).toEqual(['https://api.example.com/api/proto', 'https://api.example.com/api/ctor'])
+    // no prototype pollution: Object.prototype gained nothing
+    expect(({} as { b?: unknown }).b).toBeUndefined()
+  })
+
+  it('snapshots each route field once: a Proxy or a getter cannot change it later', async () => {
+    let reads = 0
+    const getter = {
+      get method() {
+        reads++;
+        return reads === 1 ? 'get' : 'post';
+      },
+      path: '/api/x',
+    }
+    const first = createClient({ 'a.b': getter }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } };
+    expect(reads).toBe(1);
+    await first.a.b();
+
+    let methodReads = 0;
+    const proxy = new Proxy(
+      { path: '/api/y' },
+      {
+        get(target, key, receiver) {
+          if (key === 'method') return ['get', 'post', 'delete'][methodReads++] ?? 'delete';
+          return Reflect.get(target, key, receiver) as unknown;
+        },
+      },
+    );
+    const second = createClient({ 'a.b': proxy }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } };
+    expect(methodReads).toBe(1);
+    await second.a.b();
+  })
+
+  it('never echoes a long or non-finite value raw', () => {
+    const long = 'x'.repeat(10_000);
+    let error = '';
+    try {
+      createClient({ 'a.b': { method: 'get', path: long } } as never);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    expect(error).toContain('the path must start with one "/"');
+    expect(error).not.toContain(long);
+    expect(error.length).toBeLessThan(300);
+    // a long key is truncated too
+    let keyError = '';
+    try {
+      createClient({ [long]: { method: 'get', path: '/x' } } as never);
+    } catch (e) {
+      keyError = (e as Error).message;
+    }
+    expect(keyError).toContain('invalid route name');
+    expect(keyError).not.toContain(long);
+    // a lone surrogate is escaped by the diagnostic
+    expect(() => createClient({ 'a.\ud800': { method: 'get', path: 'x' } } as never)).toThrow(
+      '[@laratype/client] createClient: "a.\\ud800": the path must start with one "/", got "x"',
+    )
   })
 
   it('rejects a manifest with bad route names', () => {
@@ -1011,5 +1173,15 @@ describe('createClient(manifest), the separate-repo FE', () => {
     expect(() => createClient({ health: route })).toThrow('[@laratype/client] createClient: invalid route name "health" in the manifest')
     expect(() => createClient({ 'a.b': route, 'a.b.c': route })).toThrow('createClient: "a.b.c" is under the endpoint "b" in the manifest')
     expect(() => createClient({ 'a.b.c': route, 'a.b': route })).toThrow('createClient: "a.b" is both an endpoint and a node in the manifest')
+    // a control character in a key
+    expect(() => createClient({ 'a.\tb': route } as never)).toThrow('createClient: invalid route name "a.\\tb" in the manifest')
+  })
+
+  it('the key is authoritative: a route whose own name disagrees is refused', () => {
+    const route = { method: 'get', path: '/x' }
+    expect(() => createClient({ 'a.b': { ...route, name: 'a.b' } } as never)).not.toThrow()
+    expect(() => createClient({ 'a.b': { ...route, name: 'a.c' } } as never)).toThrow(
+      '[@laratype/client] createClient: "a.b": the route name "a.c" does not match its manifest key',
+    )
   })
 })

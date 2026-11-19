@@ -1,12 +1,14 @@
-import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
+import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isContractPath, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
+import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
 import { checkResponseBody } from "./validate";
 import type { ResponseCheckFailure } from "./validate";
 
-const fail = (message: string): never => {
+// A function declaration, not a const arrow: TypeScript only treats the call as a check that ends the branch (so the
+// code after `if (!isPlainObject(value)) fail(...)` sees the narrowed type) for a function declaration.
+function fail(message: string): never {
   throw new TypeError(`[@laratype/client] ${message}`);
-};
+}
 
 /** What a call passes on: the runtime view of `CallInput`. */
 interface RequestInput {
@@ -54,17 +56,27 @@ const once = <T>(make: () => T): (() => T) => {
   };
 };
 
-/** Groups declared errors by code, keeping every status. */
-const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly status: number }>): Declared => {
-  const map = new Map<string, Set<number>>();
-  for (const { code, status } of errors) map.set(code, (map.get(code) ?? new Set()).add(status));
+/**
+ * Groups declared errors by code, keeping every status. An entry without a status (an older manifest's code string)
+ * makes its code match any 4xx or 5xx, whatever other entries say.
+ */
+const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly status?: number }>): Declared => {
+  const map: Map<string, Set<number> | undefined> = new Map();
+  for (const { code, status } of errors) {
+    if (status === undefined) {
+      map.set(code, undefined);
+      continue;
+    }
+    if (!map.has(code)) map.set(code, new Set([status]));
+    else map.get(code)?.add(status);
+  }
   return map;
 };
 
 /**
- * What a 2xx must look like: the declared status (unknown for the manifest and the path client) and the data, `"json"`
- * for a response schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the body is
- * parsed if there is one).
+ * What a 2xx must look like: the declared status (unknown for the path client and an older manifest) and the data,
+ * `"json"` for a response schema, `"none"` without one or for a body-less status (204, 205), `"any"` when unknown (the
+ * body is parsed if there is one).
  */
 interface Success {
   readonly status: number | undefined;
@@ -73,7 +85,7 @@ interface Success {
   readonly check?: (body: unknown) => Promise<ResponseCheckFailure | undefined>;
 }
 
-/** The success of a client that has no contract runtime (the manifest, the path client): any 2xx, body parsed if any. */
+/** The success of a client with no declared status (the path client, a manifest generated before CL8): any 2xx, body parsed if any. */
 const UNKNOWN_SUCCESS: Success = { status: undefined, data: "any" };
 
 /**
@@ -110,12 +122,68 @@ export type ApiNodeShape = AnyApiNode;
 /** The `defineApi` root, told by its brand: a hand-made object (`{ posts: appApi.users.posts }`) is not one. */
 export type ApiRootShape = { readonly [API_ROOT]: true };
 
-const isManifestRoute = (value: unknown): value is ManifestRoute =>
-  typeof value === "object" && value !== null && typeof (value as ManifestRoute).method === "string" && typeof (value as ManifestRoute).path === "string";
+/** A diagnostic value: a string is quoted and escaped, anything else is named by its type, and never more than 120 characters. */
+const show = (value: unknown): string => {
+  let text: string;
+  switch (typeof value) {
+    case "string":
+      // JSON.stringify escapes control characters and lone surrogates, so the message is always printable
+      text = JSON.stringify(value);
+      break;
+    case "number":
+      // String keeps NaN and Infinity visible; JSON.stringify would print null
+      text = String(value);
+      break;
+    case "bigint":
+      text = `${value}n`;
+      break;
+    case "boolean":
+    case "undefined":
+      text = String(value);
+      break;
+    case "symbol":
+      text = "a symbol";
+      break;
+    case "function":
+      text = "a function";
+      break;
+    default:
+      // never read an object's fields, toJSON or Symbol.toStringTag here: the value is already refused
+      text = value === null ? "null" : Array.isArray(value) ? "an array" : "an object";
+  }
+  // a getter can return a string of any size: never echo it whole
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+};
 
-/** The generated manifest: a flat map of routes keyed by route name. */
-const isManifest = (value: unknown): value is Manifest =>
-  typeof value === "object" && value !== null && Object.values(value).every(isManifestRoute);
+/** A plain object: the manifest and each route must be one. Arrays, Maps, class instances and a set prototype are not. */
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  try {
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  } catch {
+    return false;
+  }
+};
+
+/** What a non-plain value is, for the diagnostic: "an array", "a Map", "an instance of Route", "a non-plain object". */
+const describe = (value: object): string => {
+  if (Array.isArray(value)) return "an array";
+  try {
+    const tag = Object.prototype.toString.call(value).slice(8, -1);
+    if (tag !== "Object") return `a ${tag}`;
+    const name = (value as { constructor?: { name?: unknown } }).constructor?.name;
+    return typeof name === "string" && name !== "Object" ? `an instance of ${name}` : "a non-plain object";
+  } catch {
+    return "a non-plain object";
+  }
+};
+
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+
+/** Whether a value looks like a manifest route: an object with an own `method` or `path`, whatever the value's type. */
+const isManifestRouteLike = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && (hasOwn(value, "method") || hasOwn(value, "path"));
 
 /** The origin a path-only `baseUrl` is parsed against; a path must keep it (`//host` would not). */
 const SENTINEL = "http://__laratype_base__";
@@ -308,8 +376,8 @@ const cancelBody = (response: Response): void => {
  *   status; with a schema, the parsed JSON body, and an empty body is `unexpected` (the server broke the contract).
  * - Otherwise the wire format is `{ code, ...body }`: on a 4xx or 5xx, a declared code (with its status, when known)
  *   is a declared error whose `error` is the body without `code`; anything else is unexpected. A 3xx is always
- *   unexpected, whatever code its body carries: a contract can't declare one, and the manifest knows codes only, so
- *   its body would match any status.
+ *   unexpected, whatever code its body carries: a contract can't declare one, and a manifest declares 2xx successes and
+ *   4xx/5xx errors, so its body would match no declared route.
  * - `declared` is absent for a path-style call: it has no contract runtime, so it trusts the path, and any string
  *   `code` on a 4xx or 5xx is a declared error (the type says the endpoint declares it; http.md › Undeclared-error
  *   check keeps the server honest).
@@ -404,7 +472,9 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
     const { name } = route;
     const segments = name.split(".");
     // manifest names are full route names (folder + endpoint key); apiPaths names are valid by construction
-    if (segments.some((s) => s === "") || (isManifest && segments.length < 2)) fail(`createClient: invalid route name "${name}"${where}`);
+    if (segments.some((s) => s === "") || (isManifest && (segments.length < 2 || /[\u0000-\u001f\u007f]/.test(name)))) {
+      fail(`createClient: invalid route name ${show(name)}${where}`);
+    }
     const key = segments.pop()!;
     let node = root;
     for (const segment of segments) {
@@ -439,27 +509,103 @@ const pathsOf = (api: object): RouteSpec[] => {
   });
 };
 
-/** The manifest's routes; it knows the error codes only (not their status), and neither the success status nor the response schema. */
-const manifestRoutes = (manifest: Manifest): RouteSpec[] =>
-  Object.entries(manifest).map(([name, route]) => {
-    const { errors } = route;
-    // checked here, at createClient: a malformed list would otherwise make a call reject on its first error answer
-    if (errors !== undefined && !(Array.isArray(errors) && errors.every((code) => typeof code === "string"))) {
-      fail(`createClient: "${name}" errors in the manifest must be an array of error codes (strings)`);
+/** The methods of `PathClient` and of a manifest route, in declaration order. */
+const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
+
+/** The most error entries one manifest route may list; a longer or sparse array is refused before any iteration. */
+const MAX_MANIFEST_ERRORS = 1000;
+
+interface ManifestCode {
+  readonly code: string;
+  /** Absent for an older manifest's code string: the code matches any 4xx or 5xx. */
+  readonly status?: number;
+}
+
+/**
+ * The manifest's routes, validated and snapshotted: every route field is read once from the caller's objects, and only
+ * the snapshot reaches the client, so a Proxy or a getter that changes its answer on a second read cannot affect a call.
+ * `undefined` when the object is not a manifest (a value does not look like a route); a bad route throws, naming its key.
+ */
+const manifestRoutes = (manifest: Record<string, unknown>): RouteSpec[] | undefined => {
+  const keys = Object.keys(manifest);
+  const values: unknown[] = [];
+  for (const key of keys) values.push(manifest[key]);
+  if (!values.every(isManifestRouteLike)) return undefined;
+  return keys.map((key, i) => manifestRoute(key, values[i]));
+};
+
+/** One manifest route: snapshot the fields once, validate them, and build the route spec the call uses. */
+const manifestRoute = (key: string, value: unknown): RouteSpec => {
+  const where = `createClient: ${show(key)}`;
+  if (!isPlainObject(value)) fail(`${where}: a route must be a plain object, got ${describe(value as object)}`);
+  // one read per field, into a null-prototype snapshot: every check below and every call uses only the snapshot
+  const snapshot: Record<string, unknown> = Object.create(null);
+  for (const field of ["name", "method", "path", "status", "response", "errors"]) snapshot[field] = value[field];
+  const name: unknown = snapshot.name;
+  const method: unknown = snapshot.method;
+  const path: unknown = snapshot.path;
+  const status: unknown = snapshot.status;
+  const response: unknown = snapshot.response;
+  const errors: unknown = snapshot.errors;
+  // the key is authoritative; the emitter writes no `name`, so one that disagrees was hand-edited
+  if (name !== undefined && name !== key) fail(`${where}: the route name ${show(name)} does not match its manifest key`);
+  if (typeof method !== "string" || !METHODS.includes(method as Method)) {
+    fail(`${where}: the method must be one of ${METHODS.join(", ")}, got ${show(method)}`);
+  }
+  if (!isContractPath(path)) {
+    if (typeof path === "string" && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\")) {
+      fail(`${where}: the path must not contain control characters, got ${show(path)}`);
     }
-    return {
-      name,
-      method: route.method,
-      path: route.path,
-      success: UNKNOWN_SUCCESS,
-      declared: once(() => new Map((errors ?? []).map((code) => [code, undefined]))),
-    };
-  });
+    fail(`${where}: the path must start with one "/", got ${show(path)}`);
+  }
+  if (status !== undefined) {
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
+      fail(`${where}: the status must be an integer from 100 to 599, got ${show(status)}`);
+    }
+    if (status < 200 || status > 299) fail(`${where}: the status must be a 2xx success status (200-299), got ${show(status)}`);
+  }
+  if (response !== undefined && typeof response !== "boolean") fail(`${where}: response must be a boolean, got ${show(response)}`);
+  if (response === true && (status === 204 || status === 205)) fail(`${where}: a 204 or 205 has no body; response must be false`);
+  const declared: ManifestCode[] = [];
+  if (errors !== undefined) {
+    // array-like objects (a `{ length: 1e9 }`) are refused by this check, without reading a single entry
+    if (!Array.isArray(errors)) {
+      fail(`${where}: errors must be an array of error codes (strings) or { status, code } entries, got ${show(errors)}`);
+    }
+    // checked from length before iterating, so a sparse `new Array(1e9)` cannot hang
+    if (errors.length > MAX_MANIFEST_ERRORS) fail(`${where}: errors has ${errors.length} entries, more than the ${MAX_MANIFEST_ERRORS} supported`);
+    for (let i = 0; i < errors.length; i++) {
+      const entry: unknown = errors[i];
+      if (typeof entry === "string") {
+        if (entry === "") fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${show(entry)}`);
+        // an older manifest's entry: the code matches any 4xx or 5xx, as before CL8
+        declared.push({ code: entry });
+        continue;
+      }
+      if (!isPlainObject(entry)) fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${show(entry)}`);
+      const errorStatus: unknown = entry.status;
+      const code: unknown = entry.code;
+      if (typeof errorStatus !== "number" || !Number.isInteger(errorStatus) || errorStatus < 400 || errorStatus > 599) {
+        fail(`${where}: errors[${i}].status must be an integer from 400 to 599, got ${show(errorStatus)}`);
+      }
+      if (typeof code !== "string" || code === "") fail(`${where}: errors[${i}].code must be a non-empty string, got ${show(code)}`);
+      declared.push({ status: errorStatus, code });
+    }
+  }
+  // absent fields keep the lenient pre-CL8 behaviour: any 2xx, a body parsed if there is one, codes at any 4xx/5xx
+  const success: Success =
+    status === undefined && response === undefined
+      ? UNKNOWN_SUCCESS
+      : { status: status as number | undefined, data: response === undefined ? "any" : response === true ? "json" : "none" };
+  return { name: key, method: method as Method, path, success, declared: once(() => declaredOf(declared)) };
+};
 
 /**
  * The typed client for a separate-repo FE (S2 option c), from the generated api.ts (`sauf types:generate`):
  * `createClient<AppApi>(manifest)`. The `AppApi` type argument types the calls (without it the client is `never`).
- * The manifest holds each route's method and full path, so the FE loads no contract file of the app and no schema library.
+ * The manifest holds each route's method, full path, success status, body flag and declared errors, so the FE loads no
+ * contract file of the app and no schema library; `createClient` validates it and throws, naming the key, on a malformed
+ * route. A manifest generated before CL8 (no status/response, code strings) keeps the lenient behaviour.
  * It has no response schemas, so `validateResponses` (CL6 #159) is refused: use the appApi, an API node or a contract.
  */
 export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ManifestClientOptions): Client<T>;
@@ -500,20 +646,23 @@ export function createClient<A extends ApiRootShape, const Hd extends HeadersIni
 export function createClient(api: object, options: ClientOptions = {}): object {
   splitBaseUrl(options.baseUrl ?? "");
   const send = createSend(options);
-  // before isManifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
+  // before the manifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
   if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
   if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false, options);
-  if (isManifest(api)) {
-    if (options.validateResponses) {
-      fail("createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)");
+  if (isPlainObject(api)) {
+    const routes = manifestRoutes(api);
+    if (routes) {
+      if (options.validateResponses) {
+        fail("createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)");
+      }
+      return buildTree(routes, send, true, options);
     }
-    return buildTree(manifestRoutes(api), send, true, options);
+  } else if (typeof api === "object" && api !== null) {
+    // a Map, a Set, a class instance, an array or an object with a set prototype is not a manifest, and must not read as empty
+    fail(`createClient: the manifest must be a plain object, got ${describe(api)}`);
   }
   return fail("createClient: expected the appApi from defineApi, an API node, a contract or the generated manifest");
 }
-
-/** The methods of `PathClient`, in declaration order. */
-const METHODS: readonly Method[] = ["get", "post", "put", "patch", "delete"];
 
 /**
  * The type-only path-style client: `createPathClient<ApiTypes<AppApi>>({ baseUrl })` then

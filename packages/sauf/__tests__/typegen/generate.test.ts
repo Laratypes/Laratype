@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createClient } from '@laratype/client';
+import type { Manifest } from '@laratype/client';
 import { ApiGenerationError, ScanError, TypeScriptMissingError, generateApiFile, generateTypes, loadTypeScript } from '../../src/typegen';
 import type { GenerateResult } from '../../src/typegen';
 
@@ -33,6 +35,8 @@ const appTsconfig = {
       $api: ['./.laratype/api/index.gen.ts'],
       // the tmp project sits outside the repo: point at the workspace sources
       '@laratype/contract': [`${repo}packages/contract/src/index.ts`],
+      // the manifest type check (CL8 #259): the generated manifest satisfies the client's ManifestRoute
+      '@laratype/client': [`${repo}packages/client/src/index.ts`],
       zod: [`${repo}node_modules/zod`],
     },
   },
@@ -90,9 +94,11 @@ describe('sauf types:generate', () => {
       join(project, 'checks', 'api.ts'),
       [
         "import type { ApiShape, ApiTypes } from '@laratype/contract'",
+        "import type { Manifest, ManifestRoute } from '@laratype/client'",
         "import { appApi } from '$api'",
         "import type { AppApi } from '$api'",
         "import type { AppApi as Generated } from '../.laratype/api'",
+        "import { manifest } from '../.laratype/api'",
         '',
         '// the generated alias is the projection of the real contracts, both ways',
         'export const a: Generated = null! as ApiTypes<AppApi>',
@@ -101,6 +107,9 @@ describe('sauf types:generate', () => {
         'declare function client<A extends ApiShape<A>>(): A',
         'export const c = client<Generated>()',
         'export const update = appApi.users.posts.update',
+        '// CL8 #259: the emitted manifest satisfies the client types',
+        'export const manifestIsTyped: Manifest = manifest',
+        'export const routeIsTyped: ManifestRoute = manifest["users.posts.update"]',
       ].join('\n'),
     );
     const { diagnostics } = compileProject(project);
@@ -140,13 +149,30 @@ describe('sauf types:generate', () => {
     ]);
   }, 60_000);
 
-  it('writes the manifest: route name → method, full path, sorted error codes', () => {
+  it('writes the manifest: route name → method, full path, success status, body flag and error statuses', () => {
     const api = result.files.find((f) => f.path === '.laratype/api.ts')!.content;
     expect(api).toContain(
-      "  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', errors: ['ACCOUNT_LOCKED', 'FORBIDDEN', 'NOT_FOUND', 'TOO_MANY_REQUESTS', 'UNAUTHORIZED', 'VALIDATION_ERROR'] },",
+      "  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },",
     );
-    expect(api).toContain("  'v1.health.check': { method: 'get', path: '/api/v1/health', errors: [] },");
+    expect(api).toContain(
+      "  'users.store': { method: 'post', path: '/api/users', status: 201, response: true, errors: [{ status: 409, code: 'EMAIL_TAKEN' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },",
+    );
+    expect(api).toContain("  'v1.health.check': { method: 'get', path: '/api/v1/health', status: 200, response: true, errors: [] },");
   });
+
+  it('the emitted manifest round-trips through createClient with no diagnostic', () => {
+    const api = generateApiFile(ts, {
+      projectDir: project,
+      tsconfig: join(project, 'tsconfig.json'),
+      indexFile: join(project, '.laratype', 'api', 'index.gen.ts'),
+      typesDir: join(project, '.laratype', 'types'),
+      outFile: '.laratype/api.ts',
+    });
+    const typed: Manifest = api.manifest;
+    expect(typed).toBe(api.manifest);
+    const client = createClient(api.manifest);
+    expect(Object.keys(client)).toEqual(['users', 'v1']);
+  }, 60_000);
 
   it('inlines named types (interfaces, contract error bodies) and keeps default-lib ones', () => {
     const api = result.files.find((f) => f.path === '.laratype/api.ts')!.content;
@@ -241,8 +267,8 @@ describe('sauf types:generate', () => {
     );
     await generateTypes({ projectDir: copy }, ts);
     const api = readFileSync(join(copy, '.laratype', 'api.ts'), 'utf8');
-    expect(api).toContain("'verbs.method': { method: 'get', path: '/api/verbs/method', errors: [");
-    expect(api).toContain("'verbs.path': { method: 'post', path: '/api/verbs/path', errors: [");
+    expect(api).toContain("'verbs.method': { method: 'get', path: '/api/verbs/method', status: 204, response: false, errors: [] },");
+    expect(api).toContain("'verbs.path': { method: 'post', path: '/api/verbs/path', status: 204, response: false, errors: [] },");
   }, 60_000);
 
   it('rejects an AppApi that is not the defineApi root (C10 #258)', () => {

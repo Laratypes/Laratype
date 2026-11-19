@@ -142,6 +142,37 @@ export type AppApi = {
         };
       };
     };
+    destroy: {
+      method: 'delete';
+      path: '/api/users/:user';
+      params: {
+        user: string;
+      };
+      query: undefined;
+      body: undefined;
+      headers: undefined;
+      response: undefined;
+      status: 202;
+      errors: {
+        status: 401;
+        code: 'UNAUTHORIZED';
+        body: {
+          message: string;
+        };
+      } | {
+        status: 429;
+        code: 'TOO_MANY_REQUESTS';
+        body: {
+          message: string;
+        };
+      } | {
+        status: 404;
+        code: 'NOT_FOUND';
+        body: {
+          message: string;
+        };
+      };
+    };
     posts: {
       index: {
         method: 'get';
@@ -260,12 +291,13 @@ export type AppApi = {
   };
 }
 
-/** Route name → method, full path and the error codes the endpoint can answer with. */
+/** Route name → method, full path, success status, whether the success has a body, and the error codes with their statuses. */
 export const manifest = {
-  'users.index': { method: 'get', path: '/api/users', errors: ['TOO_MANY_REQUESTS', 'UNAUTHORIZED', 'VALIDATION_ERROR'] },
-  'users.posts.index': { method: 'get', path: '/api/users/:user/posts', errors: ['ACCOUNT_LOCKED', 'NOT_FOUND', 'TOO_MANY_REQUESTS', 'UNAUTHORIZED'] },
-  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', errors: ['ACCOUNT_LOCKED', 'FORBIDDEN', 'NOT_FOUND', 'TOO_MANY_REQUESTS', 'UNAUTHORIZED', 'VALIDATION_ERROR'] },
-  'users.show': { method: 'get', path: '/api/users/:user', errors: ['NOT_FOUND', 'TOO_MANY_REQUESTS', 'UNAUTHORIZED'] },
-  'users.store': { method: 'post', path: '/api/users', errors: ['EMAIL_TAKEN', 'TOO_MANY_REQUESTS', 'UNAUTHORIZED', 'VALIDATION_ERROR'] },
-  'v1.health.check': { method: 'get', path: '/api/v1/health', errors: [] },
+  'users.destroy': { method: 'delete', path: '/api/users/:user', status: 202, response: false, errors: [{ status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
+  'users.index': { method: 'get', path: '/api/users', status: 200, response: true, errors: [{ status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
+  'users.posts.index': { method: 'get', path: '/api/users/:user/posts', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
+  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
+  'users.show': { method: 'get', path: '/api/users/:user', status: 200, response: true, errors: [{ status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
+  'users.store': { method: 'post', path: '/api/users', status: 201, response: true, errors: [{ status: 409, code: 'EMAIL_TAKEN' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
+  'v1.health.check': { method: 'get', path: '/api/v1/health', status: 200, response: true, errors: [] },
 } as const

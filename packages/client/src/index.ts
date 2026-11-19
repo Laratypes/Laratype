@@ -17,6 +17,7 @@ export type {
   HeaderValues,
   Manifest,
   ManifestClientOptions,
+  ManifestError,
   ManifestRoute,
   PathCall,
   PathClient,

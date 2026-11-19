@@ -2,7 +2,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
 import { createClient, ResponseValidationError } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ManifestClientOptions, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, Manifest, ManifestClientOptions, ManifestError, ManifestRoute, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
 import type { ApiTypes, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
@@ -332,6 +332,32 @@ describe('headers that options.headers provides (#255)', () => {
 
 describe('createClient(manifest)', () => {
   const sep = createClient<Generated>(manifest)
+
+  test('the generated manifest satisfies Manifest and ManifestRoute', () => {
+    expectTypeOf(manifest).toMatchTypeOf<Manifest>()
+    expectTypeOf(manifest['users.store']).toMatchTypeOf<ManifestRoute>()
+    expectTypeOf(manifest['users.store'].status).toEqualTypeOf<201>()
+    expectTypeOf(manifest['users.store'].response).toEqualTypeOf<true>()
+    expectTypeOf(manifest['users.destroy'].response).toEqualTypeOf<false>()
+    expectTypeOf(manifest['users.store'].errors[0]).toMatchTypeOf<ManifestError>()
+  })
+
+  test('a pre-CL8 manifest stays assignable; the new fields are typed', () => {
+    // no status, no response, string errors: the lenient manifest generated before CL8
+    const legacy: Manifest = { 'a.b': { method: 'get', path: '/api/a', errors: ['NOT_FOUND'] } }
+    // the new fields
+    const current: Manifest = {
+      'a.b': { method: 'get', path: '/api/a', status: 200, response: true, errors: [{ status: 401, code: 'UNAUTHORIZED' }] },
+    }
+    expectTypeOf(legacy).toExtend<Manifest>()
+    expectTypeOf(current).toExtend<Manifest>()
+    // @ts-expect-error a status is a number
+    const badStatus: Manifest = { 'a.b': { method: 'get', path: '/api/a', status: '200' } }
+    // @ts-expect-error an error entry needs status and code
+    const badError: Manifest = { 'a.b': { method: 'get', path: '/api/a', errors: [{ code: 'X' }] } }
+    void badStatus
+    void badError
+  })
 
   test('typed by the generated AppApi', () => {
     expectTypeOf(sep).toEqualTypeOf<Client<Generated>>()
