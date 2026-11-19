@@ -199,7 +199,7 @@ if (result.ok) result.data.title                     // see Result union
 - None recorded.
 
 ### Acceptance
-[#109 Done when](https://github.com/Laratypes/Laratype/issues/109) · [#255 Done when](https://github.com/Laratypes/Laratype/issues/255)
+[#109 Done when](https://github.com/Laratypes/Laratype/issues/109) · [#255 Done when](https://github.com/Laratypes/Laratype/issues/255) · [#259 Done when](https://github.com/Laratypes/Laratype/issues/259)
 
 ---
 
@@ -443,7 +443,7 @@ const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body
 - The same manifest is an opt-in for monorepo FEs that want schema-free bundles.
 
 ### Acceptance
-[#133 Done when](https://github.com/Laratypes/Laratype/issues/133) · [#109 Done when](https://github.com/Laratypes/Laratype/issues/109)
+[#133 Done when](https://github.com/Laratypes/Laratype/issues/133) · [#109 Done when](https://github.com/Laratypes/Laratype/issues/109) · [#259 Done when](https://github.com/Laratypes/Laratype/issues/259)
 
 ---
 

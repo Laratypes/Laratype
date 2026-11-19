@@ -1,4 +1,4 @@
-import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isContractPath, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
+import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, isEndpointPath, isFailureStatus, joinPath, routeErrors } from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
 import { checkResponseBody } from "./validate";
@@ -56,11 +56,17 @@ const once = <T>(make: () => T): (() => T) => {
   };
 };
 
+/** One declared error code, with its status, or without one when only the code is known (an older manifest's string). */
+interface DeclaredCode {
+  readonly code: string;
+  readonly status?: number;
+}
+
 /**
  * Groups declared errors by code, keeping every status. An entry without a status (an older manifest's code string)
  * makes its code match any 4xx or 5xx, whatever other entries say.
  */
-const declaredOf = (errors: ReadonlyArray<{ readonly code: string; readonly status?: number }>): Declared => {
+const declaredOf = (errors: readonly DeclaredCode[]): Declared => {
   const map: Map<string, Set<number> | undefined> = new Map();
   for (const { code, status } of errors) {
     if (status === undefined) {
@@ -123,7 +129,7 @@ export type ApiNodeShape = AnyApiNode;
 export type ApiRootShape = { readonly [API_ROOT]: true };
 
 /** A value cut to 120 characters: a diagnostic may echo a getter's 1 MB answer, but not whole. */
-const cap = (text: string): string => (text.length > 120 ? `${text.slice(0, 117)}...` : text);
+const truncate = (text: string): string => (text.length > 120 ? `${text.slice(0, 117)}...` : text);
 
 /** A diagnostic value: a string is quoted and escaped, anything else is named by its type, never more than 120 characters. */
 const preview = (value: unknown): string => {
@@ -154,7 +160,7 @@ const preview = (value: unknown): string => {
       // never read an object's fields, toJSON or Symbol.toStringTag here: the value is already refused
       text = value === null ? "null" : Array.isArray(value) ? "an array" : "an object";
   }
-  return cap(text);
+  return truncate(text);
 };
 
 /** A plain object: the manifest and each route must be one. Arrays, Maps, class instances and a set prototype are not. */
@@ -175,9 +181,9 @@ const kindOf = (value: unknown): string => {
   if (Array.isArray(value)) return "an array";
   try {
     const tag = Object.prototype.toString.call(value).slice(8, -1);
-    if (tag !== "Object") return cap(`a ${tag}`);
+    if (tag !== "Object") return truncate(`a ${tag}`);
     const name = (value as { constructor?: { name?: unknown } }).constructor?.name;
-    return typeof name === "string" && name !== "Object" ? cap(`an instance of ${name}`) : "a non-plain object";
+    return typeof name === "string" && name !== "Object" ? truncate(`an instance of ${name}`) : "a non-plain object";
   } catch {
     return "a non-plain object";
   }
@@ -476,10 +482,10 @@ function buildTree(routes: readonly RouteSpec[], send: Send, isManifest: boolean
     const key = segments.pop()!;
     let node = root;
     for (const segment of segments) {
-      if (typeof node[segment] === "function") fail(`createClient: "${name}" is under the endpoint "${segment}"${where}`);
+      if (typeof node[segment] === "function") fail(`createClient: ${preview(name)} is under the endpoint ${preview(segment)}${where}`);
       node = (node[segment] ??= Object.create(null)) as Record<string, unknown>;
     }
-    if (node[key] !== undefined) fail(`createClient: "${name}" is both an endpoint and a node${where}`);
+    if (node[key] !== undefined) fail(`createClient: ${preview(name)} is both an endpoint and a node${where}`);
     node[key] = createCall(send, route, options);
   }
   return freezeTree(root);
@@ -516,12 +522,6 @@ const MANIFEST_FIELDS = ["name", "method", "path", "status", "response", "errors
 /** The most error entries one manifest route may list; a longer or sparse array is refused before any iteration. */
 const MAX_MANIFEST_ERRORS = 1000;
 
-interface ManifestCode {
-  readonly code: string;
-  /** Absent for an older manifest's code string: the code matches any 4xx or 5xx. */
-  readonly status?: number;
-}
-
 /**
  * The manifest's routes, validated and snapshotted: every route field is read once from the caller's objects, and only
  * the snapshot reaches the client, so a Proxy or a getter that changes its answer on a second read cannot affect a call.
@@ -531,17 +531,24 @@ const manifestRoutes = (manifest: Record<string, unknown>): RouteSpec[] | undefi
   const keys = Object.keys(manifest);
   const values: unknown[] = [];
   for (const key of keys) values.push(manifest[key]);
-  // The four branded inputs are never a manifest route, so `{ posts: endpoint }`, `{ users: contract }` and
-  // `{ users: node }` stay "not a manifest". Otherwise a manifest's values are route objects; a dotted key makes any
-  // other value a bad route, so `{ 'a.b': null }` names the key while `{ nope: 1 }` keeps the generic "expected ...".
-  if (values.some((value) => isEndpoint(value) || isContract(value) || isApiNode(value))) return undefined;
-  if (!values.every((value) => typeof value === "object" && value !== null) && !keys.some((key) => key.includes("."))) return undefined;
+  // A manifest's keys are dotted route names, so a dotted key always makes the object a manifest and every value a route
+  // (even a branded input, which is then refused naming its key). Without a dotted key, an object of branded values is one
+  // of the other inputs (`{ posts: endpoint }`, `{ users: contract }`, `{ users: node }`), and a plain map whose values
+  // are all objects is a manifest with a bad name (so `{ health: route }` says "invalid route name"); `{ nope: 1 }` is
+  // neither and keeps the generic "expected ..." error.
+  const dotted = keys.some((key) => key.includes("."));
+  if (!dotted && (values.some((value) => isEndpoint(value) || isContract(value) || isApiNode(value)) || !values.every((value) => typeof value === "object" && value !== null))) {
+    return undefined;
+  }
   return keys.map((key, i) => manifestRoute(key, values[i]));
 };
 
 /** One manifest route: snapshot the fields once, validate them, and build the route spec the call uses. */
 const manifestRoute = (key: string, value: unknown): RouteSpec => {
   const where = `createClient: ${preview(key)}`;
+  // a branded input under a route key is a mistake, not a route: its own fields are not a manifest route
+  const branded = isEndpoint(value) ? "an endpoint" : isContract(value) ? "a contract" : isApiNode(value) ? "an API node" : undefined;
+  if (branded) fail(`${where}: a route must be a plain object, got ${branded}`);
   if (!isPlainObject(value)) fail(`${where}: a route must be a plain object, got ${kindOf(value)}`);
   // one read per own field, into a null-prototype snapshot: every check below and every call uses only the snapshot
   const snapshot: Record<string, unknown> = Object.create(null);
@@ -553,7 +560,7 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
     fail(`${where}: the method must be one of ${METHODS.join(", ")}, got ${preview(method)}`);
   }
   // one rule, the contract's own: one leading "/" (not "//" or "/\"), no control characters
-  if (!isContractPath(path)) fail(`${where}: the path must start with one "/" and must not contain control characters, got ${preview(path)}`);
+  if (!isEndpointPath(path)) fail(`${where}: the path must start with one "/" and must not contain control characters, got ${preview(path)}`);
   if (status !== undefined) {
     if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
       fail(`${where}: the status must be an integer from 100 to 599, got ${preview(status)}`);
@@ -562,7 +569,7 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
   }
   if (response !== undefined && typeof response !== "boolean") fail(`${where}: response must be a boolean, got ${preview(response)}`);
   if (response === true && status !== undefined && isBodylessStatus(status)) fail(`${where}: a 204 or 205 has no body; response must be false`);
-  const declared: ManifestCode[] = [];
+  const declared: DeclaredCode[] = [];
   if (errors !== undefined) {
     // array-like objects (a `{ length: 1e9 }`) are refused by this check, without reading a single entry
     if (!Array.isArray(errors)) {
@@ -581,9 +588,7 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
       if (!isPlainObject(entry)) fail(`${where}: errors[${i}] must be an error code (a non-empty string) or { status, code }, got ${preview(entry)}`);
       const errorStatus: unknown = entry.status;
       const code: unknown = entry.code;
-      if (typeof errorStatus !== "number" || !Number.isInteger(errorStatus) || errorStatus < 400 || errorStatus > 599) {
-        fail(`${where}: errors[${i}].status must be an integer from 400 to 599, got ${preview(errorStatus)}`);
-      }
+      if (!isFailureStatus(errorStatus)) fail(`${where}: errors[${i}].status must be an integer from 400 to 599, got ${preview(errorStatus)}`);
       if (typeof code !== "string" || code === "") fail(`${where}: errors[${i}].code must be a non-empty string, got ${preview(code)}`);
       declared.push({ status: errorStatus, code });
     }

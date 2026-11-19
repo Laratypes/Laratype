@@ -268,6 +268,12 @@ export type AppApi = {
           body: {
             message: string;
           };
+        } | {
+          status: 410;
+          code: 'NOT_FOUND';
+          body: {
+            message: string;
+          };
         };
       };
     };
@@ -296,7 +302,7 @@ export const manifest = {
   'users.destroy': { method: 'delete', path: '/api/users/:user', status: 202, response: false, errors: [{ status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
   'users.index': { method: 'get', path: '/api/users', status: 200, response: true, errors: [{ status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
   'users.posts.index': { method: 'get', path: '/api/users/:user/posts', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
-  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
+  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 410, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
   'users.show': { method: 'get', path: '/api/users/:user', status: 200, response: true, errors: [{ status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }] },
   'users.store': { method: 'post', path: '/api/users', status: 201, response: true, errors: [{ status: 409, code: 'EMAIL_TAKEN' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },
   'v1.health.check': { method: 'get', path: '/api/v1/health', status: 200, response: true, errors: [] },

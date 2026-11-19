@@ -1,4 +1,4 @@
-// Helpers shared by the contract modules. Only `isContractPath` is re-exported from index.ts (for @laratype/client).
+// Helpers shared by the contract modules. Only `isEndpointPath` is re-exported from index.ts (for @laratype/client).
 
 export type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 
@@ -15,15 +15,14 @@ export const fail = (message: string): never => {
 };
 
 const PATH_START = /^\/(?![/\\])/;
-const PATH_CONTROL = /[\u0000-\u001f\u007f]/;
+const PATH_CONTROLS = /[\u0000-\u001f\u007f]/;
 
 /**
- * Whether `path` is a contract path: one leading "/" (not "//" or "/\"), no control characters. The same rule as
- * `checkPath`, for callers that validate a path without the endpoint builder's error text.
+ * The endpoint path rule without a diagnostic: no leading "//" or "/\\", no control character.
  * @internal Shared with `@laratype/client`'s manifest validation; not part of the documented public API.
  */
-export const isContractPath = (path: unknown): path is string =>
-  typeof path === "string" && PATH_START.test(path) && !PATH_CONTROL.test(path);
+export const isEndpointPath = (path: unknown): path is string =>
+  typeof path === "string" && PATH_START.test(path) && !PATH_CONTROLS.test(path);
 
 /**
  * An endpoint path starts with one "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host, and
@@ -34,7 +33,7 @@ export const checkPath = (path: unknown, label: string): string => {
     fail(`${label}: the path must start with one "/", got ${typeof path === "string" ? JSON.stringify(path) : typeof path}`);
   }
   // URL parsing drops tab, LF and CR: "/\t/evil.com" is "//evil.com"; the other control characters are refused with them
-  if (PATH_CONTROL.test(path as string)) fail(`${label}: the path must not contain control characters, got ${JSON.stringify(path)}`);
+  if (PATH_CONTROLS.test(path as string)) fail(`${label}: the path must not contain control characters, got ${JSON.stringify(path)}`);
   return path as string;
 };
 

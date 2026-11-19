@@ -979,6 +979,15 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // ACCOUNT_LOCKED is declared under users/[user], not on users.store
     expect(await api({ code: 'ACCOUNT_LOCKED', message: 'x' }, 403).users.store(store)).toMatchObject({ ok: false, unexpected: true })
     expect(await api({ ok: true }, 200).v1.health.check()).toMatchObject({ ok: true, data: { ok: true } })
+    // NOT_FOUND is declared at 404 (derived) and 410 (throws), and only at those
+    const notFound = (status: number) =>
+      createClient<AppApi>(manifest, { fetch: json({ code: 'NOT_FOUND', message: 'x' }, status) }).users.posts.update({
+        params: { user: 1, post: 2 },
+        body: { title: 'T' },
+      })
+    expect(await notFound(404)).toMatchObject({ ok: false, code: 'NOT_FOUND', status: 404 })
+    expect(await notFound(410)).toMatchObject({ ok: false, code: 'NOT_FOUND', status: 410 })
+    expect(await notFound(400)).toMatchObject({ ok: false, unexpected: true, status: 400 })
   })
 
   it('a code declared at two statuses matches both, and only those', async () => {
@@ -1099,6 +1108,10 @@ describe('createClient(manifest), the separate-repo FE', () => {
     )
     // an object whose __proto__ is set carries no own route and is not plain
     expect(() => createClient({ __proto__: { 'a.b': route } } as never)).toThrow(/the manifest must be a plain object/)
+    // a branded input under a route key is a mistake, named as such
+    expect(() => createClient({ 'a.b': users } as never)).toThrow(
+      '[@laratype/client] createClient: "a.b": a route must be a plain object, got a contract',
+    )
   })
 
   it('keeps __proto__ and constructor route names as ordinary keys', async () => {

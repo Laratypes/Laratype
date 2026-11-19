@@ -152,8 +152,9 @@ describe('sauf types:generate', () => {
   it('writes the manifest: route name → method, full path, success status, body flag and error statuses', () => {
     const api = result.files.find((f) => f.path === '.laratype/api.ts')!.content;
     expect(api).toContain(
-      "  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },",
+      "  'users.posts.update': { method: 'patch', path: '/api/users/:user/posts/:post', status: 200, response: true, errors: [{ status: 403, code: 'ACCOUNT_LOCKED' }, { status: 403, code: 'FORBIDDEN' }, { status: 404, code: 'NOT_FOUND' }, { status: 410, code: 'NOT_FOUND' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },",
     );
+
     expect(api).toContain(
       "  'users.store': { method: 'post', path: '/api/users', status: 201, response: true, errors: [{ status: 409, code: 'EMAIL_TAKEN' }, { status: 429, code: 'TOO_MANY_REQUESTS' }, { status: 401, code: 'UNAUTHORIZED' }, { status: 422, code: 'VALIDATION_ERROR' }] },",
     );
@@ -171,6 +172,13 @@ describe('sauf types:generate', () => {
     const typed: Manifest = api.manifest;
     expect(typed['users.store']).toMatchObject({ status: 201, response: true });
     expect(typed['users.destroy']).toMatchObject({ status: 202, response: false });
+    // the same code at two statuses stays as two pairs: the derived 404 NOT_FOUND and the declared 410 NOT_FOUND
+    expect(typed['users.posts.update'].errors).toEqual(
+      expect.arrayContaining([
+        { status: 404, code: 'NOT_FOUND' },
+        { status: 410, code: 'NOT_FOUND' },
+      ]),
+    );
     const client = createClient(api.manifest);
     expect(Object.keys(client)).toEqual(['users', 'v1']);
   }, 60_000);
