@@ -1071,6 +1071,34 @@ describe('createClient(manifest), the separate-repo FE', () => {
     )
   })
 
+  it('bounds the baseUrl split cache, so a client that flips values cannot grow it (C11 #293)', async () => {
+    const { fetch } = fakeFetch()
+    const OriginalURL = globalThis.URL
+    let parses = 0
+    class CountingURL extends OriginalURL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base)
+        parses += 1
+      }
+    }
+    vi.stubGlobal('URL', CountingURL)
+    try {
+      const options: ClientOptions = { fetch, baseUrl: 'https://example.com/0' }
+      const api = createClient(appApi, options)
+      for (let i = 1; i <= 8; i++) {
+        options.baseUrl = `https://example.com/${i}`
+        await api.users.index()
+      }
+      // eight newer values evicted the first one: going back splits it again
+      options.baseUrl = 'https://example.com/0'
+      parses = 0
+      await api.users.index()
+      expect(parses).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('splits baseUrl once per client and string, and again after a live change (C11 #293)', async () => {
     const { fetch, calls } = fakeFetch()
     const OriginalURL = globalThis.URL
