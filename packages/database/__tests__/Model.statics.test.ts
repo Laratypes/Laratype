@@ -2,7 +2,15 @@
 // (docs/v1/database.md › Model, › BindableModel). The repository is stubbed over arrays, as Model.test.ts does.
 import 'reflect-metadata'
 import { describe, expect, it } from 'vitest'
-import type { ColumnType, ValueTransformer } from 'typeorm'
+import { format } from 'mysql2'
+import {
+  DataSource,
+  EntitySchema,
+  FindOperator,
+  type ColumnType,
+  type SelectQueryBuilder,
+  type ValueTransformer,
+} from 'typeorm'
 import { isException } from '@laratype/support'
 import Model from '../src/eloquent/Model'
 import ModelNotFoundException from '../src/exceptions/ModelNotFoundException'
@@ -27,6 +35,31 @@ const itemTransformer: ValueTransformer = {
 /** A transformer that returns an object, which a route lookup must not bind. */
 const toObject: ValueTransformer = { to: () => ({ id: 1 }), from: (value: unknown) => value }
 
+/** An identity transformer: the column's own type rule still checks what `to()` returns (CR round 3). */
+const identity: ValueTransformer = { to: (value: unknown) => value, from: (value: unknown) => value }
+
+/** A transformer that throws on the attacker-controlled path string. */
+const throwingTo: ValueTransformer = {
+  to: () => {
+    throw new Error('transformer.to must not escape findByRouteKey()')
+  },
+  from: (value: unknown) => value,
+}
+
+/** A transformer that returns a Proxy whose prototype read throws: even the scalar check must not escape. */
+const proxyTo: ValueTransformer = {
+  to: () =>
+    new Proxy({}, {
+      getPrototypeOf: () => {
+        throw new Error('proxy trap')
+      },
+    }),
+  from: (value: unknown) => value,
+}
+
+/** A transformer whose hydrated value is an object, which cannot be a route key. */
+const objectFrom: ValueTransformer = { to: (value: unknown) => value, from: () => ({ id: 1 }) }
+
 const COLUMNS: FakeColumn[] = [
   { propertyName: 'id', propertyPath: 'id', type: Number },
   { propertyName: 'email', propertyPath: 'email', type: String },
@@ -44,7 +77,14 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'ratio', propertyPath: 'ratio', type: 'float' },
   // A transformed route key: getRouteKey() emits the hydrated value, which transformer.to takes back
   { propertyName: 'serial', propertyPath: 'serial', type: Number, transformer: itemTransformer },
+  // An identity transformer: the transformed value still takes the plain path's uuid / integer rule
+  { propertyName: 'externalKey', propertyPath: 'externalKey', type: 'uuid', transformer: identity },
+  { propertyName: 'code', propertyPath: 'code', type: Number, transformer: identity },
+  // A transformer whose hydrated value is not a route key
+  { propertyName: 'brokenFrom', propertyPath: 'brokenFrom', type: String, transformer: objectFrom },
   { propertyName: 'hostileRoute', propertyPath: 'hostileRoute', type: String, transformer: toObject },
+  // A bigint route key: getRouteKey() may carry a bigint, while findByRouteKey() keeps the path string
+  { propertyName: 'snowflake', propertyPath: 'snowflake', type: 'bigint' },
   // An embedded column: its leaf `street` is not an own model property
   { propertyName: 'street', propertyPath: 'address.street', type: String },
   // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
@@ -67,7 +107,6 @@ const model = (options: {
   const findOneCalls: any[] = []
   const findCalls: any[] = []
   const raw: [string, unknown[] | undefined][] = []
-  const routeLookups: { sql: string; parameters: Row }[] = []
 
   class User extends Model {
     declare id: number
@@ -82,7 +121,17 @@ const model = (options: {
     Object.defineProperty(User, 'routeKeyName', { value: options.routeKeyName })
   }
 
-  const matches = (where: Row) => (row: Row) => Object.entries(where).every(([key, value]) => row[key] === value)
+  /**
+   * The value a find condition binds: a `Raw` route-key condition carries it in `objectLiteralParameters`, and any
+   * other operator (an `Equal`) in `value`.
+   */
+  const conditionValue = (value: unknown): unknown => {
+    if (!(value instanceof FindOperator)) return value
+    const parameters = value.objectLiteralParameters as Row | undefined
+    return parameters && 'routeKey' in parameters ? parameters.routeKey : value.value
+  }
+  const matches = (where: Row) => (row: Row) =>
+    Object.entries(where).every(([key, value]) => row[key] === conditionValue(value))
 
   const repository = {
     metadata: {
@@ -98,18 +147,8 @@ const model = (options: {
       findCalls.push(options)
       return options?.where ? rows.filter(matches(options.where)) : rows
     },
-    // A transformed route key binds a condition built from the metadata, bypassing TypeORM's own transformer
-    createQueryBuilder: () => {
-      const builder = {
-        alias: 'User',
-        where(sql: string, parameters: Row) {
-          routeLookups.push({ sql, parameters })
-          return builder
-        },
-        getOne: async () => rows[0] ?? null,
-      }
-      return builder
-    },
+    // Model.query() only wraps the builder in the facade; no lookup in this file reaches its methods
+    createQueryBuilder: () => ({}),
     query: async (sql: string, parameters?: unknown[]) => {
       raw.push([sql, parameters])
       return [{ ok: 1 }]
@@ -117,7 +156,7 @@ const model = (options: {
   }
   ;(User as any).getRepository = () => repository
 
-  return { User, rows, findOneCalls, findCalls, routeLookups, raw }
+  return { User, rows, findOneCalls, findCalls, raw }
 }
 
 describe('Model.primaryKey', () => {
@@ -251,6 +290,13 @@ describe('Model.findByRouteKey', () => {
     return { ...fixture, found }
   }
 
+  /** The value the route-key `Raw` operator binds, for a lookup over the stubbed repository. */
+  const boundRouteKey = (findOneCalls: any[], property: string): unknown => {
+    const condition = findOneCalls[0]!.where[property]
+    expect(condition).toBeInstanceOf(FindOperator)
+    return (condition as FindOperator<unknown>).objectLiteralParameters!.routeKey
+  }
+
   it('converts an integer string to a number for the primary key', async () => {
     const { findOneCalls, found } = await lookUp('1')
     expect(found).toMatchObject({ id: 1 })
@@ -344,16 +390,147 @@ describe('Model.findByRouteKey', () => {
   })
 
   it('converts a transformed route key through transformer.to exactly once', async () => {
-    const { User, routeLookups } = model({ routeKeyName: 'serial', rows: [{ id: 1, serial: 'item-42' }] })
-    await expect(User.findByRouteKey('item-42')).resolves.toMatchObject({ id: 1, serial: 'item-42' })
-    // A metadata-built condition binds the converted 42; TypeORM's find form would run transformer.to a second time
-    expect(routeLookups).toEqual([{ sql: 'User.serial = :routeKey', parameters: { routeKey: 42 } }])
+    let toCalls = 0
+    const counting: ValueTransformer = {
+      to: (value: unknown) => {
+        toCalls += 1
+        return itemTransformer.to(value)
+      },
+      from: (value: unknown) => itemTransformer.from(value),
+    }
+    const { User, findOneCalls } = model({
+      routeKeyName: 'counted',
+      columns: [...COLUMNS, { propertyName: 'counted', propertyPath: 'counted', type: Number, transformer: counting }],
+      rows: [{ id: 1, counted: 42 }],
+    })
+    await expect(User.findByRouteKey('item-42')).resolves.toMatchObject({ id: 1, counted: 42 })
+    // The converted 42 is bound through a Raw operator; TypeORM's find form does not run to() a second time
+    expect(boundRouteKey(findOneCalls, 'counted')).toBe(42)
+    expect(toCalls).toBe(1)
   })
 
-  it('answers a transformer that does not return a scalar as a miss', async () => {
-    const { User, routeLookups } = model({ routeKeyName: 'hostileRoute' })
-    await expect(User.findByRouteKey('ada')).resolves.toBeNull()
-    expect(routeLookups).toEqual([])
+  it('checks a transformed uuid against the column type: a canonical one is found, a malformed one is a miss', async () => {
+    const id = '123E4567-E89B-12D3-A456-426614174000'
+    const hit = model({ routeKeyName: 'externalKey', rows: [{ id: 1, externalKey: id }] })
+    await expect(hit.User.findByRouteKey(id)).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(hit.findOneCalls, 'externalKey')).toBe(id)
+
+    // An identity transformer used to pass these to PostgreSQL, which rejects the bind instead of answering null
+    for (const key of [
+      '',
+      'not-a-uuid',
+      '123e4567-e89b-12d3-a456-42661417400',
+      '123e4567e89b12d3a456426614174000',
+      `{${id}}`,
+      ' 123e4567-e89b-12d3-a456-426614174000',
+      `123e4567-e89b-12d3-a456-426614174000\u0000`,
+    ]) {
+      const miss = model({ routeKeyName: 'externalKey', rows: [{ id: 1, externalKey: id }] })
+      await expect(miss.User.findByRouteKey(key)).resolves.toBeNull()
+      expect(miss.findOneCalls, key).toEqual([])
+    }
+  })
+
+  it('checks a transformed integer against the plain path rule', async () => {
+    for (const [key, value] of [['42', 42], ['-7', -7], ['0', 0]] as const) {
+      const hit = model({ routeKeyName: 'code', rows: [{ id: 1, code: value }] })
+      await expect(hit.User.findByRouteKey(key)).resolves.toMatchObject({ id: 1, code: value })
+      expect(boundRouteKey(hit.findOneCalls, 'code')).toBe(value)
+    }
+
+    // An identity transformer used to bind these, and PostgreSQL rejects a non-canonical integer bind
+    for (const key of ['01', '1.0', '1e3', '+1', ' 1', '', 'abc', '9007199254740992']) {
+      const miss = model({ routeKeyName: 'code', rows: [{ id: 1, code: 42 }] })
+      await expect(miss.User.findByRouteKey(key)).resolves.toBeNull()
+      expect(miss.findOneCalls, key).toEqual([])
+    }
+  })
+
+  it('applies the date, boolean, time and uuid rules to a transformed value already typed', async () => {
+    const date = new Date('2026-01-02T00:00:00.000Z')
+    const dateTo: ValueTransformer = { to: () => date, from: (value: unknown) => value }
+    const dateHit = model({
+      routeKeyName: 'when',
+      columns: [...COLUMNS, { propertyName: 'when', propertyPath: 'when', type: 'timestamp', transformer: dateTo }],
+      rows: [{ id: 1, when: date }],
+    })
+    await expect(dateHit.User.findByRouteKey('ignored')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(dateHit.findOneCalls, 'when')).toBe(date)
+
+    const boolTo: ValueTransformer = { to: () => true, from: (value: unknown) => value }
+    const boolHit = model({
+      routeKeyName: 'enabled',
+      columns: [...COLUMNS, { propertyName: 'enabled', propertyPath: 'enabled', type: Boolean, transformer: boolTo }],
+      rows: [{ id: 1, enabled: true }],
+    })
+    await expect(boolHit.User.findByRouteKey('ignored')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(boolHit.findOneCalls, 'enabled')).toBe(true)
+
+    // A typed value must be the column's class: none of these reach the database
+    for (const [value, columnType] of [
+      [42, 'timestamp'],
+      ['yes', Boolean],
+      [date, 'time'],
+      [42, 'uuid'],
+    ] as const) {
+      const invalid: ValueTransformer = { to: () => value, from: (input: unknown) => input }
+      const miss = model({
+        routeKeyName: 'typed',
+        columns: [...COLUMNS, { propertyName: 'typed', propertyPath: 'typed', type: columnType, transformer: invalid }],
+      })
+      await expect(miss.User.findByRouteKey('ignored')).resolves.toBeNull()
+      expect(miss.findOneCalls).toEqual([])
+    }
+  })
+
+  it('answers a transformer.to that throws as a miss, not a 500', async () => {
+    const { User, findOneCalls } = model({
+      routeKeyName: 'hostileTo',
+      columns: [...COLUMNS, { propertyName: 'hostileTo', propertyPath: 'hostileTo', type: String, transformer: throwingTo }],
+    })
+    await expect(User.findByRouteKey('not-a-uuid')).resolves.toBeNull()
+    expect(findOneCalls).toEqual([])
+  })
+
+  it('answers every other non-route-key transformer output as a miss, never as a throw', async () => {
+    const cases: [string, ValueTransformer, ColumnType][] = [
+      // Buffer.isBuffer() reads the Proxy's prototype, so even the scalar check can throw on hostile output
+      ['a Proxy', proxyTo, String],
+      ['NaN', { to: () => Number.NaN, from: (value: unknown) => value }, Number],
+      ['an object', toObject, String],
+      ['a 1 MB string', { to: () => 'a'.repeat(1_000_000), from: (value: unknown) => value }, 'uuid'],
+      ['control characters', { to: () => '1\u0000', from: (value: unknown) => value }, Number],
+    ]
+    for (const [type, transformer, columnType] of cases) {
+      const { User, findOneCalls } = model({
+        routeKeyName: 'hostile',
+        columns: [...COLUMNS, { propertyName: 'hostile', propertyPath: 'hostile', type: columnType, transformer }],
+      })
+      await expect(User.findByRouteKey('ada'), type).resolves.toBeNull()
+      expect(findOneCalls, type).toEqual([])
+    }
+  })
+
+  it('answers a non-string key from a JS caller as a miss, keeping the lookup off the database', async () => {
+    for (const key of [{}, [1], null, undefined, 1, Number.NaN, Number.POSITIVE_INFINITY, { length: 1e9 }]) {
+      const { User, findOneCalls } = model()
+      await expect(User.findByRouteKey(key as never)).resolves.toBeNull()
+      expect(findOneCalls).toEqual([])
+    }
+  })
+
+  it('binds a hostile, control-character, unicode or 1 MB path string as a value', async () => {
+    for (const key of ['__proto__', 'constructor', 'a\u0000b', '\uD800', 'x'.repeat(1_000_000)]) {
+      const { User, findOneCalls } = model({ routeKeyName: 'slug', rows: [{ id: 1, slug: key }] })
+      await expect(User.findByRouteKey(key)).resolves.toMatchObject({ id: 1 })
+      expect(findOneCalls).toEqual([{ where: { slug: key } }])
+    }
+  })
+
+  it('keeps a bigint route key as the string TypeORM hydrates', async () => {
+    const { User, findOneCalls } = model({ routeKeyName: 'snowflake', rows: [{ id: 1, snowflake: '0' }] })
+    await expect(User.findByRouteKey('0')).resolves.toMatchObject({ id: 1 })
+    expect(findOneCalls).toEqual([{ where: { snowflake: '0' } }])
   })
 
   it('throws when routeKeyName is not a column of the model, so no caller string reaches the lookup', async () => {
@@ -377,6 +554,118 @@ describe('Model.findByRouteKey', () => {
         `[@laratype/database] User.routeKeyName ${JSON.stringify(routeKeyName)} is not a column of the model`,
       )
     }
+  })
+})
+
+describe('Model.findByRouteKey over a real TypeORM findOne', () => {
+  /**
+   * A mysql DataSource builds metadata and SQL without opening a connection (mysql2 is a devDependency). The stubbed
+   * repository's `findOne` applies TypeORM's manager semantics to a real `SelectQueryBuilder`: the metadata name is
+   * the alias, `take: 1` is added and eager relations are joined. It answers a row from memory, so a test can read the
+   * SQL the lookup would run without a database.
+   */
+  const realModel = async (eager: boolean) => {
+    let toCalls = 0
+    const counting: ValueTransformer = {
+      to: (value: unknown) => {
+        toCalls += 1
+        return typeof value === 'string' ? Number(value.replace('item-', '')) : value
+      },
+      from: (value: unknown) => (value === null || value === undefined ? value : `item-${value}`),
+    }
+    const Author = new EntitySchema({
+      name: 'Author',
+      tableName: 'author',
+      columns: {
+        id: { type: Number, primary: true, generated: true },
+        name: { type: String },
+      },
+    })
+    const Post = new EntitySchema({
+      name: 'Post',
+      tableName: 'post',
+      columns: {
+        id: { type: Number, primary: true, generated: true },
+        serial: { type: Number, transformer: counting },
+      },
+      ...(eager
+        ? {
+            relations: {
+              author: { type: 'many-to-one' as const, target: 'Author', eager: true, joinColumn: true },
+            },
+          }
+        : {}),
+    })
+    const dataSource = new DataSource({
+      type: 'mysql',
+      host: 'localhost',
+      username: 'laratype',
+      password: 'laratype',
+      database: 'laratype',
+      entities: [Post, Author],
+      synchronize: false,
+    })
+    // buildMetadatas is protected; the query builder needs the metadata, not a connection
+    await (dataSource as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas()
+    const repository = dataSource.getRepository<Row>('Post')
+    const lookups: SelectQueryBuilder<Row>[] = []
+    class PostModel extends Model {
+      declare id: number
+      static override readonly routeKeyName = 'serial'
+    }
+    ;(PostModel as any).getRepository = () => ({
+      metadata: repository.metadata,
+      // EntityManager.findOne: the metadata name is the alias, and `take: 1` is added to the find options
+      findOne: async (findOptions: any) => {
+        const query = repository.createQueryBuilder(repository.metadata.name)
+          .setFindOptions({ ...findOptions, take: 1 })
+        lookups.push(query)
+        return eager
+          ? { id: 1, serial: 'item-42', author: { id: 7, name: 'Ada' } }
+          : { id: 1, serial: 'item-42' }
+      },
+    })
+    return { PostModel, lookups, toCalls: () => toCalls }
+  }
+
+  it('keeps the eager relation and the single-row semantics of findOne for a transformed key', async () => {
+    const { PostModel, lookups, toCalls } = await realModel(true)
+    await expect(PostModel.findByRouteKey('item-42')).resolves.toMatchObject({
+      id: 1,
+      serial: 'item-42',
+      author: { id: 7, name: 'Ada' },
+    })
+    expect(toCalls()).toBe(1)
+    expect(lookups).toHaveLength(1)
+
+    const query = lookups[0]!
+    const [sql, parameters] = query.getQueryAndParameters()
+    // findOne's eager join is in the SQL, its `take: 1` is on the builder, and the Raw operator binds 42 once
+    expect(sql).toContain('LEFT JOIN `author` `Post__author`')
+    expect(parameters).toEqual([42])
+    expect(query.expressionMap.take).toBe(1)
+    expect(toCalls()).toBe(1)
+  })
+
+  it('builds the same eager-relation lookup as findOne with a plain key', async () => {
+    const { PostModel, lookups } = await realModel(true)
+    await PostModel.findByRouteKey('item-42')
+    await PostModel.findOne({ where: { id: 1 } })
+    const joinClause = (sql: string) => sql.slice(sql.indexOf(' LEFT JOIN '), sql.indexOf(' WHERE '))
+    const [transformed, plain] = lookups.map((query) => query.getQueryAndParameters()[0]!)
+    expect(joinClause(transformed!)).toContain('LEFT JOIN `author`')
+    expect(joinClause(transformed!)).toBe(joinClause(plain!))
+  })
+
+  it('sends LIMIT 1 for a transformed route key, as findOne does', async () => {
+    const { PostModel, lookups, toCalls } = await realModel(false)
+    await PostModel.findByRouteKey('item-42')
+    const [sql, parameters] = lookups[0]!.getQueryAndParameters()
+    const formatted = format(sql, parameters)
+    expect(formatted).toContain('`Post`.`serial` = 42')
+    expect(formatted).toContain('LIMIT 1')
+    expect(parameters).toEqual([42])
+    expect(toCalls()).toBe(1)
   })
 })
 
@@ -427,6 +716,24 @@ describe('Model.getRouteKey', () => {
     expect(user.getRouteKey()).toBe('item-42')
   })
 
+  it('refuses a non-scalar value a transformer.from hydrated, with a ModelError', () => {
+    // A transformer.from() can return an object; a route consumer cannot serialize it, so getRouteKey() refuses it
+    const { User } = model({ routeKeyName: 'brokenFrom' })
+    for (const [value, type] of [
+      [{ id: 1 }, 'object'],
+      [[1], 'array'],
+      [Number.NaN, 'non-finite number'],
+      [Number.POSITIVE_INFINITY, 'non-finite number'],
+      [Buffer.from('a'), 'object'],
+      [new Uint8Array([1]), 'object'],
+    ] as const) {
+      const user = Object.assign(new User(), { brokenFrom: value })
+      expect(() => user.getRouteKey(), type).toThrow(
+        `[@laratype/database] User route key "brokenFrom" is not a string, number, bigint, boolean or Date, got ${type}`,
+      )
+    }
+  })
+
   it('refuses a float or decimal route key as a configuration error', () => {
     for (const routeKeyName of ['price', 'ratio']) {
       const { User } = model({ routeKeyName })
@@ -448,9 +755,9 @@ describe('Model.getRouteKey', () => {
       '[@laratype/database] User has no route key "slug" loaded: select the column before getRouteKey()',
     )
 
-    for (const [routeKeyName, value] of [['id', 0], ['isActive', false], ['slug', '']] as const) {
+    for (const [routeKeyName, value] of [['id', 0], ['isActive', false], ['slug', ''], ['snowflake', 0n]] as const) {
       const { User } = model({ routeKeyName })
-      const user = Object.assign(new User(), { id: 0, isActive: false, slug: '' })
+      const user = Object.assign(new User(), { id: 0, isActive: false, slug: '', snowflake: 0n })
       expect(user.getRouteKey()).toBe(value)
     }
   })

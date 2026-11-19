@@ -7,6 +7,7 @@ import {
   type FindManyOptions,
   type FindOneOptions,
   type FindOptionsWhere,
+  Raw,
   type SaveOptions,
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
@@ -15,7 +16,9 @@ import {
   type ColumnMetadata,
   formatValue,
   isScalarValue,
+  isValidDate,
   ownColumn,
+  type ScalarValue,
   transformTo,
   valueType,
 } from "./internal";
@@ -119,6 +122,9 @@ const errors = {
   findOrFailId: (model: string, value: unknown): string =>
     `[@laratype/database] ${model}.findOrFail() takes a string, number or bigint primary key,`
     + ` got ${valueType(value)}`,
+  routeKeyNotScalar: (model: string, name: string, value: unknown): string =>
+    `[@laratype/database] ${model} route key ${formatValue(name)} is not a string, number, bigint, boolean or Date,`
+    + ` got ${valueType(value)}`,
 };
 
 /**
@@ -174,19 +180,57 @@ const convertRouteKey = (type: ColumnType, key: string): string | number | boole
 };
 
 /**
- * Looks the model up by an already converted route key, binding it as a parameter. The facade builds the condition
- * so TypeORM's object form cannot apply `transformer.to` a second time (ModelQueryBuilder › where).
+ * A value `getRouteKey()` can return and a route consumer can serialize. It is narrower than `isScalarValue()`: a
+ * route key is never a `Buffer`, and a non-finite number cannot route.
+ */
+const isRouteKeyValue = (value: unknown): value is string | number | bigint | boolean | Date =>
+  typeof value === "string" ||
+  typeof value === "bigint" ||
+  typeof value === "boolean" ||
+  (typeof value === "number" && Number.isFinite(value)) ||
+  isValidDate(value);
+
+/**
+ * Applies the plain path's column-type rule to a value `transformer.to` returned (docs/v1/database.md › BindableModel):
+ * a string goes through `convertRouteKey()`, and a value TypeORM already typed (a number, `Date` or boolean) must match
+ * the column's class, so a malformed uuid or a non-integer never reaches the driver. `undefined` is a miss.
+ */
+const checkRouteKeyType = (type: ColumnType, value: ScalarValue): ScalarValue | undefined => {
+  if (typeof value === "string") {
+    return convertRouteKey(type, value);
+  }
+  if (NUMERIC_TYPES.includes(type)) {
+    return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
+  }
+  if (DATE_TYPES.includes(type)) {
+    return isValidDate(value) ? value : undefined;
+  }
+  if (BOOLEAN_TYPES.includes(type)) {
+    return typeof value === "boolean" ? value : undefined;
+  }
+  if (UUID_TYPES.includes(type) || TIME_TYPES.includes(type)) {
+    // A uuid and a MySQL TIME are strings on the wire: a number or a Date from a transformer is not the column's type
+    return undefined;
+  }
+  return value;
+};
+
+/**
+ * Looks the model up by an already converted route key through `findOne`, so a transformed key hydrates the same shape
+ * as a plain key: eager relations and the single row (TypeORM's `take: 1`). The `raw` operator carries the value as a
+ * named parameter. TypeORM 0.3.26 applies `transformer.to` to a find operator's value, but a `Raw` built from a
+ * generator has an empty value list, so the column's transformer does not run a second time (Model › findByRouteKey).
  */
 const findOneByRouteKey = <T extends BaseEntity>(
   model: ModelClass<T>,
-  column: ColumnMetadata,
-  value: unknown,
+  property: string,
+  value: ScalarValue,
 ): Promise<T | null> => {
-  const query = model.getRepository().createQueryBuilder();
-  // The alias and property come from the entity metadata, never from the caller's path string
-  return query.where(`${query.alias}.${column.propertyName} = :routeKey`, { routeKey: value }).getOne() as Promise<
-    T | null
-  >;
+  const options = {
+    // The alias path comes from the entity metadata and TypeORM's query alias, never from the caller's path string
+    where: { [property]: Raw((aliasPath) => `${aliasPath} = :routeKey`, { routeKey: value }) },
+  } as FindOneOptions<BaseEntity>;
+  return model.findOne(options) as Promise<T | null>;
 };
 
 const cast = (input: Record<string, any>, passwordField: string) => {
@@ -315,8 +359,9 @@ export default class Model extends BaseEntity {
 
   /**
    * Looks a model up by its route key (docs/v1/database.md › BindableModel): `routeKeyName`, or the primary key.
-   * The raw path string is converted to the route key column's type first (or through the column's transformer),
-   * and a key that cannot convert resolves `null`.
+   * The raw path string is converted to the route key column's type first (or through the column's transformer, whose
+   * result is checked against the column's type), and a key that cannot convert or a transformer that throws resolves
+   * `null`. The lookup goes through `findOne`, so eager relations and a single row match a plain key.
    */
   static findByRouteKey<T extends BaseEntity>(
     this: ModelClass<T>,
@@ -325,17 +370,32 @@ export default class Model extends BaseEntity {
 
   static async findByRouteKey(key: string): Promise<any> {
     const { property, column } = routeKeyColumn(this);
-    // A transformer owns the conversion: the path string is what getRouteKey() emitted, so transformer.to takes it
-    const converted = column.transformer === undefined
-      ? convertRouteKey(column.type, key)
-      : transformTo(column.transformer, key);
-    if (converted === undefined || !isScalarValue(converted)) {
+    // The route key is a path string: a JS caller's other type is a miss, never a coercion or a throw
+    if (typeof key !== "string") {
+      return null;
+    }
+    let routeKey: ScalarValue | undefined;
+    try {
+      // A transformer owns the conversion: the path string is what getRouteKey() emitted, so transformer.to takes it
+      const converted = column.transformer === undefined
+        ? convertRouteKey(column.type, key)
+        : transformTo(column.transformer, key);
+      if (converted === undefined || !isScalarValue(converted)) {
+        return null;
+      }
+      // A transformed value is in the column's database representation, so the plain path's type rule applies to it
+      routeKey = checkRouteKeyType(column.type, converted);
+    } catch {
+      // A throwing transformer (or a value whose scalar check throws, such as a hostile Proxy) is a 404, not a 500
+      return null;
+    }
+    if (routeKey === undefined) {
       return null;
     }
     if (column.transformer === undefined) {
-      return this.findOne({ where: { [property]: converted } } as FindOneOptions<Model>);
+      return this.findOne({ where: { [property]: routeKey } } as FindOneOptions<Model>);
     }
-    return findOneByRouteKey(this, column, converted);
+    return findOneByRouteKey(this, property, routeKey);
   }
 
   /**
@@ -408,7 +468,8 @@ export default class Model extends BaseEntity {
   /**
    * The value of this model's route key (docs/v1/database.md › BindableModel): `static routeKeyName`, or the primary
    * key, in the type the column declares. The column must be loaded: a partial select that omits it throws instead of
-   * emitting an unusable `undefined`.
+   * emitting an unusable `undefined`. A value a transformer's `from` hydrated as an object, or any other non-route-key
+   * value, throws too.
    */
   getRouteKey(): string | number | bigint | boolean | Date {
     const model = this.constructor as typeof Model;
@@ -418,6 +479,10 @@ export default class Model extends BaseEntity {
     if (value === undefined || value === null) {
       throw new ModelError(errors.missingRouteKey(metadata.targetName, property));
     }
-    return value as string | number | bigint | boolean | Date;
+    // A transformer.from() can hydrate an object, which no route consumer can serialize: refuse it at the source
+    if (!isRouteKeyValue(value)) {
+      throw new ModelError(errors.routeKeyNotScalar(metadata.targetName, property, value));
+    }
+    return value;
   }
 }
