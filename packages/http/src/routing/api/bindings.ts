@@ -1,5 +1,5 @@
 import { errors } from "@laratype/contract";
-import { getPattern, splitRoutingPath } from "hono/utils/url";
+import { checkOptionalParameter, getPattern, splitRoutingPath } from "hono/utils/url";
 import type { BindableModelClass, Binder, Bindings } from "./proof";
 import { fail } from "./fail";
 
@@ -126,19 +126,49 @@ export const pathParamNames = (path: string): ReadonlySet<string> => {
 };
 
 /**
+ * The param names of a path's segments of one kind, as `pathParamNames` reads them: the `?` of an optional param is not
+ * part of the name.
+ */
+const paramNamesOfKind = (path: string, optional: boolean): ReadonlySet<string> => {
+  const names = new Set<string>();
+  for (const segment of splitRoutingPath(path)) {
+    if (segment.endsWith("?") !== optional) continue;
+    const pattern = getPattern(optional ? segment.slice(0, -1) : segment);
+    if (pattern !== null && pattern !== "*") names.add(pattern[1]);
+  }
+  return names;
+};
+
+/** The names of the optional segments (`:name?`) of a path, whether Hono expands the path or registers it as written. */
+const optionalParamNames = (path: string): ReadonlySet<string> => paramNamesOfKind(path, true);
+
+/**
+ * The names of the required segments (`:name`) of a path. A name that also occurs optional counts as required: the path
+ * types intersect the two (`PathParams`), so a handler sees it as required and an expansion that omits it breaks the type.
+ */
+const requiredParamNames = (path: string): ReadonlySet<string> => paramNamesOfKind(path, false);
+
+/**
  * The path params Hono registers under another name than their binding key: `checkOptionalParameter` expands a path that
  * ends with `?`, stripping the `?` from every optional segment (`/posts/:id?` registers `/posts` and `/posts/:id`), but
  * any other path is registered as written, so `/:post?/details` keeps `post?` and a binding on `post` would never run.
  */
-export const nonTrailingOptionalParamNames = (path: string): ReadonlySet<string> => {
-  const names = new Set<string>();
-  if (path.endsWith("?")) return names;
-  for (const segment of splitRoutingPath(path)) {
-    if (!segment.endsWith("?")) continue;
-    const pattern = getPattern(segment.slice(0, -1));
-    if (pattern !== null && pattern !== "*") names.add(pattern[1]);
-  }
-  return names;
+export const nonTrailingOptionalParamNames = (path: string): ReadonlySet<string> =>
+  path.endsWith("?") ? new Set<string>() : optionalParamNames(path);
+
+/**
+ * One route Hono registers for a path it expands that omits a required param: `checkOptionalParameter` turns a path
+ * ending with `?` into each prefix ending at an optional segment (stripping the `?`s), so `/mixed/:first?/:post/:last?`
+ * is also served as `/mixed` and `/mixed/:first`, without `post`. A binding on `post` would resolve `undefined` on those
+ * routes where the proof promises the model. Returns `undefined` when Hono registers the path as written, when the param
+ * is optional only (an absent optional param is `undefined` by the proof too: `BoundParams`), or when every expansion
+ * carries it (`/a/:post/:opt?`) — those layouts stay valid.
+ */
+export const expandedPathWithoutParam = (path: string, param: string): string | undefined => {
+  if (!requiredParamNames(path).has(param)) return undefined;
+  const expansions = checkOptionalParameter(path);
+  if (expansions === null) return undefined;
+  return expansions.find((expansion) => !pathParamNames(expansion).has(param));
 };
 
 /**

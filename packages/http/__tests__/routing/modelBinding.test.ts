@@ -10,7 +10,7 @@ import { defineApi, defineContract, defineScope, endpoint } from '@laratype/cont
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, RequestKernel, ResponseKernel, Route, defineMiddleware } from '../../src/index'
 import type { Ctx } from '../../src/index'
-import { pathParamNames } from '../../src/routing/api/bindings'
+import { expandedPathWithoutParam, pathParamNames } from '../../src/routing/api/bindings'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -296,6 +296,23 @@ describe('pathParamNames', () => {
   })
 })
 
+describe('expandedPathWithoutParam', () => {
+  it("reads Hono's expansions: a required param after an optional one is reported, optional-only and required-first ones are not", () => {
+    // `/mixed` is the first expansion of the CodeRabbit path that has no `post`
+    expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'post')).toBe('/mixed')
+    // An optional param may be absent: the proof types it `| undefined`
+    expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'first')).toBeUndefined()
+    expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'last')).toBeUndefined()
+    // Every expansion carries a required param that precedes the optionals
+    expect(expandedPathWithoutParam('/a/:post/:opt?', 'post')).toBeUndefined()
+    expect(expandedPathWithoutParam('/a/:post/:opt?', 'opt')).toBeUndefined()
+    // A name that also occurs required counts as required: PathParams intersects the two, so a handler sees a string
+    expect(expandedPathWithoutParam('/dup/:post?/:post/:opt?', 'post')).toBe('/dup')
+    // A path Hono registers as written has one registration, the path itself
+    expect(expandedPathWithoutParam('/x/:post?/details', 'post')).toBeUndefined()
+  })
+})
+
 describe('scope bindings', () => {
   it('the same bound builder for the scope and its contracts passes', async () => {
     const scoped = mount(Route.api(appApi, (r) => {
@@ -491,6 +508,46 @@ describe('r.bind() validation at Route.api', () => {
       '[@laratype/http] Route.api: r.bind(): `post` binds `:post?` in /slashed/:post?/, where Hono registers it as `post?`: ' +
         'it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the `?`.',
     )
+  })
+
+  it('refuses a required binding after an optional param, and binds the expanded layouts that carry it', async () => {
+    // CodeRabbit round 4: /mixed/:first?/:post/:last? is also registered as /mixed and /mixed/:first, which have no
+    // `post`, so a binding on it would resolve `undefined` where the proof promises Post
+    const mixed = defineContract()({ show: endpoint.get('/:first?/:post/:last?').response(anything) })
+    const mixedApi = defineApi({ mixed: { contract: mixed, path: '/mixed', scopes: [] } })
+    class MixedController extends Controller {
+      show(ctx: Ctx<typeof mixed.show, { params: { first: Post | undefined; post: Post; last: Post | undefined } }>) {
+        return { first: ctx.params.first?.slug ?? null, post: ctx.params.post.slug, last: ctx.params.last?.slug ?? null }
+      }
+    }
+    expect(() => Route.api(mixedApi, (r) => [r.bind({ post: Post }).contract(mixed, MixedController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `post` binds a required param that follows an optional one in /mixed/:first?/:post/:last?: ' +
+        'Hono also registers `/mixed`, without `post`, so the binding would give `undefined` where the proof promises a model. ' +
+        'Fix: move `post` before the optional params, or drop their `?`.',
+    )
+
+    // The optional bindings of the same layout stay valid: the proof types an absent one `| undefined`
+    class OptionalMixedController extends Controller {
+      show(ctx: Ctx<typeof mixed.show, { params: { first: Post | undefined; last: Post | undefined } }>) {
+        return { first: ctx.params.first?.slug ?? null, last: ctx.params.last?.slug ?? null }
+      }
+    }
+    const optionalOnly = mount(Route.api(mixedApi, (r) => [r.bind({ first: Post, last: Post }).contract(mixed, OptionalMixedController)]))
+    expect(await (await optionalOnly.request('/mixed')).json()).toEqual({ first: null, last: null })
+    expect(await (await optionalOnly.request('/mixed/one')).json()).toEqual({ first: 'one', last: null })
+    expect(await (await optionalOnly.request('/mixed/one/two/three')).json()).toEqual({ first: 'one', last: 'three' })
+
+    // /a/:post/:opt?: every expansion carries the required `post`, and the trailing optional binds when present
+    const trailing = defineContract()({ show: endpoint.get('/:post/:opt?').response(anything) })
+    const trailingApi = defineApi({ trailing: { contract: trailing, path: '/a', scopes: [] } })
+    class TrailingController extends Controller {
+      show(ctx: Ctx<typeof trailing.show, { params: { post: Post; opt: Post | undefined } }>) {
+        return { post: ctx.params.post.slug, opt: ctx.params.opt?.slug ?? null }
+      }
+    }
+    const routes = mount(Route.api(trailingApi, (r) => [r.bind({ post: Post, opt: Post }).contract(trailing, TrailingController)]))
+    expect(await (await routes.request('/a/one')).json()).toEqual({ post: 'one', opt: null })
+    expect(await (await routes.request('/a/one/two')).json()).toEqual({ post: 'one', opt: 'two' })
   })
 
   it('binds a null-prototype map', async () => {

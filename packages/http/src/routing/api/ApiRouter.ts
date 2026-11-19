@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBindingMap, copyBindingMap, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
+import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 
@@ -348,6 +348,16 @@ const checkBindingKeys = (
       fail(
         `r.bind(): \`${midPath}\` binds \`:${midPath}?\` in ${route.path}, where Hono registers it as \`${midPath}?\`: ` +
           `it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the \`?\`.`,
+      );
+    }
+    // A path Hono expands is registered as every prefix ending at an optional segment: a required binding after an
+    // optional param is missing from a shorter registration, where it would resolve `undefined` (CodeRabbit #379 CR4)
+    for (const key of Object.keys(route.bindings)) {
+      const expansion = expandedPathWithoutParam(route.path, key);
+      if (expansion === undefined) continue;
+      fail(
+        `r.bind(): \`${key}\` binds a required param that follows an optional one in ${route.path}: Hono also registers \`${expansion}\`, without \`${key}\`, ` +
+          `so the binding would give \`undefined\` where the proof promises a model. Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
       );
     }
     const forContract = contractParams.get(name) ?? new Set<string>();
