@@ -94,6 +94,17 @@ function nearestExisting(target: string): string | undefined {
 }
 
 /**
+ * The output-path diagnostic for a target that resolves outside the project. `rel` and `real` are `JSON.stringify`-quoted
+ * like every other name a `ScanError` echoes, so a control character or ANSI escape never reaches the terminal raw.
+ */
+export const outputPathDiagnostic = (rel: string, real?: string) =>
+  `the output path ${JSON.stringify(rel)} resolves outside the project${real === undefined ? "" : ` (${JSON.stringify(real)})`}: a junction or symlink under the output folder must stay inside it`;
+
+/** The output-path diagnostic for a generated file whose own path is a link: the write would replace the link's target. */
+export const outputLinkDiagnostic = (rel: string) =>
+  `the output path ${JSON.stringify(rel)} is a symbolic link or junction; refusing to write through it`;
+
+/**
  * Refuses a write or delete through a junction or symlink that leaves the project: the nearest existing parent of
  * `target`, realpath-resolved, must stay inside `projectReal`. One `ScanError` names the path; a caller that checks
  * every target first writes nothing at all. The realpath also catches a link whose name still looks inside the project.
@@ -109,15 +120,45 @@ function checkOutputPath(projectReal: string, projectDir: string, target: string
     }
   }
   if (real !== undefined && (real === projectReal || inside(projectReal, real))) return;
-  const rel = slash(relative(projectDir, target));
-  const found = real === undefined ? "" : ` ("${real}")`;
-  throw new ScanError(`the output path "${rel}" resolves outside the project${found}: a junction or symlink under the output folder must stay inside it`);
+  throw new ScanError(outputPathDiagnostic(slash(relative(projectDir, target)), real));
+}
+
+/** Refuses `path` itself being a symbolic link or junction, naming it relative to the project. */
+function checkLink(projectDir: string, path: string): void {
+  if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new ScanError(outputLinkDiagnostic(slash(relative(projectDir, path))));
+  }
+}
+
+/**
+ * Refuses a link as any existing folder on the way to `target`, the project root excluded: every `--out` segment (a
+ * multi-segment `build/gen` included), its `types` folder, and any folder below. A linked folder that points inside
+ * the project would otherwise pass the realpath check and make the writer and `removeStaleTypes` touch that folder.
+ */
+function checkOutputFolderLinks(projectDir: string, target: string): void {
+  let current = projectDir;
+  for (const segment of relative(projectDir, dirname(target)).split(/[\\/]+/)) {
+    if (segment === "") continue;
+    current = join(current, segment);
+    checkLink(projectDir, current);
+  }
+}
+
+/**
+ * Refuses a generated file whose own path is a symbolic link or junction, even one that stays inside the project:
+ * the write would follow it and replace the link's target (a file symlink to `package.json`, say) with generated text.
+ * `checkOutputPath` runs last, so a link whose folder leaves the project is still refused if one slips through.
+ */
+function checkGeneratedTarget(projectReal: string, projectDir: string, target: string): void {
+  if (inside(projectDir, target)) checkOutputFolderLinks(projectDir, target);
+  checkLink(projectDir, target);
+  checkOutputPath(projectReal, projectDir, target);
 }
 
 /** Writes a file only when its content differs, so an unchanged tree touches nothing (no watcher event). */
 export const writeGenerated = (projectDir: string, file: GeneratedFile): boolean => {
   const target = join(projectDir, file.path);
-  checkOutputPath(realpathSync(projectDir), projectDir, target);
+  checkGeneratedTarget(realpathSync(projectDir), projectDir, target);
   if (existsSync(target) && readFileSync(target, "utf8") === file.content) return false;
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, file.content);
@@ -154,12 +195,15 @@ export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncRe
   // With `--root .` the output folder is inside the root: its generated files are not contracts
   const tree = scanTree(resolve(projectDir, root), base, [resolve(projectDir, outDir)]);
   const files = emitTree(tree, { root, outDir });
-  // Check the types folder and every target before any write or stale-file delete, so a junction or symlink planted
-  // under the output folder that points outside the project is refused with one diagnostic and nothing is touched.
+  // Check the output folders and every target before any write or stale-file delete, so a junction or symlink planted
+  // under the output folder that points outside the project, a linked output folder that points inside it, or a
+  // generated file that is itself a link, is refused with one diagnostic and nothing is touched.
   const projectReal = realpathSync(projectDir);
   const typesDir = join(projectDir, outDir, "types");
+  checkOutputFolderLinks(projectDir, typesDir);
+  checkLink(projectDir, typesDir);
   checkOutputPath(projectReal, projectDir, typesDir);
-  for (const file of files) checkOutputPath(projectReal, projectDir, join(projectDir, file.path));
+  for (const file of files) checkGeneratedTarget(projectReal, projectDir, join(projectDir, file.path));
   // $types.d.ts files of removed folders must not linger
   const removed = removeStaleTypes(typesDir, new Set(files.map((f) => resolve(projectDir, f.path))));
   const written = files.filter((file) => writeGenerated(projectDir, file)).map((file) => file.path);

@@ -7,7 +7,7 @@ import ts from "typescript";
 import { createServer } from "vite";
 import type { ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { laratypeApi } from "../../src/typegen";
+import { laratypeApi, syncContractTree } from "../../src/typegen";
 import type { ApiPluginApi } from "../../src/typegen";
 import { coalesce } from "../../src/typegen/plugin";
 import { ContractTypeWatch, ContractTypeWatchHost } from "../../src/typegen/watch";
@@ -524,8 +524,7 @@ describe("ContractTypeWatch", () => {
     events.emit("add", join(dir, "app/api/users.ts"));
     await watch.idle();
     expect(errors).toHaveLength(1);
-    expect(String(errors[0])).toContain('the output path ".laratype/types/app/api/users/[user]/$types.d.ts" resolves outside the project');
-    expect(String(errors[0])).toContain("a junction or symlink under the output folder must stay inside it");
+    expect(String(errors[0])).toContain('the output path ".laratype/types/app/api/users" is a symbolic link or junction; refusing to write through it');
     expect(readdirSync(outside)).toEqual([]);
     // checked before removeStaleTypes and the writes: the last good output is untouched
     expect(indexOf(dir)).toBe(index);
@@ -539,7 +538,7 @@ describe("ContractTypeWatch", () => {
     events.emit("add", join(dir, "app/api/users.ts"));
     await watch.idle();
     expect(errors).toHaveLength(1);
-    expect(String(errors[0])).toContain('the output path ".laratype/types" resolves outside the project');
+    expect(String(errors[0])).toContain('the output path ".laratype/types" is a symbolic link or junction; refusing to write through it');
     expect(readdirSync(outsideTypes)).toEqual([]);
     expect(indexOf(dir)).toBe(index);
 
@@ -555,7 +554,104 @@ describe("ContractTypeWatch", () => {
     events.emit("add", join(dir, "app/api/users.ts"));
     await watch.idle();
     expect(errors).toHaveLength(1);
-    expect(String(errors[0])).toContain('the output path ".laratype/types" resolves outside the project');
+    expect(String(errors[0])).toContain('the output path ".laratype/types" is a symbolic link or junction; refusing to write through it');
+    watch.dispose();
+  });
+
+  it("refuses .laratype, .laratype/types or an --out segment that is a link inside the project, and deletes and writes nothing", (ctx) => {
+    const dir = project("folder-link");
+    const src = join(dir, "src");
+    const kept = join(src, "x", "$types.d.ts");
+    mkdirSync(join(src, "x"), { recursive: true });
+    writeFileSync(kept, "hand-written\n");
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    const linkMessage = (path: string) => `the output path "${path}" is a symbolic link or junction; refusing to write through it`;
+
+    // .laratype/types itself as the link to a project folder: removeStaleTypes would delete src/x/$types.d.ts
+    mkdirSync(join(dir, ".laratype"), { recursive: true });
+    try {
+      symlinkSync(src, join(dir, ".laratype/types"), linkType);
+    } catch {
+      ctx.skip(`the OS refused to create a ${linkType} as .laratype/types`);
+      return;
+    }
+    expect(() => syncContractTree({ projectDir: dir })).toThrow(linkMessage(".laratype/types"));
+    expect(readFileSync(kept, "utf8")).toBe("hand-written\n");
+    expect(existsSync(join(src, "x"))).toBe(true);
+    expect(existsSync(join(src, "api"))).toBe(false);
+
+    // .laratype itself as the link
+    rmSync(join(dir, ".laratype/types"), { recursive: true, force: true });
+    rmSync(join(dir, ".laratype"), { recursive: true, force: true });
+    try {
+      symlinkSync(src, join(dir, ".laratype"), linkType);
+    } catch {
+      ctx.skip(`the OS refused to create a ${linkType} as .laratype`);
+      return;
+    }
+    expect(() => syncContractTree({ projectDir: dir })).toThrow(linkMessage(".laratype"));
+    expect(readFileSync(kept, "utf8")).toBe("hand-written\n");
+    expect(existsSync(join(src, "api"))).toBe(false);
+
+    // A multi-segment --out: every segment is checked, so `build` as the link is refused before `gen` exists
+    rmSync(join(dir, ".laratype"), { recursive: true, force: true });
+    try {
+      symlinkSync(src, join(dir, "build"), linkType);
+    } catch {
+      ctx.skip(`the OS refused to create a ${linkType} as build`);
+      return;
+    }
+    expect(() => syncContractTree({ projectDir: dir, outDir: "build/gen" })).toThrow(linkMessage("build"));
+    expect(readFileSync(kept, "utf8")).toBe("hand-written\n");
+    expect(existsSync(join(src, "gen"))).toBe(false);
+  });
+
+  it("refuses a generated file that is itself a symlink, even one that points inside the project", async (ctx) => {
+    const dir = project("target-link");
+    const { api } = await opened(dir);
+    const packageJson = join(dir, "package.json");
+    const packageText = '{"name":"app","private":true}\n';
+    writeFileSync(packageJson, packageText);
+    const target = typeFile(dir, "app/api");
+    rmSync(target);
+    try {
+      // A file symlink is a Windows privilege (developer mode or the symlink right); the folder junction test above
+      // stays the case that must run there (condition on #142's checklist a).
+      symlinkSync(packageJson, target, "file");
+    } catch {
+      ctx.skip("the OS refused to create a file symlink (a Windows privilege)");
+      return;
+    }
+    const before = indexOf(dir);
+    const events = fakeEvents();
+    const errors: unknown[] = [];
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0, onError: (e) => errors.push(e) });
+
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain(
+      'the output path ".laratype/types/app/api/$types.d.ts" is a symbolic link or junction; refusing to write through it',
+    );
+    // the link's target is a project file: writing through the link would have replaced it with generated text
+    expect(readFileSync(packageJson, "utf8")).toBe(packageText);
+    // checked before removeStaleTypes and the writes: the last good output is untouched
+    expect(indexOf(dir)).toBe(before);
+
+    // Without the link a normal regenerate runs again; the second run has nothing to write
+    rmSync(target);
+    errors.length = 0;
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toEqual([]);
+    expect(existsSync(target)).toBe(true);
+    const types = readFileSync(target, "utf8");
+    const mtime = statSync(target).mtimeMs;
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toEqual([]);
+    expect(readFileSync(target, "utf8")).toBe(types);
+    expect(statSync(target).mtimeMs).toBe(mtime);
     watch.dispose();
   });
 
