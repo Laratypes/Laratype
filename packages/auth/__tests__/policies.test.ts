@@ -215,6 +215,12 @@ describe('Gate.allows: policies', () => {
     expect(spoofed.constructor).toBe(OtherPost)
     expect(await allows(user, 'update', spoofed)).toBe(true)
     expect(calls).toEqual([[user, spoofed]])
+    // policyFor() reads the prototype too, and takes only a class or an object: primitives and a null prototype miss
+    expect(GateManager.current().policyFor(OtherPost)).toBe(OtherPolicy)
+    expect(GateManager.current().policyFor(spoofed)).toBe(Policy)
+    for (const subject of [null, undefined, 42, 'post', Symbol('post'), { length: 1e9 }, Object.create(null)]) {
+      expect(GateManager.current().policyFor(subject)).toBeUndefined()
+    }
 
     // The missing-policy diagnostic names the prototype's class too, not the own field's
     const spoofedComment = Object.assign(new Comment(), { constructor: PostModel })
