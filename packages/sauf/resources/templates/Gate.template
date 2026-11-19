@@ -3,7 +3,8 @@ import type User from "../models/User";
 
 /**
  * A gate for an ability with no model of its own (docs/v1/auth.md › Policies and gates): `true` allows, anything else
- * denies. Use the imported gate value, not its name: `import {{GateValue}} from "{{GateImportPath}}"`, then
- * `Gate.allows(user, {{GateValue}}, target)`; `Gate.authorize()` answers the 403 instead.
+ * denies. Use the imported gate value, not its name: `import gateAbility from "{{GateImportPath}}"`, then
+ * `Gate.allows(user, gateAbility, target)`; `Gate.authorize()` answers the 403 instead. `gateAbility` keeps `Gate` for
+ * the framework class, even when the file is `Gate.ts`.
  */
 export default Gate.define("{{GateName}}", (user: User, target: User) => user.id === target.id);

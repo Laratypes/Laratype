@@ -1,11 +1,15 @@
 import MakeCommand from "../../utils/MakeCommand";
 import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
-/** `UpdateUserGate` -> `update-user`: the gate's name in the stub, kebab-case and without the class suffix. */
+/**
+ * `UpdateUserGate` -> `update-user` and `Update_UserGate` -> `update-user`: the gate's name in the stub, kebab-case and
+ * without the class suffix.
+ */
 const gateName = (file: string): string => {
   const name = file
     .replace(/Gate$/, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/_/g, "-")
     .toLowerCase();
   // A file called `Gate` keeps its name rather than writing `Gate.define("", ...)`
   return name || file.toLowerCase();
@@ -31,11 +35,10 @@ export default class MakeGateCommand extends MakeCommand {
 
     return names.map(name => {
       const destinationPath = `./${GENERATOR_FOLDERS.gate}/${name}.ts`;
-      // The exported value is the file name; the kebab name is the gate's diagnostic name and never a lookup key
-      const gateValue = this.getFileName(name);
+      // The kebab name is the gate's diagnostic name and never a lookup key; the usage comment imports the default
+      // value as a fixed local name, so a file called `Gate.ts` does not shadow the framework class
       const result = this.build(resourcePath, {
-        GateName: gateName(gateValue),
-        GateValue: gateValue,
+        GateName: gateName(this.getFileName(name)),
         GateImportPath: `../gates/${name}`,
       });
       this.publish(result, destinationPath);

@@ -1,6 +1,8 @@
 import type User from "../models/User";
 {{#if ModelName}}
+{{#unless ModelIsUser}}
 import type {{ModelName}} from "../models/{{ModelName}}";
+{{/unless}}
 {{/if}}
 
 {{#if ModelName}}
@@ -27,7 +29,7 @@ export default class {{PolicyName}} {
     return true;
   }
 
-  view(user: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean {
+  view(user: User{{#if ModelName}}, subject: {{ModelName}}{{/if}}): boolean {
     return true;
   }
 
@@ -35,19 +37,19 @@ export default class {{PolicyName}} {
     return true;
   }
 
-  update(user: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean {
+  update(user: User{{#if ModelName}}, subject: {{ModelName}}{{/if}}): boolean {
     return true;
   }
 
-  delete(user: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean {
+  delete(user: User{{#if ModelName}}, subject: {{ModelName}}{{/if}}): boolean {
     return true;
   }
 
-  restore(user: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean {
+  restore(user: User{{#if ModelName}}, subject: {{ModelName}}{{/if}}): boolean {
     return true;
   }
 
-  forceDelete(user: User{{#if ModelName}}, {{ParamName}}: {{ModelName}}{{/if}}): boolean {
+  forceDelete(user: User{{#if ModelName}}, subject: {{ModelName}}{{/if}}): boolean {
     return true;
   }
 
