@@ -7,6 +7,8 @@ import { Hash, Hasher } from '@laratype/support'
 /** sha256('secret') as 0.5 stored it. */
 const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b'
 const SCRYPT = /^\$scrypt\$N=16384,r=8,p=1\$[A-Za-z0-9+/]{22}==\$[A-Za-z0-9+/]{43}=$/
+/** Stored costs make() never wrote; the parser takes digits only, so NaN, Infinity and a negative cost never reach scrypt. */
+const FOREIGN_COSTS = ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2', 'N=NaN,r=8,p=1', 'N=16384,r=8,p=Infinity', 'N=-1,r=8,p=1']
 
 /** A Hasher whose make() is replaced, for the swap and fake tests. */
 const replacing = (make: (value: string) => string) =>
@@ -60,8 +62,7 @@ describe('Hasher', () => {
   it('refuses a stored hash at another cost without running scrypt', () => {
     const [, , , salt, key] = hasher.make('secret').split('$')
     const spy = vi.spyOn(crypto, 'scryptSync')
-    // Digits only: NaN, Infinity and a negative cost never reach scrypt
-    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2', 'N=NaN,r=8,p=1', 'N=16384,r=8,p=Infinity', 'N=-1,r=8,p=1']) {
+    for (const cost of FOREIGN_COSTS) {
       const other = `$scrypt$${cost}$${salt}$${key}`
       expect(hasher.check('secret', other)).toBe(false)
       expect(hasher.isHashed(other)).toBe(false)
@@ -134,7 +135,7 @@ describe('Hasher async methods', () => {
     const shortSalt = Buffer.from(salt, 'base64').subarray(0, 8).toString('base64')
     const shortKey = Buffer.from(key, 'base64').subarray(0, 16).toString('base64')
     const spy = vi.spyOn(crypto, 'scrypt')
-    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2', 'N=NaN,r=8,p=1', 'N=16384,r=8,p=Infinity', 'N=-1,r=8,p=1']) {
+    for (const cost of FOREIGN_COSTS) {
       expect(await hasher.checkAsync('secret', `$scrypt$${cost}$${salt}$${key}`)).toBe(false)
     }
     expect(await hasher.checkAsync('secret', `$scrypt$N=16384,r=8,p=1$${shortSalt}$${key}`)).toBe(false)

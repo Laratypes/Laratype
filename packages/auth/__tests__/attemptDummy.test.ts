@@ -12,6 +12,22 @@ const usingHasher = (hasher: Hasher) => {
   Facade.setFacadeApplication(app);
 };
 
+/** A plain object Hasher whose dummy carries its mark, so a check shows which object built the hash it checked. */
+const literalHasher = (mark: string) => {
+  const calls = { makes: [] as string[], checks: [] as [string, string][] };
+  const hasher = {
+    makeAsync: async (value: string) => {
+      calls.makes.push(value);
+      return `${mark}:${value}`;
+    },
+    checkAsync: async (value: string, hashed: string) => {
+      calls.checks.push([value, hashed]);
+      return hashed === `${mark}:${value}`;
+    },
+  } as unknown as Hasher;
+  return { hasher, calls };
+};
+
 /** A Hasher that records every check and derivation, so a test can count the scrypt work of a path. */
 class RecordingHasher extends Hasher {
   checks: [string, string][] = [];
@@ -242,7 +258,7 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(calls.checks).toHaveLength(2);
   });
 
-  it("answers a login null without a raw throw when every read on a Proxy Hasher throws", async () => {
+  it("answers null for a login without a raw throw when every read on a Proxy Hasher throws", async () => {
     // hasherKey(), makeAsync() and checkAsync() all throw on the read: the dummy check swallows it, the login answers
     const hostile = new Proxy({}, {
       get() {
@@ -255,23 +271,8 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
   });
 
   it("gives each object-literal Hasher its own dummy: their constructor is Object, not a class", async () => {
-    /** A plain object Hasher whose dummy carries its mark, so a check shows which object built the hash it checked. */
-    const literal = (mark: string) => {
-      const calls = { makes: [] as string[], checks: [] as [string, string][] };
-      const hasher = {
-        makeAsync: async (value: string) => {
-          calls.makes.push(value);
-          return `${mark}:${value}`;
-        },
-        checkAsync: async (value: string, hashed: string) => {
-          calls.checks.push([value, hashed]);
-          return hashed === `${mark}:${value}`;
-        },
-      } as unknown as Hasher;
-      return { hasher, calls };
-    };
-    const first = literal("first");
-    const second = literal("second");
+    const first = literalHasher("first");
+    const second = literalHasher("second");
     expect(first.hasher.constructor).toBe(Object);
     const { User } = fakeModel([]);
 
@@ -293,26 +294,11 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
   });
 
   it("builds a new dummy for each object literal a transient factory returns", async () => {
-    /** A plain object Hasher whose dummy carries its mark, as a literal factory returns. */
-    const literal = (mark: string) => {
-      const calls = { makes: [] as string[], checks: [] as [string, string][] };
-      const hasher = {
-        makeAsync: async (value: string) => {
-          calls.makes.push(value);
-          return `${mark}:${value}`;
-        },
-        checkAsync: async (value: string, hashed: string) => {
-          calls.checks.push([value, hashed]);
-          return hashed === `${mark}:${value}`;
-        },
-      } as unknown as Hasher;
-      return { hasher, calls };
-    };
-    const built: ReturnType<typeof literal>[] = [];
+    const built: ReturnType<typeof literalHasher>[] = [];
     const app = new Container({ deps: depsRegistry });
     // A factory binding is transient: every resolve returns a new object literal, so its instance key never repeats
     app.bind(Hasher, () => {
-      const next = literal(`literal-${built.length}`);
+      const next = literalHasher(`literal-${built.length}`);
       built.push(next);
       return next.hasher;
     });
