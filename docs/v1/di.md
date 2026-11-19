@@ -612,7 +612,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 - Still on `globalThis`: `__laratype_config` and `__laratype_configs` (K1 [#152](https://github.com/Laratypes/Laratype/issues/152)), `__laratype_manifest` (the build manifest, [build.md](./build.md)) and `__laratype_env_file` (`EnvLoadServiceProvider`).
 
 ### Public API
-[`facade.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b](https://github.com/Laratypes/Laratype/blob/9fcf180c90f14c82afba0b2a143efe0a622ecf1b/packages/support/src/security/Hash.ts) (PR [#393](https://github.com/Laratypes/Laratype/pull/393)) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330) · [`RouteRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/RouteRegistry.ts) · [`ModelBindingRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/ModelBindingRegistry.ts)
+[`facade.ts` @ fdbf356a](https://github.com/Laratypes/Laratype/blob/fdbf356a78dbf4c48f0ba3a9d4e2c373e448649a/packages/core/src/facade.ts) · [`container.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/core/src/container.ts) · [`Hash.ts` @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b](https://github.com/Laratypes/Laratype/blob/9fcf180c90f14c82afba0b2a143efe0a622ecf1b/packages/support/src/security/Hash.ts) (PR [#393](https://github.com/Laratypes/Laratype/pull/393)) · [`Log.ts` @ a6fb351](https://github.com/Laratypes/Laratype/blob/a6fb35126870a994c63c326c19615562028ef31e/packages/log/src/support/Log.ts) · [`Auth.ts` @ ea7ab23](https://github.com/Laratypes/Laratype/blob/ea7ab23091a211129d1c95822eac5275eb66f74b/packages/auth/src/support/Auth.ts) (A4 PR #330) · [`RouteRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/RouteRegistry.ts) · [`ModelBindingRegistry.ts` @ a1de433](https://github.com/Laratypes/Laratype/blob/a1de433480d43380909731dbd120419f153aabdf/packages/support/src/registries/ModelBindingRegistry.ts) · [`ContextApi.ts` @ fdbf356a](https://github.com/Laratypes/Laratype/blob/fdbf356a78dbf4c48f0ba3a9d4e2c373e448649a/packages/support/src/context/ContextApi.ts) · [`serve.ts` @ fdbf356a](https://github.com/Laratypes/Laratype/blob/fdbf356a78dbf4c48f0ba3a9d4e2c373e448649a/packages/laratype/src/serve.ts)
 
 ```ts
 // @laratype/core
@@ -722,7 +722,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 - The `Mail` facade → [#170](https://github.com/Laratypes/Laratype/issues/170)
 
 ### Acceptance
-[#114 Done when](https://github.com/Laratypes/Laratype/issues/114) · [#115 Done when](https://github.com/Laratypes/Laratype/issues/115)
+[#114 Done when](https://github.com/Laratypes/Laratype/issues/114) · [#115 Done when](https://github.com/Laratypes/Laratype/issues/115) · [#318 Done when](https://github.com/Laratypes/Laratype/issues/318)
 
 ---
 
