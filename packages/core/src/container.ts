@@ -2,7 +2,7 @@ import { noDeps } from './deps'
 import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
 import { injectableScope, injectTokens } from './decorators'
-import { isAbstract } from './registry'
+import { hasOwnDeps, isAbstract } from './registry'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -36,7 +36,7 @@ export class DiError extends Error {
 
 interface Binding {
   scope: Scope
-  create: (container: Container) => unknown
+  create: (container: Container, requiredBy?: string) => unknown
   resolved?: { value: unknown }
   /** A singleton found to depend on a request-scoped key: cached per request scope from then on. */
   bubbled?: true
@@ -69,12 +69,169 @@ interface TreeState {
 const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('Symbol.asyncDispose')
 const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.for('Symbol.dispose')
 
-const keyName = (key: unknown): string =>
-  typeof key === 'function' ? key.name || '<anonymous class>' : String(key)
+/** A name on one line: control characters, line separators, bidi controls and backslashes are escaped. */
+const oneLine = (name: string): string =>
+  name.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+    char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+
+/** `<C>` for a message: a class name (one line, `<anonymous class>` when unreadable), else `String(key)`. */
+const keyName = (key: unknown): string => {
+  if (typeof key !== 'function') {
+    try {
+      return oneLine(String(key))
+    } catch {
+      return '<unprintable key>'
+    }
+  }
+  try {
+    const name = key.name
+    return name ? oneLine(typeof name === 'string' ? name : String(name)) : '<anonymous class>'
+  } catch {
+    return '<anonymous class>'
+  }
+}
 
 /** `<C> constructor param #<i>`, plus the param name in backticks when the metadata has one. */
 const paramLabel = (cls: Function, index: number, name: string | undefined): string =>
   `${keyName(cls)} constructor param #${index}` + (name ? ` \`${name}\`` : '')
+
+/** Skip whitespace and comments from `index`; returns the next code index. */
+const skipTrivia = (source: string, index: number): number => {
+  while (index < source.length) {
+    const char = source[index]
+    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') {
+      index++
+    } else if (char === '/' && source[index + 1] === '/') {
+      const end = source.indexOf('\n', index + 2)
+      index = end < 0 ? source.length : end + 1
+    } else if (char === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      index = end < 0 ? source.length : end + 2
+    } else {
+      return index
+    }
+  }
+  return index
+}
+
+/** Index after the string or template literal at `index`; `${…}` expressions are scanned too. */
+const skipQuoted = (source: string, index: number): number => {
+  const quote = source[index]
+  index++
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '\\') {
+      index += 2
+    } else if (char === quote) {
+      return index + 1
+    } else if (quote === '`' && char === '$' && source[index + 1] === '{') {
+      index = skipBalanced(source, index + 1, '{', '}')
+    } else {
+      index++
+    }
+  }
+  return index
+}
+
+/** Index after the `close` that matches the `open` at `index`, skipping strings and comments. */
+const skipBalanced = (source: string, index: number, open: string, close: string): number => {
+  let depth = 0
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else {
+      if (char === open) depth++
+      else if (char === close && --depth === 0) return index + 1
+      index++
+    }
+  }
+  return index
+}
+
+/** The raw top-level params between `start` (just after `(`) and `end` (the matching `)`). */
+const splitParams = (source: string, start: number, end: number): string[] => {
+  const params: string[] = []
+  let from = start
+  let depth = 0
+  let index = start
+  while (index < end) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else {
+      if (char === '(' || char === '[' || char === '{') depth++
+      else if (char === ')' || char === ']' || char === '}') depth--
+      else if (char === ',' && depth === 0) {
+        params.push(source.slice(from, index))
+        from = index + 1
+      }
+      index++
+    }
+  }
+  params.push(source.slice(from, end))
+  return params
+}
+
+/** Remove comments from a param, so a comment-only slot does not count. */
+const stripComments = (param: string): string =>
+  param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+
+/**
+ * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a
+ * readable class, has no own constructor, or puts a field before it (a known limit). `0` means no params, or a
+ * rest-only constructor, which the DI transform treats as no own constructor.
+ */
+const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
+  let source: string
+  try {
+    source = Function.prototype.toString.call(cls)
+  } catch {
+    return undefined
+  }
+  const header = /^\s*class\b[^{]*\{/.exec(source)
+  if (!header) return undefined
+  let index = skipTrivia(source, header[0].length)
+  if (!source.startsWith('constructor', index)) return undefined
+  index = skipTrivia(source, index + 'constructor'.length)
+  if (source[index] !== '(') return undefined
+  const close = skipBalanced(source, index, '(', ')')
+  if (source[close - 1] !== ')') return undefined
+  const params = splitParams(source, index + 1, close - 1)
+    .map((param) => stripComments(param).trim())
+    .filter((param) => param !== '')
+  return params.filter((param) => !param.startsWith('...')).length
+}
+
+/** Per-class cache, `null` for a source that cannot be read: HMR makes a new class object, so it re-reads there. */
+const leadingParamCounts = new WeakMap<Function, number | null>()
+
+const leadingConstructorParamCount = (cls: Function): number | undefined => {
+  if (leadingParamCounts.has(cls)) return leadingParamCounts.get(cls) ?? undefined
+  const count = readLeadingConstructorParamCount(cls) ?? null
+  leadingParamCounts.set(cls, count)
+  return count ?? undefined
+}
+
+// Same check as the fallback container warning of @laratype/http.
+const isProduction = (): boolean => {
+  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
+  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
+}
+
+/**
+ * `Cannot autowire` hints. Production `sauf build` runs no laratype:di transform yet (B2 #126, B4 #128), so only a
+ * factory binding can add the class. In dev both fixes exist, and the factory comes first because the plugin only
+ * reaches app code under the Vite root: a class outside the app (a third-party class) can only be bound.
+ */
+const noMetadataDevHint = ' Fix: bind it with a factory in a service provider `register()` of the app container'
+  + ' (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under `sauf dev`.'
+const noMetadataProductionHint = ' Fix: bind it with a factory in a service provider `register()` of the app container;'
+  + ' a production `sauf build` does not run the laratype:di plugin yet, so it cannot add the metadata.'
 
 /** `DiError` messages with fix hints (D5a). The first sentence of each is the D1 base message. */
 const errors = {
@@ -93,9 +250,10 @@ const errors = {
     `Cannot resolve ${param}: its type resolved to undefined at runtime.`
     + ' It is probably an interface/type imported without `import type`, or a circular import evaluated too early.'
     + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
-  noMetadata: (cls: Function): string =>
-    `Cannot autowire ${keyName(cls)}: its constructor takes ${cls.length} param(s) but no dependency metadata was found.`
-    + ' Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.',
+  noMetadata: (cls: Function, requiredBy?: string, paramCount = cls.length): string =>
+    `Cannot autowire ${keyName(cls)}: its constructor takes ${paramCount} param(s) but no dependency metadata was found.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + (isProduction() ? noMetadataProductionHint : noMetadataDevHint),
   conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
     `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
     + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
@@ -113,12 +271,6 @@ const bubbleWarning = (key: unknown, requestDep: unknown): string =>
 
 /** Keys already warned about, per process: a second copy of `@laratype/core` shares the set. */
 const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
-
-// Same check as the fallback container warning of @laratype/http.
-const isProduction = (): boolean => {
-  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
-  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
-}
 
 const warnBubbled = (key: unknown, requestDep: unknown): void => {
   if (isProduction()) return
@@ -278,8 +430,8 @@ export class Container {
       throw new DiError(`Cannot bind ${keyName(token)} to itself: only a class can be self-bound.`)
     }
     const create = isFactory(target as Concrete<unknown>)
-      ? (target as Factory<unknown>)
-      : (container: Container) => container.build(target as Newable)
+      ? (container: Container) => (target as Factory<unknown>)(container)
+      : (container: Container, requiredBy?: string) => container.build(target as Newable, requiredBy)
     this.bindings.set(token, { scope, create })
     return this
   }
@@ -292,11 +444,11 @@ export class Container {
       if (binding.resolved) return binding.resolved.value
       if (binding.scope === 'request') {
         // Built by the request scope, so its own bindings (per-request values) apply.
-        return this.fromRequestScope(key, binding, requiredBy, (scope) => scope.withCycleCheck(key, () => binding.create(scope)))
+        return this.fromRequestScope(key, binding, requiredBy, (scope) => scope.withCycleCheck(key, () => binding.create(scope, requiredBy)))
       }
       if (binding.scope === 'singleton') {
         // Built by its owner so a child's overrides never leak into a shared instance.
-        const build = () => owner.withCycleCheck(key, () => binding.create(owner))
+        const build = () => owner.withCycleCheck(key, () => binding.create(owner, requiredBy))
         if (binding.bubbled) return this.fromRequestScope(key, binding, requiredBy, build)
         const { value, requestDep } = this.buildSingleton(build)
         if (requestDep === undefined) {
@@ -306,20 +458,20 @@ export class Container {
         binding.bubbled = true
         return this.bubble(key, binding, value, requestDep)
       }
-      return this.withCycleCheck(key, () => binding.create(this))
+      return this.withCycleCheck(key, () => binding.create(this, requiredBy))
     }
     if (typeof key === 'function') {
       // The transform's own-class flag: a concrete subclass of an abstract class still autowires.
       if (isAbstract(key)) throw new DiError(errors.noBindingAbstract(key, requiredBy))
       const scope = injectableScope(key)
       if (scope === 'request') {
-        return this.fromRequestScope(key, key, requiredBy, (requestScope) => requestScope.withCycleCheck(key, () => requestScope.build(key as Newable)))
+        return this.fromRequestScope(key, key, requiredBy, (requestScope) => requestScope.withCycleCheck(key, () => requestScope.build(key as Newable, requiredBy)))
       }
       if (scope === 'singleton') {
         // Built by the root so a child's overrides never leak into the shared instance.
         let root: Container = this
         while (root.parent) root = root.parent
-        const build = () => root.withCycleCheck(key, () => root.build(key as Newable))
+        const build = () => root.withCycleCheck(key, () => root.build(key as Newable, requiredBy))
         if (root.bubbled.has(key)) return this.fromRequestScope(key, key, requiredBy, build)
         const cached = root.autowired.get(key)
         if (cached) return cached.value
@@ -331,7 +483,7 @@ export class Container {
         root.bubbled.add(key)
         return this.bubble(key, key, value, requestDep)
       }
-      return this.withCycleCheck(key, () => this.build(key as Newable))
+      return this.withCycleCheck(key, () => this.build(key as Newable, requiredBy))
     }
     throw new DiError(errors.noBinding(key, requiredBy))
   }
@@ -404,35 +556,55 @@ export class Container {
   }
 
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
-  protected build(cls: Newable): unknown {
+  protected build(cls: Newable, requiredBy?: string): unknown {
     const entry = this.deps.get(cls)
     if (!entry) {
-      if (cls.length > 0) throw new DiError(errors.noMetadata(cls))
+      // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
+      const params = cls.length > 0 ? cls.length : leadingConstructorParamCount(cls) ?? 0
+      if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
       return new cls()
     }
+    // An inherited entry with no slots does not cover a constructor whose defaults hide its params; an own entry
+    // was written by the transform from the same source, so it is authoritative.
+    if (entry.slots.length === 0 && cls.length === 0 && !hasOwnDeps(cls)) {
+      const params = leadingConstructorParamCount(cls) ?? 0
+      if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
+    }
     const injected = injectTokens(cls)
-    const args = entry.slots.map((slot, index) => {
+    const args: unknown[] = []
+    // A loop, not `map`: one less frame per level keeps a deep autowire chain off the call stack limit.
+    for (let index = 0; index < entry.slots.length; index++) {
+      const slot = entry.slots[index]
       const optional = entry.meta?.optional?.includes(index) ?? false
       const param = paramLabel(cls, index, entry.meta?.params[index])
       const override = injected?.get(index)
       if (typeof slot !== 'function') {
-        if (override !== undefined) return this.resolve(override, param)
-        if (optional) return undefined
-        throw new DiError(errors.unresolvedParam(param, slot.unresolved))
+        if (override !== undefined) {
+          args.push(this.resolve(override, param))
+        } else if (optional) {
+          args.push(undefined)
+        } else {
+          throw new DiError(errors.unresolvedParam(param, slot.unresolved))
+        }
+        continue
       }
       const dep = slot()
       if (override !== undefined) {
         if (dep !== undefined && dep !== override) {
           throw new DiError(errors.conflict(param, dep, override))
         }
-        return this.resolve(override, param)
+        args.push(this.resolve(override, param))
+        continue
       }
       if (dep === undefined) {
-        if (optional) return undefined
+        if (optional) {
+          args.push(undefined)
+          continue
+        }
         throw new DiError(errors.undefinedThunk(param))
       }
-      return this.resolve(dep, param)
-    })
+      args.push(this.resolve(dep, param))
+    }
     return new cls(...args)
   }
 

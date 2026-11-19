@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Container, DiError, Inject, __laratype_deps, depsRegistry, token } from '@laratype/core'
 import type { DepsEntry } from '@laratype/core'
 
@@ -54,14 +54,14 @@ describe('missing binding', () => {
 
 describe('no dependency metadata', () => {
   it('for a named class', () => {
-    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
   it('for an anonymous class', () => {
     const Anonymous = (() => class {
       constructor(readonly mailer: unknown) {}
     })()
-    expect(messageOf(() => new Container().make(Anonymous))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+    expect(messageOf(() => new Container().make(Anonymous))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
   it('for a class a constructor param needs', () => {
@@ -69,7 +69,199 @@ describe('no dependency metadata', () => {
       constructor(readonly notifier: Notifier) {}
     }
     const deps = depsOf([[App, { slots: [() => Notifier], meta: { params: ['notifier'] } }]])
-    expect(messageOf(() => new Container({ deps }).make(App))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container."`)
+    expect(messageOf(() => new Container({ deps }).make(App))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Required by App constructor param #0 \`notifier\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('for a class a constructor param needs through a binding', () => {
+    class NoMeta {
+      constructor(readonly mailer: unknown) {}
+    }
+    class App {
+      constructor(readonly noMeta: NoMeta) {}
+    }
+    const deps = depsOf([[App, { slots: [() => NoMeta], meta: { params: ['noMeta'] } }]])
+    expect(messageOf(() => new Container({ deps }).bind(NoMeta).make(App))).toMatchInlineSnapshot(`"Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. Required by App constructor param #0 \`noMeta\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+})
+
+describe('no dependency metadata: hint wording', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('in production names the factory, not the plugin', () => {
+    vi.stubGlobal('__PROD__', true)
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata."`)
+  })
+
+  it('in production via NODE_ENV when __PROD__ is unset', () => {
+    vi.stubGlobal('__PROD__', undefined)
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata."`)
+  })
+
+  it('in dev names the factory first and keeps the plugin hint for app code', () => {
+    vi.stubGlobal('__PROD__', false)
+    expect(messageOf(() => new Container().make(Notifier))).toMatchInlineSnapshot(`"Cannot autowire Notifier: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('names the factory as the only fix for a third-party class', () => {
+    class Redis {
+      constructor(readonly url: string) {}
+    }
+    const message = messageOf(() => new Container().make(Redis))
+    expect(message).toContain('the only fix for a class outside the app, such as a third-party class')
+    expect(message.indexOf('bind it with a factory')).toBeLessThan(message.indexOf('laratype:di'))
+    expect(message).toMatchInlineSnapshot(`"Cannot autowire Redis: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('an explicit __PROD__ = false wins over NODE_ENV=production', () => {
+    vi.stubGlobal('__PROD__', false)
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(messageOf(() => new Container().make(Notifier))).toContain('for app code, the laratype:di plugin')
+  })
+})
+
+describe('no dependency metadata: hostile class names', () => {
+  const namedClass = (name: string) => {
+    const cls = class {
+      constructor(readonly dep: unknown) {}
+    }
+    Object.defineProperty(cls, 'name', { value: name })
+    return cls
+  }
+
+  it('falls back when the name getter throws', () => {
+    const Throwing = namedClass('Ignored')
+    Object.defineProperty(Throwing, 'name', {
+      get() {
+        throw new Error('no name for you')
+      },
+    })
+    expect(messageOf(() => new Container().make(Throwing))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('keeps a 100k class name', () => {
+    const name = 'L'.repeat(100_000)
+    const message = messageOf(() => new Container().make(namedClass(name)))
+    expect(message).toContain(`Cannot autowire ${name}: its constructor takes 1 param(s)`)
+    expect(message.length).toBeGreaterThan(100_000)
+  })
+
+  it('escapes control characters, line separators, bidi controls and backslashes onto one line', () => {
+    const name = 'Ctl\nName\r\u0000\u001b\u009b\u2028\u202e\\'
+    const message = messageOf(() => new Container().make(namedClass(name)))
+    expect(message).toContain('Cannot autowire Ctl\\u000aName\\u000d\\u0000\\u001b\\u009b\\u2028\\u202e\\\\: its constructor')
+    expect(message).not.toContain('\n')
+  })
+
+  it('keeps a lone surrogate in the name without throwing', () => {
+    const name = 'Sur\uD800rogate'
+    expect(messageOf(() => new Container().make(namedClass(name)))).toContain(`Cannot autowire ${name}:`)
+  })
+
+  it('reads a proxied class name', () => {
+    const Proxied = new Proxy(namedClass('Redis'), {})
+    expect(messageOf(() => new Container().make(Proxied))).toMatchInlineSnapshot(`"Cannot autowire Redis: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('falls back when a proxy throws for name', () => {
+    const Proxied = new Proxy(namedClass('Redis'), {
+      get(target, property, receiver) {
+        if (property === 'name') throw new Error('no name for you')
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    expect(messageOf(() => new Container().make(Proxied))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('names the nearest requester in a 1000-level chain', () => {
+    const deps = new Map<Function, DepsEntry>()
+    let next: new (dep: unknown) => unknown = class Leaf {
+      constructor(readonly dep: unknown) {}
+    }
+    for (let level = 0; level < 1000; level++) {
+      const Dep = next
+      const cls = class {
+        constructor(readonly dep: unknown) {
+          void Dep
+        }
+      }
+      Object.defineProperty(cls, 'name', { value: `Level${level}` })
+      deps.set(cls, { slots: [() => Dep], meta: { params: ['dep'] } })
+      next = cls
+    }
+    expect(messageOf(() => new Container({ deps }).make(next))).toMatchInlineSnapshot(`"Cannot autowire Leaf: its constructor takes 1 param(s) but no dependency metadata was found. Required by Level0 constructor param #0 \`dep\`. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+})
+
+describe('zero-length constructors', () => {
+  class Clock {}
+
+  it('fails when every param has a default and the constructor leads the class', () => {
+    class Defaults {
+      constructor(readonly clock: Clock = new Clock()) {}
+    }
+    expect(messageOf(() => new Container().make(Defaults))).toMatchInlineSnapshot(`"Cannot autowire Defaults: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('counts the params before a rest param', () => {
+    class Defaults {
+      constructor(readonly clock: Clock = new Clock(), readonly retries = 3, ...rest: unknown[]) {
+        void rest
+      }
+    }
+    expect(messageOf(() => new Container().make(Defaults))).toMatchInlineSnapshot(`"Cannot autowire Defaults: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
+  })
+
+  it('builds a rest-only constructor with no args', () => {
+    class Rest {
+      deps: unknown[]
+      constructor(...deps: unknown[]) {
+        this.deps = deps
+      }
+    }
+    expect(new Container().make(Rest).deps).toEqual([])
+  })
+
+  it('builds a no-arg constructor whose list has a comment', () => {
+    class Commented {
+      constructor(/* no deps */) {}
+    }
+    expect(new Container().make(Commented)).toBeInstanceOf(Commented)
+  })
+
+  it('trusts an own empty entry for a no-arg constructor', () => {
+    class Empty {
+      constructor() {}
+    }
+    __laratype_deps(Empty, [], { params: [] })
+    expect(new Container({ deps: depsRegistry }).make(Empty)).toBeInstanceOf(Empty)
+  })
+
+  it('does not see a constructor after a field (known limit)', () => {
+    // `new Function` keeps the field in the source; a transformer moves it into the constructor instead.
+    const FieldFirst = new Function('Clock', `return class FieldFirst {
+      clock = new Clock()
+      constructor(dep = new Clock()) { this.dep = dep }
+    }`)(Clock) as new () => { clock: Clock, dep: Clock }
+    const value = new Container().make(FieldFirst)
+    expect(value.clock).toBeInstanceOf(Clock)
+    expect(value.dep).toBeInstanceOf(Clock)
+  })
+
+  it('fails an inherited entry with no slots instead of building it with no args', () => {
+    class Base {
+      constructor() {}
+    }
+    __laratype_deps(Base, [], { params: [] })
+    class Sub extends Base {
+      constructor(readonly clock: Clock = new Clock()) {
+        super()
+      }
+    }
+    expect(messageOf(() => new Container({ deps: depsRegistry }).make(Sub))).toMatchInlineSnapshot(`"Cannot autowire Sub: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 })
 
