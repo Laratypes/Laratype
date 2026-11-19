@@ -18,15 +18,15 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR <leader fills> @ 81f40b0 |
-| [Environment validation](#environment-validation) | proposed: PR <leader fills> @ 81f40b0 |
+| [Config files and config()](#config-files-and-config) | proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 81f40b0 |
+| [Environment validation](#environment-validation) | proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 81f40b0 |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR <leader fills> @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
 [`core/src/config.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/support/src/config/ConfigLoadServiceProvider.ts)
@@ -54,7 +54,7 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 - **Paths:** the first segment is the file name: `config('database.default')` reads `default` of `app/config/database.ts`. 0.5's single file reads as `config('config.<key>')`.
 - **Typing:** `defineConfig` keeps literal values (`'mysql'`, `3306`), so driver names are typed. A path stops at arrays, functions and classes, and after 8 levels. An optional key, or a key read through an index signature, adds `| undefined`. A key that contains a dot ends a path.
 - **Lookup:** at each level, the whole rest of the path as a key first, then the segment before the first dot. Own data properties are values, and so is a getter, own or inherited (`URL.host` on an instance): `ConfigPath` types a class instance's members (`config('mail.url.host')` is `string`). A getter is app code: it runs when the path reads it, and an error it throws propagates. A data property above the object (a method such as `URL.prototype.toString`, or a class's prototype constant) is never read, so `config('app.url.toString')` is `undefined` even though the type still lists it as a function leaf, like `config('mail.transport')` (an own function). The keys `constructor`, `prototype` and `__proto__` never name a value (as a whole path or a segment), nor does an `Object.prototype` member; a path that is not a string is a miss (`undefined`), so app code on it never runs. A key missing at run time gives `undefined`.
-- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports `app/config/config.ts` first, fills 0.5's `Config.get()`, then imports the other config files together, in parallel, and fills the store in file order. A failing file fails the boot with the first failure in file order, not the first to settle; every other file settles before the failure is raised, so a file that never settles hangs the boot. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. `app/config/config.ts` stays required.
+- **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports `app/config/config.ts` first, fills 0.5's `Config.get()`, then imports the other config files together, in parallel, and fills the store in file order. A failing file fails the boot with the first failure in file order, not the first to settle; every other file settles before the failure is raised, so a file that never settles hangs the boot. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. A config file must not depend on another config file at load time either: the others load in parallel, and only `config.ts` is guaranteed to load first. `app/config/config.ts` stays required.
 - The store is kept on `globalThis` (`__laratype_configs`), like `HTTP_APP`, until the `@laratype` packages are real externals ([#188](https://github.com/Laratypes/Laratype/issues/188)).
 
 ### Diagnostics
@@ -81,7 +81,7 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR <leader fills> @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
 [`core/src/env.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/support/src/environ/validateEnv.ts)
