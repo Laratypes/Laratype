@@ -1,7 +1,7 @@
 ---
 area: di
 packages: ["@laratype/core", "sauf", "@laratype/support", "laratype", "@laratype/log", "@laratype/auth"]
-issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158, 269]
+issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158, 269, 298]
 verified-against: Laratype@d9e8df2
 last-verified: 2026-10-12
 ---
@@ -24,7 +24,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336); D10 (`requiredBy`, production/third-party wording, zero-length constructors) proposed: PR <leader fills> @ 45078ec2 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c |
@@ -120,8 +120,8 @@ export class Container {
 - **Self-binding:** `bind(Cls)` / `singleton(Cls)` without a concrete binds the class to itself. Tokens and abstract classes cannot self-bind (type error, plus a runtime `DiError` for tokens).
 - **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
-- **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
-- **Inherited metadata stops at a longer constructor:** when the entry that applies to a class was declared on an ancestor and the class declares more params than the entry has slots (`cls.length > entry.slots.length`), the class counts as having no metadata and `make()` throws `Cannot autowire`. That is a subclass with its own constructor that no transform has seen (`sauf build` runs none yet, B2 [#126](https://github.com/Laratypes/Laratype/issues/126)), for example an app controller extending a framework class that carries its own `[]` entry. A subclass without its own constructor (`cls.length === 0`) keeps inheriting.
+- **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only classes with no constructor params can be built; a rest-only constructor counts as no params, and a class whose params all have defaults is detected from its source and fails closed ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
+- **Inherited metadata stops at a longer constructor:** when the entry that applies to a class was declared on an ancestor and the class declares more params than the entry has slots (`cls.length > entry.slots.length`), the class counts as having no metadata and `make()` throws `Cannot autowire`. That is a subclass with its own constructor that no transform has seen (`sauf build` runs none yet, B2 [#126](https://github.com/Laratypes/Laratype/issues/126)), for example an app controller extending a framework class that carries its own `[]` entry. A subclass without its own constructor (`cls.length === 0`) keeps inheriting. An inherited entry with no slots also fails closed for a subclass whose params all have defaults, which `cls.length` cannot see ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
 - Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag ([#101](https://github.com/Laratypes/Laratype/issues/101)) and the error ([#100](https://github.com/Laratypes/Laratype/issues/100)) are merged.
 
@@ -177,7 +177,7 @@ export const noDeps: DepsLookup;                          // default: no metadat
 ### Invariants
 - There is one slot per constructor param and slots are never skipped, so `slots[i]` is param `i`. A trailing rest param gets no slot.
 - Thunks are evaluated only at resolve time. That is why circular module imports work without `forwardRef`.
-- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the nearest ancestor's while `cls` declares no more params than that entry has slots (`cls.length <= entry.slots.length`; a subclass without its own constructor has `cls.length === 0`). A class with its own constructor and more params than the inherited entry has slots has no applicable entry, so the container throws `Cannot autowire` instead of building it with the ancestor's arguments ([Container](#container)).
+- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the nearest ancestor's while `cls` declares no more params than that entry has slots (`cls.length <= entry.slots.length`; a subclass without its own constructor has `cls.length === 0`). A class with its own constructor and more params than the inherited entry has slots has no applicable entry, so the container throws `Cannot autowire` instead of building it with the ancestor's arguments ([Container](#container)). A constructor whose params all have defaults also has `cls.length === 0`, so an entry with slots cannot see its params; the container's source check covers the 0-slot case ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `new Container()` without `deps` uses `noDeps`. Production code passes `{ deps: depsRegistry }` (see [Deps registry](#deps-registry)).
 
 ### Diagnostics
@@ -478,7 +478,7 @@ None of its own. The transform never throws on user code, and resolve-time failu
 ## Resolution errors with fix hints
 
 ### Status
-merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336). D10 [#298](https://github.com/Laratypes/Laratype/issues/298) (`requiredBy`, the production and third-party wordings and zero-length constructors) proposed: PR <leader fills> @ 45078ec2.
 
 ### Public API
 None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
@@ -487,6 +487,9 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - Each message starts with the base sentence listed in the Diagnostics of [Container](#container) or [Decorators](#decorators-inject-and-injectable), unchanged, so a match on the base sentence keeps working. The hint follows it.
 - A param is named as `<C> constructor param #<i>`, plus `` `<name>` `` when `meta.params` has a name.
 - `No binding for …` adds `Required by <param>.` when a constructor param asked for the key (the nearest requester in a nested graph). This covers the key from a transform thunk and the token from an `@Inject` record. A key passed to `make()` directly has no `Required by` part.
+- `Cannot autowire …` adds `Required by <param>.` the same way, when a constructor param asked for the class, directly or through a binding.
+- **Hint environment:** the dev hint keeps the plugin fix for app code but names the factory binding first, because the plugin only compiles files under the Vite root and cannot help a class outside the app (a third-party class). The production hint names only the factory: `sauf build` does not run the laratype:di plugin yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126), B4 [#128](https://github.com/Laratypes/Laratype/issues/128)). Production is `__PROD__` when it is set, else `NODE_ENV=production`: the same check as the fallback-container warning and scope bubbling, read without importing http.
+- **Zero-length constructors:** a class whose params all have defaults has `cls.length === 0`, so the length alone cannot tell it from `constructor()`. When its constructor is the class's first member, `build()` reads the source, counts the params before a trailing rest and throws `Cannot autowire` with that count instead of calling `new cls()`. A rest-only constructor counts as no params (the transform treats a first rest param as no own constructor), and a class with a field before its constructor, or a source that cannot be read (a Proxy, a native class), is still built with `new cls()`: a known limit. An inherited entry with no slots also fails closed this way.
 - **Abstract classes:** a class flagged by the [DI transform](#di-transform) (`isAbstract(cls)`) with no binding throws instead of autowiring. The check reads the class's own flag, so a concrete subclass of an abstract class autowires normally, with the deps it inherits. A binding for the abstract class (`container.bind(Port, SmtpPort)`) resolves as usual.
 
 ### Diagnostics
@@ -496,11 +499,14 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - `Cannot resolve <P>: type \`<TypeText>\` has no runtime value. Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
 - `Cannot resolve <P>: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
 - `Conflicting metadata for <P>: transform says <A>, @Inject says <B>. Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).`
-- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container.` Every `make()` gets it, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)).
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`.`
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata.` The first form is dev; the second is production (`__PROD__` true, or `NODE_ENV=production` when `__PROD__` is unset).
+
+Every `make()` gets one of the two forms, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)). `<C>` is the class name or `<anonymous class>`; a name is escaped onto one line (`\u000a` for a control character, `\\` for a backslash), and a `name` getter that throws, or a Proxy that throws for `name`, prints `<anonymous class>`. A zero-length constructor whose params all have defaults reports the count read from its source ([#298](https://github.com/Laratypes/Laratype/issues/298)).
 
 `Cannot bind …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
 
-Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
+Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts) covers the D9 messages, D10's `requiredBy`, both hint forms, hostile class names and the zero-length constructors.
 
 ### Example
 See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
