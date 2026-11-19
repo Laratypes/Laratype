@@ -521,8 +521,8 @@ describe('r.bind() validation at Route.api', () => {
       }
     }
     expect(() => Route.api(mixedApi, (r) => [r.bind({ post: Post }).contract(mixed, MixedController)])).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `post` binds a required param that follows an optional one in /mixed/:first?/:post/:last?: ' +
-        'Hono also registers `/mixed`, without `post`, so the binding would give `undefined` where the proof promises a model. ' +
+      '[@laratype/http] Route.api: r.bind(): `post` is a required param of /mixed/:first?/:post/:last? that Hono\'s optional-param expansion leaves out: ' +
+        'it also registers `/mixed`, without `post`, so the binding would give `undefined` where the proof promises a model. ' +
         'Fix: move `post` before the optional params, or drop their `?`.',
     )
 
