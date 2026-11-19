@@ -48,10 +48,8 @@ describe('endpoint builder', () => {
     for (const make of [endpoint.post, endpoint.put, endpoint.patch, endpoint.delete]) {
       expect(make('/x').body(body).def.body).toBe(body)
     }
-    // the constructor is public: a GET def with a body throws there too
-    expect(() => new Endpoint({ method: 'get', path: '/x', body, status: 204, throws: [] })).toThrow(
-      new TypeError('[@laratype/contract] endpoint: a GET endpoint cannot have a body'),
-    )
+    // the GET-body rule belongs to .body() and the route walker; the constructor has its one bypass check (path only)
+    expect(new Endpoint({ method: 'get', path: '/x', body, status: 204, throws: [] }).def.body).toBe(body)
   })
 
   it('the path must start with one "/", from the builder and the constructor', () => {
@@ -63,9 +61,29 @@ describe('endpoint builder', () => {
     }
     expect(() => endpoint.post(1 as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got number'))
     expect(() => endpoint.post(1n as never)).toThrow(new TypeError('[@laratype/contract] endpoint.post(): the path must start with one "/", got bigint'))
-    expect(() => new Endpoint({ method: 'post', path: 'x', status: 204, throws: [] })).toThrow(
-      new TypeError('[@laratype/contract] endpoint: the path must start with one "/", got "x"'),
+    const bypass = new TypeError(
+      '[@laratype/contract] endpoint: the def must have a path starting with one "/", without control characters, and a throws list',
     )
+    for (const def of [
+      { method: 'post', path: 'x', status: 204, throws: [] },
+      { method: 'post', path: '//evil.com', status: 204, throws: [] },
+      { method: 'post', path: '/\\evil.com', status: 204, throws: [] },
+      { method: 'post', path: '/\t/evil.com', status: 204, throws: [] },
+      { method: 'post', path: '/a\u0000', status: 204, throws: [] },
+      { method: 'post', path: '/a\u007f', status: 204, throws: [] },
+      { method: 'post', path: 42, status: 204, throws: [] },
+      { method: 'post', status: 204, throws: [] },
+      { method: 'post', path: '/x', status: 204 },
+      { method: 'post', path: '/x', status: 204, throws: null },
+      { length: 1e9 },
+    ]) {
+      expect(() => new Endpoint(def as never)).toThrow(bypass)
+    }
+    // the one check never reads a "length", and a valid hand-built def still works, frozen included
+    expect(() => new Endpoint(null as never)).toThrow(bypass)
+    expect(() => new Endpoint(1 as never)).toThrow(bypass)
+    expect(() => new Endpoint(undefined as never)).toThrow(bypass)
+    expect(new Endpoint(Object.freeze({ method: 'post', path: '/x', status: 204, throws: [] })).def.path).toBe('/x')
     for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a\u0000', '/a\u007f']) {
       expect(() => endpoint.get(path as never)).toThrow(
         new TypeError(`[@laratype/contract] endpoint.get(): the path must not contain control characters, got ${JSON.stringify(path)}`),

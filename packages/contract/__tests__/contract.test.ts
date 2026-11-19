@@ -76,19 +76,118 @@ describe('defineContract', () => {
     expect(() => defineContract()({ 'a.b': endpoint.get('/') })).toThrow(/endpoint key "a.b" must be non-empty and must not contain "."/)
     expect(() => defineContract()({ '': endpoint.get('/') })).toThrow(/endpoint key ""/)
     expect(() => defineContract()({ a: { def: {} } as never })).toThrow(/"a" is not an endpoint/)
-    // a forged or older-copy endpoint skips the constructor's path check
+    // a forged or older-copy endpoint is accepted here: the shared walk (apiPaths/apiRoutes) rejects it (C11 #293)
     const forged = Object.defineProperty({ def: { method: 'get', path: ':tenant/x', status: 204, throws: [] } }, ENDPOINT, { value: true })
-    expect(() => defineContract()({ a: forged as never })).toThrow(
-      new TypeError('[@laratype/contract] defineContract: "a": the path must start with one "/", got ":tenant/x"'),
-    )
+    expect(() => defineContract()({ a: forged as never })).not.toThrow()
     const getBody = Object.defineProperty({ def: { method: 'get', path: '/x', body: z.object({}), status: 204, throws: [] } }, ENDPOINT, { value: true })
-    expect(() => defineContract()({ a: getBody as never })).toThrow(
-      new TypeError('[@laratype/contract] defineContract: "a": a GET endpoint cannot have a body'),
-    )
+    expect(() => defineContract()({ a: getBody as never })).not.toThrow()
     expect(() => defineContract()({}, { authorize: true } as never)).toThrow(/defineContract: unknown option "authorize"/)
     expect(() => defineContract()({}, { auth: false } as never)).toThrow(/auth must be true or a guard name/)
     expect(() => defineContract()({}, { throttle: { limit: 0, per: 60 } })).toThrow(/throttle must be/)
     expect(() => defineContract()({}, { throws: [{ status: 409, code: 'X' }] as never })).toThrow(/use defineError/)
+  })
+})
+
+describe('forged endpoint re-checks in the shared walk (C11 #293)', () => {
+  /** An endpoint that skips the builder: a brand and a hand-made def, as an older package copy or a forged object holds. */
+  const forged = (def: unknown) =>
+    Object.defineProperty({ def }, ENDPOINT, { value: true }) as never
+  const contractOf = (value: never) => defineContract()({ a: value })
+
+  it('apiPaths and apiRoutes refuse a forged path, naming the route', () => {
+    const contract = contractOf(forged({ method: 'get', path: ':tenant/x', status: 204, throws: [] }))
+    const error = (label: string) =>
+      new TypeError(`[@laratype/contract] ${label}: "a": the path must start with one "/", got ":tenant/x"`)
+    expect(() => apiPaths(contract)).toThrow(error('apiPaths'))
+    expect(() => apiRoutes(contract)).toThrow(error('apiRoutes'))
+  })
+
+  it('refuses a forged GET body, in a contract and in an API tree', () => {
+    const getBody = forged({ method: 'get', path: '/x', body: z.object({}), status: 204, throws: [] })
+    expect(() => apiPaths(contractOf(getBody))).toThrow(
+      new TypeError('[@laratype/contract] apiPaths: "a": a GET endpoint cannot have a body'),
+    )
+    const api = defineApi({ a: { contract: contractOf(getBody), path: '/api/a', scopes: [] } })
+    expect(() => apiRoutes(api)).toThrow(new TypeError('[@laratype/contract] apiRoutes: "a.a": a GET endpoint cannot have a body'))
+    // the client lowercases a method, so an uppercase GET is the same rule
+    const uppercase = forged({ method: 'GET', path: '/x', body: z.object({}), status: 204, throws: [] })
+    expect(() => apiPaths(contractOf(uppercase))).toThrow(/apiPaths: "a": a GET endpoint cannot have a body/)
+  })
+
+  it('checks a frozen endpoint, a null-prototype def and a Proxy the same way', () => {
+    const frozen = Object.freeze(forged(Object.freeze({ method: 'post', path: '//evil.com', status: 204, throws: [] })))
+    expect(() => apiPaths(contractOf(frozen))).toThrow(/apiPaths: "a": the path must start with one "\/", got "\/\/evil.com"/)
+
+    const bare = Object.assign(Object.create(null), { method: 'post', path: '/\\evil.com', status: 204, throws: [] })
+    expect(() => apiPaths(contractOf(forged(bare)))).toThrow(/apiPaths: "a": the path must start with one "\/", got "\/\\\\evil.com"/)
+
+    let reads = 0
+    const target = { def: { method: 'post', path: '/ok', status: 204, throws: [] } }
+    const proxy = new Proxy(target, {
+      get(object, key, receiver) {
+        if (key === 'def' && reads++ > 0) return { ...target.def, path: '//evil.com' }
+        return Reflect.get(object, key, receiver)
+      },
+    })
+    Object.defineProperty(proxy, ENDPOINT, { value: true })
+    expect(apiPaths(contractOf(proxy as never))[0]).toMatchObject({ name: 'a', method: 'post', path: '/ok' })
+    expect(reads).toBe(1)
+  })
+
+  it('snapshots the def once, so a getter cannot pass the check with one path and send another', () => {
+    let later = 0
+    const safeThenBad = forged({
+      method: 'get',
+      status: 204,
+      throws: [],
+      get path() {
+        later += 1
+        return later === 1 ? '/ok' : '//evil.com'
+      },
+    })
+    expect(apiPaths(contractOf(safeThenBad))[0]!.path).toBe('/ok')
+    expect(later).toBe(1)
+
+    let first = 0
+    const badThenSafe = forged({
+      method: 'get',
+      status: 204,
+      throws: [],
+      get path() {
+        return first++ === 0 ? '//evil.com' : '/ok'
+      },
+    })
+    expect(() => apiPaths(contractOf(badThenSafe))).toThrow(/the path must start with one "\/", got "\/\/evil.com"/)
+  })
+
+  it('never reads a missing own field from Object.prototype (a prototype-polluted node)', () => {
+    const observed = Object.prototype as Record<string, unknown>
+    try {
+      observed.path = '/polluted'
+      expect(() => apiPaths(contractOf(forged({ method: 'get', status: 204, throws: [] })))).toThrow(
+        new TypeError('[@laratype/contract] apiPaths: "a": the path must start with one "/", got undefined'),
+      )
+    } finally {
+      delete observed.path
+    }
+    try {
+      observed.def = { method: 'get', path: '/polluted', status: 204, throws: [] }
+      const bare = Object.defineProperty({}, ENDPOINT, { value: true }) as never
+      expect(() => apiPaths(contractOf(bare))).toThrow(new TypeError('[@laratype/contract] apiPaths: "a": not an endpoint'))
+    } finally {
+      delete observed.def
+    }
+    try {
+      observed.body = z.object({})
+      expect(apiPaths(contractOf(forged({ method: 'get', path: '/x', status: 204, throws: [] })))[0]!.path).toBe('/x')
+    } finally {
+      delete observed.body
+    }
+  })
+
+  it('accepts a valid forged endpoint, so an older package copy keeps working', () => {
+    const good = forged({ method: 'post', path: '/things/:id', status: 204, throws: [] })
+    expect(apiPaths(contractOf(good))[0]).toMatchObject({ name: 'a', method: 'post', path: '/things/:id' })
   })
 })
 
