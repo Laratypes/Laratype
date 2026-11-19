@@ -35,6 +35,23 @@ const messageOf = (fn: () => unknown): string => {
   throw new Error('expected a DiError')
 }
 
+describe('non-class keys', () => {
+  it('reports a wrong-typed key without crashing', () => {
+    for (const key of [null, undefined, 1, {}, { length: 1e9 }]) {
+      expect(messageOf(() => new Container().make(key as never))).toContain('No binding for ')
+    }
+  })
+
+  it('prints <unprintable key> when String(key) throws', () => {
+    const key = {
+      toString() {
+        throw new Error('no string for you')
+      },
+    }
+    expect(messageOf(() => new Container().make(key as never))).toContain('No binding for <unprintable key>.')
+  })
+})
+
 describe('missing binding', () => {
   it('for a token resolved directly', () => {
     expect(messageOf(() => new Container().make(MAILER))).toMatchInlineSnapshot(`"No binding for InjectionToken(mailer). Fix: bind it in a service provider \`register()\`, e.g. \`container.bind(token, factory)\` or \`container.instance(token, value)\`."`)
