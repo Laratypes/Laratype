@@ -309,6 +309,9 @@ describe('a guest is any non-object user (#394 round 5)', () => {
     ['1', 1],
     ['a symbol', Symbol('user')],
     ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['a lone surrogate', '\uD800'],
+    ['a very long string', 'user'.repeat(25_000)],
     ['a function', () => true],
   ]
 
@@ -341,9 +344,12 @@ describe('a guest is any non-object user (#394 round 5)', () => {
     }
     expect(calls).toEqual([])
     expect(gateCalls).toBe(0)
-    // A real user is an object, so it is not a guest: the same policy and gate still allow
+    // The boundary is "non-object", not "falsy": a real user is an object, so the same policy and gate still allow
     expect(await allows(user, 'update', post)).toBe(true)
     expect(await Gate.allows(user, SignedIn)).toBe(true)
+    // Any other object is a user too: the shape does not make a guest
+    expect(await Gate.allows({ length: 1e9 }, SignedIn)).toBe(true)
+    expect(await Gate.allows(Object.create(null), SignedIn)).toBe(true)
   })
 
   it('denies a false user through Authenticated too, as TokenGuard.user() answers it', async () => {
