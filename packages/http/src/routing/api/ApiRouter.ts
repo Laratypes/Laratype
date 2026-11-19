@@ -504,6 +504,8 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     name: route.name,
     modelBinding: false,
     endpoint: route.endpoint,
+    // The route's declared errors, derived ones included: the dev/test undeclared-error check reads them (X3 #157)
+    errors: route.errors,
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...route.middleware],
   };

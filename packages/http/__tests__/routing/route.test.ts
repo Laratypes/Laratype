@@ -251,6 +251,23 @@ describe('buildUrl through a real Hono app', () => {
       expect(await res.json()).toEqual({ f: expected })
     }
   })
+
+  it('matches the following static segment of a lookahead pattern, so the split reaches the route (C8 round 1)', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/files/:file{.+/.+(?=/raw)}/raw', (req, { file }) => ({ file })).name('file.lookahead'),
+    ])
+    const file = 'a/b'
+    const url = route('file.lookahead', { file })
+    // the pattern's own lookahead needs the following "/raw", as Hono's trie router compiles it ("^pattern(?=/raw)")
+    expect(url).toBe('/files/a/b/raw')
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request(url)
+    expect(res.status).toBe(200)
+    // the handler reads the whole value, not a prefix of it
+    expect(await res.json()).toEqual({ file })
+  })
 })
 
 /** `buildRouteUrl`'s name guard: a TypeError that names only the type of the name, never its value. */

@@ -4,9 +4,10 @@ import { GeneralTypesEnum, ContentTypeEnum, AppServiceProvider, MetaDataKey, isE
 import type { Exception } from "@laratype/support";
 import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { KernelRouteParams } from "../contracts";
-import { isBodylessStatus, isContractError, isFailureStatus } from "@laratype/contract";
+import { isContractError, isFailureStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
 import { BODY_HEADERS } from "./bodyHeaders";
+import { isBodylessResponse } from "./bodyless";
 
 /** The type a returned string is sent as (H41 #336): HTML needs an explicit `Response` content type. */
 const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
@@ -270,7 +271,7 @@ export default class Response extends AppServiceProvider {
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
 
     // 204, 205 and 304 never carry a body
-    if(isBodylessStatus(contentFullStatusCode) || contentFullStatusCode === 304) {
+    if(isBodylessResponse(contentFullStatusCode)) {
       return ctx.body(null, contentFullStatusCode as 204);
     }
 

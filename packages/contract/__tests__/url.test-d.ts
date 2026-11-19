@@ -66,4 +66,43 @@ describe('buildUrl', () => {
     // @ts-expect-error the query is an object of keys
     buildUrl('/users', { query: 'page=1' })
   })
+
+  test('a flat named query is accepted, an interface included', () => {
+    interface SearchQuery {
+      page: number
+      q?: string
+      tags?: readonly string[]
+      // keys that name a member of an array or a function are ordinary query keys
+      apply?: string
+      length?: number
+    }
+    type Filters = { on: boolean; at: Date }
+    const search: SearchQuery = { page: 1, apply: 'x', length: 2 }
+    const filters: Filters = { on: true, at: new Date() }
+    expectTypeOf(buildUrl('/users', { query: search })).toEqualTypeOf<string>()
+    expectTypeOf(buildUrl('/users', { query: filters })).toEqualTypeOf<string>()
+    // an explicit `query: undefined` is the same as omitting it
+    expectTypeOf(buildUrl('/users', { query: undefined })).toEqualTypeOf<string>()
+    // an optional field absent is still a flat query
+    expectTypeOf(buildUrl('/users', { query: { page: 1 } satisfies SearchQuery })).toEqualTypeOf<string>()
+    // @ts-expect-error an array is not a query object
+    buildUrl('/users', { query: [{ page: 1 }] })
+    // @ts-expect-error a function is not a query object
+    buildUrl('/users', { query: () => ({ page: 1 }) })
+  })
+
+  test('a nested object in a named query is refused: a mapped shape, not an index signature', () => {
+    interface NestedQuery {
+      filter: { a: number }
+    }
+    const nested: NestedQuery = { filter: { a: 1 } }
+    // @ts-expect-error a nested object has no serialization
+    buildUrl('/users', { query: nested })
+    interface NestedArrayQuery {
+      filters: readonly { a: number }[]
+    }
+    const nestedArray: NestedArrayQuery = { filters: [{ a: 1 }] }
+    // @ts-expect-error an array of objects is not a flat value
+    buildUrl('/users', { query: nestedArray })
+  })
 })

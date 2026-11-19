@@ -22,7 +22,8 @@ const posts = defineContract()({
   store: endpoint.post("/").body(z.object({ title: z.string() })).response(z.object({ title: z.string() }), 201),
   limited: endpoint.get("/limited").response(z.object({ ok: z.boolean() })).throttle({ limit: 1, per: 60 }),
   boom: endpoint.get("/boom").response(z.object({ ok: z.boolean() })),
-  secret: endpoint.get("/secret").response(z.object({ ok: z.boolean() })),
+  // Declared: the X3 check fails a test on an undeclared 401, and this route exists to answer one
+  secret: endpoint.get("/secret").response(z.object({ ok: z.boolean() })).throws(errors.unauthorized),
   vary: endpoint.get("/vary").response(z.object({ ok: z.boolean() })),
 });
 const postsApi = defineApi({ posts: { contract: posts, path: "/api/posts", scopes: [] } });
