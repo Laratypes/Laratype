@@ -18,18 +18,18 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR <leader fills> @ 2b6fd00 |
-| [Environment validation](#environment-validation) | proposed: PR <leader fills> @ 2b6fd00 |
+| [Config files and config()](#config-files-and-config) | proposed: PR <leader fills> @ 81f40b0 |
+| [Environment validation](#environment-validation) | proposed: PR <leader fills> @ 81f40b0 |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR <leader fills> @ 2b6fd00 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR <leader fills> @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/config.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/support/src/config/ConfigLoadServiceProvider.ts)
+[`core/src/config.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/support/src/config/ConfigLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -81,10 +81,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR <leader fills> @ 2b6fd00 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+proposed: PR <leader fills> @ 81f40b0 (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/env.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 2b6fd00](https://github.com/Laratypes/Laratype/blob/2b6fd0040b3b6d771a5343387c6090c120dd3ccb/packages/support/src/environ/validateEnv.ts)
+[`core/src/env.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 81f40b0](https://github.com/Laratypes/Laratype/blob/81f40b091c7f373a2e2c21510f5252b083b6a2a2/packages/support/src/environ/validateEnv.ts)
 
 ```ts
 // @laratype/core
