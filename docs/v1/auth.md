@@ -14,7 +14,7 @@ last-verified: 2026-10-09
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
 | [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
-| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 8899d065 → #121 |
+| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 34afaea5 → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async password check proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; composite-key rehash and login timing proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
@@ -112,10 +112,10 @@ planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), w
 ## Policies and gates
 
 ### Status
-proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 8899d065 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants-1).
+proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 34afaea5 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants-1).
 
 ### Public API
-[`Policy.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/8899d065/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.
+[`Policy.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/34afaea5/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.
 
 ```ts
 // @laratype/auth
