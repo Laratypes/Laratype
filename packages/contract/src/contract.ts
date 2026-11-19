@@ -69,9 +69,7 @@ function buildContract(endpoints: ContractDef, options: ContractOptions): AnyCon
   for (const [key, value] of Object.entries(endpoints)) {
     if (key === "" || key.includes(".")) fail(`defineContract: endpoint key "${key}" must be non-empty and must not contain "."`);
     if (!isEndpoint(value)) fail(`defineContract: "${key}" is not an endpoint`);
-    // an endpoint's constructor checks these too; this catches a forged or older-copy endpoint
-    checkPath(value.def?.path, `defineContract: "${key}"`);
-    if (value.def?.method === "get" && value.def.body) fail(`defineContract: "${key}": ${NO_GET_BODY}`);
+    // the path and GET-body rules of a forged or older-copy endpoint are re-checked in the shared walk (`apiPaths`/`apiRoutes`)
     contract[key] = value;
   }
   const meta = Object.freeze({ options: Object.freeze(checkOptions(options, ["auth", "throws", "throttle"], "defineContract")) });
@@ -328,15 +326,51 @@ export interface ApiRoute<N extends string = string> extends ResolvedCapabilitie
   readonly scopes: readonly AnyScope[];
 }
 
+/** One own field of a forged def: a missing field never reads `Object.prototype` (a prototype-polluted node). */
+const own = (value: object, key: string): unknown => (Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined);
+
+/** What a route uses of an endpoint: `def` is read once so a Proxy or a getter cannot answer the check and the route differently. */
+interface RouteDef {
+  readonly method: Method;
+  readonly path: string;
+}
+
+/**
+ * The path and GET-body re-checks for a forged or older-copy endpoint: `make()` and `body()` check an endpoint this
+ * package built, and this is where every consumer of the walk (`apiPaths`, `apiRoutes`, the client, the router) meets
+ * one that skipped them. The fields are copied from one read of `def` and the route uses the copy.
+ */
+const routeDef = (endpoint: AnyEndpoint, label: string): RouteDef => {
+  const def: unknown = Object.hasOwn(endpoint, "def") ? endpoint.def : undefined;
+  if (typeof def !== "object" || def === null) return fail(`${label}: not an endpoint`);
+  const source = def as Record<string, unknown>;
+  const path = checkPath(own(source, "path"), label);
+  const method = own(source, "method") as Method;
+  // the client lowercases the method, so "GET" is a GET too: the rule is about what fetch would send
+  if (typeof method === "string" && method.toLowerCase() === "get" && own(source, "body")) fail(`${label}: ${NO_GET_BODY}`);
+  return { method, path };
+};
+
+/** One route of the walk: its identity, where it is mounted, and the endpoint fields the route uses. */
+interface WalkedRoute {
+  readonly name: string;
+  readonly endpoint: AnyEndpoint;
+  readonly contract: AnyContract;
+  readonly ctx: ReturnType<typeof contextOf>;
+  readonly def: RouteDef;
+}
+
 /**
  * The one walk over an API: each route with the context it is mounted in (the contract's URL prefix, scopes, options).
  * It takes the root, a node or a contract, told by their brands; anything else throws.
  */
-function walkRoutes(api: unknown, label: string, visit: (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>) => void): void {
+function walkRoutes(api: unknown, label: string, visit: (route: WalkedRoute) => void): void {
   if (!isApiRoot(api) && !isApiNode(api) && !isContract(api)) fail(`${label}: expected the appApi from defineApi, an API node or a contract`);
   if (isContract(api)) {
     const ctx = { path: "", scopes: [] as readonly AnyScope[], options: api[CONTRACT].options };
-    for (const [key, endpoint] of contractEndpoints(api)) visit(key, endpoint, api, ctx);
+    for (const [key, endpoint] of contractEndpoints(api)) {
+      visit({ name: key, endpoint, contract: api, ctx, def: routeDef(endpoint, `${label}: "${key}"`) });
+    }
     return;
   }
   const walk = (current: TreeNode) => {
@@ -350,19 +384,20 @@ function walkRoutes(api: unknown, label: string, visit: (name: string, endpoint:
       }
       // a forged node: an endpoint under a node with no entry
       if (!ctx) return fail(`${label}: expected the appApi from defineApi, an API node or a contract`);
-      visit(`${info!.name}.${key}`, value, info!.entry!.contract, ctx);
+      const name = `${info!.name}.${key}`;
+      visit({ name, endpoint: value, contract: info!.entry!.contract, ctx, def: routeDef(value, `${label}: "${name}"`) });
     }
   };
   walk(api as TreeNode);
 }
 
-const routeOf = (name: string, endpoint: AnyEndpoint, contract: AnyContract, ctx: ReturnType<typeof contextOf>): ApiPath => ({
-  name,
-  method: endpoint.def.method,
-  path: joinPath(ctx.path, endpoint.def.path),
-  endpoint,
-  contract,
-  scopes: ctx.scopes,
+const routeOf = (route: WalkedRoute): ApiPath => ({
+  name: route.name,
+  method: route.def.method,
+  path: joinPath(route.ctx.path, route.def.path),
+  endpoint: route.endpoint,
+  contract: route.contract,
+  scopes: route.ctx.scopes,
 });
 
 /**
@@ -374,7 +409,7 @@ export function apiPaths<C extends AnyContract>(contract: C): Array<ApiPath<Endp
 export function apiPaths<A extends ApiDef>(api: Api<A>): Array<ApiPath<ApiRouteName<Api<A>>>>;
 export function apiPaths(api: object): ApiPath[] {
   const paths: ApiPath[] = [];
-  walkRoutes(api, "apiPaths", (name, endpoint, contract, ctx) => paths.push(Object.freeze(routeOf(name, endpoint, contract, ctx))));
+  walkRoutes(api, "apiPaths", (route) => paths.push(Object.freeze(routeOf(route))));
   return paths;
 }
 
@@ -395,8 +430,8 @@ export function apiRoutes<C extends AnyContract>(contract: C): Array<ApiRoute<En
 export function apiRoutes<A extends ApiDef>(api: Api<A>): Array<ApiRoute<ApiRouteName<Api<A>>>>;
 export function apiRoutes(api: object): ApiRoute[] {
   const routes: ApiRoute[] = [];
-  walkRoutes(api, "apiRoutes", (name, endpoint, contract, ctx) =>
-    routes.push(Object.freeze({ ...routeOf(name, endpoint, contract, ctx), ...resolveCapabilities(endpoint.def, ctx, name) })),
+  walkRoutes(api, "apiRoutes", (route) =>
+    routes.push(Object.freeze({ ...routeOf(route), ...resolveCapabilities(route.endpoint.def, route.ctx, route.name) })),
   );
   return routes;
 }

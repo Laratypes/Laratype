@@ -1,5 +1,5 @@
 import type { PathParams } from "./path";
-import { fail } from "./internal";
+import { fail, leavesOrigin } from "./internal";
 
 /** A value a query string carries: a primitive, a `Date` (sent as ISO 8601), or no value (`null` and `undefined` are skipped). */
 export type UrlQueryValue = string | number | bigint | boolean | Date | null | undefined;
@@ -53,16 +53,6 @@ export type UrlInput<P extends string, Q extends UrlQueryShape<Q> & object = Url
   ? { params: UrlParams<P> }
   : { params?: UrlParams<P> | undefined }) & {
   query?: (Q & UrlQueryCheck<Q>) | undefined;
-};
-
-/**
- * Whether URL parsing reads `path` as another host or scheme, without `URL` (string work only): it drops leading C0
- * controls and spaces and every tab, LF and CR, and reads `\` as `/`. Then `//x` is a host, and so is a leading
- * `scheme:` (`http:/x` is another host from an https page).
- */
-const leavesOrigin = (path: string): boolean => {
-  const parsed = path.replace(/^[\u0000-\u0020]+/, "").replace(/[\t\n\r]/g, "").replace(/\\/g, "/");
-  return parsed.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(parsed);
 };
 
 /** Encodes `text` with `encodeURIComponent`; an unpaired surrogate throws, with a diagnostic that never echoes the value. */
