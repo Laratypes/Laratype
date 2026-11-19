@@ -285,4 +285,13 @@ describe('setFacadeApplication() carry-over', () => {
     Facade.setFacadeApplication(app)
     expect(app.make(Counter)).toBe(bound)
   })
+
+  it('does not carry a swap a later bind on the fallback superseded', () => {
+    vi.stubGlobal('__PROD__', true)
+    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    Facade.getFacadeApplication().instance(Counter, new Counter())
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(app.has(Counter)).toBe(false)
+  })
 })

@@ -38,12 +38,12 @@ const warnFallback = (): void => {
  * active swaps, so `setFacadeApplication()` carries a `Hash.fake()` made before the boot into the app container (D11 #318).
  */
 class FallbackContainer extends Container {
-  /** Token → the value of each active swap, and the undos of the copies already carried into an app container. */
-  readonly swaps = new Map<unknown, { value: unknown, carried: Array<() => void> }>()
+  /** Token → the value of each swap, the binding it made, and the undos of the copies carried into an app container. */
+  readonly swaps = new Map<unknown, { value: unknown, swapped: unknown, carried: Array<() => void> }>()
 
   override swap<T>(token: Token<T>, value: NoInfer<T>): () => void {
     const restore = super.swap(token, value)
-    const record = { value, carried: [] as Array<() => void> }
+    const record = { value, swapped: this.bindings.get(token), carried: [] as Array<() => void> }
     this.swaps.set(token, record)
     return () => {
       restore()
@@ -57,6 +57,8 @@ class FallbackContainer extends Container {
   /** Replay the active swaps in `app`, unless it already binds the token: the app container's own binding wins. */
   carrySwapsTo(app: Container): void {
     for (const [token, record] of this.swaps) {
+      // A bind after the swap supersedes it here, as it makes the swap's restore a no-op
+      if (this.bindings.get(token) !== record.swapped) continue
       if (app.has(token as Token)) continue
       record.carried.push(app.swap(token as Token, record.value))
     }
