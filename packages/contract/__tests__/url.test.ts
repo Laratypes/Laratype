@@ -178,6 +178,22 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/posts/:id{[0-9]+}', { params: { id: unsendable } })).toBe(`/posts/${unsendable.replaceAll('/', '%2F')}`)
   })
 
+  it('matches the following static segment as Hono compiles it, so a lookahead pattern can need the split', () => {
+    // Hono's trie router compiles a regex param followed by a static segment as "^pattern(?=/raw)": the pattern's own
+    // lookahead sees the following segment, so the encoded value matches neither form and the split is the URL it routes
+    expect(buildUrl('/files/:file{.+/.+(?=/raw)}/raw', { params: { file: 'a/b' } })).toBe('/files/a/b/raw')
+    // the context is every static segment that follows, not only the first
+    expect(buildUrl('/files/:file{.+/.+(?=/raw/more)}/raw/more', { params: { file: 'a/b' } })).toBe(
+      '/files/a/b/raw/more',
+    )
+    // a lookahead the following static path cannot satisfy rejects the split too: the encoded value is kept
+    expect(buildUrl('/files/:file{.+/.+(?=/raw/x)}/raw', { params: { file: 'a/b' } })).toBe('/files/a%2Fb/raw')
+    // a param right after the regex param is no static context (the trie router uses the anchored form there)
+    expect(buildUrl('/files/:file{.+/.+(?=/raw)}/:x/raw', { params: { file: 'a/b', x: 1 } })).toBe(
+      '/files/a%2Fb/1/raw',
+    )
+  })
+
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {
     expect(buildUrl('/files/:file{.+/.+}/raw', { params: { file: '%2e%2e/%2e%2E' } })).toBe('/files/%252e%252e/%252e%252E/raw')
   })
