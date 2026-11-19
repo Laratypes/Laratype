@@ -60,7 +60,8 @@ describe('Hasher', () => {
   it('refuses a stored hash at another cost without running scrypt', () => {
     const [, , , salt, key] = hasher.make('secret').split('$')
     const spy = vi.spyOn(crypto, 'scryptSync')
-    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2']) {
+    // Digits only: NaN, Infinity and a negative cost never reach scrypt
+    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2', 'N=NaN,r=8,p=1', 'N=16384,r=8,p=Infinity', 'N=-1,r=8,p=1']) {
       const other = `$scrypt$${cost}$${salt}$${key}`
       expect(hasher.check('secret', other)).toBe(false)
       expect(hasher.isHashed(other)).toBe(false)
@@ -133,7 +134,7 @@ describe('Hasher async methods', () => {
     const shortSalt = Buffer.from(salt, 'base64').subarray(0, 8).toString('base64')
     const shortKey = Buffer.from(key, 'base64').subarray(0, 16).toString('base64')
     const spy = vi.spyOn(crypto, 'scrypt')
-    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2']) {
+    for (const cost of ['N=32768,r=8,p=1', 'N=8192,r=8,p=1', 'N=16384,r=16,p=1', 'N=16384,r=8,p=2', 'N=NaN,r=8,p=1', 'N=16384,r=8,p=Infinity', 'N=-1,r=8,p=1']) {
       expect(await hasher.checkAsync('secret', `$scrypt$${cost}$${salt}$${key}`)).toBe(false)
     }
     expect(await hasher.checkAsync('secret', `$scrypt$N=16384,r=8,p=1$${shortSalt}$${key}`)).toBe(false)
