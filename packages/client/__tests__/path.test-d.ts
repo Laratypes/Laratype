@@ -1,10 +1,13 @@
 // Type tests for path-style calls (CL4 #140): the path selects the endpoint, and the call is typed as the named style.
 import { describe, expectTypeOf, test } from "vitest";
 import { createPathClient } from "@laratype/client";
-import type { ClientResult, ClientSuccess, PathCall, PathClient, ProvidedHeaders } from "@laratype/client";
+import type { ClientOptions, ClientResult, ClientSuccess, PathCall, PathClient, PathClientOptions, ProvidedHeaders } from "@laratype/client";
 import type { ApiTypes } from "@laratype/contract";
 import type { AppApi } from "./fixtures/.laratype/api/index.gen";
 import type { AppApi as Generated } from "./fixtures/separate-fe/api";
+
+/** Type-level checks only: the body is type-checked but never run. */
+const typeOnly = (_fn: () => void) => {};
 
 type Api = ApiTypes<AppApi>;
 const api = createPathClient<Api>();
@@ -224,6 +227,28 @@ describe("createPathClient", () => {
     // @ts-expect-error the function sends x-tenant only at call time, so the call's headers are still required
     void dynamic.post("/api/users", { body: { name: "A", email: "a@b.c" } });
     void dynamic.post("/api/users", { body: { name: "A", email: "a@b.c" }, headers: { "x-tenant": "t" } });
+  });
+
+  test("validateResponses is refused: a path-style call has no contract at runtime", () => {
+    expectTypeOf<PathClientOptions["validateResponses"]>().toEqualTypeOf<false | undefined>();
+    void createPathClient<Api>({ validateResponses: false });
+    const off: PathClientOptions = { validateResponses: false };
+    void createPathClient<Api>(off);
+    typeOnly(() => {
+      // @ts-expect-error the path client carries no response schemas
+      void createPathClient<Api>({ validateResponses: true });
+    });
+    // a ClientOptions value can't prove validateResponses is off, as with the manifest overloads of createClient
+    const plain: ClientOptions = { validateResponses: true };
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions may set validateResponses: true
+      void createPathClient<Api>(plain);
+    });
+    const unset: ClientOptions = {};
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions has validateResponses?: boolean, which is not false | undefined
+      void createPathClient<Api>(unset);
+    });
   });
 
   test("the generated AppApi of a separate repo is a valid type argument", () => {

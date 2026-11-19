@@ -16,14 +16,14 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 |---|---|
 | [Package scaffold](#package-scaffold) | merged @ d70daa7 |
 | [FE import rule](#fe-import-rule) | decided (S2 #85); enforced by C5 fixtures, merged @ e2eac4b; generated entry merged ([#228](https://github.com/Laratypes/Laratype/issues/228), [#133](https://github.com/Laratypes/Laratype/issues/133)) |
-| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
+| [createClient](#createclient) | merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); `joinPath` separator and same-origin check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; JSON-safe request input and provided headers proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86; input detection by the `defineApi` root brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; `redirect` option and outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)); manifest overloads take `ManifestClientOptions` proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Result union](#result-union) | merged ([#110](https://github.com/Laratypes/Laratype/issues/110)); redirect outcomes proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
 | [Options and hooks](#options-and-hooks) | proposed: PR [#302](https://github.com/Laratypes/Laratype/pull/302) @ f68de49 ([#124](https://github.com/Laratypes/Laratype/issues/124)); `redirect` option proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) |
-| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)) |
+| [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)); `validateResponses` refused at compile time and at `createPathClient`: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
 | [TanStack Query adapter](#tanstack-query-adapter) | planned → #141 |
-| [Dev-mode response validation](#dev-mode-response-validation) | planned → #159 |
+| [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
 
@@ -99,15 +99,15 @@ export type AppApi = typeof appApi
 ## createClient
 
 ### Status
-merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb.
+merged ([#109](https://github.com/Laratypes/Laratype/issues/109)). Calls resolve to the [result union](#result-union), merged ([#110](https://github.com/Laratypes/Laratype/issues/110)). The `joinPath` separator and the same-origin route path check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) are proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84. The JSON-safe request input and the headers `options.headers` provides (CL7 [#255](https://github.com/Laratypes/Laratype/issues/255)) are proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 2449a86. The `redirect` option and the redirect outcomes of a call (CL9 [#315](https://github.com/Laratypes/Laratype/issues/315)) are proposed: PR [#332](https://github.com/Laratypes/Laratype/pull/332) @ 789f0fb. The manifest overloads taking `ManifestClientOptions`, which narrows `validateResponses` to `false`, are proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)).
 
 ### Public API
 [`packages/client/src/client.ts`](../../packages/client/src/client.ts), [`packages/client/src/types.ts`](../../packages/client/src/types.ts)
 
 ```ts
 // Hd: the type of options.headers (inferred; the second manifest overload takes it as a type argument)
-export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ClientOptions): Client<T>;   // separate-repo FE
-export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(manifest: Manifest, options: ClientOptions<Hd> & { headers: Hd & HeaderValues }): Client<T, ProvidedHeaders<Hd>>;
+export function createClient<T extends ApiShape<T> = never>(manifest: Manifest, options?: ManifestClientOptions): Client<T>;   // separate-repo FE
+export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(manifest: Manifest, options: ManifestClientOptions<Hd> & { headers: Hd & HeaderValues }): Client<T, ProvidedHeaders<Hd>>;
 export function createClient<C extends AnyContract, const Hd extends HeadersInit = HeadersInit>(contract: C, options?: ClientOptions<Hd>): ClientOf<C, ProvidedHeaders<Hd>>;
 export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit = HeadersInit>(node: N, options?: ClientOptions<Hd>): ClientOf<N, ProvidedHeaders<Hd>>;
 export function createClient<A extends ApiRootShape, const Hd extends HeadersInit = HeadersInit>(api: A, options?: ClientOptions<Hd>): ClientOf<A, ProvidedHeaders<Hd>>;   // the appApi
@@ -119,8 +119,10 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   fetch?: FetchLike;                // default: the global fetch
   headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);   // sent with every call; a function provides no header to the types
   credentials?: RequestCredentials; redirect?: RequestRedirect; onRequest?: …; onResponse?: …      // see Options and hooks (CL3, CL9)
+  validateResponses?: boolean;      // CL6 #159; ManifestClientOptions narrows it to false for the manifest
   // every option is read from this object at each call
 }
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
@@ -169,12 +171,13 @@ if (result.ok) result.data.title                     // see Result union
 - `[@laratype/client] route path "<path>" would leave the page's origin: "<joined path>"` (the call rejects: a same-origin `baseUrl` and a route path that URL parsing reads as another host)
 - `[@laratype/contract] buildUrl: missing param "<name>" for "<path>"` and `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them` (from [buildUrl](./contract.md#url-builder))
 - Type-level: a missing required param, body or schema header (unless `options.headers` names it), an unknown param, a body that doesn't match the schema input, or a body value JSON can't carry (`bigint`, `Map`, `Set`, a function) (`packages/client/__tests__/client.test-d.ts`).
+- Type-level, `ManifestClientOptions`: both manifest overloads take `ManifestClientOptions`, which narrows `validateResponses` to `false`. An options variable declared `ClientOptions` no longer matches either overload, even when its value is `{ baseUrl: "/api" }` and validation is off: a compile-time break from CL6 [#159](https://github.com/Laratypes/Laratype/issues/159). Declare such a variable as `ManifestClientOptions`, or with `satisfies ClientOptions`, which keeps its inferred literal type.
 
 ### Example
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Non-goals
-- No response parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No response parsing by schema: `data` is the parsed JSON body, typed `Jsonify<output>`, and [Dev-mode response validation](#dev-mode-response-validation) only checks it.
 
 ### Open questions
 - None recorded.
@@ -227,6 +230,7 @@ switch (result.code) {
   - a cross-origin `mode: "no-cors"` request whose redirect mode isn't `"follow"` (the default `"manual"`, or `"error"`): the Fetch Standard makes it a network error before the request is sent, so it is the status-0 result without `response`, `error` is the thrown error. A same-origin no-cors request is sent, and a redirect gives the `opaqueredirect` above. A cross-origin no-cors call (a `mode` set by `onRequest`, or an injected `fetch`) needs `redirect: "follow"` to get an `opaque` response, which is the status-0 result with `response` set;
   - an abort or a network error while the body is read, after the headers arrived: the HTTP `status`, `response`, and `error` is the read error;
   - a 2xx other than the declared status, or an empty body where a response schema is declared;
+  - with `validateResponses`, a success body that does not match the response schema: the HTTP status, `response`, and `error` is a `ResponseValidationError`; a schema that throws or rejects gives the same result with that error ([Dev-mode response validation](#dev-mode-response-validation));
   - a status or code the endpoint doesn't declare, or a JSON body without `code` (`error` is the parsed body);
   - a body that isn't JSON, on any status: `error` is the `SyntaxError`, and `text` holds the raw body (an HTML 502 from a proxy), since the body is consumed.
 - **`response`** is the fetch `Response` on every variant except a failure before the headers. A status-0 `opaqueredirect` and a no-cors `opaque` response are the cases where status and headers aren't usable: the status is 0, the headers are empty and there is no `Location`. Otherwise the client reads its body once, so the body is consumed (`bodyUsed`); status and headers such as `Retry-After` stay usable. A body-less success (`data: undefined`) doesn't read the body; unless it is a 204 or 205, the client cancels it, so an unread body doesn't hold a connection open (undici).
@@ -241,7 +245,7 @@ Type-level (`packages/client/__tests__/client.test-d.ts`): narrowing by `ok` the
 
 ### Non-goals
 - No retries, and no throwing variant (`unwrap`).
-- No parsing by schema: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No parsing by schema: the data is the parsed JSON body, and [Dev-mode response validation](#dev-mode-response-validation) only checks it.
 
 ### Open questions
 - Resolved: result data is typed `Jsonify<output>` of the response schema (`Date` → `string`) in all three S2 client variants ([#110](https://github.com/Laratypes/Laratype/issues/110), [#107](https://github.com/Laratypes/Laratype/issues/107)).
@@ -313,16 +317,17 @@ export interface ClientRequest {
 ## Path-style calls
 
 ### Status
-proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary.
+proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140), CL4). The named style stays primary. The `validateResponses` refusal is CL6: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc.
 
 ### Public API
-[`packages/client/src/client.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/client.ts), [`packages/client/src/types.ts` @ 3ec3396](https://github.com/Laratypes/Laratype/blob/3ec3396b0cb52c35b86fd4a81f3679cfc7c79758/packages/client/src/types.ts)
+[`packages/client/src/client.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/client.ts), [`packages/client/src/types.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/types.ts)
 
 ```ts
-export function createPathClient<A extends ApiShape<A> = never>(options?: ClientOptions): PathClient<A>;
+export function createPathClient<A extends ApiShape<A> = never>(options?: PathClientOptions): PathClient<A>;
 export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
-  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
+  options: PathClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): PathClient<A, ProvidedHeaders<Hd>>;
+export type PathClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };   // no contract runtime (CL6 #159)
 
 export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
 export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
@@ -346,6 +351,7 @@ const result = await api.get('/api/users/:user', { params: { user: 1 } })
 
 ### Invariants
 - **Type-only:** `createPathClient` takes no contract value. The API type comes from `import type { AppApi } from '$api'` projected with `ApiTypes<AppApi>`, or from the generated `AppApi` of a separate-repo FE ([Separate-repo FE](#separate-repo-fe-generated-manifest)), so no contract file, schema or schema library reaches the bundle. Nothing about the contracts is read at runtime; the path alone is sent.
+- **No response validation:** a path-style call has no contract at runtime, so the client cannot check a success body against a response schema. `PathClientOptions` narrows `validateResponses` to `false | undefined`, so `createPathClient({ validateResponses: true })` is a type error, and a `ClientOptions`-typed value is refused like the manifest overloads of [`createClient`](#createclient); an untyped caller that passes a truthy `validateResponses` gets the diagnostic below at `createPathClient`. It is not a silent no-op. Use `createClient` with the appApi, an API node or a contract for [Dev-mode response validation](#dev-mode-response-validation).
 - **The path** is the full request path the server mounts, the same string [`buildUrl`](./contract.md#url-builder) gets: the contract's URL prefix and the folder tree, with `[x]` folder params in it (`app/api/users/[user]/posts.ts` → `/api/users/:user/posts/:post`, both `user` and `post` in `params`). It must be a literal: a `string` variable and a template-literal type are rejected, even when the method has one endpoint, and so is a helper that forwards a wider generic path type. The API type must name each location with a literal key and each path with a single literal: an index signature at any level (`Record<string, E>`) or a pattern key refuses every call, and an endpoint whose `path` type is `string` or a template-literal pattern (`` `/api/users/${string}` ``) refuses the calls of its own method, since none of them names one endpoint. A path that matches no endpoint of that method, or more than one (the same method and path in two contracts, even when the two endpoint types are identical), is a type error (see Diagnostics). `CheckPath`, `EndpointAt`, `MatchingLocations`, `HasNonLiteralKey` and `HasPatternPath` are private types.
 - **Never build the path from user input.** A literal path is checked against the API type only, not at runtime: dot segments are not checked, so `/api/../admin` is sent as `/admin` after URL parsing — still same-origin, but a different endpoint than the type matched. Values belong in `params`, which `buildUrl` encodes and refuses when they are `.` or `..` (a dot segment).
 - **The call** is typed from the matched endpoint with the named style's own types, so nothing is inferred twice: `EndpointShape`'s params, query, body, headers and `signal` become [`CallInput`](#createclient) (the input is optional when nothing in it is required), and the result and errors are [`ClientResult`](#result-union) (the declared status, the wire `data`, and the per-code error union). A missing param, a wrong body or a missing schema header is the same type error as in the named style. `options.headers` provides a schema header only with a static headers object and the headers type as the second type argument, as with the manifest client of `createClient`: `createPathClient<ApiTypes<AppApi>, { 'x-api-key': string }>({ headers: { 'x-api-key': key } })`; the second type argument requires `options.headers`, so a client cannot claim a header it never sends, and a `headers` function provides none to the types: `createPathClient<ApiTypes<AppApi>>({ headers })` sends them but uses `HeadersInit`, so a required schema header stays required.
@@ -362,7 +368,9 @@ const result = await api.get('/api/users/:user', { params: { user: 1 } })
   - `[@laratype/client] createPathClient: more than one endpoint answers GET at path "/api/dup"` (two contracts with the same method and path, even when their endpoint types are identical: the check counts endpoint locations, not the members of their type union);
   - `[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)`;
   - the missing or wrong `params`, `query`, `body` and schema `headers` of the matched endpoint, as in [createClient](#createclient) › Diagnostics.
+- Type-level, from `PathClientOptions`: `validateResponses: true` on the path client's options is refused (`false | undefined` only), and so is a `ClientOptions`-typed value, with the manifest client's rule.
 - Runtime, from the shared request path (with the named style's text): `[@laratype/client] createClient: baseUrl …` (the shared `createClient:` prefix), `[@laratype/client] route path "…" would leave the page's origin: "…"`, `[@laratype/contract] buildUrl: …` and `[@laratype/client] a GET request cannot have a body: "…"`. There is no unknown-path runtime error: the runtime has no route table.
+- `[@laratype/client] createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)` (at `createPathClient`, when an untyped caller passes a truthy `validateResponses`).
 
 ### Example
 [`docs/v1/examples/client/create-client.ts`](./examples/client/create-client.ts) shows the named style. The path style:
@@ -380,7 +388,7 @@ if (result.ok) result.data.name
 ### Non-goals
 - No named tree, route name lookup or runtime path check: the named style stays primary.
 - No contract, schema or code/status check at runtime (the known gap above).
-- No response validation: CL6 [#159](https://github.com/Laratypes/Laratype/issues/159).
+- No response validation: a path-style call has no contract at runtime, so the client refuses `validateResponses` at compile time and at `createPathClient` (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)).
 
 ### Open questions
 - None recorded.
@@ -463,10 +471,74 @@ Vue and React adapters, generated query keys, and mutations with typed errors. U
 ## Dev-mode response validation
 
 ### Status
-planned → [#159](https://github.com/Laratypes/Laratype/issues/159) (CL6, M4).
+proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc ([#159](https://github.com/Laratypes/Laratype/issues/159), CL6). The switch is opt-in; Invariants below say why the client can't detect development by itself.
 
-### Design (non-binding)
-Optionally validate responses against the contract on the client during development, to catch drift between server and contract. This only works with option (a), which ships the schemas.
+### Public API
+[`packages/client/src/validate.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/validate.ts), [`packages/client/src/types.ts` @ da9cbbcc](https://github.com/Laratypes/Laratype/blob/da9cbbccc550ab890de25719518be0397eba4597/packages/client/src/types.ts)
+
+```ts
+export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
+  // baseUrl, fetch, headers, credentials, redirect, onRequest and onResponse: see createClient and Options and hooks
+  validateResponses?: boolean;                       // default false; CL6 #159
+}
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };
+export type PathClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & { validateResponses?: false };
+
+export class ResponseValidationError extends Error {
+  readonly errors: ErrorBag;                         // dot path -> messages; "" for an issue without a path
+  readonly issues: readonly StandardIssue[];         // the Standard Schema issues
+}
+```
+
+```ts
+import { createClient, ResponseValidationError } from '@laratype/client'
+import { appApi } from '$api'
+
+const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
+const result = await api.users.show({ params: { user: 1 } })
+// the guard names a schema mismatch only: a network failure, a non-JSON body or a schema that threw is not one
+if (!result.ok && result.unexpected && result.error instanceof ResponseValidationError) {
+  // a fixed message: the error can hold response values, so it is not logged or sent to an error tracker
+  console.warn('[@laratype/client] the development response check failed: the server response does not match the contract')
+}
+```
+
+### Invariants
+- **Opt-in, off by default; no dev detection.** The client cannot tell a development build from a production one: `process` does not exist in a browser bundle, `import.meta.env` is Vite's and not standard, the package also builds CJS and ESM for Node, and the server's `__PROD__` is not set in a browser. The app wires the option to its bundler's dev flag, `validateResponses: import.meta.env.DEV` (Vite) or `process.env.NODE_ENV !== "production"` on SSR; a production build passes `false` and never runs the check.
+- **What is checked:** the parsed JSON body of a body-carrying 2xx whose endpoint has a response schema, with [`validate()`](./contract.md#validation-adapter) from `@laratype/contract` (sync or async). The inputs with schemas are option (a): the `appApi`, an API node and a contract file. A 204/205 or an endpoint without a response schema is skipped, and so is every declared error body: the contract has no schema for those (`ErrorDef` carries the status, the code and the body type only), so a 401/403/404/409/422 answer is classified exactly as it is with the option off.
+- **The manifest and the path-style client have no schemas:** `ManifestClientOptions` and `PathClientOptions` make `validateResponses: true` a type error, and `createClient` / `createPathClient` throw the diagnostics below. Neither is a silent no-op: the generated manifest carries no response schemas, and a [path-style call](#path-style-calls) has no contract at runtime.
+- **The success keeps the wire value:** only the schema's input side is checked (Standard Schema has no output validation). `data` stays the parsed JSON body, typed `Jsonify<output>` ([Result union](#result-union)), never the schema's output. This assumes the response schema's output is a value its own parse accepts, which holds when output equals input. A transform whose output its parse rejects (`{ raw: string }` → `{ count: number }`, a `z.string().transform()` field) makes a correct server response fail the check with a `ResponseValidationError`: leave `validateResponses` off for such a response schema (see Open questions). A leaf coercion (`z.coerce.date()`) parses the wire string and does not change `data`; a `z.date()` field fails, since the wire carries the ISO string.
+- **A mismatch is the unexpected result:** `ok: false`, `unexpected: true`, the HTTP status and `response`, and `error` is a `ResponseValidationError` whose `errors` is the schema's error bag (a null prototype) and whose `issues` are the Standard Schema issues. `code` is `undefined`, so `switch (result.code)`'s `case undefined` already covers it. This mirrors the server, which answers a development mismatch with a 500 instead of sending a value that does not match the contract: the client's loud equivalent is a failed call, since handing out data typed `Jsonify<output>` that does not match is the drift the check exists to catch. A schema that throws or rejects is the same result with the thrown error as `error`.
+- **Async:** the body is already read when the check runs, so `onResponse` still precedes it; `toResult` awaits `validate()` before the call settles, so a sync or async schema is complete. A schema whose `~standard.validate` throws or rejects resolves the call as the unexpected result with that error, caught in `checkResponseBody`: a broken schema is reported, not turned into a rejection (a failing hook still rejects the call).
+- **Live option:** `validateResponses` is read from the options object when each call starts, like every option.
+- **Production cost:** with the option off or `false` the check is never reached: `validate()` is not called and no schema library is touched. The client imports the contract's `validate` regardless (measured +0.47 KiB gzip on the `createClient` runtime); a bundler that folds `import.meta.env.DEV` to `false` never reaches it but the library keeps the branch, since options are live. No schema library is imported by the client: the schemas come with the `appApi` or the contract, which option (a) already ships for client-side form validation.
+- **The error can hold response values:** the message is the route name, the issue paths and the schema's own messages; it never reads the body. But an issue can carry the received value (a zod 3 enum's `received`) and an issue message can quote it, so the message, `errors` and `issues` can all hold response values: do not send the `ResponseValidationError` to an error tracker. The server's received-value cut lives in `@laratype/http`, which the client may not import, and duplicating it here is out of this change's scope.
+
+### Diagnostics
+- `[@laratype/client] <route name>: the response body does not match the endpoint's response schema (<path>: <messages>; ...)` (a path is `(root)` when the issue has none; the call resolves as the unexpected result)
+- The error a schema throws or rejects with: the same unexpected result, as `error` (the check adds no message of its own)
+- `[@laratype/client] createClient: validateResponses needs the contract's response schemas; the generated manifest has none (use the appApi, an API node or a contract)`
+- `[@laratype/client] createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)`
+- Type-level: `validateResponses` that is not a boolean, `validateResponses: true` on the manifest client or the path client, and a `ClientOptions`-typed value passed to either (it may set `validateResponses: true`; declare it `ManifestClientOptions` / `PathClientOptions`, or with `satisfies ClientOptions` so its inferred literal type is kept).
+
+### Example
+[`packages/client/__tests__/validate.test.ts`](../../packages/client/__tests__/validate.test.ts)
+
+```ts
+import { createClient, ResponseValidationError } from '@laratype/client'
+
+const api = createClient(appApi, { validateResponses: import.meta.env.DEV })
+const result = await api.users.store({ body })
+if (result.ok) return result.data
+if (result.unexpected && result.error instanceof ResponseValidationError) {
+  // development: the server broke the contract. The fields are on result.error for a debugger, but the message and
+  // issues can hold response values, so a fixed message is what goes to the console or an error tracker.
+  throw new Error('[@laratype/client] the server response does not match the contract')
+}
+```
+
+### Open questions
+- Whether a shape-changing response transform (its output differs from its input) should skip the check or have its output validated, since Standard Schema has no output validation: [#159](https://github.com/Laratypes/Laratype/issues/159).
 
 ### Acceptance
 [#159 Done when](https://github.com/Laratypes/Laratype/issues/159)

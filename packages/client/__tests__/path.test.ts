@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { createPathClient } from "@laratype/client";
-import type { ClientOptions, FetchLike } from "@laratype/client";
+import type { ClientOptions, FetchLike, PathClientOptions } from "@laratype/client";
 import type { ApiTypes } from "@laratype/contract";
 import type { AppApi } from "./fixtures/.laratype/api/index.gen";
 
@@ -96,7 +96,7 @@ describe("createPathClient", () => {
     const first = fakeFetch();
     const second = fakeFetch();
     const seen: string[] = [];
-    const options: ClientOptions = {
+    const options: PathClientOptions = {
       fetch: first.fetch,
       onRequest: (r) => void seen.push(`> ${r.url}`),
       onResponse: (r) => void seen.push(`< ${r.status}`),
@@ -119,6 +119,22 @@ describe("createPathClient", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("refuses validateResponses at creation: a path-style call has no contract at runtime", () => {
+    // an untyped caller bypasses PathClientOptions, so the refusal is also a runtime check
+    const createUntyped = createPathClient as (options: ClientOptions) => object;
+    const refusal =
+      "[@laratype/client] createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)";
+    for (const truthy of [true, 1, "yes", {}, Infinity]) {
+      const options = { validateResponses: truthy } as unknown as ClientOptions;
+      expect(() => createUntyped(options)).toThrow(refusal);
+    }
+    // off, unset and every other falsy value is the same as no option: no schema is ever consulted
+    for (const falsy of [false, 0, "", null, undefined, Number.NaN]) {
+      const options = { fetch: fakeFetch().fetch, validateResponses: falsy } as unknown as ClientOptions;
+      expect(() => createUntyped(options)).not.toThrow();
+    }
+  });
+
   it('sends redirect: "manual" by default, like the named style', async () => {
     const modes: Array<RequestRedirect | undefined> = [];
     const fetch = vi.fn<FetchLike>(async (_input, init) => {
@@ -135,7 +151,10 @@ describe("createPathClient", () => {
   it("takes any 2xx status as the success when its body is JSON, since the route contract is not available at runtime", async () => {
     // users.store declares 201; a 200 is still the success of this type-only client, and its JSON body is the data
     const fetch = vi.fn<FetchLike>(async () => Response.json({ id: 7, title: "T" }, { status: 200 }));
-    const result = await createPathClient<Api>({ fetch }).post("/api/users", { body: { name: "A", email: "a@b.c" } });
+    const result = await createPathClient<Api>({ fetch }).post("/api/users", {
+      body: { name: "A", email: "a@b.c" },
+      headers: { "x-tenant": "t" },
+    });
     expect(result).toMatchObject({ ok: true, status: 200, data: { id: 7, title: "T" } });
   });
 
