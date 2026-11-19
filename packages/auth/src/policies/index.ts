@@ -1,6 +1,7 @@
 export { default as Policy } from "./Policy";
 export type {
   Ability,
+  AnyPolicy,
   CheckPolicy,
   HasPolicy,
   ModelPolicy,

@@ -9,11 +9,18 @@ export type Ability = Exclude<keyof Policy, 'before'>;
 export type PolicyClass = abstract new (...args: any[]) => object;
 
 /**
+ * A policy shape whose abilities have any name: the default of the public generic policy types below, so the bare
+ * names mean "any" (`.claude/rules/types.md` › Generics). `PolicyAbility` is `string`, `PolicySubject` is `unknown`
+ * and `PolicyArgs` is `[]` on it; a real policy keeps its own names and parameters.
+ */
+export type AnyPolicy = { [ability: string]: (user: any, subject: unknown) => any };
+
+/**
  * The abilities of policy `P`: its string method names, minus `before` (docs/v1/auth.md › Policies and gates). A field
  * that is not a method is not an ability, as in the router's policy proof
  * (docs/v1/http.md › Route proof at r.contract()).
  */
-export type PolicyAbility<P> = Exclude<Extract<{
+export type PolicyAbility<P = AnyPolicy> = Exclude<Extract<{
   [K in keyof P]-?: P[K] extends (...args: any[]) => any ? K : never
 }[keyof P], string>, "before">;
 
@@ -25,14 +32,14 @@ type PolicyParams<P, K extends PolicyAbility<P>> =
  * The arguments an ability takes after the subject: `update(user, post)` gives `[]` and `share(user, post, target)`
  * gives `[target: User]`. The subject is the ability's first parameter, always passed by `Gate.allows()`.
  */
-export type PolicyArgs<P, K extends PolicyAbility<P>> =
+export type PolicyArgs<P = AnyPolicy, K extends PolicyAbility<P> = PolicyAbility<P>> =
   PolicyParams<P, K> extends [subject: any, ...args: infer A] ? A : [];
 
 /**
  * The subject parameter of an ability: `update(user, post)` and `share(user, post, target)` give `Post`, while an
  * ability with no model of its own (`viewAny(user)`) gives `never` (docs/v1/auth.md › Invariants).
  */
-export type PolicySubject<P, K extends PolicyAbility<P>> =
+export type PolicySubject<P = AnyPolicy, K extends PolicyAbility<P> = PolicyAbility<P>> =
   PolicyParams<P, K> extends [subject: infer S, ...params: any[]] ? S : never;
 
 /**
@@ -53,7 +60,7 @@ export type PolicyBrand = typeof policyBrand;
  * export default class Post extends Model { ... }
  * export default interface Post extends HasPolicy<PostPolicy> {}
  */
-export interface HasPolicy<P extends object> {
+export interface HasPolicy<P extends object = AnyPolicy> {
   // A symbol-keyed method, so the brand is not a string key of the model and a class/interface merge stays lint-clean;
   // never called, and never set at runtime
   [policyBrand]?(): P;
@@ -63,7 +70,7 @@ export interface HasPolicy<P extends object> {
  * The policy type a model declares with `HasPolicy`, or `never` when it declares none. A model class is read as its
  * instance, so `Gate.allows(user, "create", Post)` (no model to pass yet) types from the same declaration.
  */
-export type ModelPolicy<M> = (M extends abstract new (...args: any[]) => infer I ? I : M) extends infer O
+export type ModelPolicy<M = HasPolicy<AnyPolicy>> = (M extends abstract new (...args: any[]) => infer I ? I : M) extends infer O
   ? typeof policyBrand extends keyof O
     ? NonNullable<O[typeof policyBrand & keyof O]> extends () => infer P
       ? P
@@ -75,13 +82,15 @@ export type ModelPolicy<M> = (M extends abstract new (...args: any[]) => infer I
  * The abilities a subject allows: its policy's `PolicyAbility`, or any `string` before the model declares a policy
  * (`Gate.allows()` then has no ability to check against, and the subject itself fails `CheckPolicy`).
  */
-export type SubjectAbility<M> = [ModelPolicy<M>] extends [never] ? string : PolicyAbility<ModelPolicy<M>>;
+export type SubjectAbility<M = HasPolicy<AnyPolicy>> = [ModelPolicy<M>] extends [never]
+  ? string
+  : PolicyAbility<ModelPolicy<M>>;
 
 /**
  * The arguments an ability of subject `M` takes after the subject: `PolicyArgs`, or `unknown[]` before a policy
  * exists.
  */
-export type SubjectArgs<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
+export type SubjectArgs<M = HasPolicy<AnyPolicy>, K extends SubjectAbility<M> = SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
   ? unknown[]
   : PolicyArgs<ModelPolicy<M>, K & PolicyAbility<ModelPolicy<M>>>;
 
@@ -91,7 +100,7 @@ export type SubjectArgs<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] exten
  * `create(user)` still take the model class as their subject). `unknown` before a policy is declared: `CheckPolicy`
  * reports that instead.
  */
-export type SubjectParam<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
+export type SubjectParam<M = HasPolicy<AnyPolicy>, K extends SubjectAbility<M> = SubjectAbility<M>> = [ModelPolicy<M>] extends [never]
   ? unknown
   : [PolicySubject<ModelPolicy<M>, K & PolicyAbility<ModelPolicy<M>>>] extends [never]
     ? unknown
@@ -101,7 +110,7 @@ export type SubjectParam<M, K extends SubjectAbility<M>> = [ModelPolicy<M>] exte
  * The compile check of a subject with no declared policy (`.claude/rules/types.md` › Compile-time checks): the type
  * error shows `error` instead of "not assignable to parameter of type '{ [policyBrand]?: () => object }'".
  */
-export type CheckPolicy<M> = [ModelPolicy<M>] extends [never]
+export type CheckPolicy<M = HasPolicy<AnyPolicy>> = [ModelPolicy<M>] extends [never]
   ? { error: "the subject has no policy: add `export default interface <Model> extends HasPolicy<<Policy>> {}` beside its class and register the policy with Gate.policy(<Model>, <Policy>)" }
   : unknown;
 

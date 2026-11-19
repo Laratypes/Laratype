@@ -3,6 +3,8 @@ import { describe, expectTypeOf, test } from "vitest";
 import { Model } from "@laratype/database";
 import { Authenticated, ForbiddenException, Gate, policyAllows, policyAuthorize, policyCheck } from "../src";
 import type {
+  AnyPolicy,
+  CheckPolicy,
   GateAbility,
   HasPolicy,
   ModelPolicy,
@@ -133,6 +135,26 @@ describe("policies: abilities and arguments (A3 #121)", () => {
       authenticated.can("nope", post);
       // @ts-expect-error update(user, post) needs a Post instance here too
       authenticated.can("update", PostClass);
+    });
+  });
+});
+
+describe("policies: bare generic names mean any policy (A3 #121)", () => {
+  test("every public generic policy type has a default", () => {
+    typeOnly(() => {
+      expectTypeOf<AnyPolicy>().toEqualTypeOf<{
+        [ability: string]: (user: any, subject: unknown) => any;
+      }>();
+      expectTypeOf<PolicyAbility>().toEqualTypeOf<string>();
+      expectTypeOf<PolicyAbility<AnyPolicy>>().toEqualTypeOf<string>();
+      expectTypeOf<PolicyArgs>().toEqualTypeOf<[]>();
+      expectTypeOf<PolicySubject>().toEqualTypeOf<unknown>();
+      expectTypeOf<HasPolicy>().toEqualTypeOf<HasPolicy<AnyPolicy>>();
+      expectTypeOf<ModelPolicy>().toEqualTypeOf<AnyPolicy>();
+      expectTypeOf<SubjectAbility>().toEqualTypeOf<string>();
+      expectTypeOf<SubjectArgs>().toEqualTypeOf<[]>();
+      expectTypeOf<SubjectParam>().toEqualTypeOf<unknown>();
+      expectTypeOf<CheckPolicy>().toEqualTypeOf<unknown>();
     });
   });
 });
