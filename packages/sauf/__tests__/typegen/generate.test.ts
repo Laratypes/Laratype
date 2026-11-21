@@ -192,14 +192,17 @@ describe('sauf types:generate', () => {
       [
         "import * as z from 'zod'",
         "import { defineContract, defineError, endpoint } from '@laratype/contract'",
-        "import type { ErrorDef } from '@laratype/contract'",
+        "import type { ErrorDef, FailureStatus } from '@laratype/contract'",
         '',
         '// a finite status union keeps both statuses; a wide `number` keeps the pre-CL8 code-string form',
         "const Choice = defineError(Math.random() < 0.5 ? 409 : 422, 'CHOICE')",
         "const Wide = defineError(409, 'WIDE') as unknown as ErrorDef<number, 'WIDE'>",
+        '// a helper typed with FailureStatus (200 statuses) keeps the code-string form: one entry per code, not 200',
+        "const httpError = <C extends string>(status: FailureStatus, code: C) => defineError(status, code)",
         'export default defineContract()({',
         "  choose: endpoint.post('/choose').response(z.undefined()).throws(Choice),",
         "  wide: endpoint.get('/wide').throws(Wide),",
+        "  ranged: endpoint.get('/ranged').throws(httpError(409, 'A'), httpError(410, 'B'), httpError(418, 'C'), httpError(429, 'D'), httpError(503, 'E'), httpError(500, 'F')),",
         '})',
       ].join('\n'),
     );
@@ -209,6 +212,19 @@ describe('sauf types:generate', () => {
       "  'unions.choose': { method: 'post', path: '/api/unions/choose', status: 200, response: true, errors: [{ status: 409, code: 'CHOICE' }, { status: 422, code: 'CHOICE' }] },",
     );
     expect(api).toContain("  'unions.wide': { method: 'get', path: '/api/unions/wide', status: 204, response: false, errors: ['WIDE'] },");
+    expect(api).toContain(
+      "  'unions.ranged': { method: 'get', path: '/api/unions/ranged', status: 204, response: false, errors: ['A', 'B', 'C', 'D', 'E', 'F'] },",
+    );
+    // the manifest the generator writes for those helpers stays under the client's errors cap
+    const { manifest } = generateApiFile(ts, {
+      projectDir: copy,
+      tsconfig: join(copy, 'tsconfig.json'),
+      indexFile: join(copy, '.laratype', 'api', 'index.gen.ts'),
+      typesDir: join(copy, '.laratype', 'types'),
+      outFile: '.laratype/api.ts',
+    });
+    expect(manifest['unions.ranged'].errors).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+    expect(() => createClient(manifest)).not.toThrow();
   }, 60_000);
 
   it('inlines named types (interfaces, contract error bodies) and keeps default-lib ones', () => {
