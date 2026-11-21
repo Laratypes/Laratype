@@ -202,7 +202,7 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
     return values.length ? values : undefined;
   };
   // `HasResponse` gives a boolean literal per endpoint; a non-boolean (a forged `any` schema) keeps the old "has a schema".
-  const hasSchema = (type: TS.Type) => !(type.flags & ts.TypeFlags.BooleanLiteral && (type as TS.BooleanLiteralType).intrinsicName === "false");
+  const hasSchema = (type: TS.Type) => !(type.flags & ts.TypeFlags.BooleanLiteral && checker.typeToString(type, alias) === "false");
 
   const manifest: Record<string, ManifestEntry> = {};
   const walk = (type: TS.Type, kinds: TS.Type, responseFlags: TS.Type, prefix: string, indent: string): string => {
@@ -235,8 +235,11 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
         const code = literal(propType(type, "code"));
         if (code === undefined) continue;
         const errorStatuses = numberLiterals(propType(type, "status"));
-        if (errorStatuses === undefined) wideStatuses.add(code);
-        else for (const errorStatus of errorStatuses) pairs.set(`${errorStatus}:${code}`, { status: errorStatus, code });
+        if (errorStatuses === undefined) {
+          wideStatuses.add(code);
+          continue;
+        }
+        for (const errorStatus of errorStatuses) pairs.set(`${errorStatus}:${code}`, { status: errorStatus, code });
       }
       const errorEntries: Array<string | ManifestError> = [...wideStatuses, ...pairs.values()].sort((a, b) => {
         const codeA = typeof a === "string" ? a : a.code;
