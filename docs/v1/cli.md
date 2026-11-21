@@ -1,7 +1,7 @@
 ---
 area: cli
 packages: ["sauf", "@laratype/console"]
-issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
+issues: [102, 104, 125, 126, 127, 128, 129, 130, 133, 134, 142, 143, 148, 149, 155, 156, 157, 168, 169, 171, 172, 173, 179, 180]
 verified-against: Laratype@256a743 (0.5 state also checked on v0.5.4 @ 053be38; + make:command at f10c36c; + make:* at 7c1590c)
 last-verified: 2026-11-13
 ---
@@ -40,6 +40,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
 | `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
+| `sauf openapi:generate` | Writes an OpenAPI 3.1 document (`openapi.json`) from the contract tree, without booting the app | proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ 9f6d19ba ([#143](https://github.com/Laratypes/Laratype/issues/143)) | [typegen.md › OpenAPI](./typegen.md#openapi) |
 | `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → [#387](https://github.com/Laratypes/Laratype/issues/387) (split out of X3 [#157](https://github.com/Laratypes/Laratype/issues/157)) | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry: `Route.api` entries (name, method, path, controller, middleware, scope and contract policies, a "Not enforced" column for auth and authorize until #105/#121 and headers schema validation (no tracking issue yet), domain) and 0.5 routes | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |

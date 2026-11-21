@@ -57,7 +57,7 @@ Status column: `merged @ <sha>` | `proposed: PR #N @ <head sha>` | `planned → 
 | `@laratype/validation` | FormRequest v2 on Standard Schema | 0.5; v1 planned → #137 | contract |
 | `@laratype/auth` | Guards, typed `Register`, policies | 0.5; guards in the container proposed: PR #330 @ 699f1f8 (#151); v1 planned → #119, #120, #121 | core, http |
 | `@laratype/database` | Eloquent-like Model | 0.5 (TypeORM); v1 planned → #145–#150 (TypeORM, S5 #88) | core |
-| typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`, OpenAPI) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); OpenAPI planned → #143 | contract |
+| typegen (replaces `@laratype/ts-gen`) | `sauf types:generate` (`api.ts`) and `sauf openapi:generate` (OpenAPI) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); OpenAPI proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ 9f6d19ba ([#143](https://github.com/Laratypes/Laratype/issues/143)) | contract |
 | `laratype` | Kernel / `Serve` | 0.5; container boot merged @ 468c2ec | core, support |
 
 The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `storage` are ported or built in M3/M4, together with the new `cache` and `queue` packages. They are specified in [services.md](./services.md). On master, `mail`, `i18n`, `schedule`, `broadcast` and `storage` contain only `package.json`.
