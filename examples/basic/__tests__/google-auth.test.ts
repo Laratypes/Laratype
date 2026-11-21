@@ -81,6 +81,41 @@ describe("the Google guard", () => {
     await expect(bootExample()).rejects.toThrow(missingCredentials);
   });
 
+  it("skips the strategy when NODE_ENV=test and APP_ENV is local", async () => {
+    vi.stubGlobal("__PROD__", undefined);
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_ENV", "local");
+    stubGoogleCredentials("", "");
+
+    example = await bootExample();
+
+    // A value that is neither production nor development/test keeps its own rule: it does not override NODE_ENV=test
+    expect(apiGuard()).not.toBeInstanceOf(PassportGuard);
+  });
+
+  it("builds the strategy when APP_ENV is production even with NODE_ENV=test", async () => {
+    vi.stubGlobal("__PROD__", undefined);
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_ENV", "production");
+    stubGoogleCredentials("test-client-id", "test-client-secret");
+
+    example = await bootExample();
+
+    // Production in either variable wins over development/test in the other
+    expect(apiGuard()).toBeInstanceOf(PassportGuard);
+  });
+
+  it("builds the strategy when NODE_ENV is production even with APP_ENV=test", async () => {
+    vi.stubGlobal("__PROD__", undefined);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ENV", "test");
+    stubGoogleCredentials("test-client-id", "test-client-secret");
+
+    example = await bootExample();
+
+    expect(apiGuard()).toBeInstanceOf(PassportGuard);
+  });
+
   it("treats an environment with no NODE_ENV or APP_ENV as production", async () => {
     vi.stubGlobal("__PROD__", undefined);
     vi.stubEnv("NODE_ENV", "");

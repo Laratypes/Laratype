@@ -11,8 +11,9 @@ const environmentNames = () =>
 
 /**
  * The Google skip keys off an explicit non-production signal, never a missing NODE_ENV: `sauf dev` sets `__PROD__`
- * false, and every NODE_ENV/APP_ENV the process declares must name development or test. A production marker in either
- * wins over the other, and an unset environment is production, where a missing credential fails boot (E5 #343).
+ * false. Otherwise `production` in NODE_ENV or APP_ENV wins and the guard is built (it needs credentials),
+ * `development` or `test` in either variable skips the guard, and any other value (`local`, `staging`, unset) alone
+ * keeps the previous rule, which is production, so a missing credential fails the boot (E5 #343).
  */
 const isExplicitNonProduction = () => {
   if (globalThis.__PROD__ === false) return true;
@@ -20,7 +21,8 @@ const isExplicitNonProduction = () => {
   if (globalThis.__PROD__ === true) return false;
 
   const names = environmentNames();
-  return names.length > 0 && names.every((name) => ["development", "test"].includes(name));
+  if (names.includes("production")) return false;
+  return names.some((name) => ["development", "test"].includes(name));
 };
 
 /** Whether passport-google-oidc can build its strategy: it throws when the clientID is empty. */
