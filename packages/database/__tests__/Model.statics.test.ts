@@ -24,6 +24,7 @@ interface FakeColumn {
   readonly type: ColumnType
   readonly relationMetadata?: unknown
   readonly transformer?: ValueTransformer | ValueTransformer[]
+  readonly enum?: readonly (string | number)[]
 }
 
 /** An integer column whose hydrated value is "item-<n>", as an app's route key transformer does. */
@@ -88,6 +89,15 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'hostileRoute', propertyPath: 'hostileRoute', type: String, transformer: toObject },
   // A bigint route key: getRouteKey() may carry a bigint, while findByRouteKey() keeps the path string
   { propertyName: 'snowflake', propertyPath: 'snowflake', type: 'bigint' },
+  // Integer columns whose route key must stay inside the column's range
+  { propertyName: 'smallValue', propertyPath: 'smallValue', type: 'smallint' },
+  { propertyName: 'intValue', propertyPath: 'intValue', type: 'int' },
+  { propertyName: 'mediumValue', propertyPath: 'mediumValue', type: 'mediumint' },
+  { propertyName: 'tinyValue', propertyPath: 'tinyValue', type: 'tinyint' },
+  // A date-only key: TypeORM hydrates "YYYY-MM-DD", not a Date
+  { propertyName: 'birthday', propertyPath: 'birthday', type: 'date' },
+  // An enum route key: PostgreSQL rejects a label outside column.enum
+  { propertyName: 'status', propertyPath: 'status', type: 'enum', enum: ['draft', 'published'] },
   // An embedded column: its leaf `street` is not an own model property
   { propertyName: 'street', propertyPath: 'address.street', type: String },
   // A relation's join column: TypeORM sets relationMetadata and names it after the relation property
@@ -103,10 +113,12 @@ const model = (options: {
   columns?: FakeColumn[]
   primary?: string[]
   routeKeyName?: string
+  driver?: string
 } = {}) => {
   const rows = options.rows ?? [{ id: 1, email: 'ada@example.com', slug: 'ada', age: 36, isActive: true }]
   const columns = options.columns ?? COLUMNS
   const primary = options.primary ?? ['id']
+  const driver = options.driver ?? 'mysql'
   const findOneCalls: any[] = []
   const findCalls: any[] = []
   const raw: [string, unknown[] | undefined][] = []
@@ -142,6 +154,8 @@ const model = (options: {
       primaryColumns: primary.map((name) => ({ propertyName: name })),
       columns,
     },
+    // routeKeyColumn() reads the driver for the time range; the stub mirrors TypeORM's repository shape
+    manager: { connection: { driver: { options: { type: driver } } } },
     findOne: async (options: { where: Row }) => {
       findOneCalls.push(options)
       return rows.find(matches(options.where)) ?? null
@@ -367,12 +381,6 @@ describe('Model.findByRouteKey', () => {
       '-838:59:59',
       '-00:00:01',
     ]
-    for (const key of valid) {
-      const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: key }] })
-      await expect(User.findByRouteKey(key), key).resolves.toMatchObject({ id: 1 })
-      expect(findOneCalls, key).toEqual([{ where: { opensAt: key } }])
-    }
-
     // PostgreSQL rejects these as a bind error; the lookup answers null before the driver parses them
     const invalid = [
       '',
@@ -380,9 +388,11 @@ describe('Model.findByRouteKey', () => {
       '25:61:00',
       '12:60:00',
       '12:34:60',
+      '12:34.5',
       '12:34:56.',
       '12:34:56.12345678',
       '839:00:00',
+      '+12:34:56',
       '12:34:56+07',
       ' 12:34:56',
       '12:34:56 ',
@@ -391,10 +401,54 @@ describe('Model.findByRouteKey', () => {
       '\uD800',
       'x'.repeat(1_000_000),
     ]
-    for (const key of invalid) {
-      const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
-      await expect(User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
-      expect(findOneCalls, key.slice(0, 20)).toEqual([])
+    for (const driver of ['mysql', 'mariadb']) {
+      for (const key of valid) {
+        const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: key }] })
+        await expect(User.findByRouteKey(key), `${driver} ${key}`).resolves.toMatchObject({ id: 1 })
+        expect(findOneCalls, key).toEqual([{ where: { opensAt: key } }])
+      }
+      for (const key of invalid) {
+        const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
+        await expect(User.findByRouteKey(key), `${driver} ${key.slice(0, 20)}`).resolves.toBeNull()
+        expect(findOneCalls, key.slice(0, 20)).toEqual([])
+      }
+    }
+  })
+
+  it('uses the driver time range: MySQL 838h, PostgreSQL 24:00, SQL Server 23:59, unknown strict', async () => {
+    const cases: [string, string[], string[]][] = [
+      [
+        'mysql',
+        ['25:00:00', '-01:00:00', '838:00', '838:59:59'],
+        ['839:00:00', '12:34.5', '+12:34:56'],
+      ],
+      [
+        'postgres',
+        ['00:00', '23:59:59.999999', '24:00', '24:00:00', '24:00:00.000'],
+        ['24:00:01', '24:00:00.000001', '25:00:00', '-01:00:00', '838:00'],
+      ],
+      [
+        'mssql',
+        ['00:00:00', '23:59:59', '23:59:59.9999999'],
+        ['24:00:00', '25:00:00', '-01:00:00', '838:00'],
+      ],
+      [
+        'unknown',
+        ['00:00:00', '23:59:59'],
+        ['24:00:00', '25:00:00', '-01:00:00', '838:00'],
+      ],
+    ]
+    for (const [driver, valid, invalid] of cases) {
+      for (const key of valid) {
+        const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: key }] })
+        await expect(User.findByRouteKey(key), `${driver} ${key}`).resolves.toMatchObject({ id: 1 })
+        expect(findOneCalls, `${driver} ${key}`).toEqual([{ where: { opensAt: key } }])
+      }
+      for (const key of invalid) {
+        const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
+        await expect(User.findByRouteKey(key), `${driver} ${key}`).resolves.toBeNull()
+        expect(findOneCalls, `${driver} ${key}`).toEqual([])
+      }
     }
   })
 
@@ -412,7 +466,11 @@ describe('Model.findByRouteKey', () => {
     ]
     for (const routeKeyName of ['zonedTime', 'zonedTimeText']) {
       for (const key of valid) {
-        const { User, findOneCalls } = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: key }] })
+        const { User, findOneCalls } = model({
+          driver: 'postgres',
+          routeKeyName,
+          rows: [{ id: 1, [routeKeyName]: key }],
+        })
         await expect(User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toMatchObject({ id: 1 })
         expect(findOneCalls, key).toEqual([{ where: { [routeKeyName]: key } }])
       }
@@ -429,14 +487,35 @@ describe('Model.findByRouteKey', () => {
         '838:59:59+07',
         '-12:34:56+07',
       ]) {
-        const { User, findOneCalls } = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: '12:34:56+07' }] })
+        const { User, findOneCalls } = model({
+          driver: 'postgres',
+          routeKeyName,
+          rows: [{ id: 1, [routeKeyName]: '12:34:56+07' }],
+        })
         await expect(User.findByRouteKey(key), key).resolves.toBeNull()
         expect(findOneCalls, key).toEqual([])
       }
     }
 
+    // Only PostgreSQL has a zoned time; another driver never accepts the offset
+    for (const driver of ['mysql', 'mssql', 'unknown']) {
+      for (const routeKeyName of ['zonedTime', 'zonedTimeText']) {
+        const { User, findOneCalls } = model({
+          driver,
+          routeKeyName,
+          rows: [{ id: 1, [routeKeyName]: '12:34:56+07' }],
+        })
+        await expect(User.findByRouteKey('12:34:56+07'), `${driver} ${routeKeyName}`).resolves.toBeNull()
+        expect(findOneCalls, `${driver} ${routeKeyName}`).toEqual([])
+      }
+    }
+
     // A bare time column never carries an offset
-    const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
+    const { User, findOneCalls } = model({
+      driver: 'postgres',
+      routeKeyName: 'opensAt',
+      rows: [{ id: 1, opensAt: '12:34:56' }],
+    })
     await expect(User.findByRouteKey('12:34:56+07')).resolves.toBeNull()
     expect(findOneCalls).toEqual([])
   })
@@ -455,6 +534,204 @@ describe('Model.findByRouteKey', () => {
       await expect(miss.User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
       expect(miss.findOneCalls, key.slice(0, 20)).toEqual([])
     }
+
+    // The transformed path reads the same driver: PostgreSQL accepts 24:00 but not 25:00 or a negative time
+    const pgHit = model({
+      driver: 'postgres',
+      routeKeyName: 'transformedTime',
+      columns,
+      rows: [{ id: 1, transformedTime: '24:00:00' }],
+    })
+    await expect(pgHit.User.findByRouteKey('24:00:00')).resolves.toMatchObject({ id: 1 })
+    const pgMiss = model({
+      driver: 'postgres',
+      routeKeyName: 'transformedTime',
+      columns,
+      rows: [{ id: 1, transformedTime: '24:00:00' }],
+    })
+    await expect(pgMiss.User.findByRouteKey('25:00:00')).resolves.toBeNull()
+    expect(pgMiss.findOneCalls).toEqual([])
+  })
+
+  it('binds a date-only key as its calendar string, not a local-time Date', async () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'Etc/GMT+5'
+    try {
+      // The old path built a Date at UTC midnight; in UTC-5 its local day is the previous one
+      expect(new Date('2024-01-01').getDate()).toBe(31)
+
+      const hit = model({ routeKeyName: 'birthday', rows: [{ id: 1, birthday: '2024-01-01' }] })
+      await expect(hit.User.findByRouteKey('2024-01-01')).resolves.toMatchObject({ id: 1 })
+      expect(hit.findOneCalls).toEqual([{ where: { birthday: '2024-01-01' } }])
+
+      for (const key of [
+        '2023-02-29',
+        '2024-02-30',
+        '2024-04-31',
+        '2024-13-01',
+        '2024-00-10',
+        '2024-1-1',
+        '2024-01-01T00:00:00',
+        '0000-00-00',
+        '0000-01-01',
+      ]) {
+        const miss = model({ routeKeyName: 'birthday', rows: [{ id: 1, birthday: '2024-01-01' }] })
+        await expect(miss.User.findByRouteKey(key), key).resolves.toBeNull()
+        expect(miss.findOneCalls, key).toEqual([])
+      }
+
+      const leap = model({ routeKeyName: 'birthday', rows: [{ id: 1, birthday: '2024-02-29' }] })
+      await expect(leap.User.findByRouteKey('2024-02-29')).resolves.toMatchObject({ id: 1 })
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
+    }
+  })
+
+  it('binds a transformed date / datetime string unchanged, not the Date the rule builds', async () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'Etc/GMT+5'
+    try {
+      expect(new Date('2024-01-01').getDate()).toBe(31)
+      const dateColumns: FakeColumn[] = [
+        ...COLUMNS,
+        { propertyName: 'eventDate', propertyPath: 'eventDate', type: 'date', transformer: identity },
+      ]
+      const dateHit = model({
+        routeKeyName: 'eventDate',
+        columns: dateColumns,
+        rows: [{ id: 1, eventDate: '2024-01-01' }],
+      })
+      await expect(dateHit.User.findByRouteKey('2024-01-01')).resolves.toMatchObject({ id: 1 })
+      expect(boundRouteKey(dateHit.findOneCalls, 'eventDate')).toBe('2024-01-01')
+
+      const dateMiss = model({
+        routeKeyName: 'eventDate',
+        columns: dateColumns,
+        rows: [{ id: 1, eventDate: '2024-01-01' }],
+      })
+      await expect(dateMiss.User.findByRouteKey('2024-02-30')).resolves.toBeNull()
+      expect(dateMiss.findOneCalls).toEqual([])
+
+      const datetimeColumns: FakeColumn[] = [
+        ...COLUMNS,
+        { propertyName: 'eventAt', propertyPath: 'eventAt', type: 'timestamp', transformer: identity },
+      ]
+      const datetimeHit = model({
+        routeKeyName: 'eventAt',
+        columns: datetimeColumns,
+        rows: [{ id: 1, eventAt: '2024-01-01 00:00:00' }],
+      })
+      await expect(datetimeHit.User.findByRouteKey('2024-01-01 00:00:00')).resolves.toMatchObject({ id: 1 })
+      // The timestamp rule validates the string, but the transformer's own string is bound, not a local-time Date
+      expect(boundRouteKey(datetimeHit.findOneCalls, 'eventAt')).toBe('2024-01-01 00:00:00')
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
+    }
+  })
+
+  it('keeps a transformed integer / boolean string as the transformer returned it', async () => {
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      { propertyName: 'codeText', propertyPath: 'codeText', type: Number, transformer: identity },
+      { propertyName: 'flagText', propertyPath: 'flagText', type: Boolean, transformer: identity },
+    ]
+    const code = model({ routeKeyName: 'codeText', columns, rows: [{ id: 1, codeText: '42' }] })
+    await expect(code.User.findByRouteKey('42')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(code.findOneCalls, 'codeText')).toBe('42')
+
+    const flag = model({ routeKeyName: 'flagText', columns, rows: [{ id: 1, flagText: '1' }] })
+    await expect(flag.User.findByRouteKey('1')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(flag.findOneCalls, 'flagText')).toBe('1')
+
+    for (const [routeKeyName, key] of [['codeText', '042'], ['codeText', '1e3'], ['flagText', 'yes']] as const) {
+      const miss = model({ routeKeyName, columns, rows: [{ id: 1 }] })
+      await expect(miss.User.findByRouteKey(key), key).resolves.toBeNull()
+      expect(miss.findOneCalls, key).toEqual([])
+    }
+  })
+
+  it('refuses an integer key outside the column range', async () => {
+    const cases: [string, string, string, string, string][] = [
+      ['smallValue', '32767', '32768', '-32768', '-32769'],
+      ['intValue', '2147483647', '2147483648', '-2147483648', '-2147483649'],
+      ['mediumValue', '8388607', '8388608', '-8388608', '-8388609'],
+      ['tinyValue', '127', '128', '-128', '-129'],
+    ]
+    for (const [routeKeyName, max, over, min, under] of cases) {
+      for (const key of [max, min]) {
+        const hit = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: Number(key) }] })
+        await expect(hit.User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toMatchObject({ id: 1 })
+        expect(hit.findOneCalls, key).toEqual([{ where: { [routeKeyName]: Number(key) } }])
+      }
+      for (const key of [over, under]) {
+        const miss = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: 0 }] })
+        await expect(miss.User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toBeNull()
+        expect(miss.findOneCalls, key).toEqual([])
+      }
+    }
+
+    // The default Number column is a 32-bit int on the known drivers
+    const idHit = model({ rows: [{ id: 2147483647 }] })
+    await expect(idHit.User.findByRouteKey('2147483647')).resolves.toMatchObject({ id: 2147483647 })
+    const idMiss = model({ rows: [{ id: 2147483647 }] })
+    await expect(idMiss.User.findByRouteKey('2147483648')).resolves.toBeNull()
+    expect(idMiss.findOneCalls).toEqual([])
+
+    // An unknown driver (SQLite, ...) keeps the safe-integer rule for a Number column, whose INTEGER is 64-bit
+    const idUnknown = model({ driver: 'unknown', rows: [{ id: 2147483648 }] })
+    await expect(idUnknown.User.findByRouteKey('2147483648')).resolves.toMatchObject({ id: 2147483648 })
+
+    // A transformer's number takes the same range check
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      {
+        propertyName: 'smallCode',
+        propertyPath: 'smallCode',
+        type: 'smallint',
+        transformer: { to: () => 40000, from: (value: unknown) => value },
+      },
+    ]
+    const transformedMiss = model({ routeKeyName: 'smallCode', columns, rows: [{ id: 1 }] })
+    await expect(transformedMiss.User.findByRouteKey('ignored')).resolves.toBeNull()
+    expect(transformedMiss.findOneCalls).toEqual([])
+  })
+
+  it('refuses an enum key outside column.enum', async () => {
+    const hit = model({ routeKeyName: 'status', rows: [{ id: 1, status: 'draft' }] })
+    await expect(hit.User.findByRouteKey('draft')).resolves.toMatchObject({ id: 1 })
+    expect(hit.findOneCalls).toEqual([{ where: { status: 'draft' } }])
+
+    const miss = model({ routeKeyName: 'status', rows: [{ id: 1, status: 'draft' }] })
+    await expect(miss.User.findByRouteKey('archived')).resolves.toBeNull()
+    expect(miss.findOneCalls).toEqual([])
+
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      {
+        propertyName: 'transformedStatus',
+        propertyPath: 'transformedStatus',
+        type: 'enum',
+        enum: ['draft', 'published'],
+        transformer: identity,
+      },
+    ]
+    const transformedHit = model({
+      routeKeyName: 'transformedStatus',
+      columns,
+      rows: [{ id: 1, transformedStatus: 'published' }],
+    })
+    await expect(transformedHit.User.findByRouteKey('published')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(transformedHit.findOneCalls, 'transformedStatus')).toBe('published')
+
+    const transformedMiss = model({
+      routeKeyName: 'transformedStatus',
+      columns,
+      rows: [{ id: 1, transformedStatus: 'draft' }],
+    })
+    await expect(transformedMiss.User.findByRouteKey('archived')).resolves.toBeNull()
+    expect(transformedMiss.findOneCalls).toEqual([])
   })
 
   it('lets a canonical uuid reach the lookup and answers a malformed one as a miss', async () => {
@@ -530,11 +807,11 @@ describe('Model.findByRouteKey', () => {
     }
   })
 
-  it('checks a transformed integer against the plain path rule', async () => {
-    for (const [key, value] of [['42', 42], ['-7', -7], ['0', 0]] as const) {
-      const hit = model({ routeKeyName: 'code', rows: [{ id: 1, code: value }] })
-      await expect(hit.User.findByRouteKey(key)).resolves.toMatchObject({ id: 1, code: value })
-      expect(boundRouteKey(hit.findOneCalls, 'code')).toBe(value)
+  it('checks a transformed integer against the plain path rule, keeping the string it returned', async () => {
+    for (const key of ['42', '-7', '0']) {
+      const hit = model({ routeKeyName: 'code', rows: [{ id: 1, code: key }] })
+      await expect(hit.User.findByRouteKey(key)).resolves.toMatchObject({ id: 1, code: key })
+      expect(boundRouteKey(hit.findOneCalls, 'code')).toBe(key)
     }
 
     // An identity transformer used to bind these, and PostgreSQL rejects a non-canonical integer bind
@@ -714,6 +991,7 @@ describe('Model.findByRouteKey over a real TypeORM findOne', () => {
     }
     ;(PostModel as any).getRepository = () => ({
       metadata: repository.metadata,
+      manager: repository.manager,
       // EntityManager.findOne: the metadata name is the alias, and `take: 1` is added to the find options
       findOne: async (findOptions: any) => {
         const query = repository.createQueryBuilder(repository.metadata.name)
@@ -807,6 +1085,12 @@ describe('Model.getRouteKey', () => {
     const { User } = model({ routeKeyName: 'opensAt' })
     const user = Object.assign(new User(), { opensAt: '12:34:56' })
     expect(user.getRouteKey()).toBe('12:34:56')
+  })
+
+  it('returns a date-only route key as the YYYY-MM-DD string TypeORM hydrates', () => {
+    const { User } = model({ routeKeyName: 'birthday' })
+    const user = Object.assign(new User(), { birthday: '2024-01-01' })
+    expect(user.getRouteKey()).toBe('2024-01-01')
   })
 
   it('returns the hydrated value of a transformed route key', () => {

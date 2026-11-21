@@ -30,6 +30,25 @@ export type PrimaryKeyValue = string | number | bigint;
 /** A model class: the instance type its statics return, plus the TypeORM `BaseEntity` statics they call. */
 export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
 
+/** The drivers whose route-key time range the lookup knows; any other driver takes the strict common range. */
+type RouteKeyDriver = "mysql" | "postgres" | "mssql" | "unknown";
+
+/**
+ * The DataSource driver behind a model (docs/v1/database.md › BindableModel): MySQL / MariaDB's `TIME` is wider than
+ * 24 hours, PostgreSQL's `time` ends at 24:00:00 and SQL Server's at 23:59:59.fffffff, so the route-key rule depends
+ * on the driver and not only on the column type.
+ */
+const routeKeyDriver = (model: typeof Model): RouteKeyDriver => {
+  const type = model.getRepository().manager?.connection?.driver?.options?.type;
+  if (type === "mysql" || type === "mariadb" || type === "aurora-mysql") {
+    return "mysql";
+  }
+  if (type === "postgres" || type === "aurora-postgres") {
+    return "postgres";
+  }
+  return type === "mssql" ? "mssql" : "unknown";
+};
+
 /**
  * Integer column types whose route key is a number. `bigint` stays a string on purpose: a Number conversion loses
  * precision above 2^53, and TypeORM reads a bigint column as a string anyway.
@@ -44,6 +63,31 @@ const NUMERIC_TYPES: readonly ColumnType[] = [
   "mediumint",
   "tinyint",
 ];
+
+/**
+ * The integer range of a route-key column (docs/v1/database.md › BindableModel): `smallint` / `int2` are 16-bit,
+ * `int` / `int4` / `integer` 32-bit, and MySQL's `mediumint` / `tinyint` narrower. A `Number` column is TypeORM's
+ * `int` on the three known drivers but SQLite's 64-bit `INTEGER`, so an unknown driver keeps the safe-integer rule.
+ * `bigint` is not in `NUMERIC_TYPES`: it keeps the string, so its precision is not reduced to a `Number`.
+ */
+const integerLimits = (type: ColumnType, driver: RouteKeyDriver): readonly [number, number] | undefined => {
+  if (type === "smallint" || type === "int2") {
+    return [-32768, 32767];
+  }
+  if (type === "mediumint") {
+    return [-8388608, 8388607];
+  }
+  if (type === "tinyint") {
+    return [-128, 127];
+  }
+  if (type === "int" || type === "int4" || type === "integer") {
+    return [-2147483648, 2147483647];
+  }
+  if (type === Number) {
+    return driver === "unknown" ? undefined : [-2147483648, 2147483647];
+  }
+  return undefined;
+};
 
 const DATE_TYPES: readonly ColumnType[] = [
   Date,
@@ -70,41 +114,67 @@ const TIME_TYPES: readonly ColumnType[] = ["time", "timetz", "time with time zon
 const ZONED_TIME_TYPES: readonly ColumnType[] = ["timetz", "time with time zone"];
 
 /**
- * A time key in the form MySQL `TIME` and PostgreSQL `time` / `timetz` hydrate: an optional MySQL sign, up to 838
- * hours, minutes and seconds 00-59, up to seven fractional digits (SQL Server's `time` precision; MySQL and
- * PostgreSQL round a longer input), and an offset for a zoned column only (docs/v1/database.md › BindableModel).
+ * A time key in the form MySQL `TIME` and PostgreSQL `time` / `timetz` hydrate: an optional leading `-` (MySQL's
+ * negative TIME; positive times carry no sign), minutes and seconds 00-59, a fraction on the seconds, and an offset
+ * for a zoned PostgreSQL column (docs/v1/database.md › BindableModel).
  */
 const TIME_KEY =
-  /^(-?[0-9]{1,3}:[0-5][0-9](?::[0-5][0-9])?(?:\.[0-9]{1,7})?)(?:([+-])([0-9]{2})(?::([0-5][0-9]))?(?::([0-5][0-9]))?)?$/;
+  /^(?<time>-?[0-9]{1,3}:[0-5][0-9](?::[0-5][0-9](?:\.[0-9]{1,7})?)?)(?:(?<sign>[+-])(?<offsetHour>[0-9]{2})(?::(?<offsetMinute>[0-5][0-9]))?(?::(?<offsetSecond>[0-5][0-9]))?)?$/;
 
-/**
- * Whether a time-only key is a representation the driver accepts. A malformed key is the documented miss before the
- * driver parses it (PostgreSQL rejects a bad time bind with an error, not a miss); unrelated database errors still
- * propagate because this runs before the lookup.
- */
-const isTimeKey = (type: ColumnType, key: string): boolean => {
-  const match = TIME_KEY.exec(key);
+/** PostgreSQL's end of day: `24:00:00` with all-zero minutes and seconds is its only 24-hour time. */
+const END_OF_DAY = /^24:00(?::00(?:\.0+)?)?$/;
+
+/** A calendar date a `date` column hydrates: exactly `YYYY-MM-DD`. */
+const DATE_ONLY_KEY = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+
+/** Whether `key` is a real day in `YYYY-MM-DD` form (not `2024-02-30`, `0000-00-00`, or a timestamp). */
+const isCalendarDate = (key: string): boolean => {
+  const match = DATE_ONLY_KEY.exec(key);
   if (match === null) {
     return false;
   }
-  const time = match[1]!;
-  const hours = Math.abs(Number(time.split(":")[0]));
-  const zoned = ZONED_TIME_TYPES.includes(type);
-  // MySQL TIME is -838:59:59..838:59:59 (PostgreSQL's 24:00:00 is inside that range); a zoned column is PostgreSQL's
-  // timetz, whose time is 00:00..24:00, with 24:00 only as the exact end of the day and no negative value
-  if (zoned) {
-    if (hours > 24 || time.startsWith("-") || (hours === 24 && !/^24:00(?::00(?:\.0+)?)?$/.test(time))) {
-      return false;
-    }
-  } else if (hours > 838) {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  // Neither PostgreSQL nor MySQL has a year zero in a DATE value
+  if (year < 1 || month < 1 || month > 12) {
     return false;
   }
-  const offsetHours = match[3];
-  if (match[2] === undefined) {
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  return day >= 1 && day <= days;
+};
+
+/**
+ * Whether a time-only key is a representation the configured driver accepts (docs/v1/database.md › BindableModel):
+ * MySQL / MariaDB `-838:59:59`..`838:59:59`, PostgreSQL `00:00:00`..`24:00:00` (24:00:00 exact), SQL Server
+ * `00:00:00`..`23:59:59.fffffff`, and an unknown driver the strict common `00:00:00`..`23:59:59`. An offset is only
+ * a PostgreSQL `timetz` form. A malformed key is the documented miss before the driver parses it; unrelated database
+ * errors still propagate because this runs before the lookup.
+ */
+const isTimeKey = (type: ColumnType, key: string, driver: RouteKeyDriver): boolean => {
+  const match = TIME_KEY.exec(key);
+  const groups = match?.groups;
+  if (groups?.time === undefined) {
+    return false;
+  }
+  const time = groups.time;
+  const hours = Math.abs(Number(time.split(":")[0]));
+  if (driver === "mysql") {
+    if (hours > 838) {
+      return false;
+    }
+  } else if (time.startsWith("-") || hours > (driver === "postgres" ? 24 : 23)) {
+    // PostgreSQL and SQL Server never hydrate a negative time; SQL Server stops at 23:59:59
+    return false;
+  } else if (driver === "postgres" && hours === 24 && !END_OF_DAY.test(time)) {
+    return false;
+  }
+  if (groups.sign === undefined) {
     return true;
   }
   // A plain time never carries a zone; an offset belongs to PostgreSQL's timetz / time with time zone
-  return zoned && Number(offsetHours) <= 15;
+  return ZONED_TIME_TYPES.includes(type) && driver === "postgres" && Number(groups.offsetHour) <= 15;
 };
 
 /**
@@ -176,6 +246,7 @@ const routeKeyColumn = (model: typeof Model): {
   metadata: EntityMetadata;
   property: string;
   column: ColumnMetadata;
+  driver: RouteKeyDriver;
 } => {
   const metadata = model.getRepository().metadata;
   const property = model.routeKeyName ?? model.primaryKey;
@@ -186,24 +257,36 @@ const routeKeyColumn = (model: typeof Model): {
   if (column.transformer === undefined && FRACTIONAL_TYPES.includes(column.type)) {
     throw new ModelError(errors.fractionalRouteKey(metadata.targetName, property));
   }
-  return { metadata, property, column };
+  return { metadata, property, column, driver: routeKeyDriver(model) };
 };
 
 /**
  * Converts a raw path string to the type of the route key column (docs/v1/database.md › BindableModel).
  * `undefined` is a key that cannot convert: `findByRouteKey()` answers it as a miss, never as a throw.
  */
-const convertRouteKey = (type: ColumnType, key: string): string | number | boolean | Date | undefined => {
+const convertRouteKey = (
+  column: ColumnMetadata,
+  key: string,
+  driver: RouteKeyDriver,
+): string | number | boolean | Date | undefined => {
+  const type = column.type;
   if (NUMERIC_TYPES.includes(type)) {
     // The round-trip check refuses 1e3, " 1", "01", "1.0" and values above 2^53, which Number cannot hold exactly
-    return INTEGER_KEY.test(key) && String(Number(key)) === key && Number.isSafeInteger(Number(key))
-      ? Number(key)
-      : undefined;
+    if (!INTEGER_KEY.test(key) || String(Number(key)) !== key || !Number.isSafeInteger(Number(key))) {
+      return undefined;
+    }
+    const value = Number(key);
+    const limits = integerLimits(type, driver);
+    return limits === undefined || (value >= limits[0] && value <= limits[1]) ? value : undefined;
   }
   if (TIME_TYPES.includes(type)) {
     // A MySQL TIME hydrates as "HH:MM:SS" and a PostgreSQL time as a string too, never a Date; a malformed one is a
-    // miss before PostgreSQL parses the bind and throws QueryFailedError
-    return isTimeKey(type, key) ? key : undefined;
+    // miss before the driver parses the bind (PostgreSQL throws QueryFailedError on a bad time)
+    return isTimeKey(type, key, driver) ? key : undefined;
+  }
+  if (type === "date") {
+    // TypeORM hydrates a DATE column as "YYYY-MM-DD"; binding new Date(key) would shift the day in a negative-UTC process
+    return isCalendarDate(key) ? key : undefined;
   }
   if (DATE_TYPES.includes(type)) {
     const date = new Date(key);
@@ -216,6 +299,10 @@ const convertRouteKey = (type: ColumnType, key: string): string | number | boole
   if (BOOLEAN_TYPES.includes(type)) {
     if (key === "true" || key === "1") return true;
     if (key === "false" || key === "0") return false;
+    return undefined;
+  }
+  if (column.enum !== undefined && !column.enum.some((value) => String(value) === key)) {
+    // PostgreSQL rejects a value outside an enum's labels; answer it as the documented miss before the lookup
     return undefined;
   }
   return key;
@@ -233,16 +320,27 @@ const isRouteKeyValue = (value: unknown): value is string | number | bigint | bo
   isValidDate(value);
 
 /**
- * Applies the plain path's column-type rule to a value `transformer.to` returned (docs/v1/database.md › BindableModel):
- * a string goes through `convertRouteKey()`, and a value TypeORM already typed (a number, `Date` or boolean) must match
- * the column's class, so a malformed uuid or a non-integer never reaches the driver. `undefined` is a miss.
+ * Applies the plain path's column-type rule to a value `transformer.to` returned (docs/v1/database.md › BindableModel).
+ * A string is only validated: it binds as the transformer returned it, so a `date` / `datetime` / integer / boolean
+ * string does not become a `Date` (which the driver would serialize in the process timezone). A typed value must match
+ * the column's class, integer range and enum labels. `undefined` is a miss.
  */
-const checkRouteKeyType = (type: ColumnType, value: ScalarValue): ScalarValue | undefined => {
+const checkRouteKeyType = (
+  column: ColumnMetadata,
+  value: ScalarValue,
+  driver: RouteKeyDriver,
+): ScalarValue | undefined => {
+  const type = column.type;
   if (typeof value === "string") {
-    return convertRouteKey(type, value);
+    return convertRouteKey(column, value, driver) === undefined ? undefined : value;
   }
   if (NUMERIC_TYPES.includes(type)) {
-    return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
+    const limits = integerLimits(type, driver);
+    return typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      (limits === undefined || (value >= limits[0] && value <= limits[1]))
+      ? value
+      : undefined;
   }
   if (DATE_TYPES.includes(type)) {
     return isValidDate(value) ? value : undefined;
@@ -251,7 +349,10 @@ const checkRouteKeyType = (type: ColumnType, value: ScalarValue): ScalarValue | 
     return typeof value === "boolean" ? value : undefined;
   }
   if (UUID_TYPES.includes(type) || TIME_TYPES.includes(type)) {
-    // A uuid and a MySQL TIME are strings on the wire: a number or a Date from a transformer is not the column's type
+    // A uuid and a time are strings on the wire: a number or a Date from a transformer is not the column's type
+    return undefined;
+  }
+  if (column.enum !== undefined && !column.enum.some((entry) => String(entry) === String(value))) {
     return undefined;
   }
   return value;
@@ -411,7 +512,7 @@ export default class Model extends BaseEntity {
   ): Promise<T | null>;
 
   static async findByRouteKey(key: string): Promise<any> {
-    const { property, column } = routeKeyColumn(this);
+    const { property, column, driver } = routeKeyColumn(this);
     // The route key is a path string: a JS caller's other type is a miss, never a coercion or a throw
     if (typeof key !== "string") {
       return null;
@@ -420,13 +521,13 @@ export default class Model extends BaseEntity {
     try {
       // A transformer owns the conversion: the path string is what getRouteKey() emitted, so transformer.to takes it
       const converted = column.transformer === undefined
-        ? convertRouteKey(column.type, key)
+        ? convertRouteKey(column, key, driver)
         : transformTo(column.transformer, key);
       if (converted === undefined || !isScalarValue(converted)) {
         return null;
       }
       // A transformed value is in the column's database representation, so the plain path's type rule applies to it
-      routeKey = checkRouteKeyType(column.type, converted);
+      routeKey = checkRouteKeyType(column, converted, driver);
     } catch {
       // A throwing transformer (or a value whose scalar check throws, such as a hostile Proxy) is a 404, not a 500
       return null;
