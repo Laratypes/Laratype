@@ -46,6 +46,7 @@ async function showUser(id: number): Promise<void> {
     selected.value = result.data;
     return;
   }
+  selected.value = null;
   if (result.code === "NOT_FOUND") {
     error.value = { code: result.code, message: result.error.message };
     return;
