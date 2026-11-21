@@ -18,6 +18,8 @@ export { syncContractTree } from "./sync";
 export type { GenerateOptions, GenerateResult, SyncResult } from "./sync";
 export { API_ALIAS, API_PLUGIN_NAME, laratypeApi, contractTreePlugin } from "./plugin";
 export type { ApiPluginApi, ApiPluginOptions } from "./plugin";
+export { ContractTypeWatch, ContractTypeWatchHost } from "./watch";
+export type { ContractTypeWatchOptions, WatchEvents } from "./watch";
 
 export class TypeScriptMissingError extends Error {
   constructor(cause: unknown) {

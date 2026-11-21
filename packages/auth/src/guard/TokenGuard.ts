@@ -19,11 +19,16 @@ const activeHasher = (): Hasher => Facade.getFacadeApplication().make(Hash.acces
  * The dummy hash's cache key: the Hasher's class, not the instance, so a transient binding of one class (a provider's
  * `bind(Hasher, CustomHasher)`) shares one dummy instead of building one per check. An instance without its own class
  * (a null-prototype object, or an object literal whose constructor is `Object`) is its own key, so two object-literal
- * Hashers never share a dummy.
+ * Hashers never share a dummy. A hostile Hasher whose `constructor` read throws (a Proxy, or an own getter) is keyed by
+ * its instance too: the login must still check a dummy rather than fail the read before the check.
  */
 const hasherKey = (hasher: Hasher): object => {
-  const type: unknown = hasher.constructor;
-  return typeof type === "function" && type !== Object ? type : hasher;
+  try {
+    const type: unknown = hasher.constructor;
+    return typeof type === "function" && type !== Object ? type : hasher;
+  } catch {
+    return hasher;
+  }
 };
 
 /** The dummy hash of `hasher`'s key, built once; a rejected build is dropped so the next request retries it. */
