@@ -1,5 +1,6 @@
 export { default as DatabaseServiceProvider } from "./providers/EloquentServiceProvider"
 export { default as Model } from "./eloquent/Model"
+export type { BindableModel } from "./eloquent/BindableModel"
 export * from "./support"
 export * from "./decorators"
 export * from "./factories"
