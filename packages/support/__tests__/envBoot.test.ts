@@ -100,6 +100,8 @@ describe('env validation at boot (K1 #152)', () => {
 
   it('loads .env without the app manifest', async () => {
     const dir = projectWithEnv('K4_ENV_NO_MANIFEST=loaded\n')
+    // An inherited value wins over the file (loadEnv keeps values already set), so clear it before the boot
+    delete process.env.K4_ENV_NO_MANIFEST
     // Only the env provider: no manifest means ConfigLoadServiceProvider has nothing to load
     await bootEnvOnly()
     expect(process.env.K4_ENV_NO_MANIFEST).toBe('loaded')

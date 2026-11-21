@@ -3,6 +3,7 @@ import * as v from 'valibot'
 import * as z from 'zod/v4'
 import { defineEnv } from '@laratype/core'
 import type { EnvDefinition } from '@laratype/core'
+import type { StandardIssue } from '@laratype/contract'
 import { EnvValidationError, validateEnv } from '../src/environ/validateEnv'
 
 const SECRET = 'sk_live_9f8e7d6c5b4a'
@@ -327,7 +328,8 @@ describe('validateEnv, edge inputs (K4 #314)', () => {
 
   it('names an issue whose path segment is not a string as the environment', async () => {
     const symbol = Symbol('SECRET')
-    const issue = (path: unknown) => ({ message: `bad ${SECRET}`, path: [path] })
+    type Segment = NonNullable<StandardIssue['path']>[number]
+    const issue = (path: Segment) => ({ message: `bad ${SECRET}`, path: [path] })
     const schema = {
       '~standard': { version: 1, vendor: 'x', validate: () => ({ issues: [issue(symbol), issue({ key: symbol }), issue(1)] }) },
     } as const
