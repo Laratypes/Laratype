@@ -76,14 +76,4 @@ describe('app container lookup types', () => {
       expectTypeOf(peekAppContainer()).toEqualTypeOf<Container | undefined>()
     })
   })
-
-  it('reapplyFakes() and confirmFakes() take the boot container', () => {
-    typeOnly(() => {
-      const app = new Container()
-      expectTypeOf(Facade.reapplyFakes(app)).toEqualTypeOf<void>()
-      expectTypeOf(Facade.confirmFakes(app)).toEqualTypeOf<void>()
-      // @ts-expect-error the boot passes its container
-      Facade.reapplyFakes(undefined)
-    })
-  })
 })

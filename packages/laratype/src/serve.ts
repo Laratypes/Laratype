@@ -20,18 +20,15 @@ export default class Serve {
   }
 
   /**
-   * The application container, with the Hono instance bound. It becomes the facade application when none is set (a test
-   * `afterEach` cleared it) or it already is; an application another component set stays, so a bare boot's failure
-   * check still matches its own container.
+   * The application container, with the Hono instance bound. Every call makes it the facade application unless it
+   * already is, so a facade application a test cleared, or a bare boot set, is Serve's from the next call.
    */
   public static getContainer() {
     if(!this.container) {
       this.container = new Container({ deps: depsRegistry });
       this.container.instance(HTTP_APP, this.getInstance());
     }
-    if(!Facade.hasFacadeApplication() || Facade.getFacadeApplication() === this.container) {
-      Facade.setFacadeApplication(this.container);
-    }
+    if(peekAppContainer() !== this.container) Facade.setFacadeApplication(this.container);
     return this.container
   }
 

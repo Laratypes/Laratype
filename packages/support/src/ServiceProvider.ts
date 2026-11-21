@@ -71,11 +71,9 @@ export abstract class RouteAppServiceProvider extends AppServiceProvider {
 /**
  * Boots every provider against `app` (construct, `register()` on all, `boot()` on all) and returns the `down()` cleanups
  * in reverse boot order; when no facade application is set, `app` becomes it for the process first (an existing one is
- * kept), so a provider's `Route.model()` / `Route.bind()` writes the registry the request path reads. A pre-boot fake
- * (`Hash.fake()` before the boot) is re-applied over the providers' bindings after `register()` and after `boot()`, so it
- * wins over a provider's implementation. A failure runs `down()` on every provider whose `boot()` started (reverse
- * order; a failing `down()` is logged; a failure before any boot runs none), unsets the facade application when this
- * boot set it (giving the pre-boot fallback and its fakes back), then rethrows.
+ * kept), so a provider's `Route.model()` / `Route.bind()` writes the registry the request path reads. A failure runs
+ * `down()` on every provider whose `boot()` started (reverse order; a failing `down()` is logged; a failure before any
+ * boot runs none), unsets the facade application when this boot set it, then rethrows.
  */
 export async function bootProviders(app: Container, Providers: Array<typeof ServiceProvider>): Promise<Array<() => Promise<void>>> {
   const ownsFacadeApplication = !Facade.hasFacadeApplication();
@@ -88,12 +86,10 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
     for (const provider of providers) {
       await provider.register();
     }
-    Facade.reapplyFakes(app);
     for (const provider of providers) {
       started.push(provider);
       await provider.boot();
     }
-    Facade.reapplyFakes(app);
   } catch (error) {
     for (const provider of [...started].reverse()) {
       // A down() may throw synchronously or return no promise
@@ -107,6 +103,5 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
     if(ownsFacadeApplication && peekAppContainer() === app) Facade.setFacadeApplication(undefined);
     throw error;
   }
-  Facade.confirmFakes(app);
   return providers.map(provider => provider.down.bind(provider)).reverse();
 }

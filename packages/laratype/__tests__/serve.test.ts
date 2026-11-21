@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { __laratype_deps, Container, depsRegistry, Facade } from "@laratype/core";
 import { AppServiceProvider, bootProviders, Hash, Hasher, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
@@ -18,7 +18,7 @@ class Fixed extends Hasher {
   }
 }
 
-/** A Hasher a provider binds over the fake, to check the fake still wins. */
+/** A Hasher a provider binds, to check the app binding wins over a dropped fake. */
 class OtherHash extends Hasher {
   override make() {
     return "provider";
@@ -107,11 +107,24 @@ describe("Serve.stop", () => {
   });
 });
 
+const FALLBACK_WARNED = Symbol.for("laratype.di.fallbackWarned");
+const FAKES_DROPPED = Symbol.for("laratype.di.fakesDropped");
+
 describe("facade application (D11 #318)", () => {
   afterEach(() => {
     Serve.down();
     Facade.setFacadeApplication(undefined);
+    delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED];
+    delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
+
+  /** Create the fallback (and its D9 warning) before the counted calls. */
+  const warmFallback = (warn: ReturnType<typeof vi.spyOn>): void => {
+    Facade.getFacadeApplication();
+    warn.mockClear();
+  };
 
   it("re-sets a facade application cleared while the container lives", () => {
     const container = Serve.getContainer().bind(Hasher, Fixed);
@@ -122,27 +135,25 @@ describe("facade application (D11 #318)", () => {
     expect(Hash.make("secret")).toBe("fixed");
   });
 
-  it("leaves a facade application another component set", () => {
+  it("replaces a facade application an earlier bare boot set", async () => {
+    class BindOther extends ServiceProvider {
+      register() {
+        this.app.bind(Hasher, OtherHash);
+      }
+    }
+    const bare = new Container({ deps: depsRegistry });
+    await bootProviders(bare, [BindOther]);
+    expect(Facade.getFacadeApplication()).toBe(bare);
     const container = Serve.getContainer();
-    const other = new Container().bind(Hasher, OtherHash);
-    Facade.setFacadeApplication(other);
-    expect(Serve.getContainer()).toBe(container);
-    expect(Facade.getFacadeApplication()).toBe(other);
-    expect(Hash.make("secret")).toBe("provider");
+    expect(Facade.getFacadeApplication()).toBe(container);
+    // The bare boot's binding is no longer the facade application's
+    expect(Hash.make("secret")).not.toBe("provider");
   });
 
-  it("a Hash.fake() made before bootProvider() survives the boot", async () => {
-    const fake = new Fixed();
-    const restore = Hash.fake(fake);
-    await Serve.bootProvider([ServiceProvider]);
-    expect(Serve.getContainer().make(Hasher)).toBe(fake);
-    expect(Hash.make("secret")).toBe("fixed");
-    restore();
-    // The undo carried into the app container removes the fake there too
-    expect(Hash.make("secret")).not.toBe("fixed");
-  });
-
-  it("a pre-boot fake beats a provider binding of the accessor", async () => {
+  it("a pre-boot fake warns once, names the token, and the app binding wins", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
     const restore = Hash.fake(new Fixed());
     class BindHash extends ServiceProvider {
       register() {
@@ -150,59 +161,44 @@ describe("facade application (D11 #318)", () => {
       }
     }
     await Serve.bootProvider([BindHash]);
-    expect(Hash.make("secret")).toBe("fixed");
-    restore();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]![0]);
+    expect(message).toContain("setFacadeApplication() dropped the shared fallback with unrestored fakes: Hasher");
+    expect(message).toContain("Make the fake after the boot");
+    expect(Hash.make("secret")).toBe("provider");
+    // The dropped fallback's restore is a no-op, never a throw
+    expect(() => restore()).not.toThrow();
     expect(Hash.make("secret")).toBe("provider");
   });
 
-  it("a pre-boot fake beats a binding a provider makes in boot()", async () => {
+  it("does not warn when every fake was restored before the boot", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
     const restore = Hash.fake(new Fixed());
-    class BindInBoot extends ServiceProvider {
-      boot() {
-        this.app.bind(Hasher, OtherHash);
-      }
-    }
-    await Serve.bootProvider([BindInBoot]);
-    expect(Hash.make("secret")).toBe("fixed");
     restore();
-    expect(Hash.make("secret")).toBe("provider");
-  });
-
-  it("a successful boot confirms the fake, so down() does not revive it", async () => {
-    const restore = Hash.fake(new Fixed());
     await Serve.bootProvider([ServiceProvider]);
-    expect(Hash.make("secret")).toBe("fixed");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("does not warn in production", async () => {
+    vi.stubGlobal("__PROD__", true);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns once per process for dropped fakes", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
     Serve.down();
-    expect(Hash.make("secret")).not.toBe("fixed");
-    restore();
-  });
-
-  it("a failed boot keeps a pre-boot fake, and a retried boot keeps it", async () => {
-    let failing = true;
-    class Flaky extends ServiceProvider {
-      boot() {
-        if (failing) throw new Error("boot failed");
-      }
-    }
-    const restore = Hash.fake(new Fixed());
-    await expect(Serve.bootProvider([Flaky])).rejects.toThrow("boot failed");
-    expect(Hash.make("secret")).toBe("fixed");
-    failing = false;
-    await Serve.bootProvider([Flaky]);
-    expect(Hash.make("secret")).toBe("fixed");
-    restore();
-    expect(Hash.make("secret")).not.toBe("fixed");
-  });
-
-  it("carries a fake into an app container a bare bootProviders() sets", async () => {
-    const app = new Container({ deps: depsRegistry });
-    const fake = new Fixed();
-    Hash.fake(fake);
-    const downs = await bootProviders(app, [ServiceProvider]);
-    expect(app.make(Hasher)).toBe(fake);
-    for (const down of downs) await down();
-    // The bare boot keeps the facade application after a success, as before
-    expect(Facade.getFacadeApplication()).toBe(app);
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("concurrent boots share one container and one facade application", async () => {

@@ -263,97 +263,102 @@ describe('appContainer', () => {
   })
 })
 
-describe('setFacadeApplication() carry-over', () => {
+describe('setFacadeApplication() dropped fakes', () => {
+  const FALLBACK_WARNED = Symbol.for('laratype.di.fallbackWarned')
+  const FAKES_DROPPED = Symbol.for('laratype.di.fakesDropped')
+
   afterEach(() => {
     Facade.setFacadeApplication(undefined)
+    delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED]
+    delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED]
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
-  it('carries a swap made in the fallback into the app container', () => {
-    vi.stubGlobal('__PROD__', true)
+  /** Create the fallback (and its D9 warning) before the counted calls, so only the dropped-fake warning is counted. */
+  const warmFallback = (warn: ReturnType<typeof vi.spyOn>): void => {
+    appContainer()
+    warn.mockClear()
+  }
+
+  it('drops a pre-boot fake, warns once and names the token', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
     const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    const app = new Container()
-    Facade.setFacadeApplication(app)
-    expect(app.make(Counter).next()).toBe(10)
-    expect(Count.next()).toBe(11)
-    restore()
-    // the undo carried with the swap removes the app container's instance too
-    expect(app.has(Counter)).toBe(false)
+    Facade.setFacadeApplication(new Container())
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('Counter')
+    expect(String(warn.mock.calls[0]![0])).toContain('Make the fake after the boot')
+    // The fake lived in the dropped fallback: the app resolves its own binding
     expect(Count.next()).toBe(1)
+    restore()
   })
 
-  it('does not carry a swap restored before the app container is set', () => {
-    vi.stubGlobal('__PROD__', true)
+  it('does not warn when every fake was restored before the app container is set', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
     const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
     restore()
-    const app = new Container()
-    Facade.setFacadeApplication(app)
-    expect(app.has(Counter)).toBe(false)
-    expect(Count.next()).toBe(1)
+    Facade.setFacadeApplication(new Container())
+    expect(warn).not.toHaveBeenCalled()
   })
 
-  it('keeps the app container binding over a fallback swap', () => {
+  it('does not warn in production', () => {
+    vi.stubGlobal('__PROD__', true)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    Facade.setFacadeApplication(new Container())
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns once per process for dropped fakes', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    Facade.setFacadeApplication(new Container())
+    Facade.setFacadeApplication(undefined)
+    Count.fake(Object.assign(new Counter(), { count: 19 }))
+    Facade.setFacadeApplication(new Container())
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('names a fake still active after an inner one is restored', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    const outer = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const inner = Count.fake(Object.assign(new Counter(), { count: 19 }))
+    inner()
+    Facade.setFacadeApplication(new Container())
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('Counter')
+    outer()
+  })
+
+  it('a restore after the drop does not throw and changes nothing', () => {
     vi.stubGlobal('__PROD__', true)
     const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
     const bound = new Counter()
     const app = new Container().instance(Counter, bound)
     Facade.setFacadeApplication(app)
-    expect(app.make(Counter)).toBe(bound)
-    restore()
-  })
-
-  it('does not carry a swap a later bind on the fallback superseded', () => {
-    vi.stubGlobal('__PROD__', true)
-    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    Facade.getFacadeApplication().instance(Counter, new Counter())
-    const app = new Container()
-    Facade.setFacadeApplication(app)
-    expect(app.has(Counter)).toBe(false)
-    restore()
-  })
-
-  it('carries the outer fake when nested fakes are restored before the app container is set', () => {
-    vi.stubGlobal('__PROD__', true)
-    const outer = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    const inner = Count.fake(Object.assign(new Counter(), { count: 19 }))
-    inner()
-    const app = new Container()
-    Facade.setFacadeApplication(app)
-    expect(Count.next()).toBe(10)
-    outer()
     expect(Count.next()).toBe(1)
+    expect(() => restore()).not.toThrow()
+    // The dropped fallback's restore leaves the app container's binding alone
+    expect(Count.next()).toBe(2)
   })
 
-  it('a restore after the app container is set reinstates the outer fake in the app', () => {
-    vi.stubGlobal('__PROD__', true)
-    const outer = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    const inner = Count.fake(Object.assign(new Counter(), { count: 19 }))
-    const app = new Container()
-    Facade.setFacadeApplication(app)
-    expect(Count.next()).toBe(20)
-    inner()
-    expect(Count.next()).toBe(10)
-    outer()
-    expect(Count.next()).toBe(1)
-  })
-
-  it('leaves the fallback and its fake in place when the new container throws before it is committed', () => {
-    vi.stubGlobal('__PROD__', true)
+  it('does not read a proxy container that replaces a fallback with fakes', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
     const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    const throwing = new Proxy({}, { get: () => { throw new Error('the container was read') } }) as unknown as Container
-    expect(() => Facade.setFacadeApplication(throwing)).toThrow('the container was read')
-    expect(Facade.hasFacadeApplication()).toBe(false)
-    expect(Count.next()).toBe(10)
-    restore()
-  })
-
-  it('gives an unconfirmed application unset the fallback back', () => {
-    vi.stubGlobal('__PROD__', true)
-    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
-    Facade.setFacadeApplication(new Container())
-    Facade.setFacadeApplication(undefined)
-    // The app was never confirmed by a boot: the fake is still the fallback's
-    expect(Count.next()).toBe(10)
+    const proxy = new Proxy({}, { get: () => { throw new Error('the container was read') } }) as unknown as Container
+    expect(() => Facade.setFacadeApplication(proxy)).not.toThrow()
+    expect(peekAppContainer()).toBe(proxy)
+    expect(warn).toHaveBeenCalledTimes(1)
     restore()
   })
 })
