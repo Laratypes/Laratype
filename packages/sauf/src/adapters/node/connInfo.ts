@@ -12,6 +12,15 @@ interface HttpModule {
   mountConnInfo?: (app: unknown, getConnInfo: GetConnInfo) => void
 }
 
+/** Whether `error` is the resolution failure of the optional `@laratype/http`: the app does not have the package. */
+const isMissingHttpPackage = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, message } = error as { code?: unknown, message?: unknown };
+  return code === "ERR_MODULE_NOT_FOUND"
+    && typeof message === "string"
+    && message.includes("@laratype/http");
+}
+
 /**
  * Registers the node runtime's `getConnInfo` with `@laratype/http`, so `request.ip()` reads the socket the node server
  * accepted (H30 #299). `sauf`'s node entry and `sauf dev` call it before the app's providers mount their routes: the
@@ -20,7 +29,16 @@ interface HttpModule {
  * `ip()` answers undefined.
  */
 export const mountNodeConnInfo = async (app: unknown, load: ModuleLoader = importModule): Promise<void> => {
-  const http = await load("@laratype/http", { internal: true }) as HttpModule | undefined;
+  let http: HttpModule | undefined;
+  try {
+    http = await load("@laratype/http", { internal: true }) as HttpModule | undefined;
+  }
+  catch (error) {
+    // The loader resolves before it imports (support's importModule), so an app without the optional package rejects
+    // here, not with the undefined the guard below already accepted. Any other loader error is the app's: keep it.
+    if (isMissingHttpPackage(error)) return;
+    throw error;
+  }
   if (typeof http?.mountConnInfo === "function") {
     http.mountConnInfo(app, getNodeConnInfo);
   }

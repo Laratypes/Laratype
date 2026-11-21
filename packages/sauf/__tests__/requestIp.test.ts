@@ -96,6 +96,31 @@ describe("mountNodeConnInfo", () => {
     await expect(mountNodeConnInfo(new Hono(), async () => ({ mountConnInfo: 42 }))).resolves.toBeUndefined();
   });
 
+  it("registers nothing when the loader cannot resolve the optional @laratype/http", async () => {
+    // support's importModule resolves before its try, so a missing package rejects with the resolver's error
+    const missing = Object.assign(new Error("Cannot find module @laratype/http imported from file:///app/dist/app.manifest.js"), {
+      code: "ERR_MODULE_NOT_FOUND",
+    });
+    await expect(mountNodeConnInfo(new Hono(), async () => { throw missing; })).resolves.toBeUndefined();
+  });
+
+  it("keeps every other loader failure visible", async () => {
+    const failures: unknown[] = [
+      new Error("the transpiler failed"),
+      Object.assign(new Error("Cannot find module @laratype/support imported from file:///app/dist/app.manifest.js"), {
+        code: "ERR_MODULE_NOT_FOUND",
+      }),
+      Object.assign(new Error("no code on this one"), { code: 42 }),
+      { code: "ERR_MODULE_NOT_FOUND" },
+      "boom",
+      null,
+      undefined,
+    ];
+    for (const failure of failures) {
+      await expect(mountNodeConnInfo(new Hono(), async () => { throw failure; }), String(failure)).rejects.toBe(failure);
+    }
+  });
+
   it("lets @laratype/http refuse a value that is not a Hono app", async () => {
     await expect(mountNodeConnInfo(null, loadHttp)).rejects.toThrow(TypeError);
     await expect(mountNodeConnInfo(42, loadHttp)).rejects.toThrow(TypeError);
