@@ -374,8 +374,11 @@ describe('Model.findByRouteKey', () => {
       '12:34:56.789012',
       '12:34:56.1234567',
       '838:59:59',
-      '838:59:59.999999',
+      '838:59:59.000000',
+      '838:59:59.0000000',
+      '838:59:58.999999',
       '-838:59:59',
+      '-838:59:58.999999',
       '-00:00:01',
     ]
     // PostgreSQL rejects these as a bind error; the lookup answers null before the driver parses them
@@ -389,6 +392,10 @@ describe('Model.findByRouteKey', () => {
       '12:34:56.',
       '12:34:56.12345678',
       '839:00:00',
+      // MySQL's TIME ends at 838:59:59.000000: a fraction past that second is out of range for either sign
+      '838:59:59.999999',
+      '838:59:59.000001',
+      '-838:59:59.999999',
       '+12:34:56',
       '12:34:56+07',
       ' 12:34:56',
@@ -439,7 +446,12 @@ describe('Model.findByRouteKey', () => {
       for (const key of valid) {
         const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: key }] })
         await expect(User.findByRouteKey(key), `${driver} ${key}`).resolves.toMatchObject({ id: 1 })
-        expect(findOneCalls, `${driver} ${key}`).toEqual([{ where: { opensAt: key } }])
+        // SQL Server binds a time key through the raw form (its own test); another driver binds the plain value
+        if (driver === 'mssql') {
+          expect(boundRouteKey(findOneCalls, 'opensAt'), `${driver} ${key}`).toBe(key)
+        } else {
+          expect(findOneCalls, `${driver} ${key}`).toEqual([{ where: { opensAt: key } }])
+        }
       }
       for (const key of invalid) {
         const { User, findOneCalls } = model({ driver, routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
@@ -447,6 +459,32 @@ describe('Model.findByRouteKey', () => {
         expect(findOneCalls, `${driver} ${key}`).toEqual([])
       }
     }
+  })
+
+  it('binds a plain SQL Server time key in a form its driver accepts', async () => {
+    // TypeORM's mssql where wrapper turns a plain string into an MssqlParameter(value, "time"); tedious's Time
+    // validator runs Date.parse on that string (NaN for "12:34:56") and rejects it. The raw form keeps the exact
+    // text, which SQL Server converts to time and which keeps every fractional digit.
+    const key = '23:59:59.9999999'
+    const { User, findOneCalls } = model({
+      driver: 'mssql',
+      routeKeyName: 'opensAt',
+      rows: [{ id: 1, opensAt: key }],
+    })
+    await expect(User.findByRouteKey(key)).resolves.toMatchObject({ id: 1 })
+    const condition = findOneCalls[0]!.where.opensAt
+    expect(condition).toBeInstanceOf(FindOperator)
+    expect((condition as FindOperator<unknown>).type).toBe('raw')
+    expect((condition as FindOperator<unknown>).objectLiteralParameters).toEqual({ routeKey: key })
+
+    // The real SqlServerDriver where-value wrapper (the point where a plain string becomes a `time` parameter)
+    // leaves a raw operator alone, so the string is bound untyped instead of through the rejecting Time validator.
+    const { SqlServerDriver } = await import('typeorm/driver/sqlserver/SqlServerDriver.js' as string) as any
+    const driver = Object.create(SqlServerDriver.prototype)
+    driver.connection = {}
+    const column = { type: 'time', length: null, precision: null, scale: null }
+    expect(driver.parametrizeValues(column, key).type).toBe('time')
+    expect(driver.parametrizeValues(column, condition)).toBe(condition)
   })
 
   it('keeps a zoned time key with an offset only on a timetz / time with time zone column', async () => {
@@ -628,24 +666,104 @@ describe('Model.findByRouteKey', () => {
     }
   })
 
-  it('keeps a transformed integer / boolean string as the transformer returned it', async () => {
+  it('binds a transformed MySQL boolean key as the parsed boolean, keeping the string on other drivers', async () => {
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      { propertyName: 'flag', propertyPath: 'flag', type: Boolean, transformer: identity },
+    ]
+    // MySQL stores a boolean as TINYINT and compares a string numerically ('true' is 0), so the parsed boolean binds
+    for (const driver of ['mysql', 'mariadb', 'aurora-mysql']) {
+      const falseRow = model({
+        driver,
+        routeKeyName: 'flag',
+        columns,
+        rows: [{ id: 1, flag: false }, { id: 2, flag: true }],
+      })
+      await expect(falseRow.User.findByRouteKey('false'), driver).resolves.toMatchObject({ id: 1 })
+      expect(boundRouteKey(falseRow.findOneCalls, 'flag'), driver).toBe(false)
+      const trueRow = model({
+        driver,
+        routeKeyName: 'flag',
+        columns,
+        rows: [{ id: 1, flag: false }, { id: 2, flag: true }],
+      })
+      await expect(trueRow.User.findByRouteKey('true'), driver).resolves.toMatchObject({ id: 2 })
+      expect(boundRouteKey(trueRow.findOneCalls, 'flag'), driver).toBe(true)
+    }
+
+    // A non-MySQL driver parses the text bind itself, so the transformer's own string stays
+    for (const key of ['true', '1', 'false', '0']) {
+      const postgres = model({
+        driver: 'postgres',
+        routeKeyName: 'flag',
+        columns,
+        rows: [{ id: 1, flag: true }],
+      })
+      await postgres.User.findByRouteKey(key)
+      expect(postgres.findOneCalls, key).toHaveLength(1)
+      expect(boundRouteKey(postgres.findOneCalls, 'flag'), key).toBe(key)
+    }
+
+    for (const key of ['yes', 'TRUE', '2', '__proto__', 'constructor', '1\u0000', '\uD800', 'x'.repeat(1_000_000)]) {
+      const miss = model({ routeKeyName: 'flag', columns, rows: [{ id: 1, flag: true }] })
+      await expect(miss.User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
+      expect(miss.findOneCalls, key.slice(0, 20)).toEqual([])
+    }
+  })
+
+  it('keeps a transformed integer string as the transformer returned it', async () => {
     const columns: FakeColumn[] = [
       ...COLUMNS,
       { propertyName: 'codeText', propertyPath: 'codeText', type: Number, transformer: identity },
-      { propertyName: 'flagText', propertyPath: 'flagText', type: Boolean, transformer: identity },
     ]
     const code = model({ routeKeyName: 'codeText', columns, rows: [{ id: 1, codeText: '42' }] })
     await expect(code.User.findByRouteKey('42')).resolves.toMatchObject({ id: 1 })
     expect(boundRouteKey(code.findOneCalls, 'codeText')).toBe('42')
 
-    const flag = model({ routeKeyName: 'flagText', columns, rows: [{ id: 1, flagText: '1' }] })
-    await expect(flag.User.findByRouteKey('1')).resolves.toMatchObject({ id: 1 })
-    expect(boundRouteKey(flag.findOneCalls, 'flagText')).toBe('1')
-
-    for (const [routeKeyName, key] of [['codeText', '042'], ['codeText', '1e3'], ['flagText', 'yes']] as const) {
-      const miss = model({ routeKeyName, columns, rows: [{ id: 1 }] })
+    for (const key of ['042', '1e3']) {
+      const miss = model({ routeKeyName: 'codeText', columns, rows: [{ id: 1 }] })
       await expect(miss.User.findByRouteKey(key), key).resolves.toBeNull()
       expect(miss.findOneCalls, key).toEqual([])
+    }
+  })
+
+  it('answers an impossible calendar day in a transformed timestamp string as a miss', async () => {
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      { propertyName: 'eventAt', propertyPath: 'eventAt', type: 'timestamp', transformer: identity },
+    ]
+    // V8 normalizes 2024-02-30 to March 1, but the transformer's string is what binds, and PostgreSQL rejects it
+    for (const key of [
+      '2024-02-30T12:00:00Z',
+      '2023-02-29 12:00:00',
+      '2024-04-31T00:00:00',
+      '2024-13-01 00:00:00',
+      '0000-01-01T00:00:00Z',
+      '2024-02-30',
+      '2024-02-30T25:00:00Z',
+      '\uD800',
+      'x'.repeat(1_000_000),
+    ]) {
+      const miss = model({
+        driver: 'postgres',
+        routeKeyName: 'eventAt',
+        columns,
+        rows: [{ id: 1, eventAt: '2024-01-01 00:00:00' }],
+      })
+      await expect(miss.User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
+      expect(miss.findOneCalls, key.slice(0, 20)).toEqual([])
+    }
+
+    // Valid database text, including the leap day and a date-time with a fraction, still binds unchanged
+    for (const key of ['2024-02-29 12:00:00', '2024-01-01T00:00:00.123Z', 'Jan 2, 2026 12:00:00']) {
+      const hit = model({
+        driver: 'postgres',
+        routeKeyName: 'eventAt',
+        columns,
+        rows: [{ id: 1, eventAt: key }],
+      })
+      await expect(hit.User.findByRouteKey(key), key).resolves.toMatchObject({ id: 1 })
+      expect(boundRouteKey(hit.findOneCalls, 'eventAt'), key).toBe(key)
     }
   })
 

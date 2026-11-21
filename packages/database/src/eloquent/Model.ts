@@ -102,15 +102,8 @@ const END_OF_DAY = /^24:00(?::00(?:\.0+)?)?$/;
 /** A calendar date a `date` column hydrates: exactly `YYYY-MM-DD`. */
 const DATE_ONLY_KEY = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
 
-/** Whether `key` is a real day in `YYYY-MM-DD` form (not `2024-02-30`, `0000-00-00`, or a timestamp). */
-const isCalendarDate = (key: string): boolean => {
-  const match = DATE_ONLY_KEY.exec(key);
-  if (match === null) {
-    return false;
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
+/** Whether a year, month and day form a real calendar day: not `2024-02-30`, and no year zero. */
+const isCalendarDay = (year: number, month: number, day: number): boolean => {
   // Neither PostgreSQL nor MySQL has a year zero in a DATE value
   if (year < 1 || month < 1 || month > 12) {
     return false;
@@ -120,12 +113,30 @@ const isCalendarDate = (key: string): boolean => {
   return day >= 1 && day <= days;
 };
 
+/** Whether `key` is a real day in `YYYY-MM-DD` form (not `2024-02-30`, `0000-00-00`, or a timestamp). */
+const isCalendarDate = (key: string): boolean => {
+  const match = DATE_ONLY_KEY.exec(key);
+  return match !== null && isCalendarDay(Number(match[1]), Number(match[2]), Number(match[3]));
+};
+
+/**
+ * The day a datetime / timestamp string starts with: V8 normalizes an impossible one on parse (`2024-02-30T…`
+ * becomes March 1), but a transformed string binds as the transformer returned it and the database rejects it.
+ */
+const LEADING_CALENDAR_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})(?=$|[T ])/;
+
+/** Whether a datetime / timestamp string carries no impossible `YYYY-MM-DD` day at its start. */
+const hasRealCalendarDate = (key: string): boolean => {
+  const match = LEADING_CALENDAR_DATE.exec(key);
+  return match === null || isCalendarDay(Number(match[1]), Number(match[2]), Number(match[3]));
+};
+
 /**
  * Whether a time-only key is a representation the configured driver accepts (docs/v1/database.md › BindableModel):
- * MySQL / MariaDB `-838:59:59`..`838:59:59`, PostgreSQL `00:00:00`..`24:00:00` (24:00:00 exact), SQL Server
- * `00:00:00`..`23:59:59.fffffff`, and an unknown driver the strict common `00:00:00`..`23:59:59`. An offset is only
- * a PostgreSQL `timetz` form. A malformed key is the documented miss before the driver parses it; unrelated database
- * errors still propagate because this runs before the lookup.
+ * MySQL / MariaDB `-838:59:59.000000`..`838:59:59.000000`, PostgreSQL `00:00:00`..`24:00:00` (24:00:00 exact), SQL
+ * Server `00:00:00`..`23:59:59.fffffff`, and an unknown driver the strict common `00:00:00`..`23:59:59`. An offset is
+ * only a PostgreSQL `timetz` form. A malformed key is the documented miss before the driver parses it; unrelated
+ * database errors still propagate because this runs before the lookup.
  */
 const isTimeKey = (type: ColumnType, key: string, driver: RouteKeyDriver): boolean => {
   const match = TIME_KEY.exec(key);
@@ -136,7 +147,8 @@ const isTimeKey = (type: ColumnType, key: string, driver: RouteKeyDriver): boole
   const time = groups.time;
   const hours = Math.abs(Number(time.split(":")[0]));
   if (driver === "mysql") {
-    if (hours > 838) {
+    // MySQL's TIME ends at 838:59:59.000000: a fraction past that second is out of range, for either sign
+    if (hours > 838 || /^-?838:59:59\.0*[1-9]/.test(time)) {
       return false;
     }
   } else if (time.startsWith("-") || hours > (driver === "postgres" ? 24 : 23)) {
@@ -293,9 +305,10 @@ const isRouteKeyValue = (value: unknown): value is string | number | bigint | bo
 
 /**
  * Applies the plain path's column-type rule to a value `transformer.to` returned (docs/v1/database.md › BindableModel).
- * A string is only validated: it binds as the transformer returned it, so a `date` / `datetime` / integer / boolean
- * string does not become a `Date` (which the driver would serialize in the process timezone). A typed value must match
- * the column's class and enum labels. `undefined` is a miss.
+ * A string is only validated and binds as the transformer returned it, so a `date` / `datetime` / integer string does
+ * not become a `Date` (which the driver would serialize in the process timezone); MySQL takes the parsed boolean for a
+ * boolean column because a `TINYINT` compares text numerically. A typed value must match the column's class and enum
+ * labels. `undefined` is a miss.
  */
 const checkRouteKeyType = (
   column: ColumnMetadata,
@@ -304,7 +317,18 @@ const checkRouteKeyType = (
 ): ScalarValue | undefined => {
   const type = column.type;
   if (typeof value === "string") {
-    return convertRouteKey(column, value, driver) === undefined ? undefined : value;
+    const converted = convertRouteKey(column, value, driver);
+    if (converted === undefined) {
+      return undefined;
+    }
+    // A datetime / timestamp string binds as the transformer returned it, so an impossible day V8 normalizes on
+    // parse (`2024-02-30T…`) must be a miss before the database rejects the bind
+    if (DATE_TYPES.includes(type) && type !== "date" && !hasRealCalendarDate(value)) {
+      return undefined;
+    }
+    // MySQL stores a boolean as TINYINT and compares a string numerically ('true' is 0), so it takes the boolean
+    // the column rule parsed; another driver parses the text bind itself and keeps the transformer's string
+    return driver === "mysql" && BOOLEAN_TYPES.includes(type) ? converted : value;
   }
   if (NUMERIC_TYPES.includes(type)) {
     return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
@@ -326,10 +350,11 @@ const checkRouteKeyType = (
 };
 
 /**
- * Looks the model up by an already converted route key through `findOne`, so a transformed key hydrates the same shape
- * as a plain key: eager relations and the single row (TypeORM's `take: 1`). The `raw` operator carries the value as a
- * named parameter. TypeORM 0.3.26 applies `transformer.to` to a find operator's value, but a `Raw` built from a
- * generator has an empty value list, so the column's transformer does not run a second time (Model › findByRouteKey).
+ * Looks the model up by an already converted route key through `findOne`, so a transformed key (and a plain SQL
+ * Server `time` key, which the driver's `Time` parameter rejects) hydrates the same shape as a plain key: eager
+ * relations and the single row (TypeORM's `take: 1`). The `raw` operator carries the value as a named parameter.
+ * TypeORM 0.3.26 applies `transformer.to` to a find operator's value, but a `Raw` built from a generator has an
+ * empty value list, so the column's transformer does not run a second time (Model › findByRouteKey).
  */
 const findOneByRouteKey = <T extends BaseEntity>(
   model: ModelClass<T>,
@@ -503,6 +528,12 @@ export default class Model extends BaseEntity {
       return null;
     }
     if (column.transformer === undefined) {
+      // SQL Server types a plain `time` bind as a `Time` parameter, whose tedious validator runs Date.parse on the
+      // string (NaN for time-only text) and rejects it. The raw form keeps the exact text, fractional digits
+      // included, and SQL Server converts the untyped parameter to time.
+      if (driver === "mssql" && TIME_TYPES.includes(column.type)) {
+        return findOneByRouteKey(this, property, routeKey);
+      }
       return this.findOne({ where: { [property]: routeKey } } as FindOneOptions<Model>);
     }
     return findOneByRouteKey(this, property, routeKey);
