@@ -734,6 +734,15 @@ describe('Model.findByRouteKey', () => {
     expect(transformedMiss.findOneCalls).toEqual([])
   })
 
+  it('falls back to the strict common time range when the repository has no driver', async () => {
+    const { User } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '23:59:59' }] })
+    const repository = (User as any).getRepository()
+    ;(User as any).getRepository = () => ({ ...repository, manager: undefined })
+    // routeKeyDriver() reads the optional manager; without one it is 'unknown' and keeps 00:00:00-23:59:59
+    await expect(User.findByRouteKey('23:59:59')).resolves.toMatchObject({ id: 1 })
+    await expect(User.findByRouteKey('24:00:00')).resolves.toBeNull()
+  })
+
   it('lets a canonical uuid reach the lookup and answers a malformed one as a miss', async () => {
     const id = '123E4567-E89B-12D3-A456-426614174000'
     const hit = model({ routeKeyName: 'externalId', rows: [{ id: 1, externalId: id }] })
