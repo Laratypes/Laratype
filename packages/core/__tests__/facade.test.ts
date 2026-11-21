@@ -220,6 +220,21 @@ describe('appContainer', () => {
     expect(Facade.hasFacadeApplication()).toBe(false)
   })
 
+  it('treats a falsy non-container number as unset and a truthy one as a failing application', () => {
+    Facade.setFacadeApplication(0 as unknown as Container)
+    expect(Facade.hasFacadeApplication()).toBe(false)
+    Facade.setFacadeApplication(Number.NaN as unknown as Container)
+    expect(Facade.hasFacadeApplication()).toBe(false)
+    Facade.setFacadeApplication(1 as unknown as Container)
+    expect(peekAppContainer()).toBe(1)
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    expect(() => Count.fake(new Counter())).toThrow(TypeError)
+    Facade.setFacadeApplication(Number.POSITIVE_INFINITY as unknown as Container)
+    expect(peekAppContainer()).toBe(Number.POSITIVE_INFINITY)
+    Facade.setFacadeApplication(undefined)
+    expect(peekAppContainer()).toBeUndefined()
+  })
+
   it('does not validate or read the container it is given: a wrong object fails on use, not on set', () => {
     const wrong = {} as Container
     Facade.setFacadeApplication(wrong)
