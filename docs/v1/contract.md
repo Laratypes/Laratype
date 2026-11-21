@@ -507,7 +507,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 ## API type projection
 
 ### Status
-merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify`: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 8099715d (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify`: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)).
 
 ### Public API
 [`packages/contract/src/api-types.ts`](../../packages/contract/src/api-types.ts)
@@ -532,7 +532,7 @@ export interface EndpointShape { method: string; path: string; params: object; q
 export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? EndpointShape : ApiShape<A[K]> };
 ```
 
-[`json.ts`](../../packages/contract/src/json.ts) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312))
+[`json.ts` @ 23875e4e](https://github.com/Laratypes/Laratype/blob/23875e4e/packages/contract/src/json.ts#L1-L55) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312))
 
 ```ts
 import type { Prettify } from "./path";
@@ -578,15 +578,18 @@ type JsonValue<T> = unknown extends T
 /**
  * The wire type of a response body after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through
  * `toJSON`), `undefined` / functions / symbols are removed from unions, a property that may be `undefined` is optional
- * and dropped, `bigint` → `never`, `Map` / `Set` → `{}`. A top-level value JSON has no text for (`undefined`, and the
- * server's `null` for it) is `null`, so `Jsonify<string | undefined>` is `string | null` (H32 #312). The server serializes
- * a response schema's output with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ * and dropped, `bigint` → `never`, `Map` / `Set` → `{}`. A top-level value JSON has no text for (`undefined`, the
+ * server's `null` for it, and a root `toJSON()` that returns `undefined`) is `null`, so `Jsonify<string | undefined>` is
+ * `string | null` (H32 #312). The server serializes a response schema's output with `JSON.stringify`, so the frontend
+ * reads it as `Jsonify<InferOut<schema>>`.
  */
 export type Jsonify<T> = unknown extends T
   ? T
-  : undefined extends T
-    ? JsonValue<T> | null
-    : JsonValue<T>;
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : undefined extends T
+      ? JsonValue<T> | null
+      : JsonValue<T>;
 ```
 
 ### Invariants
@@ -595,7 +598,7 @@ export type Jsonify<T> = unknown extends T
 - `errors` is the [derived error union](#capabilities-and-derived-errors). Two errors can share a status, so clients narrow by `code`.
 - `ApiShape<A>` is used as a **self-constraint** (`<A extends ApiShape<A>>`). It accepts both `ApiTypes<typeof appApi>` and a generated `interface`. A member with a `method` is an endpoint; any other member is a nested group. An index-signature constraint would reject interfaces; there is a type test showing this.
 - `EndpointTypes<E>` without a context is the endpoint on its own: its relative path and only its own capabilities.
-- `Jsonify<T>` is the wire type of a response body after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. A **top-level** `undefined` is `null`, since the server sends `null` when JSON has no text for the handler's value, so `Jsonify<string | undefined>` is `string | null` (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); a property that may be `undefined` is dropped by `JSON.stringify` instead, and stays optional without a `null`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
+- `Jsonify<T>` is the wire type of a response body after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. A **top-level** `undefined` is `null`, since the server sends `null` when JSON has no text for the handler's value, and so is a root `toJSON()` that returns `undefined`, so `Jsonify<string | undefined>` is `string | null` (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); a property that may be `undefined` is dropped by `JSON.stringify` instead, and stays optional without a `null`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
 
 ### Diagnostics
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.
