@@ -25,6 +25,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const listening = server;
+  // A failed close must not skip the providers' down(): the database connection and the container stay open otherwise.
+  // Keep the close error when both fail, so the first failure is not hidden by the stop error.
+  let closeError: unknown;
   try {
     if (listening) {
       await new Promise<void>((resolve, reject) => {
@@ -33,10 +36,19 @@ afterAll(async () => {
         listening.closeAllConnections();
       });
     }
-  } finally {
-    // A failed close must not skip the providers' down(): the database connection and the container stay open otherwise
-    await example?.stop();
+  } catch (error) {
+    closeError = error;
   }
+
+  try {
+    await example?.stop();
+  } catch (stopError) {
+    if (closeError) {
+      throw new AggregateError([closeError, stopError], "closing the socket and stopping the providers both failed");
+    }
+    throw stopError;
+  }
+  if (closeError) throw closeError;
 });
 
 const postUser = (body: unknown) => fetch(`${baseUrl}/api/users`, {
