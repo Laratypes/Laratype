@@ -1,4 +1,3 @@
-import { camelize } from "@laratype/support";
 import MakeCommand from "../../utils/MakeCommand";
 import { GENERATOR_FOLDERS, generatorPath } from "./path";
 
@@ -28,7 +27,7 @@ export default class MakePolicyCommand extends MakeCommand {
     const data: {
       PolicyName: string;
       ModelName?: string;
-      ParamName?: string;
+      ModelIsUser?: boolean;
     } = {
       PolicyName: this.getFileName(name),
     }
@@ -38,7 +37,9 @@ export default class MakePolicyCommand extends MakeCommand {
       // type, and `-m ../x` would be flattened silently by `getFileName()`. The last segment names the model.
       const modelName = this.getFileName(generatorPath(options.m, "model", { identifier: true }));
       data.ModelName = modelName;
-      data.ParamName = camelize(modelName);
+      // `-m User` reuses the actor's `User` import: a second one is a duplicate binding (and a duplicate parameter
+      // before the fixed `subject` name, docs/v1/cli.md › make:* generators)
+      data.ModelIsUser = modelName === "User";
     }
     const result = this.build(resourcePath, data);
 
