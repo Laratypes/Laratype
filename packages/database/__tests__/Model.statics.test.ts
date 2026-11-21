@@ -70,6 +70,9 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'tenantId', propertyPath: 'tenantId', type: String },
   // A time-only column: TypeORM hydrates it as a string, never a Date
   { propertyName: 'opensAt', propertyPath: 'opensAt', type: 'time' },
+  // A zoned time: PostgreSQL hydrates an offset on timetz / time with time zone
+  { propertyName: 'zonedTime', propertyPath: 'zonedTime', type: 'timetz' },
+  { propertyName: 'zonedTimeText', propertyPath: 'zonedTimeText', type: 'time with time zone' },
   // A UUID route key: PostgreSQL rejects a malformed bind value
   { propertyName: 'externalId', propertyPath: 'externalId', type: 'uuid' },
   // A fractional route key is refused as a configuration (a canonical number string cannot round trip its scale)
@@ -348,14 +351,110 @@ describe('Model.findByRouteKey', () => {
     expect(miss.findOneCalls).toEqual([])
   })
 
-  it('keeps a time-only route key as a string, instead of sending it to new Date()', async () => {
-    // TypeORM hydrates a MySQL TIME as "12:34:56"; new Date("12:34:56") is Invalid Date, so the key must pass through
-    const { User, findOneCalls } = model({
-      routeKeyName: 'opensAt',
-      rows: [{ id: 1, opensAt: '12:34:56' }],
-    })
-    await expect(User.findByRouteKey('12:34:56')).resolves.toMatchObject({ id: 1 })
-    expect(findOneCalls).toEqual([{ where: { opensAt: '12:34:56' } }])
+  it('keeps a valid time-only route key as a string and answers a malformed one as a miss', async () => {
+    // TypeORM hydrates a MySQL TIME as "12:34:56"; new Date("12:34:56") is Invalid Date, so the string passes through
+    const valid = [
+      '12:34:56',
+      '12:34',
+      '0:00',
+      '00:00:00',
+      '24:00:00',
+      '12:34:56.789',
+      '12:34:56.789012',
+      '12:34:56.1234567',
+      '838:59:59',
+      '838:59:59.999999',
+      '-838:59:59',
+      '-00:00:01',
+    ]
+    for (const key of valid) {
+      const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: key }] })
+      await expect(User.findByRouteKey(key), key).resolves.toMatchObject({ id: 1 })
+      expect(findOneCalls, key).toEqual([{ where: { opensAt: key } }])
+    }
+
+    // PostgreSQL rejects these as a bind error; the lookup answers null before the driver parses them
+    const invalid = [
+      '',
+      'not-a-time',
+      '25:61:00',
+      '12:60:00',
+      '12:34:60',
+      '12:34:56.',
+      '12:34:56.12345678',
+      '839:00:00',
+      '12:34:56+07',
+      ' 12:34:56',
+      '12:34:56 ',
+      '12:34:56\n',
+      '12:34:56\u0000',
+      '\uD800',
+      'x'.repeat(1_000_000),
+    ]
+    for (const key of invalid) {
+      const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
+      await expect(User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
+      expect(findOneCalls, key.slice(0, 20)).toEqual([])
+    }
+  })
+
+  it('keeps a zoned time key with an offset only on a timetz / time with time zone column', async () => {
+    const valid = [
+      '12:34:56+07',
+      '12:34:56+07:00',
+      '12:34:56-07:30',
+      '12:34:56.789+05:30',
+      '12:34:56+00',
+      '12:34:56+15:59:59',
+      '24:00:00+07',
+      '24:00+07',
+      '24:00:00.0000000+07',
+    ]
+    for (const routeKeyName of ['zonedTime', 'zonedTimeText']) {
+      for (const key of valid) {
+        const { User, findOneCalls } = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: key }] })
+        await expect(User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toMatchObject({ id: 1 })
+        expect(findOneCalls, key).toEqual([{ where: { [routeKeyName]: key } }])
+      }
+      for (const key of [
+        '12:34:56+16',
+        '12:34:56+07:60',
+        '12:34:56+07:',
+        '12:34:56+7',
+        '12:34:56+0700',
+        '12:34:56Z',
+        '25:00:00+07',
+        '24:00:01+07',
+        '24:00:00.000001+07',
+        '838:59:59+07',
+        '-12:34:56+07',
+      ]) {
+        const { User, findOneCalls } = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: '12:34:56+07' }] })
+        await expect(User.findByRouteKey(key), key).resolves.toBeNull()
+        expect(findOneCalls, key).toEqual([])
+      }
+    }
+
+    // A bare time column never carries an offset
+    const { User, findOneCalls } = model({ routeKeyName: 'opensAt', rows: [{ id: 1, opensAt: '12:34:56' }] })
+    await expect(User.findByRouteKey('12:34:56+07')).resolves.toBeNull()
+    expect(findOneCalls).toEqual([])
+  })
+
+  it('checks a transformed time-only key against the same rule', async () => {
+    const columns: FakeColumn[] = [
+      ...COLUMNS,
+      { propertyName: 'transformedTime', propertyPath: 'transformedTime', type: 'time', transformer: identity },
+    ]
+    const hit = model({ routeKeyName: 'transformedTime', columns, rows: [{ id: 1, transformedTime: '12:34:56' }] })
+    await expect(hit.User.findByRouteKey('12:34:56')).resolves.toMatchObject({ id: 1 })
+    expect(boundRouteKey(hit.findOneCalls, 'transformedTime')).toBe('12:34:56')
+
+    for (const key of ['not-a-time', '25:61:00', '', '\u0000', '\uD800', 'x'.repeat(1_000_000)]) {
+      const miss = model({ routeKeyName: 'transformedTime', columns, rows: [{ id: 1, transformedTime: '12:34:56' }] })
+      await expect(miss.User.findByRouteKey(key), key.slice(0, 20)).resolves.toBeNull()
+      expect(miss.findOneCalls, key.slice(0, 20)).toEqual([])
+    }
   })
 
   it('lets a canonical uuid reach the lookup and answers a malformed one as a miss', async () => {

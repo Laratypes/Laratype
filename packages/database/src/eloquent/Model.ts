@@ -61,10 +61,51 @@ const DATE_TYPES: readonly ColumnType[] = [
 ];
 
 /**
- * Time-only column types keep the path string: TypeORM hydrates a MySQL `TIME` as `"12:34:56"`, which `new Date()`
- * rejects, so they take the pass-through branch (docs/v1/database.md › BindableModel).
+ * Time-only column types keep the path string after validation: TypeORM hydrates a MySQL `TIME` as `"12:34:56"`,
+ * which `new Date()` rejects, so they do not take the Date branch (docs/v1/database.md › BindableModel).
  */
 const TIME_TYPES: readonly ColumnType[] = ["time", "timetz", "time with time zone", "time without time zone"];
+
+/** Column types whose hydrated time carries a UTC offset (PostgreSQL `timetz` / `time with time zone`). */
+const ZONED_TIME_TYPES: readonly ColumnType[] = ["timetz", "time with time zone"];
+
+/**
+ * A time key in the form MySQL `TIME` and PostgreSQL `time` / `timetz` hydrate: an optional MySQL sign, up to 838
+ * hours, minutes and seconds 00-59, up to seven fractional digits (SQL Server's `time` precision; MySQL and
+ * PostgreSQL round a longer input), and an offset for a zoned column only (docs/v1/database.md › BindableModel).
+ */
+const TIME_KEY =
+  /^(-?[0-9]{1,3}:[0-5][0-9](?::[0-5][0-9])?(?:\.[0-9]{1,7})?)(?:([+-])([0-9]{2})(?::([0-5][0-9]))?(?::([0-5][0-9]))?)?$/;
+
+/**
+ * Whether a time-only key is a representation the driver accepts. A malformed key is the documented miss before the
+ * driver parses it (PostgreSQL rejects a bad time bind with an error, not a miss); unrelated database errors still
+ * propagate because this runs before the lookup.
+ */
+const isTimeKey = (type: ColumnType, key: string): boolean => {
+  const match = TIME_KEY.exec(key);
+  if (match === null) {
+    return false;
+  }
+  const time = match[1]!;
+  const hours = Math.abs(Number(time.split(":")[0]));
+  const zoned = ZONED_TIME_TYPES.includes(type);
+  // MySQL TIME is -838:59:59..838:59:59 (PostgreSQL's 24:00:00 is inside that range); a zoned column is PostgreSQL's
+  // timetz, whose time is 00:00..24:00, with 24:00 only as the exact end of the day and no negative value
+  if (zoned) {
+    if (hours > 24 || time.startsWith("-") || (hours === 24 && !/^24:00(?::00(?:\.0+)?)?$/.test(time))) {
+      return false;
+    }
+  } else if (hours > 838) {
+    return false;
+  }
+  const offsetHours = match[3];
+  if (match[2] === undefined) {
+    return true;
+  }
+  // A plain time never carries a zone; an offset belongs to PostgreSQL's timetz / time with time zone
+  return zoned && Number(offsetHours) <= 15;
+};
 
 /**
  * Fractional column types are not route keys: `getRouteKey()` returns a `1.5` that a canonical number string cannot
@@ -160,8 +201,9 @@ const convertRouteKey = (type: ColumnType, key: string): string | number | boole
       : undefined;
   }
   if (TIME_TYPES.includes(type)) {
-    // A MySQL TIME hydrates as "HH:MM:SS" and a PostgreSQL time as a string too, never a Date
-    return key;
+    // A MySQL TIME hydrates as "HH:MM:SS" and a PostgreSQL time as a string too, never a Date; a malformed one is a
+    // miss before PostgreSQL parses the bind and throws QueryFailedError
+    return isTimeKey(type, key) ? key : undefined;
   }
   if (DATE_TYPES.includes(type)) {
     const date = new Date(key);
