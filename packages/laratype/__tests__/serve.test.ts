@@ -155,6 +155,28 @@ describe("facade application (D11 #318)", () => {
     expect(Hash.make("secret")).toBe("provider");
   });
 
+  it("a pre-boot fake beats a binding a provider makes in boot()", async () => {
+    const restore = Hash.fake(new Fixed());
+    class BindInBoot extends ServiceProvider {
+      boot() {
+        this.app.bind(Hasher, OtherHash);
+      }
+    }
+    await Serve.bootProvider([BindInBoot]);
+    expect(Hash.make("secret")).toBe("fixed");
+    restore();
+    expect(Hash.make("secret")).toBe("provider");
+  });
+
+  it("a successful boot confirms the fake, so down() does not revive it", async () => {
+    const restore = Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    expect(Hash.make("secret")).toBe("fixed");
+    Serve.down();
+    expect(Hash.make("secret")).not.toBe("fixed");
+    restore();
+  });
+
   it("a failed boot keeps a pre-boot fake, and a retried boot keeps it", async () => {
     let failing = true;
     class Flaky extends ServiceProvider {

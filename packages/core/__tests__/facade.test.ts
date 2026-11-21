@@ -331,4 +331,14 @@ describe('setFacadeApplication() carry-over', () => {
     expect(Count.next()).toBe(10)
     restore()
   })
+
+  it('gives an unconfirmed application unset the fallback back', () => {
+    vi.stubGlobal('__PROD__', true)
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    Facade.setFacadeApplication(new Container())
+    Facade.setFacadeApplication(undefined)
+    // The app was never confirmed by a boot: the fake is still the fallback's
+    expect(Count.next()).toBe(10)
+    restore()
+  })
 })
