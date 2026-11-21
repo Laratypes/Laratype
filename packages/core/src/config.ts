@@ -17,9 +17,12 @@ type Key = string | number
 /** Paths stop at arrays, functions and classes, and after 8 levels so big option types stay cheap to check. */
 type Stop = readonly unknown[] | ((...args: never[]) => unknown) | (abstract new (...args: never[]) => unknown)
 
+/** Keys that never name a config value, as a whole path or a segment: `config()` answers `undefined` for them. */
+type ReservedKey = 'constructor' | 'prototype' | '__proto__'
+
 /**
  * Every dot path of `T`: `"database" | "database.default" | ...`. A key that contains a dot ends a path: the lookup
- * reads it as the whole rest of the path.
+ * reads it as the whole rest of the path. A reserved key is never a declared path: `config()` never reads it.
  */
 export type ConfigPath<T = AppConfigs, Depth extends unknown[] = []> = Depth['length'] extends 8
   ? never
@@ -27,7 +30,7 @@ export type ConfigPath<T = AppConfigs, Depth extends unknown[] = []> = Depth['le
     ? never
     : T extends object
       ? {
-          [K in keyof T & Key]-?: `${K}` | (`${K}` extends `${string}.${string}` ? never : `${K}.${ConfigPath<NonNullable<T[K]>, [...Depth, unknown]>}`)
+          [K in keyof T & Key]-?: K extends ReservedKey ? never : `${K}` | (`${K}` extends `${string}.${string}` ? never : `${K}.${ConfigPath<NonNullable<T[K]>, [...Depth, unknown]>}`)
         }[keyof T & Key]
       : never
 
@@ -38,22 +41,25 @@ type LiteralKey<T> = keyof { [K in keyof T as string extends K ? never : number 
 type Missing<T> = string extends keyof T ? undefined : number extends keyof T ? undefined : never
 
 /**
- * The value at dot path `P` of `T`; `| undefined` when a key on the path is optional or an index signature.
+ * The value at dot path `P` of `T`; `| undefined` when a key on the path is optional, an index signature, or a
+ * reserved key (`constructor`, `prototype`, `__proto__`), which `config()` never reads.
  * Same lookup as `config()`: the whole path as a declared key, then the segment before the first dot.
  */
-export type ConfigValue<P extends string, T = AppConfigs> = unknown extends T
-  ? unknown
-  : T extends null | undefined
-    ? undefined
-    : P extends LiteralKey<T>
-      ? T[P]
-      : P extends `${infer Head}.${infer Rest}`
-        ? ConfigValue<Rest, ConfigValue<Head, T>>
-        : P extends keyof T
-          ? T[P] | Missing<T>
-          : P extends `${infer N extends number}`
-            ? N extends keyof T ? T[N] | Missing<T> : undefined
-            : undefined
+export type ConfigValue<P extends string, T = AppConfigs> = P extends ReservedKey
+  ? undefined
+  : unknown extends T
+    ? unknown
+    : T extends null | undefined
+      ? undefined
+      : P extends LiteralKey<T>
+        ? T[P]
+        : P extends `${infer Head}.${infer Rest}`
+          ? ConfigValue<Rest, ConfigValue<Head, T>>
+          : P extends keyof T
+            ? T[P] | Missing<T>
+            : P extends `${infer N extends number}`
+              ? N extends keyof T ? T[N] | Missing<T> : undefined
+              : undefined
 
 /** Kept on globalThis: every package dist inlines its own copy of @laratype/core (see `HTTP_APP`, remove after #188). */
 const store = globalThis as { __laratype_configs?: Readonly<Record<string, unknown>> }
@@ -69,7 +75,7 @@ export const setConfigs = (configs: Readonly<Record<string, unknown>>): void => 
   store.__laratype_configs = configs
 }
 
-/** Keys that never name a config value: they read the prototype machinery, not the app's config. */
+/** Keys that never name a config value, same as `ReservedKey`: they read the prototype machinery, not the app's config. */
 const UNSAFE_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 
 /** A key that is a config value: its value, which may itself be `undefined`. */
@@ -99,7 +105,8 @@ const readKey = (target: unknown, key: string): ReadKey | undefined => {
 /**
  * Reads a config value by dot path, typed from the registered configs: `config('database.default')`.
  * A key missing at run time gives `undefined`, and so does a method or a prototype data property (`app.url.toString`),
- * or a path that is not a string. Throws before the configs are loaded.
+ * a reserved key (`constructor`, `prototype`, `__proto__`, which `ConfigPath` leaves out), or a path that is not a
+ * string. Throws before the configs are loaded.
  */
 export function config<const P extends ConfigPath>(path: P): ConfigValue<P>
 export function config(path: string): unknown {
