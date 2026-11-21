@@ -21,7 +21,7 @@ The `sauf` command line: the v1 command list, `sauf dev`, the `sauf build` optio
 | Section | Status |
 |---|---|
 | [Command list](#command-list) | `types:generate` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `route:list` reads the Router v2 registry, merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `make:*` proposed (see below); planned → #126, #148, #149, #168, #169, #171, #179, #180 |
-| [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #142, #157 |
+| [sauf dev](#sauf-dev) | DI plugin merged ([#102](https://github.com/Laratypes/Laratype/issues/102)); planned → #126, #157; type watch proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9 ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [sauf build options](#sauf-build-options) | planned → #127, #130, #172, #173, #155, #156 |
 | [make:* generators](#make-generators) | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)); `make:command` merged in PR [#357](https://github.com/Laratypes/Laratype/pull/357) (F2 [#161](https://github.com/Laratypes/Laratype/issues/161)), with its name check in #366 |
 
@@ -40,7 +40,7 @@ Every v1 command named in a spec file or an issue body. A command that is only i
 | `sauf dev` | Dev server on the shared plugin chain | planned → #126 | [sauf dev](#sauf-dev) |
 | `sauf build` | Production build: typecheck, bundle, verify, typegen, adapter | planned → #127, #128, #129, #130 | [build.md › sauf build steps](./build.md#sauf-build-steps), [options](#sauf-build-options) |
 | `sauf types:generate` | Writes `$types.d.ts` and `.laratype/api/index.gen.ts` from the contract tree, and `api.ts` for a separate-repo FE | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)) | [typegen.md › sauf types:generate](./typegen.md#sauf-typesgenerate) |
-| `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → #157 | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
+| `sauf test` | Runs the tests and lists declared errors that no test triggers | planned → [#387](https://github.com/Laratypes/Laratype/issues/387) (split out of X3 [#157](https://github.com/Laratypes/Laratype/issues/157)) | [http.md › Undeclared-error check](./http.md#undeclared-error-check) |
 | `sauf route:list` | Lists the route registry: `Route.api` entries (name, method, path, controller, middleware, scope and contract policies, a "Not enforced" column for auth and authorize until #105/#121 and headers schema validation (no tracking issue yet), domain) and 0.5 routes | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)) | [http.md › Router v2](./http.md#router-v2) |
 | `sauf make:*` | Generators from stubs | proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E2 [#134](https://github.com/Laratypes/Laratype/issues/134)) | [make:* generators](#make-generators) |
 | `sauf db:introspect` | Generates the `Database` interface from the schema | planned → #148 | [database.md › Migrations and introspection](./database.md#migrations-and-introspection) |
@@ -66,11 +66,11 @@ Each command's issue, linked in the table.
 ## sauf dev
 
 ### Status
-The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#142](https://github.com/Laratypes/Laratype/issues/142) (G2, type watch), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check).
+The DI plugin (T2) is merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). planned → [#126](https://github.com/Laratypes/Laratype/issues/126) (B2, shared chain), [#157](https://github.com/Laratypes/Laratype/issues/157) (X3, undeclared-error check). The type watch (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)) is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9.
 
 ### Design (non-binding)
 - **Plugin chain:** `sauf dev` uses the same chain as `sauf build` and the test preset, with the DI transform before SWC ([build.md › Plugin chain](./build.md#plugin-chain)). The app boots from the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
-- **Type watch:** it watches the [contract folder tree](./contract.md#contract-folder-tree) for file add, rename and delete, and writes `$types.d.ts` under `.laratype/types/` and `.laratype/api/index.gen.ts` (`$api`) ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
+- **Type watch (proposed):** it watches the [contract folder tree](./contract.md#contract-folder-tree) with Vite's own watcher, with or without `--hmr`, debounces a burst into one generation, and writes only the `$types.d.ts` under `.laratype/types/` and `.laratype/api/index.gen.ts` (`$api`) that changed; a content edit needs no regeneration because the generated files import the contract ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)).
 - **Options:** `-p, --port`, `-H, --host` and `--hmr` carry over from 0.5. HMR stays opt-in through `--hmr` ([#126](https://github.com/Laratypes/Laratype/issues/126)).
 - **Undeclared errors:** an error thrown but not declared on the running endpoint is reported loudly, with the stack. The check is always on, so there is no `--strict-contract` flag ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).
 
@@ -128,8 +128,8 @@ proposed: PR [#366](https://github.com/Laratypes/Laratype/pull/366) @ 7c1590c (E
 - **The folder tree names a contract.** `make:contract` writes no name or URL prefix: both come from the file's place in the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). A sub-path is kept (`users/posts` -> `app/api/users/posts.ts`, and `[param]` folders are allowed); a trailing `.ts` and `\` path separators in the argument are normalized. A new folder gets its `$types.d.ts` when `sauf types:generate` (or `sauf dev`) next scans the tree; the scan reads file names only. A segment outside the tree's naming rules (`.`, `..`, an absolute path) is rejected by the generator, and so is an `index` with no named folder: a root `index` (any case, with or without `.ts`, which a lowercase `index.ts` would fail the scan on) and an index under only `[param]` folders, because neither has a contract name. A named folder's `index.ts` is allowed and names its folder (`users/index.ts` -> `/api/users`); a duplicate contract name fails that scan.
 - **The stubs type-check** in `examples/basic`. The test generates into a temp copy of `examples/basic`; no generated file is committed to it.
 - **Stub rules** (carried from C3 [#91](https://github.com/Laratypes/Laratype/issues/91) and S2 [#85](https://github.com/Laratypes/Laratype/issues/85); see [overview.md › Cross-cutting rules](./overview.md#cross-cutting-rules)):
-  - stubs import `import * as z from "zod"`. `import { z } from "zod/v4"` grows the FE bundle from about 16 KiB to 47 KiB gzip;
-  - on the repo's zod 3.25 `zod` entry, contract and request stubs write `z.coerce.number()`. With zod 4's default entry the input type of plain `z.coerce.number()` is `unknown`, so the stub then needs `z.coerce.number<number>()`;
+  - stubs import `import * as z from "zod"`: with zod 4, `import { z } from "zod"` defeats tree-shaking (about 47 KiB vs 16 KiB gzip in an FE entry);
+  - contract and request stubs write `z.coerce.number<number>()`: with zod 4 the input type of plain `z.coerce.number()` is `unknown`;
   - `zod/v4-mini` (about 8.3 KiB) is the recommendation for FE bundles.
 - **`make:request` stays 0.5** until FormRequest v2 ([#137](https://github.com/Laratypes/Laratype/issues/137)): the class extends `Request` and declares `rules()`. A contract route validates the contract's schemas and takes no request class ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 - **`make:resource` maps plain data:** `defineResource(model, fn)` returns `make`, `collection` and `paginate`; the contract checks the returned data at `r.contract()` ([http.md › Resources](./http.md#resources)). The placeholder model class in the stub is replaced by the app's model.
@@ -158,7 +158,7 @@ import { defineContract, endpoint } from "@laratype/contract";
 import * as z from "zod";
 import type { Prefix } from "./$types";
 
-const IndexQuery = z.object({ page: z.coerce.number().int().min(1).default(1) });
+const IndexQuery = z.object({ page: z.coerce.number<number>().int().min(1).default(1) });
 
 export default defineContract<Prefix>()({
   index: endpoint.get("/").query(IndexQuery),

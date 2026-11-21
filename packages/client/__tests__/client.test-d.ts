@@ -1,16 +1,19 @@
 // Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124, CL9 #315) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
-import { createClient } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import { createClient, ResponseValidationError } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ManifestClientOptions, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
-import type { ApiTypes } from '@laratype/contract'
+import type { ApiTypes, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
 import posts from './fixtures/app/api/users/[user]/posts'
 import usersContract from './fixtures/app/api/users'
 import { manifest } from './fixtures/separate-fe/api'
 import type { AppApi as Generated } from './fixtures/separate-fe/api'
+
+/** Type-level checks only: the body is type-checked but never run. */
+const typeOnly = (_fn: () => void) => {}
 
 const api = createClient(appApi)
 
@@ -225,7 +228,7 @@ describe('JSON-safe request input (#255)', () => {
 
   test('a contract whose date field coerces: the call takes a Date or an ISO string, not a number', () => {
     const events = defineContract()({
-      store: endpoint.post('/api/events').body(z.object({ at: z.coerce.date(), name: z.string() })).query(z.object({ since: z.coerce.date().optional() })),
+      store: endpoint.post('/api/events').body(z.object({ at: z.coerce.date<Date>(), name: z.string() })).query(z.object({ since: z.coerce.date<Date>().optional() })),
       big: endpoint.post('/api/big').body(z.object({ n: z.bigint() })),
     })
     const client = createClient(events)
@@ -398,5 +401,51 @@ describe('options and hooks', () => {
         request.url = '/other'
       },
     })
+  })
+})
+
+describe('dev-mode response validation', () => {
+  test('validateResponses is a boolean option on every input with schemas', () => {
+    expectTypeOf<ClientOptions['validateResponses']>().toEqualTypeOf<boolean | undefined>()
+    void createClient(appApi, { validateResponses: true })
+    void createClient(appApi, { validateResponses: false })
+    void createClient(appApi.users, { validateResponses: true })
+    void createClient(usersContract, { validateResponses: true })
+    // @ts-expect-error not a flag
+    createClient(appApi, { validateResponses: 'yes' })
+  })
+
+  test('the manifest client refuses it: the generated manifest has no schemas', () => {
+    expectTypeOf<ManifestClientOptions['validateResponses']>().toEqualTypeOf<false | undefined>()
+    void createClient<Generated>(manifest, { validateResponses: false })
+    typeOnly(() => {
+      // @ts-expect-error the manifest carries no response schemas
+      void createClient<Generated>(manifest, { validateResponses: true })
+    })
+    // both manifest overloads take ManifestClientOptions (client.md › createClient), not ClientOptions: a
+    // ClientOptions value cannot prove validateResponses is off, so it is refused with or without headers
+    const plain: ClientOptions = { headers: {}, validateResponses: true }
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions may set validateResponses: true
+      void createClient<Generated>(manifest, plain)
+    })
+    const plainKeyed = { headers: { 'x-api-key': 'k' }, validateResponses: true }
+    // the same value is a ClientOptions, a valid one; the manifest overload takes the narrowed type, so it is refused
+    expectTypeOf(plainKeyed).toMatchTypeOf<ClientOptions<{ 'x-api-key': string }>>()
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions may set validateResponses: true
+      void createClient<Generated, { 'x-api-key': string }>(manifest, plainKeyed)
+    })
+    const off: ManifestClientOptions = { validateResponses: false }
+    void createClient<Generated>(manifest, off)
+    // the second overload takes ManifestClientOptions too: the same headers with the option off are accepted
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k' }, validateResponses: false })
+  })
+
+  test('ResponseValidationError carries the error bag and the Standard Schema issues', () => {
+    const error = new ResponseValidationError('m', {}, [])
+    expectTypeOf(error).toMatchTypeOf<Error>()
+    expectTypeOf(error.errors).toEqualTypeOf<Record<string, string[]>>()
+    expectTypeOf(error.issues).toEqualTypeOf<ReadonlyArray<StandardIssue>>()
   })
 })

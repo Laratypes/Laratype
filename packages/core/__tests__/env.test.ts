@@ -10,6 +10,6 @@ describe('defineEnv (K1 #152)', () => {
   })
 
   it('rejects what is not a Standard Schema', () => {
-    expect(() => defineEnv({} as never)).toThrow(new TypeError('[@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 3.25+, valibot, arktype, ...)'))
+    expect(() => defineEnv({} as never)).toThrow(new TypeError('[@laratype/core] defineEnv(schema): schema must be a Standard Schema (zod 4.6.6+, valibot, arktype, ...)'))
   })
 })

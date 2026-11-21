@@ -1,5 +1,5 @@
 import type { Ability, Policy } from "@laratype/auth";
-import type { AnyEndpoint } from "@laratype/contract";
+import type { AnyEndpoint, AnyErrorDef } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
@@ -45,6 +45,11 @@ export type RouteParams = {
   modelBinding?: false,
   /** The endpoint of a `Route.api` route, exposed to the handler as the read-only `ctx.endpoint` (#105). */
   endpoint?: AnyEndpoint,
+  /**
+   * @internal The errors the route's contract declares, derived ones included: `apiRoutes()`'s `errors` for the route,
+   * which the dev and test undeclared-error check reads (docs/v1/http.md › Undeclared-error check, X3 #157).
+   */
+  errors?: readonly AnyErrorDef[],
   request?: typeof Request,
   can?: PolicyFactory[],
   /** Any class the container can construct: `app.make()` injects its constructor params (H2 #105). */
