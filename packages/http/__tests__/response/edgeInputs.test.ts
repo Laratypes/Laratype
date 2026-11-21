@@ -88,6 +88,9 @@ describe('a 0.5 Response status the platform cannot send', () => {
     ['a numeric string', '201'],
     ['0', 0],
     ['NaN', NaN],
+    ['an empty string', ''],
+    ['false', false],
+    ['0n', 0n],
   ])('a status decorator of %s answers the generic 500 too', async (_, status) => {
     quiet()
     class Decorated extends Controller { index() { return { ok: true, secret: 'detail' } } }
