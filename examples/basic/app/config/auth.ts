@@ -5,17 +5,23 @@ import LocalStrategy from 'passport-local';
 import User from "../src/models/User";
 import Admin from "../src/models/Admin";
 
+/** The environment names the process declares, ignoring an empty one (`Env.get()` returns its default for `''`). */
+const environmentNames = () =>
+  [process.env.NODE_ENV, Env.get('APP_ENV', '')].filter((name): name is string => Boolean(name));
+
 /**
  * The Google skip keys off an explicit non-production signal, never a missing NODE_ENV: `sauf dev` sets `__PROD__`
- * false, and NODE_ENV/APP_ENV must name development or test. Anything else, an unset environment included, is
- * production, where a missing credential fails the boot (E5 #343).
+ * false, and every NODE_ENV/APP_ENV the process declares must name development or test. A production marker in either
+ * wins over the other, and an unset environment is production, where a missing credential fails boot (E5 #343).
  */
-const isExplicitNonProduction = () =>
-  globalThis.__PROD__ === false
+const isExplicitNonProduction = () => {
+  if (globalThis.__PROD__ === false) return true;
   // A production build wins over the test runner's NODE_ENV=test
-  || (globalThis.__PROD__ !== true
-    && (["development", "test"].includes(process.env.NODE_ENV ?? "")
-      || ["development", "test"].includes(Env.get('APP_ENV', ''))));
+  if (globalThis.__PROD__ === true) return false;
+
+  const names = environmentNames();
+  return names.length > 0 && names.every((name) => ["development", "test"].includes(name));
+};
 
 /** Whether passport-google-oidc can build its strategy: it throws when the clientID is empty. */
 const googleConfigured = () => Boolean(Env.get('AUTH_GOOGLE_CLIENT_ID', '') && Env.get('AUTH_GOOGLE_CLIENT_SECRET', ''));

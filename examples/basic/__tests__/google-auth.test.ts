@@ -72,6 +72,15 @@ describe("the Google guard", () => {
     await expect(bootExample()).rejects.toThrow(missingCredentials);
   });
 
+  it("fails the boot when APP_ENV names production, even with NODE_ENV=test", async () => {
+    vi.stubGlobal("__PROD__", undefined);
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_ENV", "production");
+    stubGoogleCredentials("", "");
+
+    await expect(bootExample()).rejects.toThrow(missingCredentials);
+  });
+
   it("treats an environment with no NODE_ENV or APP_ENV as production", async () => {
     vi.stubGlobal("__PROD__", undefined);
     vi.stubEnv("NODE_ENV", "");
