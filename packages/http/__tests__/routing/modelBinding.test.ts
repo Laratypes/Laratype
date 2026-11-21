@@ -306,6 +306,11 @@ describe('expandedPathWithoutParam', () => {
     // Every expansion carries a required param that precedes the optionals
     expect(expandedPathWithoutParam('/a/:post/:opt?', 'post')).toBeUndefined()
     expect(expandedPathWithoutParam('/a/:post/:opt?', 'opt')).toBeUndefined()
+    // A static segment after an optional one: Hono registers `/a/:post` but its handler map keeps 0 params there
+    // (`3 - 4 + 0 + 1`), so `post` is absent from `/a/one` even though the expansion names it
+    expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'post')).toBe('/a/:post')
+    expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'first')).toBeUndefined()
+    expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'last')).toBeUndefined()
     // A name that also occurs required counts as required: PathParams intersects the two, so a handler sees a string
     expect(expandedPathWithoutParam('/dup/:post?/:post/:opt?', 'post')).toBe('/dup')
     // A path Hono registers as written has one registration, the path itself
@@ -521,8 +526,8 @@ describe('r.bind() validation at Route.api', () => {
       }
     }
     expect(() => Route.api(mixedApi, (r) => [r.bind({ post: Post }).contract(mixed, MixedController)])).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `post` is a required param of /mixed/:first?/:post/:last? that Hono\'s optional-param expansion leaves out: ' +
-        'it also registers `/mixed`, without `post`, so the binding would give `undefined` where the proof promises a model. ' +
+      '[@laratype/http] Route.api: r.bind(): `post` is a required param of /mixed/:first?/:post/:last? that Hono\'s optional-param expansion leaves out of a registration: ' +
+        'Hono also registers `/mixed`, where its router passes no `post` to the handler, so the binding would give `undefined` where the proof promises a model. ' +
         'Fix: move `post` before the optional params, or drop their `?`.',
     )
 
@@ -548,6 +553,32 @@ describe('r.bind() validation at Route.api', () => {
     const routes = mount(Route.api(trailingApi, (r) => [r.bind({ post: Post, opt: Post }).contract(trailing, TrailingController)]))
     expect(await (await routes.request('/a/one')).json()).toEqual({ post: 'one', opt: null })
     expect(await (await routes.request('/a/one/two')).json()).toEqual({ post: 'one', opt: 'two' })
+  })
+
+  it("refuses a required binding Hono's param map drops (a static segment after an optional one)", () => {
+    // Hono 4.9.6 expands /a/:post/:first?/fixed/:last? to /a/:post too, but its RegExpRouter keeps 0 params for that
+    // registration (`3 - 4 + 0 + 1`): a request to /a/one has no `post` in c.req.param(), so the map names the expansion
+    // even though its path carries `:post`
+    const mixed = defineContract()({ show: endpoint.get('/:post/:first?/fixed/:last?').response(anything) })
+    const mixedApi = defineApi({ mixed: { contract: mixed, path: '/a', scopes: [] } })
+    class StaticController extends Controller {
+      show(ctx: Ctx<typeof mixed.show, { params: { post: Post; first: Post | undefined; last: Post | undefined } }>) {
+        return { post: ctx.params.post.slug, first: ctx.params.first?.slug ?? null, last: ctx.params.last?.slug ?? null }
+      }
+    }
+    expect(() => Route.api(mixedApi, (r) => [r.bind({ post: Post }).contract(mixed, StaticController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `post` is a required param of /a/:post/:first?/fixed/:last? that Hono\'s optional-param expansion leaves out of a registration: ' +
+        'Hono also registers `/a/:post`, where its router passes no `post` to the handler, so the binding would give `undefined` where the proof promises a model. ' +
+        'Fix: move `post` before the optional params, or drop their `?`.',
+    )
+
+    // The optional bindings of the same layout stay valid: an absent optional param is `undefined` by the proof
+    class StaticOptionalController extends Controller {
+      show(ctx: Ctx<typeof mixed.show, { params: { first: Post | undefined; last: Post | undefined } }>) {
+        return { first: ctx.params.first?.slug ?? null, last: ctx.params.last?.slug ?? null }
+      }
+    }
+    expect(() => Route.api(mixedApi, (r) => [r.bind({ first: Post, last: Post }).contract(mixed, StaticOptionalController)])).not.toThrow()
   })
 
   it('binds a null-prototype map', async () => {

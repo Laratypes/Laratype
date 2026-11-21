@@ -110,20 +110,24 @@ export const checkBindingMap = (bindings: unknown): [string, Binder][] => {
 export const copyBindingMap = (bindings: unknown): Bindings => Object.freeze(Object.fromEntries(checkBindingMap(bindings)));
 
 /**
- * The param names of a route path, the keys a binding may bind: `/api/users/:user/posts/:post?` gives `user`, `post`.
- * Hono's own parsing separates the segments and reads each param: a pattern may hold a `/`, nested braces
+ * The param names of a route path, in path order and with repetitions: `/api/users/:user/posts/:post?` gives `user`,
+ * `post`. Hono's own parsing separates the segments and reads each param: a pattern may hold a `/`, nested braces
  * (`:id{[0-9]{2,4}}`), a brace in a character class (`:prefix{[{]}`) or an escaped one. The `?` of an optional param is
  * not part of the name; Hono registers a trailing optional route without it (`checkOptionalParameter`), which `getPattern`
- * would keep. A mid-path `?` stays in Hono's name: `nonTrailingOptionalParamNames` reports it.
+ * would keep. A mid-path `?` stays in Hono's name: `nonTrailingOptionalParamNames` reports it. The order matters:
+ * Hono's handler map keeps the first params of an expansion (`expandedPathWithoutParam`).
  */
-export const pathParamNames = (path: string): ReadonlySet<string> => {
-  const names = new Set<string>();
+const pathParamList = (path: string): string[] => {
+  const names: string[] = [];
   for (const segment of splitRoutingPath(path)) {
     const pattern = getPattern(segment.endsWith("?") ? segment.slice(0, -1) : segment);
-    if (pattern !== null && pattern !== "*") names.add(pattern[1]);
+    if (pattern !== null && pattern !== "*") names.push(pattern[1]);
   }
   return names;
 };
+
+/** The param names of a route path, the keys a binding may bind: `pathParamList` without repetitions. */
+export const pathParamNames = (path: string): ReadonlySet<string> => new Set(pathParamList(path));
 
 /**
  * The param names of a path's segments of one kind, as `pathParamNames` reads them: the `?` of an optional param is not
@@ -160,15 +164,28 @@ export const nonTrailingOptionalParamNames = (path: string): ReadonlySet<string>
  * One route Hono registers for a path it expands that omits a required param: `checkOptionalParameter` turns a path
  * ending with `?` into each prefix ending at an optional segment (stripping the `?`s), so `/mixed/:first?/:post/:last?`
  * is also served as `/mixed` and `/mixed/:first`, without `post`. A binding on `post` would resolve `undefined` on those
- * routes where the proof promises the model. Returns `undefined` when Hono registers the path as written, when the param
- * is optional only (an absent optional param is `undefined` by the proof too: `BoundParams`), or when every expansion
- * carries it (`/a/:post/:opt?`) — those layouts stay valid.
+ * routes where the proof promises the model.
+ *
+ * The expansion's own placeholders are not enough: Hono's `RegExpRouter` gives expansion `i` a handler param count of
+ * `paramCount - expansions.length + i + 1` (`paramCount` counts the `/:` of the full path) and keeps the first `count`
+ * params of the expansion (router.ts `add()` / `buildMatcherFromPreprocessedRoutes()`). A static segment after an
+ * optional one adds an expansion without a param, so `/a/:post/:first?/fixed/:last?` registers `/a/:post` with
+ * `3 - 4 + 0 + 1 = 0` params: a request to `/a/one` answers no `post`. The check follows the count, so both layouts fail.
+ *
+ * Returns `undefined` when Hono registers the path as written, when the param is optional only (an absent optional
+ * param is `undefined` by the proof too: `BoundParams`), or when every expansion carries it in its handler map
+ * (`/a/:post/:opt?`) — those layouts stay valid.
  */
 export const expandedPathWithoutParam = (path: string, param: string): string | undefined => {
   if (!requiredParamNames(path).has(param)) return undefined;
   const expansions = checkOptionalParameter(path);
   if (expansions === null) return undefined;
-  return expansions.find((expansion) => !pathParamNames(expansion).has(param));
+  const paramCount = (path.match(/\/:/g) ?? []).length;
+  for (let i = 0; i < expansions.length; i++) {
+    const kept = Math.max(0, paramCount - expansions.length + i + 1);
+    if (!pathParamList(expansions[i]).slice(0, kept).includes(param)) return expansions[i];
+  }
+  return undefined;
 };
 
 /**
