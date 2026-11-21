@@ -1,5 +1,16 @@
 export { default as DatabaseServiceProvider } from "./providers/EloquentServiceProvider"
-export { default as Model } from "./eloquent/Model"
+export { default as Model, type ModelClass, type PrimaryKeyValue } from "./eloquent/Model"
+export { default as ModelQueryBuilder } from "./eloquent/ModelQueryBuilder"
+export type {
+  ColumnKey,
+  ModelWhere,
+  OrderDirection,
+  Page,
+  WhereComparison,
+  WhereOperator,
+} from "./eloquent/ModelQueryBuilder"
+export { default as ModelError } from "./exceptions/ModelError"
+export { default as ModelNotFoundException } from "./exceptions/ModelNotFoundException"
 export * from "./support"
 export * from "./decorators"
 export * from "./factories"
