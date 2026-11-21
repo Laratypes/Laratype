@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Container, DiError, Inject, Injectable, __laratype_deps, depsRegistry, token } from '@laratype/core'
-import type { DepsEntry } from '@laratype/core'
+import type { DepsEntry, DepsLookup } from '@laratype/core'
 
 /** Resolution error messages with fix hints (D5a #100). */
 
@@ -209,10 +209,10 @@ describe('no dependency metadata: hostile class names', () => {
     expect(message.length).toBeGreaterThan(100_000)
   })
 
-  it('escapes control characters, line separators, bidi controls and backslashes onto one line', () => {
-    const name = 'Ctl\nName\r\u0000\u001b\u009b\u2028\u202e\\'
+  it('escapes control and format characters, line separators and backslashes onto one line', () => {
+    const name = 'Ctl\nName\r\u0000\u001b\u009b\u2028\u202e\u200e\u200f\u061c\\'
     const message = messageOf(() => new Container().make(namedClass(name)))
-    expect(message).toContain('Cannot autowire Ctl\\u000aName\\u000d\\u0000\\u001b\\u009b\\u2028\\u202e\\\\: its constructor')
+    expect(message).toContain('Cannot autowire Ctl\\u000aName\\u000d\\u0000\\u001b\\u009b\\u2028\\u202e\\u200e\\u200f\\u061c\\\\: its constructor')
     expect(message).not.toContain('\n')
   })
 
@@ -286,6 +286,30 @@ describe('zero-length constructors', () => {
     expect(messageOf(() => new Container().make(PartlyDefaulted))).toMatchInlineSnapshot(`"Cannot autowire PartlyDefaulted: its constructor takes 2 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
+  const sourceClass = (defaultSource: string) =>
+    new Function(`return class RegexDefault { constructor(pattern = ${defaultSource}) { this.pattern = pattern } }`)() as new () => { pattern: unknown }
+
+  it.each([
+    ['a comma', '/,/'],
+    ['brackets', '/[(]/'],
+    ['a quote', `/["']/`],
+    ['an escaped slash', '/a\\/b/'],
+    ['a division', '4 / 2'],
+  ])('counts one param when a default has %s', (_, defaultSource) => {
+    expect(messageOf(() => new Container().make(sourceClass(defaultSource)))).toContain('takes 1 param(s)')
+  })
+
+  it('does not fail open when a default is ambiguous to the scanner', () => {
+    // `a++ / b` puts a `/` after an operator: it cannot be told from a regex, so the count falls back to at least 1.
+    const ambiguous = new Function('a', 'b', 'return class Ambiguous { constructor(value = a++ / b) { this.value = value } }')(1, 1) as new () => { value: unknown }
+    expect(messageOf(() => new Container().make(ambiguous))).toContain('takes 1 param(s)')
+  })
+
+  it('skips JS whitespace, NBSP included, before the constructor', () => {
+    const nbsp = new Function('return class Nbsp {\u00a0constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
+    expect(messageOf(() => new Container().make(nbsp))).toContain('takes 1 param(s)')
+  })
+
   it('builds a rest-only constructor with no args', () => {
     class Rest {
       deps: unknown[]
@@ -347,6 +371,28 @@ describe('zero-length constructors', () => {
     }
     // Sub.length is 0, so the registry applies Base's one-slot entry and passes the clock positionally.
     expect(new Container({ deps: depsRegistry }).make(Sub).clock).toBeInstanceOf(Clock)
+  })
+})
+
+describe('custom deps lookups', () => {
+  class Cfg {
+    constructor(readonly port = 5432) {}
+  }
+  const entry: DepsEntry = { slots: [] }
+
+  it('trusts an entry from a lookup that has no ownership signal', () => {
+    const deps: DepsLookup = { get: (cls) => (cls === Cfg ? entry : undefined) }
+    expect(new Container({ deps }).make(Cfg).port).toBe(5432)
+  })
+
+  it('trusts an entry the lookup reports as own', () => {
+    const deps: DepsLookup = { get: (cls) => (cls === Cfg ? entry : undefined), hasOwn: () => true }
+    expect(new Container({ deps }).make(Cfg).port).toBe(5432)
+  })
+
+  it('fails an all-default constructor when the lookup reports the entry inherited', () => {
+    const deps: DepsLookup = { get: (cls) => (cls === Cfg ? entry : undefined), hasOwn: () => false }
+    expect(messageOf(() => new Container({ deps }).make(Cfg))).toMatchInlineSnapshot(`"Cannot autowire Cfg: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 })
 

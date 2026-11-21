@@ -82,4 +82,5 @@ export function getDeps(cls: Function): { owner: Function, entry: DepsEntry } | 
 /** `DepsLookup` backed by `__laratype_deps` registrations: `new Container({ deps: depsRegistry })`. */
 export const depsRegistry: DepsLookup = {
   get: (cls) => getDeps(cls)?.entry,
+  hasOwn: (cls) => getDeps(cls)?.owner === cls,
 }

@@ -2,7 +2,7 @@ import { noDeps } from './deps'
 import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
 import { injectableScope, injectTokens } from './decorators'
-import { hasOwnDeps, isAbstract } from './registry'
+import { isAbstract } from './registry'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -69,9 +69,9 @@ interface TreeState {
 const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('Symbol.asyncDispose')
 const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.for('Symbol.dispose')
 
-/** A name on one line: control characters, line separators, bidi controls and backslashes are escaped. */
+/** A name on one line: control and format characters, line separators and backslashes are escaped. */
 const escapeName = (name: string): string =>
-  name.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+  name.replace(/[\p{Cc}\p{Cf}\u2028\u2029\\]/gu, (char) =>
     char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
 
 /** `<C>` for a message: a class name (one line, `<anonymous class>` when unreadable), else `String(key)`. */
@@ -95,11 +95,81 @@ const keyName = (key: unknown): string => {
 const paramLabel = (cls: Function, index: number, name: string | undefined): string =>
   `${keyName(cls)} constructor param #${index}` + (name ? ` \`${name}\`` : '')
 
+/** JavaScript whitespace: space, tab, NBSP, \v, \f, the BOM and U+2028/U+2029 included. */
+const isWhitespace = (char: string): boolean => /\s/.test(char)
+
+const isLineTerminator = (char: string): boolean => char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
+
+/** Keywords after which a `/` starts a regex literal rather than a division. */
+const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
+  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'typeof', 'void', 'yield',
+])
+
+/** Whether the `/` at `index` is in operator position, so it starts a regex literal, not a division. */
+const startsRegex = (source: string, index: number): boolean => {
+  let previous = index - 1
+  while (previous >= 0) {
+    const char = source[previous]!
+    if (isWhitespace(char)) {
+      previous--
+      continue
+    }
+    if (char === '/' && source[previous - 1] === '*') {
+      const open = source.lastIndexOf('/*', previous - 2)
+      if (open < 0) return true
+      previous = open - 1
+      continue
+    }
+    // A line comment between the operator and the slash: skip back to the line before it.
+    const lineStart = source.lastIndexOf('\n', previous) + 1
+    const lineComment = source.indexOf('//', lineStart)
+    if (lineComment >= 0 && lineComment < previous) {
+      previous = lineStart - 1
+      continue
+    }
+    break
+  }
+  if (previous < 0) return true
+  const char = source[previous]!
+  if ('=([{,;:!&|?*>+-/%^~<'.includes(char)) return true
+  if (!/[A-Za-z_$]/.test(char)) return false
+  let wordStart = previous
+  while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source[wordStart - 1]!)) wordStart--
+  return REGEX_KEYWORDS.has(source.slice(wordStart, previous + 1))
+}
+
+/** Index after the regex literal at `index`, or `undefined` when it does not close on this line. */
+const skipRegex = (source: string, index: number): number | undefined => {
+  index++
+  let inClass = false
+  while (index < source.length) {
+    const char = source[index]!
+    if (char === '\\') {
+      index += 2
+    } else if (isLineTerminator(char)) {
+      return undefined
+    } else if (char === '[') {
+      inClass = true
+      index++
+    } else if (char === ']') {
+      inClass = false
+      index++
+    } else if (char === '/' && !inClass) {
+      index++
+      while (index < source.length && /[A-Za-z]/.test(source[index]!)) index++
+      return index
+    } else {
+      index++
+    }
+  }
+  return undefined
+}
+
 /** Skip whitespace and comments from `index`; returns the next code index. */
 const skipTrivia = (source: string, index: number): number => {
   while (index < source.length) {
     const char = source[index]
-    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') {
+    if (isWhitespace(char!)) {
       index++
     } else if (char === '/' && source[index + 1] === '/') {
       const end = source.indexOf('\n', index + 2)
@@ -142,6 +212,14 @@ const skipBalanced = (source: string, index: number, open: string, close: string
       index = skipQuoted(source, index)
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
+    } else if (char === '/') {
+      if (!startsRegex(source, index)) {
+        index++
+        continue
+      }
+      const end = skipRegex(source, index)
+      if (end === undefined) return source.length
+      index = end
     } else {
       if (char === open) depth++
       else if (char === close && --depth === 0) return index + 1
@@ -163,6 +241,14 @@ const splitParams = (source: string, start: number, end: number): string[] => {
       index = skipQuoted(source, index)
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
+    } else if (char === '/') {
+      if (!startsRegex(source, index)) {
+        index++
+        continue
+      }
+      const end = skipRegex(source, index)
+      if (end === undefined) break
+      index = end
     } else {
       if (char === '(' || char === '[' || char === '{') depth++
       else if (char === ')' || char === ']' || char === '}') depth--
@@ -200,7 +286,12 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
   index = skipTrivia(source, index + 'constructor'.length)
   if (source[index] !== '(') return undefined
   const close = skipBalanced(source, index, '(', ')')
-  if (source[close - 1] !== ')') return undefined
+  if (source[close - 1] !== ')') {
+    // The scan could not parse the list (an ambiguous regex-like literal or an unbalanced source): do not fail open
+    // when there is something between the parentheses.
+    const rest = stripComments(source.slice(index + 1, Math.min(close, source.length))).trim()
+    return rest === '' ? undefined : 1
+  }
   const params = splitParams(source, index + 1, close - 1)
     .map((param) => stripComments(param).trim())
     .filter((param) => param !== '')
@@ -560,9 +651,12 @@ export class Container {
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
   protected build(cls: Newable, requiredBy?: string): unknown {
     const entry = this.deps.get(cls)
-    // An inherited entry with no slots does not cover a constructor whose defaults hide its params; an own entry
-    // was written by the transform from the same source, so it is authoritative.
-    const hiddenParams = entry !== undefined && entry.slots.length === 0 && cls.length === 0 && !hasOwnDeps(cls)
+    // An inherited entry with no slots does not cover a constructor whose defaults hide its params. Only a lookup
+    // that implements `hasOwn` can say an entry is inherited; without it, the entry it returned is authoritative.
+    const hiddenParams = entry !== undefined
+      && entry.slots.length === 0
+      && cls.length === 0
+      && this.deps.hasOwn?.(cls) === false
     if (!entry || hiddenParams) {
       // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
       const params = leadingConstructorParamCount(cls) ?? cls.length
