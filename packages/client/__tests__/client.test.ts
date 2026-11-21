@@ -1103,6 +1103,40 @@ describe('createClient(manifest), the separate-repo FE', () => {
     ).not.toThrow()
   })
 
+  it('refuses a non-numeric errors.length before the bounds check (a Proxy array)', () => {
+    const route = { method: 'get', path: '/x' }
+    const message = (text: string) => new TypeError(`[@laratype/client] createClient: "a.b": ${text}`)
+    const withLength = (length: unknown) =>
+      new Proxy(['X'], {
+        get(target, key, receiver) {
+          if (key === 'length') return length
+          return Reflect.get(target, key, receiver)
+        },
+      })
+    const cases: Array<[unknown, string]> = [
+      [{}, 'an object'],
+      [null, 'null'],
+      [undefined, 'undefined'],
+      [Number.NaN, 'NaN'],
+      [Infinity, 'Infinity'],
+      [-1, '-1'],
+      [1.5, '1.5'],
+      ['1', '"1"'],
+    ]
+    for (const [length, shown] of cases) {
+      expect(() => createClient({ 'a.b': { ...route, errors: withLength(length) } } as never)).toThrow(
+        message(`errors.length must be a non-negative integer, got ${shown}`),
+      )
+    }
+    // an object length is never coerced: its valueOf agrees once, then says Infinity, which would never end the loop
+    let coercions = 0
+    const length = { valueOf: () => (coercions++ === 0 ? 1 : Infinity) }
+    expect(() => createClient({ 'a.b': { ...route, errors: withLength(length) } } as never)).toThrow(
+      message('errors.length must be a non-negative integer, got an object'),
+    )
+    expect(coercions).toBe(0)
+  })
+
   it('rejects a manifest or route that is not a plain object', () => {
     const route = { method: 'get', path: '/x' }
     expect(() => createClient(new Map([['a.b', route]]) as never)).toThrow(
@@ -1154,9 +1188,12 @@ describe('createClient(manifest), the separate-repo FE', () => {
       },
       path: '/api/x',
     }
-    const first = createClient({ 'a.b': getter }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } }
+    const firstFetch = fakeFetch()
+    const first = createClient({ 'a.b': getter }, { fetch: firstFetch.fetch }) as never as { a: { b: () => Promise<unknown> } }
     expect(reads).toBe(1)
     await first.a.b()
+    expect(firstFetch.calls.map((c) => c.method)).toEqual(['GET'])
+    expect(reads).toBe(1)
 
     let methodReads = 0
     const proxy = new Proxy(
@@ -1168,9 +1205,12 @@ describe('createClient(manifest), the separate-repo FE', () => {
         },
       },
     )
-    const second = createClient({ 'a.b': proxy }, { fetch: fakeFetch().fetch }) as never as { a: { b: () => Promise<unknown> } }
+    const secondFetch = fakeFetch()
+    const second = createClient({ 'a.b': proxy }, { fetch: secondFetch.fetch }) as never as { a: { b: () => Promise<unknown> } }
     expect(methodReads).toBe(1)
     await second.a.b()
+    expect(secondFetch.calls.map((c) => c.method)).toEqual(['GET'])
+    expect(methodReads).toBe(1)
   })
 
   it('never echoes a long or non-finite value raw', () => {

@@ -576,8 +576,12 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
       fail(`${where}: errors must be an array of error codes (strings) or { status, code } entries, got ${preview(errors)}`);
     }
     // checked from length before iterating, so a sparse `new Array(1e9)` cannot hang; read once, so a Proxy array whose
-    // length grows after the check is still walked only up to the checked count
-    const count = errors.length;
+    // length grows after the check is still walked only up to the checked count. A Proxy can answer with an object,
+    // whose `valueOf()` would run at each loop comparison and can return `Infinity`: refuse anything but a count.
+    const count: unknown = errors.length;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      fail(`${where}: errors.length must be a non-negative integer, got ${preview(count)}`);
+    }
     if (count > MAX_MANIFEST_ERRORS) fail(`${where}: errors has ${count} entries, more than the ${MAX_MANIFEST_ERRORS} supported`);
     for (let i = 0; i < count; i++) {
       const entry: unknown = errors[i];
