@@ -161,29 +161,36 @@ export const nonTrailingOptionalParamNames = (path: string): ReadonlySet<string>
   path.endsWith("?") ? new Set<string>() : optionalParamNames(path);
 
 /**
- * One route Hono registers for a path it expands that omits a required param: `checkOptionalParameter` turns a path
- * ending with `?` into each prefix ending at an optional segment (stripping the `?`s), so `/mixed/:first?/:post/:last?`
- * is also served as `/mixed` and `/mixed/:first`, without `post`. A binding on `post` would resolve `undefined` on those
- * routes where the proof promises the model.
+ * One route Hono registers for a path it expands whose handler map omits a bound param: `checkOptionalParameter` turns
+ * a path ending with `?` into each prefix ending at an optional segment (stripping the `?`s), so
+ * `/mixed/:first?/:post/:last?` is also served as `/mixed` and `/mixed/:first`, without `post`. A required binding on
+ * `post` would resolve `undefined` on those routes where the proof promises the model.
  *
  * The expansion's own placeholders are not enough: Hono's `RegExpRouter` gives expansion `i` a handler param count of
  * `paramCount - expansions.length + i + 1` (`paramCount` counts the `/:` of the full path) and keeps the first `count`
  * params of the expansion (router.ts `add()` / `buildMatcherFromPreprocessedRoutes()`). A static segment after an
  * optional one adds an expansion without a param, so `/a/:post/:first?/fixed/:last?` registers `/a/:post` with
- * `3 - 4 + 0 + 1 = 0` params: a request to `/a/one` answers no `post`. The check follows the count, so both layouts fail.
+ * `3 - 4 + 0 + 1 = 0` params and `/a/:post/:first` with 1: `/a/one` answers no `post`, `/a/one/two` answers no `first`.
+ * A binding on either key fails closed: an optional binding is checked on the registrations whose path names it, because
+ * one that leaves the segment out binds `undefined` legitimately (BoundParams), while a required binding is checked on
+ * every registration.
  *
- * Returns `undefined` when Hono registers the path as written, when the param is optional only (an absent optional
- * param is `undefined` by the proof too: `BoundParams`), or when every expansion carries it in its handler map
- * (`/a/:post/:opt?`) — those layouts stay valid.
+ * Returns `undefined` when Hono registers the path as written, when the param is not a path param (or is optional and no
+ * registration that names it drops it), or when every registration that names it keeps it in its handler map
+ * (`/a/:post/:opt?`, `/a/:post/:first?`) — those layouts stay valid.
  */
 export const expandedPathWithoutParam = (path: string, param: string): string | undefined => {
-  if (!requiredParamNames(path).has(param)) return undefined;
+  const required = requiredParamNames(path).has(param);
+  if (!required && !optionalParamNames(path).has(param)) return undefined;
   const expansions = checkOptionalParameter(path);
   if (expansions === null) return undefined;
   const paramCount = (path.match(/\/:/g) ?? []).length;
   for (let i = 0; i < expansions.length; i++) {
     const kept = Math.max(0, paramCount - expansions.length + i + 1);
-    if (!pathParamList(expansions[i]).slice(0, kept).includes(param)) return expansions[i];
+    const names = pathParamList(expansions[i]);
+    // An optional key is only at stake on a registration whose path names it: one without the segment cannot carry it
+    if (!required && !names.includes(param)) continue;
+    if (!names.slice(0, kept).includes(param)) return expansions[i];
   }
   return undefined;
 };

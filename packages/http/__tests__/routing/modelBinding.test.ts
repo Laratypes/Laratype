@@ -297,19 +297,23 @@ describe('pathParamNames', () => {
 })
 
 describe('expandedPathWithoutParam', () => {
-  it("reads Hono's expansions: a required param after an optional one is reported, optional-only and required-first ones are not", () => {
+  it("reads Hono's expansions: a param a registration drops is reported, the ones it keeps are not", () => {
     // `/mixed` is the first expansion of the CodeRabbit path that has no `post`
     expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'post')).toBe('/mixed')
-    // An optional param may be absent: the proof types it `| undefined`
+    // An optional param may be absent: the proof types it `| undefined`, and no registration that names it drops it
     expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'first')).toBeUndefined()
     expect(expandedPathWithoutParam('/mixed/:first?/:post/:last?', 'last')).toBeUndefined()
-    // Every expansion carries a required param that precedes the optionals
+    // No static segment after an optional one: every registration keeps the params it names
     expect(expandedPathWithoutParam('/a/:post/:opt?', 'post')).toBeUndefined()
     expect(expandedPathWithoutParam('/a/:post/:opt?', 'opt')).toBeUndefined()
-    // A static segment after an optional one: Hono registers `/a/:post` but its handler map keeps 0 params there
-    // (`3 - 4 + 0 + 1`), so `post` is absent from `/a/one` even though the expansion names it
+    expect(expandedPathWithoutParam('/a/:post/:first?', 'post')).toBeUndefined()
+    expect(expandedPathWithoutParam('/a/:post/:first?', 'first')).toBeUndefined()
+    // A static segment after an optional one: Hono registers `/a/:post` and `/a/:post/:first` but their handler maps
+    // keep 0 and 1 params (`3 - 4 + 0 + 1`, `3 - 4 + 1 + 1`), so `post` is absent from `/a/one` and `first` from
+    // `/a/one/two`, even though each expansion names its key
     expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'post')).toBe('/a/:post')
-    expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'first')).toBeUndefined()
+    expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'first')).toBe('/a/:post/:first')
+    // `last` is only named by the full registration, whose map keeps every param: an optional binding on it is safe
     expect(expandedPathWithoutParam('/a/:post/:first?/fixed/:last?', 'last')).toBeUndefined()
     // A name that also occurs required counts as required: PathParams intersects the two, so a handler sees a string
     expect(expandedPathWithoutParam('/dup/:post?/:post/:opt?', 'post')).toBe('/dup')
@@ -555,30 +559,48 @@ describe('r.bind() validation at Route.api', () => {
     expect(await (await routes.request('/a/one/two')).json()).toEqual({ post: 'one', opt: 'two' })
   })
 
-  it("refuses a required binding Hono's param map drops (a static segment after an optional one)", () => {
-    // Hono 4.9.6 expands /a/:post/:first?/fixed/:last? to /a/:post too, but its RegExpRouter keeps 0 params for that
-    // registration (`3 - 4 + 0 + 1`): a request to /a/one has no `post` in c.req.param(), so the map names the expansion
-    // even though its path carries `:post`
-    const mixed = defineContract()({ show: endpoint.get('/:post/:first?/fixed/:last?').response(anything) })
-    const mixedApi = defineApi({ mixed: { contract: mixed, path: '/a', scopes: [] } })
+  it("refuses a param Hono's RegExpRouter drops (a static segment after an optional one)", () => {
+    // Hono 4.9.6 expands /a/:post/:first?/fixed/:last? to /a/:post and /a/:post/:first too, but its RegExpRouter keeps
+    // 0 and 1 params for those registrations (`3 - 4 + 0 + 1`, `3 - 4 + 1 + 1`): `/a/one` has no `post`, `/a/one/two`
+    // has no `first`, so a binding on either would silently give `undefined` even when the request carries the value
+    const staticPath = defineContract()({ show: endpoint.get('/:post/:first?/fixed/:last?').response(anything) })
+    const staticApi = defineApi({ staticPath: { contract: staticPath, path: '/a', scopes: [] } })
     class StaticController extends Controller {
-      show(ctx: Ctx<typeof mixed.show, { params: { post: Post; first: Post | undefined; last: Post | undefined } }>) {
-        return { post: ctx.params.post.slug, first: ctx.params.first?.slug ?? null, last: ctx.params.last?.slug ?? null }
-      }
-    }
-    expect(() => Route.api(mixedApi, (r) => [r.bind({ post: Post }).contract(mixed, StaticController)])).toThrow(
-      '[@laratype/http] Route.api: r.bind(): `post` is a required param of /a/:post/:first?/fixed/:last? that Hono\'s optional-param expansion leaves out of a registration: ' +
-        'Hono also registers `/a/:post`, where its router passes no `post` to the handler, so the binding would give `undefined` where the proof promises a model. ' +
-        'Fix: move `post` before the optional params, or drop their `?`.',
-    )
-
-    // The optional bindings of the same layout stay valid: an absent optional param is `undefined` by the proof
-    class StaticOptionalController extends Controller {
-      show(ctx: Ctx<typeof mixed.show, { params: { first: Post | undefined; last: Post | undefined } }>) {
+      show(ctx: Ctx<typeof staticPath.show, { params: { first: Post | undefined; last: Post | undefined } }>) {
         return { first: ctx.params.first?.slug ?? null, last: ctx.params.last?.slug ?? null }
       }
     }
-    expect(() => Route.api(mixedApi, (r) => [r.bind({ first: Post, last: Post }).contract(mixed, StaticOptionalController)])).not.toThrow()
+    expect(() => Route.api(staticApi, (r) => [r.bind({ post: Post }).contract(staticPath, StaticController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `post` is a param of /a/:post/:first?/fixed/:last? that Hono\'s RegExpRouter drops from a registration\'s handler map (a static segment follows an optional param): ' +
+        'Hono also registers `/a/:post`, where the handler receives no `post` even when the request carries it, so the binding would give `undefined`. ' +
+        'Fix: drop the `?` of the optional params, or move the static segment before them.',
+    )
+    // An optional key gets the same check on the registrations that name it: `/a/:post/:first` keeps only `post`
+    expect(() => Route.api(staticApi, (r) => [r.bind({ first: Post }).contract(staticPath, StaticController)])).toThrow(
+      '[@laratype/http] Route.api: r.bind(): `first` is a param of /a/:post/:first?/fixed/:last? that Hono\'s RegExpRouter drops from a registration\'s handler map (a static segment follows an optional param): ' +
+        'Hono also registers `/a/:post/:first`, where the handler receives no `first` even when the request carries it, so the binding would give `undefined`. ' +
+        'Fix: drop the `?` of the optional params, or move the static segment before them.',
+    )
+    // `last` is only named by the full registration, which keeps every param: the optional binding mounts
+    expect(() => Route.api(staticApi, (r) => [r.bind({ last: Post }).contract(staticPath, StaticController)])).not.toThrow()
+  })
+
+  it('binds a present optional param with no static segment after it, and a miss is the 404', async () => {
+    // /a/:post/:first? registers /a/:post and /a/:post/:first, and both keep the params they name: the optional binding
+    // runs when the request carries the segment, and an unknown value is the 404 (Bound value types, Miss)
+    const optional = defineContract()({ show: endpoint.get('/:post/:first?').response(anything) })
+    const optionalApi = defineApi({ optional: { contract: optional, path: '/a', scopes: [] } })
+    class OptionalController extends Controller {
+      show(ctx: Ctx<typeof optional.show, { params: { post: Post; first: Post | undefined } }>) {
+        return { post: ctx.params.post.slug, first: ctx.params.first?.slug ?? null }
+      }
+    }
+    const routes = mount(Route.api(optionalApi, (r) => [r.bind({ post: Post, first: Post }).contract(optional, OptionalController)]))
+    expect(await (await routes.request('/a/one')).json()).toEqual({ post: 'one', first: null })
+    expect(await (await routes.request('/a/one/two')).json()).toEqual({ post: 'one', first: 'two' })
+    const missing = await routes.request('/a/one/missing')
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ code: 'NOT_FOUND', message: 'Not Found.' })
   })
 
   it('binds a null-prototype map', async () => {

@@ -367,12 +367,19 @@ const checkBindingKeys = (
       );
     }
     // A path Hono expands is registered as every prefix ending at an optional segment: a required binding the expansion
-    // leaves out is missing from a shorter registration, where it would resolve `undefined`. Hono's handler map can drop
-    // a param whose placeholder is in the expansion too (a static segment after an optional one): the helper follows the
-    // router's param count.
+    // leaves out is missing from a shorter registration, where it would resolve `undefined`. Hono's RegExpRouter can also
+    // drop a param whose placeholder is in the registration (a static segment after an optional one): the helper follows
+    // the router's param count, and each case gets the fix that works.
     for (const key of Object.keys(route.bindings)) {
       const expansion = expandedPathWithoutParam(route.path, key);
       if (expansion === undefined) continue;
+      if (pathParamNames(expansion).has(key)) {
+        fail(
+          `r.bind(): \`${key}\` is a param of ${route.path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
+            `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ` +
+            `Fix: drop the \`?\` of the optional params, or move the static segment before them.`,
+        );
+      }
       fail(
         `r.bind(): \`${key}\` is a required param of ${route.path} that Hono's optional-param expansion leaves out of a registration: ` +
           `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ` +
