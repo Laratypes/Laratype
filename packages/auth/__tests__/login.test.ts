@@ -322,6 +322,24 @@ describe('TokenGuard.attempt()', () => {
     expect(findOneBy).not.toHaveBeenCalled()
   })
 
+  it('takes a 1 MB password and control characters in the identifier, paying one dummy check', async () => {
+    // A class of its own, so its dummy is cold and the only derivation is the dummy check
+    class Fresh extends Hasher {}
+    Facade.setFacadeApplication(new Container({ deps: depsRegistry }).instance(Hasher, new Fresh()))
+    const check = vi.spyOn(Hasher.prototype, 'checkAsync')
+    const { User, calls } = fakeModel([])
+    // scrypt reads the whole value: no documented length limit, and a lone surrogate or a control character is a string
+    const password = `${'a'.repeat(1024 * 1024)}\u0000\uD800`
+    const email = '\u0000\uD800\n\t'
+    expect(await attempt(User, { email, password })).toBeNull()
+    expect(calls.where).toEqual([{ email }])
+    expect(calls.update).toEqual([])
+    // The unknown user pays exactly one derivation, with the password as it arrived
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(check.mock.calls[0]![0]).toBe(password)
+    check.mockRestore()
+  })
+
   it('logs in through a guard passwordField that is not "password"', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', pass: Hash.make('secret') }], { column: 'pass' })
     const user = await attempt(User, { email: 'ada@example.com', pass: 'secret' }, { passwordField: 'pass' })
