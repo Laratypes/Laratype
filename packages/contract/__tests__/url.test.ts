@@ -86,6 +86,15 @@ describe('buildUrl', () => {
       new TypeError('[@laratype/contract] buildUrl: query "filter" must be a string, number, boolean, bigint or Date, or an array of them'),
     )
   })
+
+  it('rejects a top-level query array, while an array stays a valid query value', () => {
+    for (const query of [[], ['a'], [{ page: 1 }]]) {
+      expect(() => buildUrl('/x', { query: query as never })).toThrow(
+        new TypeError('[@laratype/contract] buildUrl: query must be a flat object of keys, not an array or a function'),
+      )
+    }
+    expect(buildUrl('/x', { query: { tag: ['a', 'b'], none: [] } })).toBe('/x?tag=a&tag=b')
+  })
 })
 
 describe('buildUrl regex params and "/"', () => {
@@ -103,9 +112,24 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{.*}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
     expect(buildUrl('/files/:file{[^]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
     expect(buildUrl('/files/:file{[^.]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
-    // a top-level "|" compiles bare in Hono's trie router ("^a|.+/.+$"): the encoded value starts with "a", so it is
-    // the value Hono routes, and splitting it would spell the sibling "admin/all" that the trie would not pick
-    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'admin/all' } })).toBe('/files/admin%2Fall')
+  })
+
+  it('scopes a top-level "|" as the RegExp router does, so the split is the URL the route reads', () => {
+    // Hono's SmartRouter serves a pattern its RegExp router compiles with that router, which puts the pattern in a group
+    // over the whole route: `a|.+/.+` is `(?:a|.+/.+)`, not the trie's bare `^a|.+/.+$` prefix match, so the encoded
+    // value does not match and the split is the URL the route reads (a bare prefix match would truncate the value)
+    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'admin/all' } })).toBe('/files/admin/all')
+    expect(buildUrl('/files/:file{a|.+/.+}/raw', { params: { file: 'admin/all' } })).toBe('/files/admin/all/raw')
+    // a value the pattern takes as one segment ("a", the first alternative) stays as it is
+    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'a' } })).toBe('/files/a')
+  })
+
+  it('falls back to the trie form only for a pattern the RegExp router refuses', () => {
+    // a capturing group that is not the whole pattern makes Hono's RegExp router throw UnsupportedPathError, so the
+    // trie router serves the route; its bare form matches the "a" prefix of the encoded value, the URL it reads
+    expect(buildUrl('/files/:file{(a)|.+/.+}', { params: { file: 'admin/all' } })).toBe('/files/admin%2Fall')
+    // `.*` is refused by the RegExp router too; both forms accept anything, so the encoded value is kept
+    expect(buildUrl('/files/:file{.*}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
   })
 
   it('splits only when the pattern needs a literal "/": the encoded value would not match it', () => {
@@ -196,6 +220,27 @@ describe('buildUrl regex params and "/"', () => {
     expect(() => buildUrl('/files/:file{.+/.+}/*', { params: { file: 'a/b' } })).toThrow(/has a "\*" segment/)
     // a static segment is literal in the pattern's context, even when it holds a regex metacharacter
     expect(buildUrl('/files/:file{.+/.+}/a|b', { params: { file: 'a/b' } })).toBe('/files/a/b/a|b')
+  })
+
+  it('refuses a pattern with "}" before "/", which Hono cuts at that slash and cannot route', () => {
+    // Hono reads a pattern up to its first "}" and splits the route on "/", so a quantifier before a slash is cut:
+    // `[a-z]{2}/x` becomes `([a-z]{2)/x}`, which matches no path (checked on Hono 4.9.6, both routers)
+    for (const path of ['/files/:f{a{2}/*/b}', '/files/:f{[a-z]{2}/x}', '/files/:f{a{2}/.*/b}']) {
+      let error: unknown
+      try {
+        buildUrl(path as string, { params: { f: 'aa/b' } })
+      } catch (thrown) {
+        error = thrown
+      }
+      expect(error).toBeInstanceOf(TypeError)
+      expect((error as Error).message).toBe(
+        `[@laratype/contract] buildUrl: param "f" for "${path}" has a pattern with "}" before "/", which Hono cannot route`,
+      )
+    }
+    // no "}" before a "/": a quantifier, the static path after the param, or a "/" before the inner "}"
+    expect(buildUrl('/files/:f{a{2}}', { params: { f: 'aa' } })).toBe('/files/aa')
+    expect(buildUrl('/files/:f{a{2}}/x', { params: { f: 'aa' } })).toBe('/files/aa/x')
+    expect(buildUrl('/files/:f{a/b{2}}', { params: { f: 'a/bb' } })).toBe('/files/a/bb')
   })
 
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {

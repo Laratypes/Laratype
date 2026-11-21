@@ -45,6 +45,17 @@ describe('buildUrl', () => {
     expectTypeOf(buildUrl('/files/:file{.*}', { params: { file: 'a' } })).toEqualTypeOf<string>()
   })
 
+  test('a pattern with "}" before "/" keeps the type wildcard and is refused at runtime too', () => {
+    // Hono cannot route this path: it reads the pattern up to the first "}" and splits the route at the "/" after it,
+    // so the type's split (which sees the "}" of the quantifier, then the "*" segment) and buildUrl's runtime refusal
+    // agree on refusing it instead of building a URL that 404s
+    expectTypeOf<UrlParams<'/files/:f{a{2}/*/b}'>>().toEqualTypeOf<{
+      readonly error: 'buildUrl: path "/files/:f{a{2}/*/b}" has a "*" segment, which buildUrl cannot fill'
+    }>()
+    // @ts-expect-error the params type is the wildcard error, so the call is a type error too: buildUrl throws for the path
+    buildUrl('/files/:f{a{2}/*/b}', { params: { f: 'aa/b' } })
+  })
+
   test('query values are flat: primitives, a Date, null/undefined, or an array of them', () => {
     expectTypeOf<UrlQueryValue>().toEqualTypeOf<string | number | bigint | boolean | Date | null | undefined>()
     expectTypeOf<UrlQuery>().toEqualTypeOf<{ readonly [key: string]: UrlQueryValue | readonly UrlQueryValue[] }>()

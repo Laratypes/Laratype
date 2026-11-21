@@ -233,9 +233,6 @@ describe('buildUrl through a real Hono app', () => {
     for (const [path, expected] of [
       ['/files/:f{.+}', 'admin/all'],
       ['/files/:f{[^.]+}', 'admin/all'],
-      // Hono's trie router compiles a top-level "|" bare ("^a|.+/.+$"): the encoded value starts with "a", so the
-      // :f route reads "a", and the sibling is a path that pattern does not take
-      ['/files/:f{a|.+/.+}', 'a'],
     ] as const) {
       const app = new Hono()
       // registered first: a static sibling wins over a param route whenever the raw path matches it
@@ -252,6 +249,20 @@ describe('buildUrl through a real Hono app', () => {
     }
   })
 
+  it('scopes a top-level "|" as the RegExp router does, so the split reaches the route with the whole value (C8 round 2)', async () => {
+    const path = '/files/:file{a|.+/.+}'
+    const file = 'admin/all'
+    const url = buildUrl(path, { params: { file } })
+    // the default SmartRouter serves this pattern with its RegExp router, whose group scopes the "|": the encoded value
+    // (a bare prefix "a" only) does not match, and the split reads the whole value
+    expect(url).toBe('/files/admin/all')
+    const app = new Hono()
+    app.get(path, (c) => c.json({ file: c.req.param('file') }))
+    const res = await app.request(url)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ file })
+  })
+
   it('matches the following static segment of a lookahead pattern, so the split reaches the route (C8 round 1)', async () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(posts, PostController),
@@ -259,7 +270,8 @@ describe('buildUrl through a real Hono app', () => {
     ])
     const file = 'a/b'
     const url = route('file.lookahead', { file })
-    // the pattern's own lookahead needs the following "/raw", as Hono's trie router compiles it ("^pattern(?=/raw)")
+    // the pattern's own lookahead needs the following "/raw": Hono's RegExp router refuses it, the trie router serves
+    // the route and compiles "^pattern(?=/raw)"
     expect(url).toBe('/files/a/b/raw')
     const app = new Hono()
     routes.mount(app)

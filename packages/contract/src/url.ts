@@ -103,34 +103,56 @@ function patternContext(rest: string): PatternContext {
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * Refuses a pattern Hono cannot route: it reads a param pattern up to the first `}` inside it, then splits the route on
+ * `/`, so a pattern with a `}` before a `/` (`:f{a{2}/x}`, a quantifier before a slash) is cut at that `/` and neither
+ * router matches the route. A path like that can only build a URL that 404s, so `buildUrl` throws instead.
+ */
+function refuseSplitPattern(name: string, pattern: string, path: string): void {
+  const brace = pattern.indexOf("}");
+  if (brace !== -1 && pattern.indexOf("/", brace) !== -1) {
+    fail(`buildUrl: param "${name}" for "${path}" has a pattern with "}" before "/", which Hono cannot route`);
+  }
+}
+
+/**
+ * Whether Hono 4.9.6's RegExp router compiles a param pattern: it refuses `.*`, and a capturing group it cannot turn
+ * into a `(?:...)` group. SmartRouter then serves the route set with its trie router.
+ */
+function regexpRouterCompiles(pattern: string): boolean {
+  if (pattern === ".*") return false;
+  return !/\((?!\?:)/.test(pattern.replace(/^\((?!\?:)(?=[^)]+\)$)/, "(?:"));
+}
+
+/**
  * Matches a param's pattern against `value` the way Hono matches a param: anchored, with no flags, and with the static
- * path that follows the param as context. Hono's two routers compile the pattern differently — `router/reg-exp-router`
- * wraps the source in `(...)` and appends the rest of the route (`^(?:pattern)/next$` here), while `router/trie-router`
- * uses it bare and puts the next static segment in a lookahead (`^pattern(?=/next)`), which for a top-level `|` matches
- * a prefix or suffix — and the route is served by whichever router compiles it, so a value either form accepts is a
- * value Hono can route. Both run on the raw path, where `%2F` is still an escape (Hono's `getPath` decodes with
- * `decodeURI`, which keeps it).
+ * path that follows the param as context. Hono's default SmartRouter tries `router/reg-exp-router` first and, once that
+ * router compiles every route, serves the app with it and never retries the other: its form wraps the source in a group
+ * over the whole route (`^(?:pattern)/next$` here), which scopes a top-level `|` to the param. Only a pattern that
+ * router refuses (a lookahead, `.*`, a capturing group, a static sibling) is served by `router/trie-router`, which
+ * matches the pattern bare against the rest and puts the next static segment in a lookahead (`^pattern(?=/next)`).
+ * Both run on the raw path, where `%2F` is still an escape (Hono's `getPath` decodes with `decodeURI`, which keeps it).
  */
 function matchPattern(pattern: string, value: string, context: PatternContext): PatternAnswer {
   const { suffix, next } = context;
   // both routers match from the start of the rest of the path, which starts with the value followed by the static rest
   const input = value + suffix;
   // `^(?:pattern)$` is the RegExp router's form when the param ends the path; with a static rest, it appends it
-  const sources: readonly (readonly [source: string, input: string])[] = [
-    [`^(?:${pattern})${escapeRegExp(suffix)}$`, input],
-    // a param the trie router sees without a static segment next to it is matched against the whole rest, anchored
-    next === undefined ? [`^${pattern}$`, input] : [`^${pattern}(?=/${escapeRegExp(next)})`, input],
+  const regexp: readonly [source: string, input: string] = [`^(?:${pattern})${escapeRegExp(suffix)}$`, input];
+  // a param the trie router sees without a static segment next to it is matched against the whole rest, anchored
+  const trie: readonly [source: string, input: string] = [
+    next === undefined ? `^${pattern}$` : `^${pattern}(?=/${escapeRegExp(next)})`,
+    input,
   ];
-  let usable = false;
-  for (const [source, text] of sources) {
+  // the RegExp router's answer is final when it serves the route; the trie form is only a fallback for a pattern that
+  // router refuses, and its answer is final there
+  for (const [source, text] of regexpRouterCompiles(pattern) ? [regexp, trie] : [trie, regexp]) {
     try {
-      if (new RegExp(source).test(text)) return "accepts";
-      usable = true;
+      return new RegExp(source).test(text) ? "accepts" : "rejects";
     } catch {
-      // the other form may still compile: Hono's routers differ on what they accept
+      // this router refuses the pattern too; the other router's form may compile it
     }
   }
-  return usable ? "rejects" : "unusable";
+  return "unusable";
 }
 
 /**
@@ -207,6 +229,7 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
           break;
         }
       }
+      if (pattern !== undefined) refuseSplitPattern(name, pattern, path);
     }
     const optional = path[j] === "?";
     if (optional) j++;
@@ -258,15 +281,19 @@ function serializeQuery(query: UrlQuery): string {
  * - Param values are a `string` or a finite `number`, encoded with `encodeURIComponent`, so a `/` in a value is `%2F`. A
  *   missing required param throws; an absent optional one drops its segment. When the param's pattern rejects the
  *   encoded value (it needs a literal `/`, as `:file{.+/.+}` does: `%2F` would 404), the value is split on `/` and each
- *   segment is encoded; the pattern is matched with the static path that follows the param, as Hono compiles it (a
- *   following static segment is part of a trie router's lookahead, `^pattern(?=/next)`), so `:file{.+/.+(?=/raw)}/raw`
- *   is split too. The split is used when the pattern matches it, so its segments then become path segments, and
+ *   segment is encoded; the pattern is matched with the static path that follows the param, as Hono compiles it. The
+ *   RegExp router's form decides when it compiles the pattern (the default SmartRouter uses it then): its group scopes a
+ *   top-level `|`, so `:file{a|.+/.+}` with `admin/all` is split to `/files/admin/all`; a pattern it refuses (a
+ *   lookahead, `.*`, a capturing group) is served by the trie router, which puts the following segment in a lookahead
+ *   (`^pattern(?=/next)`), so `:file{.+/.+(?=/raw)}/raw` is split too. A pattern with a `}` before a `/` (`:f{a{2}/x}`)
+ *   throws: Hono reads the pattern up to that `}` and splits the route there, so it cannot route the path.
+ *   The split is used when the pattern matches it, so its segments then become path segments, and
  *   a split that is used refuses an empty, `.` or `..` segment. A pattern that rejects both forms keeps the encoded
  *   value (the URL then 404s as one segment). A `*` segment throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
- * - Query: flat values only. `undefined` and `null` are skipped, an array repeats its key, a `Date` is sent as ISO 8601.
- *   A nested object, a function or a symbol throws.
+ * - Query: a flat object of keys, not an array or a function. `undefined` and `null` are skipped, an array value repeats
+ *   its key, a `Date` is sent as ISO 8601. A nested object, a function or a symbol value throws.
  */
 export function buildUrl<P extends string, Q extends UrlQueryShape<Q> & object = UrlQuery>(
   path: P,
@@ -277,6 +304,7 @@ export function buildUrl<P extends string, Q extends UrlQueryShape<Q> & object =
   if (params != null && typeof params !== "object") fail(`buildUrl: params must be an object, got ${typeof params}`);
   const query: unknown = input?.query;
   if (query != null && typeof query !== "object") fail(`buildUrl: query must be an object, got ${typeof query}`);
+  if (Array.isArray(query)) fail("buildUrl: query must be a flat object of keys, not an array or a function");
   const url = fillPath(path, (params ?? {}) as Readonly<Record<string, unknown>>);
   // the object check above is the runtime half of `UrlQuery`: `serializeQuery` refuses a value that is not flat
   const search = query == null ? "" : serializeQuery(query as UrlQuery);
