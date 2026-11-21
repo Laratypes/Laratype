@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigLoadServiceProvider, DateTimeServiceProvider, EnvLoadServiceProvider, peekAppManifest, ServiceProvider, setAppManifest, type AppManifest } from "@laratype/support";
 import { register } from "../src/bootstrap";
+
+const { importModule } = vi.hoisted(() => ({ importModule: vi.fn() }));
+
+// Keep the real providers (and appManifest) and replace only the built-package loader `register()` calls by default
+vi.mock("@laratype/support", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@laratype/support")>();
+  return { ...actual, importModule };
+});
 
 class AppProvider extends ServiceProvider {}
 class RequestKernelStub extends ServiceProvider {}
@@ -29,6 +37,7 @@ describe("register", () => {
   const previous = peekAppManifest();
 
   afterEach(() => {
+    importModule.mockReset();
     // Leave no manifest for the next file in the worker when this one found none (the store is on globalThis)
     if (previous) setAppManifest(previous);
     else delete (globalThis as { __laratype_manifest?: AppManifest }).__laratype_manifest;
@@ -65,6 +74,29 @@ describe("register", () => {
       ConfigLoadServiceProvider,
       DateTimeServiceProvider,
       AppProvider,
+    ]);
+  });
+
+  it("loads the built framework packages by default, in boot order", async () => {
+    setAppManifest(manifest());
+    importModule
+      .mockResolvedValueOnce({ RequestKernel: RequestKernelStub, ResponseKernel: ResponseKernelStub })
+      .mockResolvedValueOnce({ PassportServiceProvider: PassportServiceProviderStub });
+
+    const providers = await register(false);
+
+    // Serve.bootProvider() calls register() without a framework list: the default path must still boot every provider
+    expect(importModule.mock.calls).toEqual([
+      ["@laratype/http", { internal: true }],
+      ["@laratype/auth", { internal: true }],
+    ]);
+    expect(providers).toEqual([
+      EnvLoadServiceProvider,
+      ConfigLoadServiceProvider,
+      DateTimeServiceProvider,
+      RequestKernelStub,
+      PassportServiceProviderStub,
+      ResponseKernelStub,
     ]);
   });
 
