@@ -210,9 +210,10 @@ describe('no dependency metadata: hostile class names', () => {
   })
 
   it('escapes control and format characters, line separators and backslashes onto one line', () => {
-    const name = 'Ctl\nName\r\u0000\u001b\u009b\u2028\u202e\u200e\u200f\u061c\\'
+    const name = 'Ctl\nName\r\u0000\u001b\u009b\u2028\u202e\u200e\u200f\u061c\u{E0001}\\'
     const message = messageOf(() => new Container().make(namedClass(name)))
-    expect(message).toContain('Cannot autowire Ctl\\u000aName\\u000d\\u0000\\u001b\\u009b\\u2028\\u202e\\u200e\\u200f\\u061c\\\\: its constructor')
+    // U+E0001 is a supplementary Cf character: its UTF-16 surrogate pair must both be escaped.
+    expect(message).toContain('Cannot autowire Ctl\\u000aName\\u000d\\u0000\\u001b\\u009b\\u2028\\u202e\\u200e\\u200f\\u061c\\udb40\\udc01\\\\: its constructor')
     expect(message).not.toContain('\n')
   })
 
@@ -287,7 +288,7 @@ describe('zero-length constructors', () => {
   })
 
   const sourceClass = (defaultSource: string) =>
-    new Function(`return class RegexDefault { constructor(pattern = ${defaultSource}) { this.pattern = pattern } }`)() as new () => { pattern: unknown }
+    new Function(`return class RegexDefault { constructor(pattern = ${defaultSource}, extra = 1) { this.pattern = pattern; this.extra = extra } }`)() as new () => { pattern: unknown, extra: unknown }
 
   it.each([
     ['a comma', '/,/'],
@@ -295,14 +296,39 @@ describe('zero-length constructors', () => {
     ['a quote', `/["']/`],
     ['an escaped slash', '/a\\/b/'],
     ['a division', '4 / 2'],
-  ])('counts one param when a default has %s', (_, defaultSource) => {
-    expect(messageOf(() => new Container().make(sourceClass(defaultSource)))).toContain('takes 1 param(s)')
+    ['a division after a string with slashes', '"a//b" / 2'],
+    ['a division after a property keyword', 'obj.return / 2'],
+  ])('counts both params when a default has %s', (_, defaultSource) => {
+    expect(messageOf(() => new Container().make(sourceClass(defaultSource)))).toContain('takes 2 param(s)')
   })
 
-  it('does not fail open when a default is ambiguous to the scanner', () => {
-    // `a++ / b` puts a `/` after an operator: it cannot be told from a regex, so the count falls back to at least 1.
-    const ambiguous = new Function('a', 'b', 'return class Ambiguous { constructor(value = a++ / b) { this.value = value } }')(1, 1) as new () => { value: unknown }
-    expect(messageOf(() => new Container().make(ambiguous))).toContain('takes 1 param(s)')
+  it('treats a postfix increment before a slash as a division', () => {
+    const postfix = new Function('a', 'b', 'return class Postfix { constructor(value = a++ / b, extra = 1) { this.value = value; this.extra = extra } }')(1, 1) as new () => { value: unknown, extra: unknown }
+    expect(messageOf(() => new Container().make(postfix))).toContain('takes 2 param(s)')
+  })
+
+  it('reports one param instead of failing open when the source cannot be parsed', () => {
+    class Broken {
+      constructor(value = 1) {
+        void value
+      }
+    }
+    const original = Function.prototype.toString
+    const toString = vi.spyOn(Function.prototype, 'toString').mockImplementation(function (this: Function) {
+      return this === Broken ? 'class Broken { constructor(value = /' : original.call(this)
+    })
+    try {
+      expect(messageOf(() => new Container().make(Broken))).toContain('takes 1 param(s)')
+    } finally {
+      toString.mockRestore()
+    }
+  })
+
+  it('fails closed when a line comment ends at U+2028 before a real param', () => {
+    const before = new Function('return class LineComment {\u002F\u002F c\u2028 constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
+    const inline = new Function('return class InlineComment { constructor(\u002F\u002F c\u2028 dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
+    expect(messageOf(() => new Container().make(before))).toContain('takes 1 param(s)')
+    expect(messageOf(() => new Container().make(inline))).toContain('takes 1 param(s)')
   })
 
   it('skips JS whitespace, NBSP included, before the constructor', () => {

@@ -71,8 +71,16 @@ const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.fo
 
 /** A name on one line: control and format characters, line separators and backslashes are escaped. */
 const escapeName = (name: string): string =>
-  name.replace(/[\p{Cc}\p{Cf}\u2028\u2029\\]/gu, (char) =>
-    char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  name.replace(/[\p{Cc}\p{Cf}\u2028\u2029\\]/gu, (char) => {
+    if (char === '\\') return '\\\\'
+    const code = char.codePointAt(0)!
+    // A supplementary format character escapes as its UTF-16 surrogate pair, so the second unit is not dropped.
+    if (code > 0xffff) {
+      const offset = code - 0x10000
+      return `\\u${(0xd800 + (offset >> 10)).toString(16)}\\u${(0xdc00 + (offset & 0x3ff)).toString(16)}`
+    }
+    return `\\u${code.toString(16).padStart(4, '0')}`
+  })
 
 /** `<C>` for a message: a class name (one line, `<anonymous class>` when unreadable), else `String(key)`. */
 const keyName = (key: unknown): string => {
@@ -120,21 +128,18 @@ const startsRegex = (source: string, index: number): boolean => {
       previous = open - 1
       continue
     }
-    // A line comment between the operator and the slash: skip back to the line before it.
-    const lineStart = source.lastIndexOf('\n', previous) + 1
-    const lineComment = source.indexOf('//', lineStart)
-    if (lineComment >= 0 && lineComment < previous) {
-      previous = lineStart - 1
-      continue
-    }
     break
   }
   if (previous < 0) return true
   const char = source[previous]!
+  // `a++ / b` and `a-- / b`: a postfix operator is followed by a division, not a regex.
+  if ((char === '+' || char === '-') && source[previous - 1] === char) return false
   if ('=([{,;:!&|?*>+-/%^~<'.includes(char)) return true
   if (!/[A-Za-z_$]/.test(char)) return false
   let wordStart = previous
   while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source[wordStart - 1]!)) wordStart--
+  // `obj.return / 2`: a property name, not the keyword.
+  if (wordStart > 0 && source[wordStart - 1] === '.') return false
   return REGEX_KEYWORDS.has(source.slice(wordStart, previous + 1))
 }
 
@@ -172,8 +177,8 @@ const skipTrivia = (source: string, index: number): number => {
     if (isWhitespace(char!)) {
       index++
     } else if (char === '/' && source[index + 1] === '/') {
-      const end = source.indexOf('\n', index + 2)
-      index = end < 0 ? source.length : end + 1
+      index += 2
+      while (index < source.length && !isLineTerminator(source[index]!)) index++
     } else if (char === '/' && source[index + 1] === '*') {
       const end = source.indexOf('*/', index + 2)
       index = end < 0 ? source.length : end + 2
@@ -265,7 +270,7 @@ const splitParams = (source: string, start: number, end: number): string[] => {
 
 /** Remove comments from a param, so a comment-only slot does not count. */
 const stripComments = (param: string): string =>
-  param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+  param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
 
 /**
  * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a

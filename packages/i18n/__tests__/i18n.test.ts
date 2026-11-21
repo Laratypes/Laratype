@@ -115,14 +115,7 @@ describe("trans() / __()", () => {
     expect(getLocale()).toBe("en");
   });
 
-  it("builds the fallback translator with new, so a constructor-first source works without a provider", () => {
-    class ConstructorFirstTranslator extends Translator {
-      constructor(catalog: LangCatalog = {}, options: TranslatorOptions = {}) {
-        super(catalog, options);
-      }
-    }
-    // The hazard: a constructor-first class with only default params is not autowirable.
-    expect(() => new Container().make(ConstructorFirstTranslator)).toThrow(/Cannot autowire ConstructorFirstTranslator/);
+  it("builds the fallback translator with new, not container autowire", () => {
     // The fallback path constructs the translator itself, so it does not depend on the container reading the source.
     const make = vi.spyOn(Container.prototype, "make");
     try {
@@ -131,7 +124,16 @@ describe("trans() / __()", () => {
     } finally {
       make.mockRestore();
     }
-    // A constructor-first copy bound as the translator serves trans() too.
+  });
+
+  it("a constructor-first Translator copy works through trans()", () => {
+    class ConstructorFirstTranslator extends Translator {
+      constructor(catalog: LangCatalog = {}, options: TranslatorOptions = {}) {
+        super(catalog, options);
+      }
+    }
+    // The hazard: a constructor-first class with only default params is not autowirable.
+    expect(() => new Container().make(ConstructorFirstTranslator)).toThrow(/Cannot autowire ConstructorFirstTranslator/);
     Lang.fake(new ConstructorFirstTranslator(catalog, { locale: "en" }));
     expect(trans("messages.greeting", { name: "Ada" })).toBe("Hello Ada");
   });
