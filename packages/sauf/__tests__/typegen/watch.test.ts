@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -652,6 +652,37 @@ describe("ContractTypeWatch", () => {
     expect(errors).toEqual([]);
     expect(readFileSync(target, "utf8")).toBe(types);
     expect(statSync(target).mtimeMs).toBe(mtime);
+    watch.dispose();
+  });
+
+  it("refuses a generated file that has another hard link, leaving both names unchanged", async (ctx) => {
+    const dir = project("target-hardlink");
+    const { api } = await opened(dir);
+    const target = join(dir, ".laratype/api/index.gen.ts");
+    const outside = join(tmp, "outside-hardlink-index.gen.ts");
+    const before = indexOf(dir);
+    writeFileSync(outside, before);
+    rmSync(target);
+    try {
+      linkSync(outside, target);
+    } catch {
+      ctx.skip("the OS or filesystem refused to create a hard link");
+      return;
+    }
+    expect(statSync(target).nlink).toBeGreaterThan(1);
+
+    const events = fakeEvents();
+    const errors: unknown[] = [];
+    const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0, onError: (e) => errors.push(e) });
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain(
+      'the output path ".laratype/api/index.gen.ts" has more than one hard link; refusing to overwrite it',
+    );
+    // the preflight runs before any write, so neither name's content changed
+    expect(readFileSync(outside, "utf8")).toBe(before);
+    expect(readFileSync(target, "utf8")).toBe(before);
     watch.dispose();
   });
 

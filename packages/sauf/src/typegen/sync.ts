@@ -104,6 +104,10 @@ export const outputPathDiagnostic = (rel: string, real?: string) =>
 export const outputLinkDiagnostic = (rel: string) =>
   `the output path ${JSON.stringify(rel)} is a symbolic link or junction; refusing to write through it`;
 
+/** The output-path diagnostic for a generated file that has another hard link: the write would replace that name too. */
+export const outputHardLinkDiagnostic = (rel: string) =>
+  `the output path ${JSON.stringify(rel)} has more than one hard link; refusing to overwrite it`;
+
 /**
  * Refuses a write or delete through a junction or symlink that leaves the project: the nearest existing parent of
  * `target`, realpath-resolved, must stay inside `projectReal`. One `ScanError` names the path; a caller that checks
@@ -130,6 +134,14 @@ function checkLink(projectDir: string, path: string): void {
   }
 }
 
+/** Refuses a file with another hard link: writing through it would replace the other name's content too. */
+function checkHardLink(projectDir: string, path: string): void {
+  const info = lstatSync(path, { throwIfNoEntry: false });
+  if (info?.isFile() && info.nlink > 1) {
+    throw new ScanError(outputHardLinkDiagnostic(slash(relative(projectDir, path))));
+  }
+}
+
 /**
  * Refuses a link as any existing folder on the way to `target`, the project root excluded: every `--out` segment (a
  * multi-segment `build/gen` included), its `types` folder, and any folder below. A linked folder that points inside
@@ -152,6 +164,7 @@ function checkOutputFolderLinks(projectDir: string, target: string): void {
 function checkGeneratedTarget(projectReal: string, projectDir: string, target: string): void {
   if (inside(projectDir, target)) checkOutputFolderLinks(projectDir, target);
   checkLink(projectDir, target);
+  checkHardLink(projectDir, target);
   checkOutputPath(projectReal, projectDir, target);
 }
 

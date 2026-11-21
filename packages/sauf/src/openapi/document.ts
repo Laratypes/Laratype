@@ -1,6 +1,14 @@
 import type { Api, ApiRoute, Method } from "@laratype/contract";
 import { OpenApiGenerationError } from "./errors";
-import { hasLocalRefs, isJsonObject, isParentRef, oneLine, rebaseRefs, standardJsonSchema } from "./schema";
+import {
+  hasLocalRefs,
+  isJsonObject,
+  isParentRef,
+  oneLine,
+  pointerSegment,
+  rebaseRefs,
+  standardJsonSchema,
+} from "./schema";
 import type { JsonSchema, JsonSchemaIo } from "./schema";
 
 /**
@@ -255,7 +263,7 @@ const pathShape = (segments: readonly PathSegment[]): string =>
  * The output is deterministic: paths, components and schemes are sorted, methods and statuses have a fixed order, and
  * every map is built with `Object.fromEntries`, so a route name or property named `__proto__` is an own key.
  */
-export function generateOpenApiDocument(api: object, options: OpenApiOptions): GeneratedOpenApi {
+export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): GeneratedOpenApi {
   const contract = options?.contract;
   if (typeof contract?.apiRoutes !== "function" || typeof contract.isApiRoot !== "function") {
     throw new OpenApiGenerationError("options.contract must provide apiRoutes() and isApiRoot()");
@@ -284,11 +292,38 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
       );
     }
   }
+  // One scheme per guard identity, chosen up front in sorted name order: two names that sanitize alike
+  // (`staff/login`, `staff_login`) get `_2` whatever order the tree defines them in, and the operations below can use
+  // the final key directly (no provisional security keys, no second pass over the paths).
+  const guardNames = [
+    ...new Set(
+      routes.flatMap((route): string[] =>
+        route.auth === undefined ? [] : [route.auth === true ? "default" : route.auth],
+      ),
+    ),
+  ].sort(compare);
+  const usedGuards = new Set<string>();
+  const guardKeys = new Map<string, string>();
+  for (const name of guardNames) {
+    const clean = `guard_${name.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+    let key = clean;
+    for (let n = 2; usedGuards.has(key); n += 1) key = `${clean}_${n}`;
+    usedGuards.add(key);
+    guardKeys.set(name, key);
+  }
+  const securitySchemes = guardNames.map((name): [string, OpenApiSecurityScheme] => [
+    guardKeys.get(name)!,
+    {
+      type: "http",
+      scheme: "bearer",
+      // The contract names a guard, not what it reads: A2 (#120) decides the real scheme per guard.
+      description: `The ${name} guard.`,
+    },
+  ]);
+
   const warnings: string[] = [];
   const components = new Map<string, { readonly base: string; readonly schema: JsonSchema }>();
   let nextComponent = 0;
-  // Guard identity -> its provisional security scheme key (chosen finally below, in sorted name order).
-  const guards = new Map<string, string>();
 
   /** Registers a component and returns its provisional key; the final key is chosen below, in sorted base order. */
   const hoist = (base: string, build: (key: string) => JsonSchema): string => {
@@ -303,9 +338,6 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   const component = (base: string, build: (key: string) => JsonSchema): JsonSchema => ({
     $ref: `#/components/schemas/${hoist(base, build)}`,
   });
-
-  /** A JSON Pointer segment for a property name, escaped as RFC 6901 requires. */
-  const pointer = (name: string): string => name.replace(/~/g, "~0").replace(/\//g, "~1");
 
   const convert = (route: string, label: string, schema: unknown, io: JsonSchemaIo): JsonSchema => {
     const result = standardJsonSchema(schema, io);
@@ -361,12 +393,12 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
         );
         json = {};
       } else if (isParentRef(property)) {
-        const itself = `only refers to the ${label} schema itself; it is documented as {}`;
-        warnings.push(oneLine(`${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} ${itself}`));
-        json = {};
+        // The property is the whole query/headers schema: reference the hoisted root instead of an unusable `{}`.
+        rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
+        json = { $ref: `#/components/schemas/${rootKey}` };
       } else if (hasLocalRefs(property)) {
         rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
-        json = { $ref: `#/components/schemas/${rootKey}/properties/${pointer(name)}` };
+        json = { $ref: `#/components/schemas/${rootKey}/properties/${pointerSegment(name)}` };
       } else {
         json = property;
       }
@@ -445,14 +477,7 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
   const schemeOf = (route: ApiRoute): ReadonlyArray<Record<string, readonly string[]>> => {
     if (route.auth === undefined) return [];
     const guard = route.auth === true ? "default" : route.auth;
-    let key = guards.get(guard);
-    if (key === undefined) {
-      // Provisional, like a component key: the final key is chosen below in sorted guard-name order, so two names
-      // that sanitize alike (`staff/login`, `staff_login`) stay distinct whatever order the tree defines them in.
-      key = `\u0000guard_${guards.size}`;
-      guards.set(guard, key);
-    }
-    return [{ [key]: [] }];
+    return [{ [guardKeys.get(guard)!]: [] }];
   };
 
   const operation = (
@@ -533,44 +558,6 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     ]);
   }
 
-  // One scheme per guard identity: two names that sanitize alike (`staff/login`, `staff_login`) get `_2` in sorted
-  // name order, the same rule as the component keys, so the document does not depend on the tree's definition order.
-  const guardNames = [...guards.keys()].sort(compare);
-  const usedGuards = new Set<string>();
-  const guardKeys = new Map<string, string>(); // provisional key -> final key
-  for (const name of guardNames) {
-    const clean = `guard_${name.replace(/[^A-Za-z0-9._-]/g, "_")}`;
-    let key = clean;
-    for (let n = 2; usedGuards.has(key); n += 1) key = `${clean}_${n}`;
-    usedGuards.add(key);
-    guardKeys.set(guards.get(name)!, key);
-  }
-  const securitySchemes = guardNames.map((name): [string, OpenApiSecurityScheme] => [
-    guardKeys.get(guards.get(name)!)!,
-    {
-      type: "http",
-      scheme: "bearer",
-      // The contract names a guard, not what it reads: A2 (#120) decides the real scheme per guard.
-      description: `The ${name} guard.`,
-    },
-  ]);
-  const finalPaths = paths.map(([template, item]): [string, OpenApiPathItem] => [
-    template,
-    Object.fromEntries(
-      Object.entries(item).map(([method, value]) => [
-        method,
-        {
-          ...value,
-          security: value.security.map((requirement) =>
-            Object.fromEntries(
-              Object.entries(requirement).map(([key, values]) => [guardKeys.get(key) ?? key, values]),
-            ),
-          ),
-        },
-      ]),
-    ),
-  ]);
-
   // The final component keys are chosen in sorted base order, not creation (tree) order: two route names that sanitize
   // to the same key get the same keys whichever order the tree defines them in.
   const ordered = [...components].sort(([aKey, a], [bKey, b]) => compare(a.base, b.base) || compare(aKey, bKey));
@@ -591,7 +578,7 @@ export function generateOpenApiDocument(api: object, options: OpenApiOptions): G
     openapi: "3.1.0",
     info: { title: metadataText(options?.title, "Laratype API"), version: metadataText(options?.version, "0.0.0") },
     servers: [{ url: "/" }],
-    paths: Object.fromEntries(finalPaths.sort(([a], [b]) => compare(a, b))),
+    paths: Object.fromEntries(paths.sort(([a], [b]) => compare(a, b))),
     components: {
       schemas: Object.fromEntries(schemas),
       securitySchemes: Object.fromEntries(securitySchemes),

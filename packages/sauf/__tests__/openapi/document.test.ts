@@ -525,6 +525,8 @@ describe("recursive schemas", () => {
   });
 
   it("escapes ~ and / in a hoisted query property's JSON Pointer", () => {
+    const names = ["a/b", "a~b", "a b", "100%", "#x", "caf\u00e9", "\ud800"];
+    const segments = ["a~1b", "a~0b", "a%20b", "100%25", "%23x", "caf%C3%A9", "%EF%BF%BD"];
     const escaped = {
       "~standard": {
         version: 1,
@@ -533,10 +535,7 @@ describe("recursive schemas", () => {
         jsonSchema: {
           input: () => ({
             type: "object",
-            properties: {
-              "a/b": { $ref: "#/$defs/x" },
-              "a~b": { $ref: "#/$defs/x" },
-            },
+            properties: Object.fromEntries(names.map((name) => [name, { $ref: "#/$defs/x" }])),
             $defs: { x: { type: "string" } },
           }),
         },
@@ -544,25 +543,18 @@ describe("recursive schemas", () => {
     } as unknown as StandardSchemaV1;
     const contract = defineContract()({ index: endpoint.get("/").query(escaped) });
     const result = openApi(defineApi({ p: { contract, path: "/api/p", scopes: [] } }));
-    expect(result.document.paths["/api/p"]!.get!.parameters).toEqual([
-      {
-        name: "a/b",
+    expect(result.document.paths["/api/p"]!.get!.parameters).toEqual(
+      names.map((name, index) => ({
+        name,
         in: "query",
         required: false,
-        schema: { $ref: "#/components/schemas/p.index.query/properties/a~1b" },
-      },
-      {
-        name: "a~b",
-        in: "query",
-        required: false,
-        schema: { $ref: "#/components/schemas/p.index.query/properties/a~0b" },
-      },
-    ]);
+        schema: { $ref: `#/components/schemas/p.index.query/properties/${segments[index]}` },
+      })),
+    );
     expect(result.document.components.schemas["p.index.query"]).toMatchObject({
-      properties: {
-        "a/b": { $ref: "#/components/schemas/p.index.query/$defs/x" },
-        "a~b": { $ref: "#/components/schemas/p.index.query/$defs/x" },
-      },
+      properties: Object.fromEntries(
+        names.map((name) => [name, { $ref: "#/components/schemas/p.index.query/$defs/x" }]),
+      ),
       $defs: { x: { type: "string" } },
     });
     expect(JSON.parse(JSON.stringify(result.document))).toEqual(result.document);
@@ -604,6 +596,41 @@ describe("recursive schemas", () => {
         tree: { type: "array", items: { $ref: "#/components/schemas/q.index.query" } },
       },
     });
+  });
+
+  it("references the hoisted root for a property that is only a ref to the query schema", () => {
+    const selfRef = {
+      "~standard": {
+        version: 1,
+        vendor: "parent-ref",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: { name: { type: "string" }, all: { $ref: "#" } },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ index: endpoint.get("/").query(selfRef) });
+    const result = openApi(defineApi({ q: { contract, path: "/api/q", scopes: [] } }));
+    expect(result.document.paths["/api/q"]!.get!.parameters).toEqual([
+      { name: "name", in: "query", required: false, schema: { type: "string" } },
+      {
+        name: "all",
+        in: "query",
+        required: false,
+        schema: { $ref: "#/components/schemas/q.index.query" },
+      },
+    ]);
+    expect(result.document.components.schemas["q.index.query"]).toEqual({
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        all: { $ref: "#/components/schemas/q.index.query" },
+      },
+    });
+    expect(result.warnings).toEqual([]);
   });
 
   it("resolves a named anchor against the source schema's own resource when hoisting", () => {

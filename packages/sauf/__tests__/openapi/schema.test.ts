@@ -109,9 +109,20 @@ describe("standardJsonSchema", () => {
       ok: false,
       reason: "it has a minimum (number) that is not a finite number",
     });
-    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({
-      ok: false,
-      reason: "it has a minimum (string) that is not a finite number",
+    // only a non-finite number is rejected: a non-number stays the schema library's dialect's problem
+    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({ ok: true, schema: { type: "number", minimum: "1" } });
+    // a draft-04 boolean exclusiveMinimum is not a non-finite number either
+    const booleanBound = {
+      "~standard": {
+        version: 1,
+        vendor: "draft04",
+        validate: () => ({ value: 1 }),
+        jsonSchema: { input: () => ({ type: "number", exclusiveMinimum: true }) },
+      },
+    };
+    expect(standardJsonSchema(booleanBound, "input")).toEqual({
+      ok: true,
+      schema: { type: "number", exclusiveMinimum: true },
     });
     // a nested bound is found too, and each numeric keyword is checked
     const nested = {
@@ -126,6 +137,30 @@ describe("standardJsonSchema", () => {
       ok: false,
       reason: "it has a multipleOf (number) that is not a finite number",
     });
+    // the integer keywords are checked the same way
+    for (const keyword of [
+      "maxLength",
+      "minLength",
+      "maxItems",
+      "minItems",
+      "maxProperties",
+      "minProperties",
+      "maxContains",
+      "minContains",
+    ]) {
+      const integer = {
+        "~standard": {
+          version: 1,
+          vendor: "integer",
+          validate: () => ({ value: 1 }),
+          jsonSchema: { input: () => ({ type: "array", [keyword]: Number.POSITIVE_INFINITY }) },
+        },
+      };
+      expect(standardJsonSchema(integer, "input")).toEqual({
+        ok: false,
+        reason: `it has a ${keyword} (number) that is not a finite number`,
+      });
+    }
   });
 });
 
@@ -227,6 +262,28 @@ describe("refs", () => {
     expect(found.every((refValue) => refValue === "#/components/schemas/k/$defs/x")).toBe(true);
   });
 
+  it("finds and rebases refs under keywords outside the 2020-12 schema list", () => {
+    const ref = { $ref: "#/$defs/x" };
+    const source = {
+      dependencies: { a: ref },
+      additionalItems: ref,
+      "x-vendor": { template: ref },
+      $dynamicRef: "#/$defs/x",
+      $defs: { x: { type: "string" } },
+    };
+    expect(hasLocalRefs(source)).toBe(true);
+    expect(rebaseRefs(source, "k")).toEqual({
+      dependencies: { a: { $ref: "#/components/schemas/k/$defs/x" } },
+      additionalItems: { $ref: "#/components/schemas/k/$defs/x" },
+      "x-vendor": { template: { $ref: "#/components/schemas/k/$defs/x" } },
+      $dynamicRef: "#/components/schemas/k/$defs/x",
+      $defs: { x: { type: "string" } },
+    });
+    expect(hasLocalRefs({ $dynamicRef: "#/$defs/x", $defs: { x: { type: "string" } } })).toBe(true);
+    // instance values stay data even with keys that look like a ref keyword
+    expect(hasLocalRefs({ const: { $dynamicRef: "#" } })).toBe(false);
+  });
+
   it("applies the $id boundary to the nested schema's own $ref", () => {
     const source = {
       properties: {
@@ -272,15 +329,24 @@ describe("refs", () => {
     });
   });
 
-  it("escapes JSON Pointer segments in an anchor's target path", () => {
-    const source = {
-      properties: { a: { $ref: "#item" } },
-      $defs: { "a/b~c": { $anchor: "item", type: "string" } },
-    };
-    expect(rebaseRefs(source, "k")).toEqual({
-      properties: { a: { $ref: "#/components/schemas/k/$defs/a~1b~0c" } },
-      $defs: { "a/b~c": { $anchor: "item", type: "string" } },
-    });
+  it("escapes and URI-encodes JSON Pointer segments in an anchor's target path", () => {
+    const cases: Array<[string, string]> = [
+      ["a/b~c", "a~1b~0c"],
+      ["a b", "a%20b"],
+      ["100%", "100%25"],
+      ["#x", "%23x"],
+      ["caf\u00e9", "caf%C3%A9"],
+      ["\ud800", "%EF%BF%BD"],
+    ];
+    for (const [name, segment] of cases) {
+      const source = {
+        properties: { a: { $ref: "#item" } },
+        $defs: { [name]: { $anchor: "item", type: "string" } },
+      };
+      const copy = rebaseRefs(source, "k");
+      expect(copy.properties).toEqual({ a: { $ref: `#/components/schemas/k/$defs/${segment}` } });
+      expect(copy.$defs).toEqual({ [name]: { $anchor: "item", type: "string" } });
+    }
   });
 
   it("recognizes a property that only refers to its parent", () => {
@@ -305,6 +371,10 @@ describe("oneLine", () => {
     expect(oneLine(new Error("first\nsecond\tthird"))).toBe("first second third");
     expect(oneLine(new Error("bad \u0001 and \u001b[31mred\u001b[0m and \u007f"))).toBe(
       "bad \\u0001 and \\u001b[31mred\\u001b[0m and \\u007f",
+    );
+    // format controls (bidi overrides/isolates) are escaped too
+    expect(oneLine(new Error("\u200eleft\u202eright\u2066isolate"))).toBe(
+      "\\u200eleft\\u202eright\\u2066isolate",
     );
     expect(oneLine("  ")).toBe("an unknown error");
   });

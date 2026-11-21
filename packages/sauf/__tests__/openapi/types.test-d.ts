@@ -42,7 +42,7 @@ describe("the OpenAPI document types", () => {
   });
 
   it("types the entry points and the project options", () => {
-    expectTypeOf(generateOpenApiDocument).parameters.toEqualTypeOf<[api: object, options: OpenApiOptions]>();
+    expectTypeOf(generateOpenApiDocument).parameters.toEqualTypeOf<[api: unknown, options: OpenApiOptions]>();
     expectTypeOf(generateOpenApiDocument).returns.toEqualTypeOf<GeneratedOpenApi>();
     expectTypeOf(generateOpenApiFile).parameters.toEqualTypeOf<[options: OpenApiProjectOptions]>();
     expectTypeOf(generateOpenApiFile).returns.toEqualTypeOf<Promise<GeneratedOpenApiFile>>();

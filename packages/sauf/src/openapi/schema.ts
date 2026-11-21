@@ -51,12 +51,14 @@ export function errorReason(error: unknown): string {
   }
 }
 
-/** Terminal control characters (C0, DEL, C1) that would reach the terminal raw: printed as `\uXXXX`. */
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+/** Terminal controls (C0, DEL, C1) and Unicode format controls (bidi overrides, isolates, ...) that would reach the
+ * terminal raw: printed as `\uXXXX`. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}]/gu;
 
 /** One line, no stack: a jiti import failure and the circular-structure message both print their stack in the
  * message of some errors. Warnings and the load diagnostics go through this, so a terminal line stays one line and
- * a control character or ANSI escape anywhere in it (a converter's message included) never reaches the terminal. */
+ * a control or format character or ANSI escape anywhere in it (a converter's message included) never reaches the
+ * terminal. */
 export const oneLine = (error: unknown): string =>
   errorReason(error)
     .replace(/\s+/g, " ")
@@ -101,39 +103,43 @@ export function standardJsonSchema(schema: unknown, io: JsonSchemaIo): JsonSchem
 export const isSchemaResource = (schema: JsonSchema): boolean => typeof schema.$id === "string";
 
 /**
- * The keywords whose value is a schema (or maps/arrays of schemas) in JSON Schema 2020-12. Only these are traversed:
- * `const`, `enum`, `default` and `examples` hold instance values, where a `$ref`-shaped key is data, not a reference.
+ * The keywords whose value is a schema (or a map/array of schemas), for the JSON Pointer path of an anchor. Every
+ * other keyword is still walked: draft-07 `dependencies`/`additionalItems`, `$dynamicRef` and vendor `x-*` subschemas
+ * can hold refs too. Only `const`, `enum`, `default` and `examples` are skipped, since they hold instance values where
+ * a `$ref`-shaped key is data, not a reference.
  */
 const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
   "$defs",
   "definitions",
+  "dependencies",
   "dependentSchemas",
   "patternProperties",
   "properties",
 ]);
-const SCHEMA_VALUE_KEYWORDS: ReadonlySet<string> = new Set([
-  "additionalProperties",
-  "contains",
-  "contentSchema",
-  "else",
-  "if",
-  "items",
-  "not",
-  "propertyNames",
-  "then",
-  "unevaluatedItems",
-  "unevaluatedProperties",
-]);
-const SCHEMA_ARRAY_KEYWORDS: ReadonlySet<string> = new Set(["allOf", "anyOf", "oneOf", "prefixItems"]);
 const INSTANCE_KEYWORDS: ReadonlySet<string> = new Set(["const", "default", "enum", "examples"]);
 
-/** A JSON Pointer segment: `~` and `/` escaped as the RFC 6901 pointer syntax requires. */
-const escapePointer = (name: string): string => name.replace(/~/g, "~0").replace(/\//g, "~1");
+/** One JSON Pointer segment: the RFC 6901 `~0`/`~1` escaping, then percent-encoded for a URI fragment (RFC 6901 § 6),
+ * so a space, `%`, `#` or a non-ASCII name in a `$ref` stays one segment. Characters a fragment allows stay as
+ * written (`$defs` included); only the rest is percent-encoded. */
+const FRAGMENT_UNSAFE = /[^A-Za-z0-9\-._~!$&'()*+,;=:@]/gu;
+export const pointerSegment = (name: string): string =>
+  name
+    .replace(/~/g, "~0")
+    .replace(/\//g, "~1")
+    .replace(FRAGMENT_UNSAFE, (character) => {
+      try {
+        return encodeURIComponent(character);
+      } catch {
+        // a lone surrogate has no UTF-8 form; encode the replacement character a URI can carry
+        return "%EF%BF%BD";
+      }
+    });
 
 /**
- * Walks every schema in `root` (schema-valued keywords only, never instance values), in document order, with the
- * JSON Pointer of each and whether it sits inside a schema resource (`$id`), itself included. A cyclic schema is
- * visited once and left to `JSON.stringify` to reject.
+ * Walks every schema-valued position in `root`, in document order, with the JSON Pointer of each and whether it sits
+ * inside a schema resource (`$id`), itself included. Every keyword is walked except the instance keywords; a map
+ * keyword contributes its key as a pointer segment. A cyclic schema is visited once and left to `JSON.stringify` to
+ * reject.
  */
 function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boolean, pointer: string) => void): void {
   const stack = new WeakSet<object>();
@@ -150,14 +156,13 @@ function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boo
     stack.add(value);
     visit(value, nested, pointer);
     for (const [key, child] of Object.entries(value)) {
-      if (key === "$ref" || INSTANCE_KEYWORDS.has(key)) continue;
-      if (SCHEMA_MAP_KEYWORDS.has(key)) {
-        if (!isJsonObject(child)) continue;
+      if (key === "$ref" || key === "$dynamicRef" || INSTANCE_KEYWORDS.has(key)) continue;
+      if (SCHEMA_MAP_KEYWORDS.has(key) && isJsonObject(child)) {
         for (const [name, sub] of Object.entries(child)) {
-          walk(sub, nested, `${pointer}/${escapePointer(key)}/${escapePointer(name)}`);
+          walk(sub, nested, `${pointer}/${pointerSegment(key)}/${pointerSegment(name)}`);
         }
-      } else if (SCHEMA_VALUE_KEYWORDS.has(key) || SCHEMA_ARRAY_KEYWORDS.has(key)) {
-        walk(child, nested, `${pointer}/${escapePointer(key)}`);
+      } else {
+        walk(child, nested, `${pointer}/${pointerSegment(key)}`);
       }
     }
     stack.delete(value);
@@ -165,16 +170,25 @@ function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boo
   walk(root, false, "");
 }
 
-/** The numeric keywords draft 2020-12 requires to be finite JSON numbers. */
+/** The numeric and integer keywords whose values are finite JSON numbers (a draft-04 boolean `exclusiveMinimum: true`
+ * is not a number and is left to the schema library's dialect). */
 const NUMERIC_KEYWORDS: ReadonlySet<string> = new Set([
   "exclusiveMaximum",
   "exclusiveMinimum",
+  "maxContains",
+  "maxItems",
+  "maxLength",
+  "maxProperties",
   "maximum",
+  "minContains",
+  "minItems",
+  "minLength",
+  "minProperties",
   "minimum",
   "multipleOf",
 ]);
 
-/** The first numeric keyword in `root` whose value is not a finite number, with its JSON kind; `undefined` if none.
+/** The first numeric keyword in `root` whose value is a non-finite number, with its JSON kind; `undefined` if none.
  * `JSON.stringify` would turn `NaN`/`Infinity` into `null`, which the round trip would otherwise accept. */
 function nonFiniteBound(root: JsonSchema): string | undefined {
   let found: string | undefined;
@@ -183,7 +197,7 @@ function nonFiniteBound(root: JsonSchema): string | undefined {
     // in the schema's own key order, so the reason names the keyword the user's schema lists first
     for (const [key, bound] of Object.entries(schema)) {
       if (!NUMERIC_KEYWORDS.has(key)) continue;
-      if (typeof bound !== "number" || !Number.isFinite(bound)) {
+      if (typeof bound === "number" && !Number.isFinite(bound)) {
         found = `${key} (${jsonKind(bound)})`;
         return;
       }
@@ -193,16 +207,18 @@ function nonFiniteBound(root: JsonSchema): string | undefined {
 }
 
 /**
- * Whether a schema has a `$ref` that starts with `#`, so it only stays valid in place once it is a component: `#` is
- * the whole document, not the schema. A subtree with its own `$id` is a separate resource, so its refs are left alone
- * (and the root `$id` case means the whole schema is inlined unchanged). Only schema positions are visited: a
- * `$ref`-shaped key under `const`, `enum`, `default` or `examples` is an instance value, not a reference.
+ * Whether a schema has a `$ref` or `$dynamicRef` that starts with `#`, so it only stays valid in place once it is a
+ * component: `#` is the whole document, not the schema. A subtree with its own `$id` is a separate resource, so its
+ * refs are left alone (and the root `$id` case means the whole schema is inlined unchanged). Only schema positions
+ * are visited: a `$ref`-shaped key under `const`, `enum`, `default` or `examples` is an instance value, not a
+ * reference.
  */
 export function hasLocalRefs(schema: JsonSchema): boolean {
   let found = false;
   walkSchemas(schema, (value, resource) => {
     if (found || resource) return;
     if (typeof value.$ref === "string" && value.$ref.startsWith("#")) found = true;
+    else if (typeof value.$dynamicRef === "string" && value.$dynamicRef.startsWith("#")) found = true;
   });
   return found;
 }
@@ -235,11 +251,13 @@ function rebaseLocalRef(ref: string, prefix: string, anchors: ReadonlyMap<string
 }
 
 /**
- * A deep JSON clone of `schema` with every `$ref` starting with `#` rebased on `#/components/schemas/<key>`, the
- * component the schema is hoisted to. `#` itself becomes the component, `#/$defs/x` becomes `<component>/$defs/x` and
- * `#anchor` becomes the component pointer of its `$anchor` in the root resource. A subtree with its own `$id` keeps
- * its refs, the subtree's own `$ref` included: they resolve against that resource. Instance values under `const`,
- * `enum`, `default` and `examples` are copied as they are, even when they hold a `$ref`-shaped key.
+ * A deep JSON clone of `schema` with every `$ref` or `$dynamicRef` starting with `#` rebased on
+ * `#/components/schemas/<key>`, the component the schema is hoisted to. `#` itself becomes the component,
+ * `#/$defs/x` becomes `<component>/$defs/x` and `#anchor` becomes the component pointer of its `$anchor` in the root
+ * resource. A subtree with its own `$id` keeps its refs, the subtree's own `$ref` included: they resolve against that
+ * resource. Instance values under `const`, `enum`, `default` and `examples` are copied as they are, even when they
+ * hold a `$ref`-shaped key. Every other keyword is cloned, so a ref under `dependencies`, `additionalItems`, `x-*`
+ * or another extension is rebased too.
  */
 export function rebaseRefs(schema: JsonSchema, key: string): JsonSchema {
   const prefix = `#/components/schemas/${key}`;
@@ -250,18 +268,14 @@ export function rebaseRefs(schema: JsonSchema, key: string): JsonSchema {
     const nested = resource || isSchemaResource(value);
     const out: JsonSchema = {};
     for (const [name, child] of Object.entries(value)) {
-      if (name === "$ref" && typeof child === "string") {
+      if ((name === "$ref" || name === "$dynamicRef") && typeof child === "string") {
         out[name] = !nested && child.startsWith("#") ? rebaseLocalRef(child, prefix, anchors) : child;
       } else if (INSTANCE_KEYWORDS.has(name)) {
         out[name] = child;
-      } else if (SCHEMA_MAP_KEYWORDS.has(name)) {
-        out[name] = isJsonObject(child)
-          ? Object.fromEntries(Object.entries(child).map(([def, sub]) => [def, clone(sub, nested)]))
-          : child;
-      } else if (SCHEMA_VALUE_KEYWORDS.has(name) || SCHEMA_ARRAY_KEYWORDS.has(name)) {
-        out[name] = clone(child, nested);
+      } else if (SCHEMA_MAP_KEYWORDS.has(name) && isJsonObject(child)) {
+        out[name] = Object.fromEntries(Object.entries(child).map(([def, sub]) => [def, clone(sub, nested)]));
       } else {
-        out[name] = child;
+        out[name] = clone(child, nested);
       }
     }
     return out;
