@@ -1,7 +1,10 @@
 // H30 #299: the node entry registers @hono/node-server's getConnInfo, so request.ip() reads the socket of the server
 // that accepted the request; a dual-stack listener reports an IPv4 client as an IPv4-mapped IPv6 address.
 import "reflect-metadata";
+import { mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
@@ -12,6 +15,12 @@ import { mountNodeConnInfo } from "../src/adapters/node/connInfo";
 
 /** The module @laratype/http is loaded as: the real one, through the transpiler in a test as in `sauf dev`. */
 const loadHttp = async () => await import("@laratype/http");
+
+/** The per-process flag mountNodeConnInfo's missing-package warning sets; cleared so each test can see its first print. */
+const MISSING_HTTP_WARNED = Symbol.for("laratype.sauf.missingHttpWarned");
+const resetMissingHttpWarning = () => {
+  delete (globalThis as { [key: symbol]: true | undefined })[MISSING_HTTP_WARNED];
+};
 
 class WhoAmI extends Controller {
   index(request: LaratypeRequest) {
@@ -96,12 +105,79 @@ describe("mountNodeConnInfo", () => {
     await expect(mountNodeConnInfo(new Hono(), async () => ({ mountConnInfo: 42 }))).resolves.toBeUndefined();
   });
 
-  it("registers nothing when the loader cannot resolve the optional @laratype/http", async () => {
-    // support's importModule resolves before its try, so a missing package rejects with the resolver's error
-    const missing = Object.assign(new Error("Cannot find module @laratype/http imported from file:///app/dist/app.manifest.js"), {
-      code: "ERR_MODULE_NOT_FOUND",
-    });
-    await expect(mountNodeConnInfo(new Hono(), async () => { throw missing; })).resolves.toBeUndefined();
+  it("skips only the exact missing @laratype/http resolution error, warning once", async () => {
+    resetMissingHttpWarning();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // support's importModule resolves before its try: mlly's and Node's forms name the unresolved specifier
+      const missing = [
+        Object.assign(new Error("Cannot find module @laratype/http imported from file:///app/dist/app.manifest.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+        Object.assign(new Error("Cannot find package '@laratype/http' imported from file:///app/dist/app.manifest.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+      ];
+      for (const error of missing) {
+        await expect(mountNodeConnInfo(new Hono(), async () => { throw error; })).resolves.toBeUndefined();
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      const text = String(warn.mock.calls[0]![0]);
+      expect(text).toContain("@laratype/http");
+      expect(text).toContain("request.ip()");
+      expect(text).toContain(".throttle()");
+      expect(text).toContain("Install @laratype/http");
+      expect(text).toContain("project root");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("rethrows a missing dependency inside @laratype/http, and a look-alike package", async () => {
+    resetMissingHttpWarning();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const failures = [
+        // Node and mlly forms: the importer is the installed @laratype/http, so the app's install is broken
+        Object.assign(new Error("Cannot find package 'es-toolkit' imported from /app/node_modules/@laratype/http/dist/index.esm.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+        Object.assign(new Error("Cannot find module es-toolkit imported from /app/node_modules/@laratype/http/dist/index.esm.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+        // The specifier is not exactly @laratype/http
+        Object.assign(new Error("Cannot find module @laratype/httpx imported from file:///app/dist/app.manifest.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+        Object.assign(new Error("Cannot find package '@laratype/httpx' imported from file:///app/dist/app.manifest.js"), {
+          code: "ERR_MODULE_NOT_FOUND",
+        }),
+      ];
+      for (const failure of failures) {
+        await expect(mountNodeConnInfo(new Hono(), async () => { throw failure; }), failure.message).rejects.toBe(failure);
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("skips and warns once with the real importModule where @laratype/http does not resolve", async () => {
+    resetMissingHttpWarning();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), "laratype-sauf-no-http-"));
+    const cwd = process.cwd();
+    try {
+      // resolveSync without a url resolves from the working directory, where there is no node_modules/@laratype/http
+      process.chdir(directory);
+      await expect(mountNodeConnInfo(new Hono())).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toContain("@laratype/http");
+    } finally {
+      process.chdir(cwd);
+      rmSync(directory, { recursive: true, force: true });
+      warn.mockRestore();
+    }
   });
 
   it("keeps every other loader failure visible", async () => {
