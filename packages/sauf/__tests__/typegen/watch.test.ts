@@ -655,7 +655,7 @@ describe("ContractTypeWatch", () => {
     watch.dispose();
   });
 
-  it("refuses a generated file that has another hard link, leaving both names unchanged", async (ctx) => {
+  it("leaves an unchanged hard-linked generated file alone, and refuses it only when a write is needed", async (ctx) => {
     const dir = project("target-hardlink");
     const { api } = await opened(dir);
     const target = join(dir, ".laratype/api/index.gen.ts");
@@ -674,15 +674,24 @@ describe("ContractTypeWatch", () => {
     const events = fakeEvents();
     const errors: unknown[] = [];
     const watch = new ContractTypeWatch({ events, tree: treeOf(api), delay: 0, onError: (e) => errors.push(e) });
+    // The generated content is identical: no write is needed, so the hard link is a no-op (a dev refresh must not fail).
+    events.emit("add", join(dir, "app/api/users.ts"));
+    await watch.idle();
+    expect(errors).toEqual([]);
+    expect(readFileSync(outside, "utf8")).toBe(before);
+    expect(readFileSync(target, "utf8")).toBe(before);
+
+    // A changed target needs a write: the hard link is refused before any write, and both names stay as they were.
+    const changed = `${before}\n// changed by another process\n`;
+    writeFileSync(outside, changed);
     events.emit("add", join(dir, "app/api/users.ts"));
     await watch.idle();
     expect(errors).toHaveLength(1);
     expect(String(errors[0])).toContain(
       'the output path ".laratype/api/index.gen.ts" has more than one hard link; refusing to overwrite it',
     );
-    // the preflight runs before any write, so neither name's content changed
-    expect(readFileSync(outside, "utf8")).toBe(before);
-    expect(readFileSync(target, "utf8")).toBe(before);
+    expect(readFileSync(outside, "utf8")).toBe(changed);
+    expect(readFileSync(target, "utf8")).toBe(changed);
     watch.dispose();
   });
 

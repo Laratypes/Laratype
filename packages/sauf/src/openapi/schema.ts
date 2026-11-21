@@ -63,8 +63,14 @@ export const oneLine = (error: unknown): string =>
   errorReason(error)
     .replace(/\s+/g, " ")
     .trim()
-    .replace(CONTROL, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`) ||
-  "an unknown error";
+    .replace(CONTROL, (character) => {
+      // With the `u` flag a matched astral character is two UTF-16 units: escape both, not just the high surrogate.
+      let escaped = "";
+      for (let index = 0; index < character.length; index += 1) {
+        escaped += `\\u${character.charCodeAt(index).toString(16).padStart(4, "0")}`;
+      }
+      return escaped;
+    }) || "an unknown error";
 
 /**
  * `schema` as JSON Schema through the Standard JSON Schema extension: `input` for a request slot (what the FE sends,
@@ -104,9 +110,10 @@ export const isSchemaResource = (schema: JsonSchema): boolean => typeof schema.$
 
 /**
  * The keywords whose value is a schema (or a map/array of schemas), for the JSON Pointer path of an anchor. Every
- * other keyword is still walked: draft-07 `dependencies`/`additionalItems`, `$dynamicRef` and vendor `x-*` subschemas
- * can hold refs too. Only `const`, `enum`, `default` and `examples` are skipped, since they hold instance values where
- * a `$ref`-shaped key is data, not a reference.
+ * other keyword is still walked: draft-07 `dependencies`/`additionalItems` and the other schema keywords can hold
+ * refs too. `const`, `example`, `enum`, `default` and `examples` hold instance values (where a `$ref`-shaped key is
+ * data, not a reference), and so do OpenAPI `x-*` vendor extensions (zod `.meta()` copies `example`/`x-*` into the
+ * output), so they are never walked.
  */
 const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
   "$defs",
@@ -116,7 +123,10 @@ const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
   "patternProperties",
   "properties",
 ]);
-const INSTANCE_KEYWORDS: ReadonlySet<string> = new Set(["const", "default", "enum", "examples"]);
+const INSTANCE_KEYWORDS: ReadonlySet<string> = new Set(["const", "default", "enum", "example", "examples"]);
+
+/** OpenAPI vendor extension keys (`x-*`) are metadata, not schemas: never traversed or rewritten. */
+const isVendorKey = (key: string): boolean => key.startsWith("x-");
 
 /** One JSON Pointer segment: the RFC 6901 `~0`/`~1` escaping, then percent-encoded for a URI fragment (RFC 6901 § 6),
  * so a space, `%`, `#` or a non-ASCII name in a `$ref` stays one segment. Characters a fragment allows stay as
@@ -156,7 +166,7 @@ function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boo
     stack.add(value);
     visit(value, nested, pointer);
     for (const [key, child] of Object.entries(value)) {
-      if (key === "$ref" || key === "$dynamicRef" || INSTANCE_KEYWORDS.has(key)) continue;
+      if (key === "$ref" || key === "$dynamicRef" || INSTANCE_KEYWORDS.has(key) || isVendorKey(key)) continue;
       if (SCHEMA_MAP_KEYWORDS.has(key) && isJsonObject(child)) {
         for (const [name, sub] of Object.entries(child)) {
           walk(sub, nested, `${pointer}/${pointerSegment(key)}/${pointerSegment(name)}`);
@@ -170,8 +180,9 @@ function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boo
   walk(root, false, "");
 }
 
-/** The numeric and integer keywords whose values are finite JSON numbers (a draft-04 boolean `exclusiveMinimum: true`
- * is not a number and is left to the schema library's dialect). */
+/** The numeric and integer keywords whose values are finite JSON numbers. A draft-04 boolean is allowed only for the
+ * two exclusive bounds; every other non-number is still refused. */
+const EXCLUSIVE_BOUNDS: ReadonlySet<string> = new Set(["exclusiveMaximum", "exclusiveMinimum"]);
 const NUMERIC_KEYWORDS: ReadonlySet<string> = new Set([
   "exclusiveMaximum",
   "exclusiveMinimum",
@@ -188,8 +199,9 @@ const NUMERIC_KEYWORDS: ReadonlySet<string> = new Set([
   "multipleOf",
 ]);
 
-/** The first numeric keyword in `root` whose value is a non-finite number, with its JSON kind; `undefined` if none.
- * `JSON.stringify` would turn `NaN`/`Infinity` into `null`, which the round trip would otherwise accept. */
+/** The first numeric keyword in `root` whose value is not a finite number (the only non-numbers allowed are the
+ * draft-04 booleans of the two exclusive bounds), with its JSON kind; `undefined` if none. `JSON.stringify` would turn
+ * `NaN`/`Infinity` into `null`, which the round trip would otherwise accept. */
 function nonFiniteBound(root: JsonSchema): string | undefined {
   let found: string | undefined;
   walkSchemas(root, (schema) => {
@@ -197,7 +209,8 @@ function nonFiniteBound(root: JsonSchema): string | undefined {
     // in the schema's own key order, so the reason names the keyword the user's schema lists first
     for (const [key, bound] of Object.entries(schema)) {
       if (!NUMERIC_KEYWORDS.has(key)) continue;
-      if (typeof bound === "number" && !Number.isFinite(bound)) {
+      if (typeof bound === "boolean" && EXCLUSIVE_BOUNDS.has(key)) continue;
+      if (typeof bound !== "number" || !Number.isFinite(bound)) {
         found = `${key} (${jsonKind(bound)})`;
         return;
       }
@@ -250,14 +263,22 @@ function rebaseLocalRef(ref: string, prefix: string, anchors: ReadonlyMap<string
   return pointer === undefined ? ref : `${prefix}${pointer}`;
 }
 
+/** `$dynamicRef` is only rebased when it is a JSON Pointer fragment (`#`, `#/...`): an anchor form (`#name`) keeps
+ * its dynamic scope and cannot be renamed per component; that dynamic-anchor limitation is documented. */
+function rebaseDynamicRef(ref: string, prefix: string): string {
+  if (ref === "#") return prefix;
+  return ref.startsWith("#/") ? `${prefix}${ref.slice(1)}` : ref;
+}
+
 /**
- * A deep JSON clone of `schema` with every `$ref` or `$dynamicRef` starting with `#` rebased on
- * `#/components/schemas/<key>`, the component the schema is hoisted to. `#` itself becomes the component,
- * `#/$defs/x` becomes `<component>/$defs/x` and `#anchor` becomes the component pointer of its `$anchor` in the root
- * resource. A subtree with its own `$id` keeps its refs, the subtree's own `$ref` included: they resolve against that
- * resource. Instance values under `const`, `enum`, `default` and `examples` are copied as they are, even when they
- * hold a `$ref`-shaped key. Every other keyword is cloned, so a ref under `dependencies`, `additionalItems`, `x-*`
- * or another extension is rebased too.
+ * A deep JSON clone of `schema` with every `$ref` starting with `#` rebased on `#/components/schemas/<key>`, the
+ * component the schema is hoisted to. `#` itself becomes the component, `#/$defs/x` becomes `<component>/$defs/x` and
+ * `#anchor` becomes the component pointer of its `$anchor` in the root resource. `$dynamicRef` is rebased only for
+ * its JSON Pointer forms (`#`, `#/...`); its anchor form keeps its dynamic scope. A subtree with its own `$id` keeps
+ * its refs, the subtree's own `$ref` included: they resolve against that resource. Instance values under `const`,
+ * `example`, `enum`, `default` and `examples`, and `x-*` vendor metadata, are copied as they are, even when they hold
+ * a `$ref`-shaped key. Every other keyword is cloned, so a ref under `dependencies`, `additionalItems` or another
+ * schema keyword is rebased too.
  */
 export function rebaseRefs(schema: JsonSchema, key: string): JsonSchema {
   const prefix = `#/components/schemas/${key}`;
@@ -268,9 +289,11 @@ export function rebaseRefs(schema: JsonSchema, key: string): JsonSchema {
     const nested = resource || isSchemaResource(value);
     const out: JsonSchema = {};
     for (const [name, child] of Object.entries(value)) {
-      if ((name === "$ref" || name === "$dynamicRef") && typeof child === "string") {
+      if (name === "$ref" && typeof child === "string") {
         out[name] = !nested && child.startsWith("#") ? rebaseLocalRef(child, prefix, anchors) : child;
-      } else if (INSTANCE_KEYWORDS.has(name)) {
+      } else if (name === "$dynamicRef" && typeof child === "string") {
+        out[name] = !nested && child.startsWith("#") ? rebaseDynamicRef(child, prefix) : child;
+      } else if (INSTANCE_KEYWORDS.has(name) || isVendorKey(name)) {
         out[name] = child;
       } else if (SCHEMA_MAP_KEYWORDS.has(name) && isJsonObject(child)) {
         out[name] = Object.fromEntries(Object.entries(child).map(([def, sub]) => [def, clone(sub, nested)]));

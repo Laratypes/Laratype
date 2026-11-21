@@ -292,12 +292,39 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
       );
     }
   }
-  // One scheme per guard identity, chosen up front in sorted name order: two names that sanitize alike
+  // One group per OpenAPI path template. `/x/{a}` and `/x/{b}` are the same path for OpenAPI: the first template's
+  // parameter names win, and a later operation keeps its own schemas under them (found by position).
+  const groups = new Map<
+    string,
+    { segments: PathSegment[]; template: string; entries: Array<{ route: ApiRoute; own: PathSegment[] }> }
+  >();
+  for (const route of routes) {
+    const own = parsePath(route.path);
+    const template = pathTemplate(own);
+    const key = pathGroupKey(template);
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, { segments: own, template, entries: [{ route, own }] });
+    else group.entries.push({ route, own });
+  }
+
+  // A same-method route the group drops is not served, so its guard must not declare a scheme or shift a kept guard's
+  // key. Keep exactly the routes the path loop below keeps (the first per method and template).
+  const keptRoutes: ApiRoute[] = [];
+  for (const group of groups.values()) {
+    const methods = new Set<Method>();
+    for (const { route } of group.entries) {
+      if (methods.has(route.method)) continue;
+      methods.add(route.method);
+      keptRoutes.push(route);
+    }
+  }
+
+  // One scheme per kept guard identity, chosen up front in sorted name order: two names that sanitize alike
   // (`staff/login`, `staff_login`) get `_2` whatever order the tree defines them in, and the operations below can use
   // the final key directly (no provisional security keys, no second pass over the paths).
   const guardNames = [
     ...new Set(
-      routes.flatMap((route): string[] =>
+      keptRoutes.flatMap((route): string[] =>
         route.auth === undefined ? [] : [route.auth === true ? "default" : route.auth],
       ),
     ),
@@ -393,9 +420,15 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
         );
         json = {};
       } else if (isParentRef(property)) {
-        // The property is the whole query/headers schema: reference the hoisted root instead of an unusable `{}`.
+        // The property is the whole query/headers schema: reference the hoisted root, and warn that as a parameter it
+        // overlaps its siblings under form/explode serialization.
         rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
         json = { $ref: `#/components/schemas/${rootKey}` };
+        warnings.push(
+          oneLine(
+            `${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} is documented as the whole ${label} schema; its parameter overlaps the sibling parameters`,
+          ),
+        );
       } else if (hasLocalRefs(property)) {
         rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
         json = { $ref: `#/components/schemas/${rootKey}/properties/${pointerSegment(name)}` };
@@ -509,21 +542,6 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
       security: schemeOf(route),
     };
   };
-
-  // One group per OpenAPI path template. `/x/{a}` and `/x/{b}` are the same path for OpenAPI: the first template's
-  // parameter names win, and a later operation keeps its own schemas under them (found by position).
-  const groups = new Map<
-    string,
-    { segments: PathSegment[]; template: string; entries: Array<{ route: ApiRoute; own: PathSegment[] }> }
-  >();
-  for (const route of routes) {
-    const own = parsePath(route.path);
-    const template = pathTemplate(own);
-    const key = pathGroupKey(template);
-    const group = groups.get(key);
-    if (group === undefined) groups.set(key, { segments: own, template, entries: [{ route, own }] });
-    else group.entries.push({ route, own });
-  }
 
   const paths: Array<[string, OpenApiPathItem]> = [];
   for (const group of groups.values()) {

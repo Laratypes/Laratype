@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_OUT, ScanError, isolatedImport, resolveApiTree, syncContractTree } from "../typegen";
 import { readApiTreeConfigOrDefaults } from "../typegen/config";
-import { inside, slash } from "../typegen/sync";
+import { hasMultipleLinks, inside, slash } from "../typegen/sync";
 import type { ApiTreeConfig } from "../typegen";
 import { generateOpenApiDocument } from "./document";
 import type { GeneratedOpenApi, OpenApiContract, OpenApiDocument } from "./document";
@@ -157,7 +157,7 @@ function checkOutputFile(projectDir: string, out: string): void {
     if (!info.isFile()) {
       throw new OpenApiGenerationError(`the output file "${out}" (--out) is not a file`);
     }
-    if (info.nlink > 1) {
+    if (hasMultipleLinks(target)) {
       throw new OpenApiGenerationError(
         `the output file "${out}" (--out) has more than one hard link; refusing to overwrite it`,
       );

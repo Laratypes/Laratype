@@ -109,9 +109,12 @@ describe("standardJsonSchema", () => {
       ok: false,
       reason: "it has a minimum (number) that is not a finite number",
     });
-    // only a non-finite number is rejected: a non-number stays the schema library's dialect's problem
-    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({ ok: true, schema: { type: "number", minimum: "1" } });
-    // a draft-04 boolean exclusiveMinimum is not a non-finite number either
+    // a string is not a finite number either
+    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({
+      ok: false,
+      reason: "it has a minimum (string) that is not a finite number",
+    });
+    // a draft-04 boolean is allowed only for the two exclusive bounds
     const booleanBound = {
       "~standard": {
         version: 1,
@@ -124,6 +127,25 @@ describe("standardJsonSchema", () => {
       ok: true,
       schema: { type: "number", exclusiveMinimum: true },
     });
+    for (const [value, kind] of [
+      [{}, "object"],
+      [new Date(0), "object"],
+      [true, "boolean"],
+      [null, "null"],
+    ] as const) {
+      const objectBound = {
+        "~standard": {
+          version: 1,
+          vendor: "object-bound",
+          validate: () => ({ value: 1 }),
+          jsonSchema: { input: () => ({ type: "array", maxLength: value }) },
+        },
+      };
+      expect(standardJsonSchema(objectBound, "input")).toEqual({
+        ok: false,
+        reason: `it has a maxLength (${kind}) that is not a finite number`,
+      });
+    }
     // a nested bound is found too, and each numeric keyword is checked
     const nested = {
       "~standard": {
@@ -262,26 +284,58 @@ describe("refs", () => {
     expect(found.every((refValue) => refValue === "#/components/schemas/k/$defs/x")).toBe(true);
   });
 
-  it("finds and rebases refs under keywords outside the 2020-12 schema list", () => {
+  it("finds and rebases refs under schema keywords, but not OpenAPI instance or vendor metadata", () => {
     const ref = { $ref: "#/$defs/x" };
     const source = {
       dependencies: { a: ref },
       additionalItems: ref,
-      "x-vendor": { template: ref },
       $dynamicRef: "#/$defs/x",
       $defs: { x: { type: "string" } },
+      // OpenAPI instance/vendor metadata is copied in by zod .meta(): refs and anchors there are data
+      example: { $ref: "#/$defs/x", $anchor: "example-anchor" },
+      "x-vendor": { template: ref, $anchor: "vendor-anchor" },
     };
     expect(hasLocalRefs(source)).toBe(true);
     expect(rebaseRefs(source, "k")).toEqual({
       dependencies: { a: { $ref: "#/components/schemas/k/$defs/x" } },
       additionalItems: { $ref: "#/components/schemas/k/$defs/x" },
-      "x-vendor": { template: { $ref: "#/components/schemas/k/$defs/x" } },
       $dynamicRef: "#/components/schemas/k/$defs/x",
       $defs: { x: { type: "string" } },
+      example: { $ref: "#/$defs/x", $anchor: "example-anchor" },
+      "x-vendor": { template: { $ref: "#/$defs/x" }, $anchor: "vendor-anchor" },
     });
+    // an anchor in example/x-* is metadata, not a target for #name
+    expect(rebaseRefs({ properties: { a: { $ref: "#example-anchor" } }, example: { $anchor: "example-anchor" } }, "k"))
+      .toEqual({
+        properties: { a: { $ref: "#example-anchor" } },
+        example: { $anchor: "example-anchor" },
+      });
     expect(hasLocalRefs({ $dynamicRef: "#/$defs/x", $defs: { x: { type: "string" } } })).toBe(true);
     // instance values stay data even with keys that look like a ref keyword
-    expect(hasLocalRefs({ const: { $dynamicRef: "#" } })).toBe(false);
+    expect(hasLocalRefs({ const: { $dynamicRef: "#" }, example: { $ref: "#" }, "x-note": { $ref: "#" } })).toBe(false);
+  });
+
+  it("rebases the pointer forms of $dynamicRef and leaves its anchor form alone", () => {
+    const source = {
+      $dynamicRef: "#node",
+      properties: {
+        root: { $dynamicRef: "#" },
+        pointer: { $dynamicRef: "#/$defs/x" },
+        other: { $dynamicRef: "#other" },
+      },
+      $defs: { x: { type: "string" }, node: { $anchor: "node", type: "string" } },
+    };
+    expect(hasLocalRefs(source)).toBe(true);
+    expect(rebaseRefs(source, "k")).toEqual({
+      // the anchor form keeps its dynamic scope; a plain $anchor is not a dynamic anchor target
+      $dynamicRef: "#node",
+      properties: {
+        root: { $dynamicRef: "#/components/schemas/k" },
+        pointer: { $dynamicRef: "#/components/schemas/k/$defs/x" },
+        other: { $dynamicRef: "#other" },
+      },
+      $defs: { x: { type: "string" }, node: { $anchor: "node", type: "string" } },
+    });
   });
 
   it("applies the $id boundary to the nested schema's own $ref", () => {
@@ -376,6 +430,8 @@ describe("oneLine", () => {
     expect(oneLine(new Error("\u200eleft\u202eright\u2066isolate"))).toBe(
       "\\u200eleft\\u202eright\\u2066isolate",
     );
+    // an astral format control is two UTF-16 units: both are escaped
+    expect(oneLine(new Error("tag \u{e0001} here"))).toBe("tag \\udb40\\udc01 here");
     expect(oneLine("  ")).toBe("an unknown error");
   });
 });

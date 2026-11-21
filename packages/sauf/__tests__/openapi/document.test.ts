@@ -128,6 +128,27 @@ describe("generateOpenApiDocument", () => {
     expect(JSON.stringify(first)).toBe(JSON.stringify(openApi(two).document));
   });
 
+  it("does not declare a scheme for a guard of a dropped duplicate route", () => {
+    const kept = defineContract()({ show: endpoint.get("/:a") }, { auth: "staff_login" });
+    const dropped = defineContract()({ show: endpoint.get("/:b") }, { auth: "staff/login" });
+    const result = openApi(
+      defineApi({
+        first: { contract: kept, path: "/api/x", scopes: [] },
+        second: { contract: dropped, path: "/api/x", scopes: [] },
+      }),
+    );
+    // the kept route keeps the plain key: the dropped guard must not take guard_staff_login or shift it to _2
+    expect(result.document.paths["/api/x/{a}"]!.get!.security).toEqual([{ guard_staff_login: [] }]);
+    expect(Object.keys(result.document.components.securitySchemes)).toEqual(["guard_staff_login"]);
+    expect(result.document.components.securitySchemes.guard_staff_login).toEqual({
+      type: "http",
+      scheme: "bearer",
+      description: "The staff_login guard.",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('"second.show" and "first.show" both answer GET /api/x/{a}');
+  });
+
   it("maps query and header properties to parameters, with required from the schema", () => {
     const index = operation("/api/users", "get");
     expect(index.parameters?.map((item) => [item.name, item.in, item.required])).toEqual([
@@ -630,7 +651,9 @@ describe("recursive schemas", () => {
         all: { $ref: "#/components/schemas/q.index.query" },
       },
     });
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual([
+      '"q.index": the query property "all" is documented as the whole query schema; its parameter overlaps the sibling parameters',
+    ]);
   });
 
   it("resolves a named anchor against the source schema's own resource when hoisting", () => {

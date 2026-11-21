@@ -134,10 +134,16 @@ function checkLink(projectDir: string, path: string): void {
   }
 }
 
-/** Refuses a file with another hard link: writing through it would replace the other name's content too. */
-function checkHardLink(projectDir: string, path: string): void {
+/** Whether `path` is a regular file with another hard link: writing through it would replace that name's content too.
+ * Shared with `openapi/load.ts`, which applies the same rule to `--out`. */
+export const hasMultipleLinks = (path: string): boolean => {
   const info = lstatSync(path, { throwIfNoEntry: false });
-  if (info?.isFile() && info.nlink > 1) {
+  return info?.isFile() === true && info.nlink > 1;
+};
+
+/** Refuses a file with another hard link, naming it relative to the project. */
+function checkHardLink(projectDir: string, path: string): void {
+  if (hasMultipleLinks(path)) {
     throw new ScanError(outputHardLinkDiagnostic(slash(relative(projectDir, path))));
   }
 }
@@ -164,15 +170,22 @@ function checkOutputFolderLinks(projectDir: string, target: string): void {
 function checkGeneratedTarget(projectReal: string, projectDir: string, target: string): void {
   if (inside(projectDir, target)) checkOutputFolderLinks(projectDir, target);
   checkLink(projectDir, target);
-  checkHardLink(projectDir, target);
   checkOutputPath(projectReal, projectDir, target);
 }
 
-/** Writes a file only when its content differs, so an unchanged tree touches nothing (no watcher event). */
+/** Whether writing `file` would change its target: an unchanged file is left alone, hard link or not. */
+const needsWrite = (projectDir: string, file: GeneratedFile): boolean => {
+  const target = join(projectDir, file.path);
+  return !(existsSync(target) && readFileSync(target, "utf8") === file.content);
+};
+
+/** Writes a file only when its content differs, so an unchanged tree touches nothing (no watcher event). A hard link is
+ * refused only when a write is needed, so an unchanged generated file leaves both names alone. */
 export const writeGenerated = (projectDir: string, file: GeneratedFile): boolean => {
   const target = join(projectDir, file.path);
   checkGeneratedTarget(realpathSync(projectDir), projectDir, target);
-  if (existsSync(target) && readFileSync(target, "utf8") === file.content) return false;
+  if (!needsWrite(projectDir, file)) return false;
+  checkHardLink(projectDir, target);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, file.content);
   return true;
@@ -216,7 +229,12 @@ export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncRe
   checkOutputFolderLinks(projectDir, typesDir);
   checkLink(projectDir, typesDir);
   checkOutputPath(projectReal, projectDir, typesDir);
-  for (const file of files) checkGeneratedTarget(projectReal, projectDir, join(projectDir, file.path));
+  for (const file of files) {
+    const target = join(projectDir, file.path);
+    checkGeneratedTarget(projectReal, projectDir, target);
+    // Only a target this run would change needs the hard-link check: an unchanged file is a no-op.
+    if (needsWrite(projectDir, file)) checkHardLink(projectDir, target);
+  }
   // $types.d.ts files of removed folders must not linger
   const removed = removeStaleTypes(typesDir, new Set(files.map((f) => resolve(projectDir, f.path))));
   const written = files.filter((file) => writeGenerated(projectDir, file)).map((file) => file.path);
