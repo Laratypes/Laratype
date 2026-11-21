@@ -109,12 +109,9 @@ describe("standardJsonSchema", () => {
       ok: false,
       reason: "it has a minimum (number) that is not a finite number",
     });
-    // a string is not a finite number either
-    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({
-      ok: false,
-      reason: "it has a minimum (string) that is not a finite number",
-    });
-    // a draft-04 boolean is allowed only for the two exclusive bounds
+    // a non-number is left to the schema library's dialect: the round 2 rule is only about non-finite numbers
+    expect(standardJsonSchema(schemaFor("1"), "input")).toEqual({ ok: true, schema: { type: "number", minimum: "1" } });
+    // a draft-04 boolean exclusiveMinimum is not a number and passes
     const booleanBound = {
       "~standard": {
         version: 1,
@@ -127,25 +124,42 @@ describe("standardJsonSchema", () => {
       ok: true,
       schema: { type: "number", exclusiveMinimum: true },
     });
-    for (const [value, kind] of [
-      [{}, "object"],
-      [new Date(0), "object"],
-      [true, "boolean"],
-      [null, "null"],
-    ] as const) {
-      const objectBound = {
-        "~standard": {
-          version: 1,
-          vendor: "object-bound",
-          validate: () => ({ value: 1 }),
-          jsonSchema: { input: () => ({ type: "array", maxLength: value }) },
+    // non-schema map keywords are walked as generic objects: their keys are not numeric keywords of this schema
+    const nonSchemaMaps = {
+      "~standard": {
+        version: 1,
+        vendor: "non-schema-maps",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            dependentRequired: { maximum: ["minimum"] },
+            errorMessage: { maxLength: "too long" },
+          }),
         },
-      };
-      expect(standardJsonSchema(objectBound, "input")).toEqual({
-        ok: false,
-        reason: `it has a maxLength (${kind}) that is not a finite number`,
-      });
-    }
+      },
+    };
+    expect(standardJsonSchema(nonSchemaMaps, "input")).toEqual({
+      ok: true,
+      schema: {
+        type: "object",
+        dependentRequired: { maximum: ["minimum"] },
+        errorMessage: { maxLength: "too long" },
+      },
+    });
+    // a non-finite integer keyword is still refused
+    const maxLength = {
+      "~standard": {
+        version: 1,
+        vendor: "max-length",
+        validate: () => ({ value: 1 }),
+        jsonSchema: { input: () => ({ type: "array", maxLength: Number.NaN }) },
+      },
+    };
+    expect(standardJsonSchema(maxLength, "input")).toEqual({
+      ok: false,
+      reason: "it has a maxLength (number) that is not a finite number",
+    });
     // a nested bound is found too, and each numeric keyword is checked
     const nested = {
       "~standard": {

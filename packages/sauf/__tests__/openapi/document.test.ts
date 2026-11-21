@@ -318,6 +318,33 @@ describe("JSON Schema fallbacks", () => {
     );
   });
 
+  it("documents dependentRequired and errorMessage maps without refusing their numeric-looking keys", () => {
+    const nonSchemaMaps = {
+      "~standard": {
+        version: 1,
+        vendor: "non-schema-maps",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          output: () => ({
+            type: "object",
+            properties: { name: { type: "string" } },
+            dependentRequired: { maximum: ["minimum"] },
+            errorMessage: { maxLength: "too long" },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ show: endpoint.get("/").response(nonSchemaMaps) });
+    const result = openApi(defineApi({ maps: { contract, path: "/api/maps", scopes: [] } }));
+    expect(content(result.document.paths["/api/maps"]!.get!.responses["200"]!)).toEqual({
+      type: "object",
+      properties: { name: { type: "string" } },
+      dependentRequired: { maximum: ["minimum"] },
+      errorMessage: { maxLength: "too long" },
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
   it("reports the reason a converter throws (zod cannot represent a Date)", () => {
     const contract = defineContract()({
       show: endpoint.get("/").response(z.object({ at: z.date() })),

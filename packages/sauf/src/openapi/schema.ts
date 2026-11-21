@@ -180,9 +180,7 @@ function walkSchemas(root: JsonSchema, visit: (schema: JsonSchema, resource: boo
   walk(root, false, "");
 }
 
-/** The numeric and integer keywords whose values are finite JSON numbers. A draft-04 boolean is allowed only for the
- * two exclusive bounds; every other non-number is still refused. */
-const EXCLUSIVE_BOUNDS: ReadonlySet<string> = new Set(["exclusiveMaximum", "exclusiveMinimum"]);
+/** The numeric and integer keywords whose values must be finite JSON numbers. */
 const NUMERIC_KEYWORDS: ReadonlySet<string> = new Set([
   "exclusiveMaximum",
   "exclusiveMinimum",
@@ -199,9 +197,9 @@ const NUMERIC_KEYWORDS: ReadonlySet<string> = new Set([
   "multipleOf",
 ]);
 
-/** The first numeric keyword in `root` whose value is not a finite number (the only non-numbers allowed are the
- * draft-04 booleans of the two exclusive bounds), with its JSON kind; `undefined` if none. `JSON.stringify` would turn
- * `NaN`/`Infinity` into `null`, which the round trip would otherwise accept. */
+/** The first numeric keyword in `root` whose value is a non-finite number, with its JSON kind; `undefined` if none.
+ * `JSON.stringify` would turn `NaN`/`Infinity` into `null`, which the round trip would otherwise accept. A boolean
+ * draft-04 exclusive bound, a string and every other non-number pass to the JSON round trip as before. */
 function nonFiniteBound(root: JsonSchema): string | undefined {
   let found: string | undefined;
   walkSchemas(root, (schema) => {
@@ -209,8 +207,7 @@ function nonFiniteBound(root: JsonSchema): string | undefined {
     // in the schema's own key order, so the reason names the keyword the user's schema lists first
     for (const [key, bound] of Object.entries(schema)) {
       if (!NUMERIC_KEYWORDS.has(key)) continue;
-      if (typeof bound === "boolean" && EXCLUSIVE_BOUNDS.has(key)) continue;
-      if (typeof bound !== "number" || !Number.isFinite(bound)) {
+      if (typeof bound === "number" && !Number.isFinite(bound)) {
         found = `${key} (${jsonKind(bound)})`;
         return;
       }
