@@ -54,6 +54,7 @@ const bunConnInfo: GetConnInfo = (c) => {
     ? (c.env as { server: { requestIP(request: Request): { address: string, family?: string, port?: number } | null } }).server
     : (c.env as { requestIP(request: Request): { address: string, family?: string, port?: number } | null })
   const info = server.requestIP(c.req.raw)
+  if (info === null) throw new Error('requestIP() found no socket')
   return { remote: { address: info.address, port: info.port, addressType: info.family === 'IPv4' || info.family === 'IPv6' ? info.family : undefined } }
 }
 
@@ -117,9 +118,9 @@ describe('request.ip()', () => {
   })
 
   it('passes the Hono context of the request to the registered getter', async () => {
-    const getConnInfo = vi.fn(() => ({ remote: { address: '203.0.113.9' } }))
+    const getConnInfo = vi.fn((_c: Context) => ({ remote: { address: '203.0.113.9' } }))
     expect(await whoami(bootApp(getConnInfo))).toEqual({ ip: '203.0.113.9', token: '' })
-    const ctx = getConnInfo.mock.calls[0]![0] as unknown as Context
+    const ctx = getConnInfo.mock.calls[0]![0]
     expect(ctx.req.path).toBe('/whoami')
   })
 
