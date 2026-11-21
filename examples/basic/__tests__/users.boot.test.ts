@@ -30,6 +30,9 @@ describe("users store", () => {
   it("starts empty on a second boot in the same process", async () => {
     const current = example;
     if (!current) throw new Error("users.boot.test.ts: the app was not booted");
+    // Seed this boot too, so the assertion does not rely on the first test having run (the file alone must prove it)
+    const stored = await current.store({ name: "Grace", email: "grace@example.com" });
+    expect(stored.response.status).toBe(201);
     await current.stop();
     example = undefined;
 

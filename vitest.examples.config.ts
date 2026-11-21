@@ -75,6 +75,9 @@ export default mergeConfig(config, {
     alias,
     include: ["__tests__/**/*.test.ts"],
     exclude: [...configDefaults.exclude, "**/e2e/**"],
+    // `support/boot.ts` moves the process to the example (EnvLoadServiceProvider, @laratype/log): Node rejects
+    // process.chdir() in a worker thread, so these files run in forked child processes, never in `--pool=threads`
+    pool: "forks",
     globalSetup: [fileURLToPath(new URL("./examples/basic/__tests__/support/generate.ts", import.meta.url))],
     // Booting the app (manifest scan, SWC transform of the sources, providers) is slower than a plain unit test
     testTimeout: 30_000,

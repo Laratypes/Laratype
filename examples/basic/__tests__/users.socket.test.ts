@@ -25,14 +25,18 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const listening = server;
-  if (listening) {
-    await new Promise<void>((resolve, reject) => {
-      listening.close((error) => (error ? reject(error) : resolve()));
-      // Keep-alive sockets of fetch must not hold the close open
-      listening.closeAllConnections();
-    });
+  try {
+    if (listening) {
+      await new Promise<void>((resolve, reject) => {
+        listening.close((error) => (error ? reject(error) : resolve()));
+        // Keep-alive sockets of fetch must not hold the close open
+        listening.closeAllConnections();
+      });
+    }
+  } finally {
+    // A failed close must not skip the providers' down(): the database connection and the container stay open otherwise
+    await example?.stop();
   }
-  await example?.stop();
 });
 
 const postUser = (body: unknown) => fetch(`${baseUrl}/api/users`, {

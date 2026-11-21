@@ -20,6 +20,8 @@ const projectDir = fileURLToPath(new URL("../..", import.meta.url));
 
 // `EnvLoadServiceProvider` and `@laratype/log` resolve from process.cwd(): run from the repo root, the tests would load
 // the root `.env` and write `storage/logs/laratype.log` there (E5 #343). Point the process at the example instead.
+// Node rejects process.chdir() in a worker thread, so vitest.examples.config.ts pins the examples project to the
+// `forks` pool; this helper would fail under `--pool=threads`, which bypasses the project config.
 process.chdir(projectDir);
 
 interface JsonResult {
