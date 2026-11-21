@@ -9,6 +9,7 @@ import { guardStreamErrors } from "../adapters/node/streamErrors";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
 import { contractTreePlugin } from "../typegen/plugin";
+import { ContractTypeWatchHost } from "../typegen/watch";
 import { DevRestarter, RescanFlag, shouldRestart } from "../utils/restarter";
 import { useAppManifest } from "../manifest/load";
 import { isManifestFile } from "../manifest/scan";
@@ -36,6 +37,12 @@ export default class LaratypeDevCommand extends Command {
 
   /** Set by a watcher event that can change the contract tree; the next (re)start rescans it. */
   protected rescan = new RescanFlag();
+
+  /**
+   * The type watch of the current app instance (G2 #142): replaced on every boot and `--hmr` restart, closed with the
+   * Vite server, so its listeners never stack.
+   */
+  protected readonly typeWatch = new ContractTypeWatchHost();
 
   public async boot(transpiler: Transpile) {
     Console.start('Starting Laratype application...');
@@ -74,7 +81,11 @@ export default class LaratypeDevCommand extends Command {
             }
 
             server.middlewares.use(await this.createMiddleware(server));
-          }
+          },
+          // Vite closes its environments (and runs closeBundle) on server.close(): stop the type watch with it
+          closeBundle: () => {
+            this.typeWatch.close();
+          },
         },
       ]
     };
@@ -97,8 +108,21 @@ export default class LaratypeDevCommand extends Command {
   protected async appStart(vite: ViteDevServer): Promise<{ app: Hono, down: () => void }> {
     globalThis.__sauf_transpiler_instance = vite.ssrLoadModule.bind(this.runner);
 
-    // Rescan the contract tree before a restart when it can have changed (the first `$api` import scans it)
+    // One type watch per app instance: replacing it disposes the previous one, so an --hmr restart never stacks
+    // listeners. Opened before the rescan, so a contract saved while the app boots is caught too.
     const tree = contractTreePlugin(vite.config.plugins);
+    if (tree) {
+      this.typeWatch.open({
+        events: vite.watcher,
+        tree,
+        onError: (error) => Console.error(error),
+      });
+    }
+    else {
+      this.typeWatch.close();
+    }
+
+    // Rescan the contract tree before a restart when it can have changed (the first `$api` import scans it)
     await this.rescan.run(tree && (() => tree.restart()));
 
     // Loaded again on each (re)start: a file added to or deleted from a manifest folder invalidated it
