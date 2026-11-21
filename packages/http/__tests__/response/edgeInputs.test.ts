@@ -98,6 +98,7 @@ describe('a 0.5 Response status the platform cannot send', () => {
     const app = bootApp()
     route(app, '/decorated', Decorated)
     await expectGeneric500(await app.request('/decorated'), 'detail')
+    expect(logged).toHaveBeenCalledTimes(1)
     expect((logged.mock.calls[0]![0] as Error).message).toContain('cannot be sent: use an integer from 200 to 599')
   })
 
