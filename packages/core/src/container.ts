@@ -110,7 +110,7 @@ const isLineTerminator = (char: string): boolean => char === '\n' || char === '\
 
 /** Keywords after which a `/` starts a regex literal rather than a division. */
 const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
-  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'typeof', 'void', 'yield',
+  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'throw', 'typeof', 'void', 'yield',
 ])
 
 /** Whether the `/` at `index` is in operator position, so it starts a regex literal, not a division. */
@@ -142,6 +142,10 @@ const startsRegex = (source: string, index: number): boolean => {
   if (wordStart > 0 && source[wordStart - 1] === '.') return false
   return REGEX_KEYWORDS.has(source.slice(wordStart, previous + 1))
 }
+
+/** Index after a slash: a regex literal when it is in operator position, else a one-char division. */
+const skipSlash = (source: string, index: number): number | undefined =>
+  startsRegex(source, index) ? skipRegex(source, index) : index + 1
 
 /** Index after the regex literal at `index`, or `undefined` when it does not close on this line. */
 const skipRegex = (source: string, index: number): number | undefined => {
@@ -218,13 +222,9 @@ const skipBalanced = (source: string, index: number, open: string, close: string
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
     } else if (char === '/') {
-      if (!startsRegex(source, index)) {
-        index++
-        continue
-      }
-      const end = skipRegex(source, index)
-      if (end === undefined) return source.length
-      index = end
+      const next = skipSlash(source, index)
+      if (next === undefined) return source.length
+      index = next
     } else {
       if (char === open) depth++
       else if (char === close && --depth === 0) return index + 1
@@ -247,13 +247,9 @@ const splitParams = (source: string, start: number, end: number): string[] => {
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
     } else if (char === '/') {
-      if (!startsRegex(source, index)) {
-        index++
-        continue
-      }
-      const end = skipRegex(source, index)
-      if (end === undefined) break
-      index = end
+      const next = skipSlash(source, index)
+      if (next === undefined) break
+      index = next
     } else {
       if (char === '(' || char === '[' || char === '{') depth++
       else if (char === ')' || char === ']' || char === '}') depth--
@@ -272,6 +268,30 @@ const splitParams = (source: string, start: number, end: number): string[] => {
 const stripComments = (param: string): string =>
   param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
 
+/** Index of the class body's `{`, skipping a heritage expression and its brackets, strings and comments. */
+const classBodyStart = (source: string): number | undefined => {
+  let index = skipTrivia(source, 0)
+  if (!source.startsWith('class', index)) return undefined
+  index += 'class'.length
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else if (char === '(') {
+      index = skipBalanced(source, index, '(', ')')
+    } else if (char === '[') {
+      index = skipBalanced(source, index, '[', ']')
+    } else if (char === '{') {
+      return index
+    } else {
+      index++
+    }
+  }
+  return undefined
+}
+
 /**
  * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a
  * readable class, has no own constructor, or puts a field before it (a known limit). `0` means no params, or a
@@ -284,9 +304,9 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
   } catch {
     return undefined
   }
-  const header = /^\s*class\b[^{]*\{/.exec(source)
-  if (!header) return undefined
-  let index = skipTrivia(source, header[0].length)
+  const body = classBodyStart(source)
+  if (body === undefined) return undefined
+  let index = skipTrivia(source, body + 1)
   if (!source.startsWith('constructor', index)) return undefined
   index = skipTrivia(source, index + 'constructor'.length)
   if (source[index] !== '(') return undefined
@@ -655,13 +675,14 @@ export class Container {
 
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
   protected build(cls: Newable, requiredBy?: string): unknown {
-    const entry = this.deps.get(cls)
+    const found = this.deps.getWithOwner?.(cls)
+    const entry = found?.entry ?? this.deps.get(cls)
     // An inherited entry with no slots does not cover a constructor whose defaults hide its params. Only a lookup
-    // that implements `hasOwn` can say an entry is inherited; without it, the entry it returned is authoritative.
+    // that implements `hasOwn`/`getWithOwner` can say an entry is inherited; without it, the entry is authoritative.
     const hiddenParams = entry !== undefined
       && entry.slots.length === 0
       && cls.length === 0
-      && this.deps.hasOwn?.(cls) === false
+      && (found ? found.owner !== cls : this.deps.hasOwn?.(cls) === false)
     if (!entry || hiddenParams) {
       // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
       const params = leadingConstructorParamCount(cls) ?? cls.length

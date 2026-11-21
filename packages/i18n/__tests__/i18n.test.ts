@@ -126,7 +126,7 @@ describe("trans() / __()", () => {
     }
   });
 
-  it("a constructor-first Translator copy works through trans()", () => {
+  it("a bound constructor-first Translator copy serves trans()", () => {
     class ConstructorFirstTranslator extends Translator {
       constructor(catalog: LangCatalog = {}, options: TranslatorOptions = {}) {
         super(catalog, options);

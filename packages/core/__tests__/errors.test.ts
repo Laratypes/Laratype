@@ -298,6 +298,7 @@ describe('zero-length constructors', () => {
     ['a division', '4 / 2'],
     ['a division after a string with slashes', '"a//b" / 2'],
     ['a division after a property keyword', 'obj.return / 2'],
+    ['a throw keyword', '() => { throw /,/ }'],
   ])('counts both params when a default has %s', (_, defaultSource) => {
     expect(messageOf(() => new Container().make(sourceClass(defaultSource)))).toContain('takes 2 param(s)')
   })
@@ -359,6 +360,18 @@ describe('zero-length constructors', () => {
     }
     __laratype_deps(Empty, [], { params: [] })
     expect(new Container({ deps: depsRegistry }).make(Empty)).toBeInstanceOf(Empty)
+  })
+
+  it('reads the outer constructor when the heritage has an object literal', () => {
+    class Base {
+      constructor() {}
+    }
+    const mixin = (_options: unknown) => Base
+    const Extended = new Function('Base', 'mixin', `return class Extended extends mixin({ constructor() {} }) {
+      constructor(port = 5432) { super(); this.port = port }
+    }`)(Base, mixin) as new () => { port: unknown }
+    // The object literal's constructor is not the class body; the outer constructor has one defaulted param.
+    expect(messageOf(() => new Container().make(Extended))).toContain('takes 1 param(s)')
   })
 
   it('does not see a constructor after a field (known limit)', () => {
