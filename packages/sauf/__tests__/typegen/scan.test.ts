@@ -17,7 +17,7 @@ describe('scanFiles', () => {
   it('treats users.ts and users/index.ts as the same contract', () => {
     expect(names(['users/index.ts'])).toEqual([['users', '/api/users', 'users/index.ts']]);
     expect(() => scanFiles(['users.ts', 'users/index.ts'], '/api')).toThrow(
-      'users.ts and users/index.ts are the same contract (/api/users): keep one',
+      '"users.ts" and "users/index.ts" are the same contract ("/api/users"): keep one',
     );
   });
 
@@ -31,7 +31,7 @@ describe('scanFiles', () => {
   it('rejects two contracts with the same name', () => {
     expect(() => scanFiles(['users/posts.ts', 'users/[user]/posts.ts'], '/api')).toThrow(ScanError);
     expect(() => scanFiles(['users/posts.ts', 'users/[user]/posts.ts'], '/api')).toThrow(
-      'users/[user]/posts.ts and users/posts.ts have the same name "users.posts" ([x] folders are dropped from names)',
+      '"users/[user]/posts.ts" and "users/posts.ts" have the same name "users.posts" ([x] folders are dropped from names)',
     );
     expect(() => scanFiles(['users.ts', 'users/[user]/index.ts'], '/api')).toThrow(/have the same name "users"/);
   });
@@ -68,19 +68,42 @@ describe('scanFiles', () => {
   });
 
   it('rejects the root index.ts, which has no name', () => {
-    expect(() => scanFiles(['index.ts'], '/api')).toThrow('index.ts: a contract needs a name; put it in a named folder (the root index.ts has none)');
+    expect(() => scanFiles(['index.ts'], '/api')).toThrow('"index.ts": a contract needs a name; put it in a named folder (the root index.ts has none)');
     expect(() => scanFiles(['[id]/index.ts'], '/api')).toThrow(/a contract needs a name/);
   });
 
   it.each([['[[user]]'], ['[user?]'], ['[...rest]'], ['[]'], ['[1x]']])('rejects the param folder %s', (folder) => {
     expect(() => scanFiles([`users/${folder}/posts.ts`], '/api')).toThrow(
-      `users/${folder}: "${folder}" is not a valid param folder: use [name]; optional and rest param folders are not supported`,
+      `"users/${folder}": "${folder}" is not a valid param folder: use [name]; optional and rest param folders are not supported`,
     );
   });
 
   it('rejects names that would break tree names or URLs', () => {
     expect(() => scanFiles(['users.admin.ts'], '/api')).toThrow(/file name "users.admin" may only use letters, digits/);
     expect(() => scanFiles(['my users/list.ts'], '/api')).toThrow(/folder name "my users" may only use letters, digits/);
+  });
+
+  it('quotes every name it echoes, so control characters and ANSI escapes never reach the terminal raw', () => {
+    const messageOf = (files: string[], base = '/api') => {
+      try {
+        scanFiles(files, base);
+        return '';
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+
+    const control = messageOf(['bad\u0001name.ts']);
+    expect(control).toContain('"bad\\u0001name.ts": file name "bad\\u0001name"');
+    expect(control).not.toContain('\u0001');
+
+    const ansi = messageOf(['\u001b[31musers\u001b[0m/list.ts']);
+    expect(ansi).toContain('folder name "\\u001b[31musers\\u001b[0m"');
+    expect(ansi).not.toContain('\u001b');
+
+    const base = messageOf(['users.ts'], 'api\u001b[31m');
+    expect(base).toContain('base "api\\u001b[31m"');
+    expect(base).not.toContain('\u001b');
   });
 
   it('accepts an empty base and normalizes Windows separators', () => {
