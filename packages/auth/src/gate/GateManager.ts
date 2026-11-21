@@ -4,7 +4,7 @@ import { ContextApi, InternalException } from "@laratype/support";
 import type { PolicyClass } from "../policies/Policy";
 import { policyAllows, policyAuthorize } from "../policies/authorize";
 import ForbiddenException from "../exceptions/ForbiddenException";
-import { isGuest } from "../support/guest";
+import { isUser } from "../support/guest";
 
 /** How a value shows in a diagnostic: `<class Foo>`, `undefined`, `null`, `object`, ... */
 export const describeValue = (value: unknown): string =>
@@ -76,7 +76,7 @@ export default class GateManager {
    */
   async allows(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<boolean> {
     // A guest never reaches a policy: a policy written for a signed-in user must not decide on `undefined`
-    if (isGuest(user)) return false;
+    if (!isUser(user)) return false;
     // Async on purpose: a missing policy rejects instead of throwing before a promise exists (#394)
     return policyAllows(this.instance("Gate.allows", subject), user, ability, subject, ...args);
   }
@@ -88,7 +88,7 @@ export default class GateManager {
 
   /** Runs the check and throws the derived 403 unless it allows: `policyAuthorize()` of the subject's policy. */
   async authorize(user: unknown, ability: string, subject: unknown, ...args: unknown[]): Promise<void> {
-    if (isGuest(user)) throw new ForbiddenException();
+    if (!isUser(user)) throw new ForbiddenException();
     await policyAuthorize(this.instance("Gate.authorize", subject), user, ability, subject, ...args);
   }
 

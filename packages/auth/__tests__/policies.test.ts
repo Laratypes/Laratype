@@ -299,9 +299,11 @@ describe('Gate.allows: policies', () => {
   })
 })
 
-describe('a guest is any non-object user (#394 round 5)', () => {
+describe('a guest is any non-object user (A3 #121)', () => {
   /** What a caller can hand over: `TokenGuard.user()` answers false for a request with no token, and primitives fail closed. */
   const guests: [label: string, value: unknown][] = [
+    ['undefined', undefined],
+    ['null', null],
     ['false', false],
     ['0', 0],
     ['""', ''],
@@ -350,6 +352,21 @@ describe('a guest is any non-object user (#394 round 5)', () => {
     // Any other object is a user too: the shape does not make a guest
     expect(await Gate.allows({ length: 1e9 }, SignedIn)).toBe(true)
     expect(await Gate.allows(Object.create(null), SignedIn)).toBe(true)
+  })
+
+  it('denies a guest in Gate.define()\'s own check(), not only through Gate.allows()', async () => {
+    let called = 0
+    const SignedIn = Gate.define('signed-in', () => {
+      called++
+      return true
+    })
+    for (const [label, guest] of guests) {
+      expect(await SignedIn.check(guest), label).toBe(false)
+    }
+    expect(called).toBe(0)
+    // A real user is an object: the gate runs and allows
+    expect(await SignedIn.check(user)).toBe(true)
+    expect(called).toBe(1)
   })
 
   it('denies a false user through Authenticated too, as TokenGuard.user() answers it', async () => {

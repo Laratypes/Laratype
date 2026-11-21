@@ -11,9 +11,11 @@ export type PolicyClass = abstract new (...args: any[]) => object;
 /**
  * A policy shape whose abilities have any name: the default of the public generic policy types below, so the bare
  * names mean "any" (`.claude/rules/types.md` › Generics). `PolicyAbility` is `string`, `PolicySubject` is `unknown`
- * and `PolicyArgs` is `[]` on it; a real policy keeps its own names and parameters.
+ * and `PolicyArgs` is `any[]` on it; a real policy keeps its own names and parameters.
  */
-export type AnyPolicy = { [ability: string]: (user: any, subject: unknown) => any };
+export interface AnyPolicy {
+  [ability: string]: (user: any, subject: unknown, ...args: any[]) => any;
+}
 
 /**
  * The abilities of policy `P`: its string method names, minus `before` (docs/v1/auth.md › Policies and gates). A field
@@ -60,7 +62,7 @@ export type PolicyBrand = typeof policyBrand;
  * export default class Post extends Model { ... }
  * export default interface Post extends HasPolicy<PostPolicy> {}
  */
-export interface HasPolicy<P extends object = AnyPolicy> {
+export interface HasPolicy<P extends object> {
   // A symbol-keyed method, so the brand is not a string key of the model and a class/interface merge stays lint-clean;
   // never called, and never set at runtime
   [policyBrand]?(): P;

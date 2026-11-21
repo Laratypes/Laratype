@@ -140,21 +140,30 @@ describe("policies: abilities and arguments (A3 #121)", () => {
 });
 
 describe("policies: bare generic names mean any policy (A3 #121)", () => {
-  test("every public generic policy type has a default", () => {
+  test("every public generic policy type but HasPolicy has a default", () => {
     typeOnly(() => {
       expectTypeOf<AnyPolicy>().toEqualTypeOf<{
-        [ability: string]: (user: any, subject: unknown) => any;
+        [ability: string]: (user: any, subject: unknown, ...args: any[]) => any;
       }>();
       expectTypeOf<PolicyAbility>().toEqualTypeOf<string>();
       expectTypeOf<PolicyAbility<AnyPolicy>>().toEqualTypeOf<string>();
-      expectTypeOf<PolicyArgs>().toEqualTypeOf<[]>();
+      expectTypeOf<PolicyArgs>().toEqualTypeOf<any[]>();
       expectTypeOf<PolicySubject>().toEqualTypeOf<unknown>();
-      expectTypeOf<HasPolicy>().toEqualTypeOf<HasPolicy<AnyPolicy>>();
       expectTypeOf<ModelPolicy>().toEqualTypeOf<AnyPolicy>();
       expectTypeOf<SubjectAbility>().toEqualTypeOf<string>();
-      expectTypeOf<SubjectArgs>().toEqualTypeOf<[]>();
+      expectTypeOf<SubjectArgs>().toEqualTypeOf<any[]>();
       expectTypeOf<SubjectParam>().toEqualTypeOf<unknown>();
       expectTypeOf<CheckPolicy>().toEqualTypeOf<unknown>();
+    });
+  });
+
+  test("HasPolicy keeps its required type argument", () => {
+    // A bare `extends HasPolicy` would brand the model with AnyPolicy: SubjectAbility would be every string and
+    // CheckPolicy would stop reporting a missing policy, so an ability typo like "udpate" would type-check.
+    // @ts-expect-error HasPolicy<P> requires its type argument
+    interface BareHasPolicy extends HasPolicy {}
+    typeOnly(() => {
+      expectTypeOf<BareHasPolicy>().toEqualTypeOf<BareHasPolicy>();
     });
   });
 });

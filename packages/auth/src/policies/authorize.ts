@@ -1,5 +1,5 @@
 import ForbiddenException from "../exceptions/ForbiddenException";
-import { isGuest } from "../support/guest";
+import { isUser } from "../support/guest";
 
 /** The `before` hook of a policy: `true` allows, `false` denies, anything else (usually `null`) has no opinion. */
 const before = async (policy: object, user: unknown, ability: string, args: readonly unknown[]): Promise<boolean | null> => {
@@ -21,7 +21,7 @@ const abilityMethod = (policy: object, ability: string): ((...args: unknown[]) =
   for (let level: object | null = policy; level !== null && level !== Object.prototype; level = Object.getPrototypeOf(level)) {
     // The descriptor, not `level[ability]`: reading the property would run a getter with the prototype as its `this` and
     // use its value, so `get create() { return () => true }` would allow. Only a data property holding a function is an
-    // ability; an accessor denies, and no policy code runs during the lookup (#394 round 3).
+    // ability; an accessor denies, and no policy code runs during the lookup (docs/v1/auth.md › Invariants, A3 #121).
     const descriptor = Object.getOwnPropertyDescriptor(level, ability);
     if (!descriptor) continue;
     return typeof descriptor.value === "function" ? descriptor.value as (...args: unknown[]) => unknown : undefined;
@@ -44,7 +44,7 @@ export const policyCheck = async (
   // A guest never reaches a policy, whatever the caller passed: a policy written for a signed-in user must not decide
   // on `undefined`, and `false` (TokenGuard.user() for a request with no token) or another non-object denies too
   // (docs/v1/auth.md › Invariants)
-  if (isGuest(user)) return false;
+  if (!isUser(user)) return false;
   const hook = await before(policy, user, ability, args);
   if (hook !== null) return hook;
   const method = abilityMethod(policy, ability);

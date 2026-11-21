@@ -4,7 +4,7 @@ import type { PromiseAble } from "@laratype/support";
 import type { GateAbility } from "./GateAbility";
 import GateManager, { describeValue } from "./GateManager";
 import ForbiddenException from "../exceptions/ForbiddenException";
-import { isGuest } from "../support/guest";
+import { isUser } from "../support/guest";
 import type {
   CheckPolicy,
   ModelPolicy,
@@ -62,7 +62,7 @@ export default abstract class Gate {
   ): Promise<boolean>;
   static async allows(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
     // A guest denies, and a gate is not asked about a user it was not written for
-    if (isGuest(user)) return false;
+    if (!isUser(user)) return false;
     if (typeof ability === "string") {
       const [subject, ...args] = rest;
       return GateManager.current().allows(user, ability, subject, ...args);
@@ -85,7 +85,7 @@ export default abstract class Gate {
     ...args: Args
   ): Promise<boolean>;
   static async denies(user: unknown, ability: unknown, ...rest: unknown[]): Promise<boolean> {
-    if (isGuest(user)) return true;
+    if (!isUser(user)) return true;
     if (typeof ability !== "string") {
       return (await asGate("Gate.denies", ability)(user, ...rest)) !== true;
     }
@@ -106,7 +106,7 @@ export default abstract class Gate {
     ...args: Args
   ): Promise<void>;
   static async authorize(user: unknown, ability: unknown, ...rest: unknown[]): Promise<void> {
-    if (isGuest(user)) throw new ForbiddenException();
+    if (!isUser(user)) throw new ForbiddenException();
     if (typeof ability === "string") {
       const [subject, ...args] = rest;
       return GateManager.current().authorize(user, ability, subject, ...args);
@@ -134,8 +134,10 @@ export default abstract class Gate {
     }
     return Object.freeze({
       name,
-      // Only an explicit true allows, as the policy checks do: a truthy value or an undefined return denies
+      // A guest denies without the gate running, as Gate.allows()/authorize() do (docs/v1/auth.md › Invariants)
       async check(user: unknown, ...args: Args): Promise<boolean> {
+        if (!isUser(user)) return false;
+        // Only an explicit true allows, as the policy checks do: a truthy value or an undefined return denies
         return (await fn(user, ...args)) === true;
       },
     });
