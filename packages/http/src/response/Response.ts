@@ -271,7 +271,9 @@ export default class Response extends AppServiceProvider {
 
       const statusCodeFromMetadata = Reflect.getMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, controllerClass.prototype, controllerMethodName)
 
-      if(statusCodeFromMetadata) {
+      // Present metadata is the decorator's value, even 0 or NaN (refused below): only absent metadata falls back to
+      // the method-name guess (H32 #312)
+      if(statusCodeFromMetadata != null) {
         contentFullStatusCode = statusCodeFromMetadata;
       }
       else {

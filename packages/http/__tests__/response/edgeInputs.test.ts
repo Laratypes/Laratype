@@ -84,13 +84,18 @@ describe('a 0.5 Response status the platform cannot send', () => {
     expect(logged).not.toHaveBeenCalled()
   })
 
-  it('a status decorator the platform cannot send answers the generic 500 too', async () => {
+  it.each([
+    ['a numeric string', '201'],
+    ['0', 0],
+    ['NaN', NaN],
+  ])('a status decorator of %s answers the generic 500 too', async (_, status) => {
     quiet()
     class Decorated extends Controller { index() { return { ok: true, secret: 'detail' } } }
-    Reflect.defineMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, '201', Decorated.prototype, 'index')
+    Reflect.defineMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, status, Decorated.prototype, 'index')
     const app = bootApp()
     route(app, '/decorated', Decorated)
     await expectGeneric500(await app.request('/decorated'), 'detail')
+    expect((logged.mock.calls[0]![0] as Error).message).toContain('cannot be sent: use an integer from 200 to 599')
   })
 
   it('a redirect status the platform does not send answers the generic 500', async () => {
