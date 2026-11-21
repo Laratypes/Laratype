@@ -25,4 +25,12 @@ describe('mountConnInfo', () => {
       mountConnInfo(new Hono(), getConnInfo)
     })
   })
+
+  test('takes a Hono app with typed bindings, variables and a base path, without a cast', () => {
+    typeOnly(() => {
+      const getConnInfo = (c: Context): ConnInfo => ({ remote: { address: c.req.path } })
+      const app = new Hono<{ Bindings: { tenant: string }, Variables: { user: string } }, {}, '/api'>()
+      mountConnInfo(app, getConnInfo)
+    })
+  })
 })

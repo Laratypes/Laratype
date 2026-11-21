@@ -1,4 +1,4 @@
-import type { Context, Hono, MiddlewareHandler } from "hono";
+import type { Context, Env, Hono, MiddlewareHandler, Schema } from "hono";
 import type { GetConnInfo } from "hono/conninfo";
 import { HonoRequest } from "hono/request";
 import type { InferOut, StandardSchemaV1 } from "@laratype/contract";
@@ -67,14 +67,17 @@ const readAddress = (ctx: Context, getConnInfo: GetConnInfo): string | undefined
  * the rate limit. Mount it before any route or middleware that can await; a late mount is refused, because the lazy
  * read after that await is exactly what loses the address of a reset connection.
  */
-export const mountConnInfo = (app: Hono, getConnInfo: GetConnInfo): void => {
+export const mountConnInfo = <E extends Env, S extends Schema, BasePath extends string>(
+  app: Hono<E, S, BasePath>,
+  getConnInfo: GetConnInfo,
+): void => {
   if (typeof getConnInfo !== "function") {
     throw new TypeError(`[@laratype/http] mountConnInfo(): expected the runtime's getConnInfo(context) function, got ${typeof getConnInfo}`)
   }
   if (typeof (app as { use?: unknown } | undefined)?.use !== "function") {
     throw new TypeError(`[@laratype/http] mountConnInfo(): expected a Hono app, got ${app === null ? "null" : typeof app}`)
   }
-  const mounted = app as Hono & { [CONN_INFO_MOUNTS]?: readonly MiddlewareHandler[] }
+  const mounted = app as unknown as Hono & { [CONN_INFO_MOUNTS]?: readonly MiddlewareHandler[] }
   const previous = mounted[CONN_INFO_MOUNTS] ?? []
   // Hono runs a middleware registered after a route only after that route, and after an earlier middleware: the capture
   // would run after its await. Our own earlier mounts are fine, so mounting twice stays harmless.
