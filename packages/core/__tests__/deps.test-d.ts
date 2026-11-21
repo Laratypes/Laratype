@@ -7,16 +7,15 @@ describe('DepsLookup.hasOwn', () => {
     expectTypeOf<DepsLookup['hasOwn']>().toEqualTypeOf<((cls: Function) => boolean) | undefined>()
     const withOwn: DepsLookup = { get: () => undefined, hasOwn: (cls) => cls.name.length > 0 }
     expectTypeOf(withOwn.hasOwn).toEqualTypeOf<((cls: Function) => boolean) | undefined>()
-    // A Map/WeakMap stays a lookup without the optional methods.
+    // A Map/WeakMap stays a lookup without the optional method.
     expectTypeOf(new Map<Function, DepsEntry>()).toMatchTypeOf<DepsLookup>()
     // @ts-expect-error hasOwn must return a boolean
     const bad: DepsLookup = { get: () => undefined, hasOwn: () => 'no' }
     void bad
   })
 
-  it('depsRegistry exposes the ownership methods without optional chaining', () => {
+  it('depsRegistry exposes hasOwn without optional chaining', () => {
     expectTypeOf(depsRegistry.hasOwn).toEqualTypeOf<(cls: Function) => boolean>()
-    expectTypeOf(depsRegistry.getWithOwner).toEqualTypeOf<(cls: Function) => { entry: DepsEntry, owner: Function } | undefined>()
     expectTypeOf(depsRegistry.hasOwn(class {})).toEqualTypeOf<boolean>()
   })
 })

@@ -35,8 +35,6 @@ export interface DepsLookup {
    * lookup returns is authoritative: the container then never treats one as inherited.
    */
   hasOwn?(cls: Function): boolean
-  /** The entry `get(cls)` returns together with its owner, so the container walks the prototype chain once. */
-  getWithOwner?(cls: Function): { entry: DepsEntry, owner: Function } | undefined
 }
 
 /** Default lookup: no metadata, so only zero-arg classes can be autowired. */

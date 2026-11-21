@@ -83,5 +83,4 @@ export function getDeps(cls: Function): { owner: Function, entry: DepsEntry } | 
 export const depsRegistry: Required<DepsLookup> = {
   get: (cls) => getDeps(cls)?.entry,
   hasOwn: (cls) => getDeps(cls)?.owner === cls,
-  getWithOwner: (cls) => getDeps(cls),
 }

@@ -374,6 +374,14 @@ describe('zero-length constructors', () => {
     expect(messageOf(() => new Container().make(Extended))).toContain('takes 1 param(s)')
   })
 
+  it('reads a heritage class expression through its first top-level brace (known limit)', () => {
+    const A = new Function('return class A extends class { constructor(x = 1) {} } {}')()
+    const B = new Function('return class B extends class { m() {} } { constructor(p = 1) { super(); this.p = p } }')()
+    // The inner class body is the first `{`: A counts the inner constructor, B has no leading constructor there.
+    expect(messageOf(() => new Container().make(A))).toContain('Cannot autowire A: its constructor takes 1 param(s)')
+    expect(new Container().make(B).p).toBe(1)
+  })
+
   it('does not see a constructor after a field (known limit)', () => {
     // `new Function` keeps the field in the source; a transformer moves it into the constructor instead.
     const FieldFirst = new Function('Clock', `return class FieldFirst {

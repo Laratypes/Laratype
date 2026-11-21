@@ -675,14 +675,13 @@ export class Container {
 
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
   protected build(cls: Newable, requiredBy?: string): unknown {
-    const found = this.deps.getWithOwner?.(cls)
-    const entry = found?.entry ?? this.deps.get(cls)
+    const entry = this.deps.get(cls)
     // An inherited entry with no slots does not cover a constructor whose defaults hide its params. Only a lookup
-    // that implements `hasOwn`/`getWithOwner` can say an entry is inherited; without it, the entry is authoritative.
+    // that implements `hasOwn` can say an entry is inherited; without it, the entry is authoritative.
     const hiddenParams = entry !== undefined
       && entry.slots.length === 0
       && cls.length === 0
-      && (found ? found.owner !== cls : this.deps.hasOwn?.(cls) === false)
+      && this.deps.hasOwn?.(cls) === false
     if (!entry || hiddenParams) {
       // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
       const params = leadingConstructorParamCount(cls) ?? cls.length
