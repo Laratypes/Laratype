@@ -85,9 +85,7 @@ export class LocaleMiddleware extends Middleware {
 
     const locale = fromQuery ?? fromUser ?? fromHeader;
     if (locale === undefined) return next(request);
-    // The request's container only: `ContextApi.getContainer()` also answers with the app container outside a request
-    // (D11 #318), where setting the locale would leak into later requests
-    if (ContextApi.getRequestStore().getStore()?.container === undefined) {
+    if (ContextApi.getContainer() === undefined) {
       warnNoRequestContainer("LocaleMiddleware");
       return next(request);
     }

@@ -8,6 +8,11 @@ const STATE = Symbol.for('laratype.di.facade')
 interface FacadeState {
   app?: Container
   fallback?: FallbackContainer
+  /**
+   * The fallback that served before `app` was set, kept until a boot confirms or fails: a failing boot puts it back, so
+   * its fakes still apply (D11 #318).
+   */
+  pending?: FallbackContainer
 }
 
 const state = (): FacadeState => ((globalThis as { [STATE]?: FacadeState })[STATE] ??= {})
@@ -27,48 +32,101 @@ const warnFallback = (): void => {
   if (store[FALLBACK_WARNED]) return
   store[FALLBACK_WARNED] = true
   console.warn(
-    '[@laratype/core] No app container: facades and app lookups outside a request use a shared autowire-only container, '
-    + 'so app bindings do not apply and the singletons it autowires are shared for the process. '
+    '[@laratype/core] No app container: facades use a shared autowire-only container, so app bindings do not apply and '
+    + 'the singletons it autowires are shared for the process. '
     + 'Call Serve.getContainer() or setFacadeApplication() to use the app container.',
   )
 }
 
+/** One swap made while the fallback served as the facade application. */
+interface FallbackSwap {
+  value: unknown
+  /** The binding the swap made here; a later bind replaces it and supersedes the swap. */
+  swapped: unknown
+  /** The app containers this swap was carried into, with the undo of each copy. */
+  carried: Array<{ app: Container, restore: () => void }>
+}
+
 /**
- * The shared fallback: an autowire-only container for facades and app lookups outside a booted app. It remembers its
- * active swaps, so `setFacadeApplication()` carries a `Hash.fake()` made before the boot into the app container (D11 #318).
+ * The shared fallback: an autowire-only container for facades outside an app container. It keeps its active swaps per
+ * token (a stack, so nested fakes restore one another), and can replay them into the app container, again after
+ * providers registered, or back into itself when a boot fails (D11 #318).
  */
 class FallbackContainer extends Container {
-  /** Token → the value of each swap, the binding it made, and the undos of the copies carried into an app container. */
-  readonly swaps = new Map<unknown, { value: unknown, swapped: unknown, carried: Array<() => void> }>()
+  /** Token → its swaps, oldest first: restoring one reinstates the previous. */
+  readonly swaps = new Map<unknown, FallbackSwap[]>()
 
   override swap<T>(token: Token<T>, value: NoInfer<T>): () => void {
     const restore = super.swap(token, value)
-    const record = { value, swapped: this.bindings.get(token), carried: [] as Array<() => void> }
-    this.swaps.set(token, record)
-    return () => {
-      restore()
-      if (this.swaps.get(token) !== record) return
-      this.swaps.delete(token)
-      // A swap carried into the app container is undone there too, unless that container rebound the token since
-      for (const undo of record.carried) undo()
+    const record: FallbackSwap = { value, swapped: this.bindings.get(token), carried: [] }
+    const stack = this.swaps.get(token)
+    if (stack) stack.push(record)
+    else this.swaps.set(token, [record])
+    return () => this.release(token, record, restore)
+  }
+
+  /**
+   * Replay each token's active swap in `app`, unless the app already binds the token (the app's binding wins). `replace`
+   * also puts a fake back over a binding made after its copy (a provider's `register()` or `boot()`), keeping that
+   * binding as the fake's restore target.
+   */
+  carrySwapsTo(app: Container, replace = false): void {
+    for (const [token, stack] of this.swaps) {
+      const record = stack.at(-1)
+      // A bind after the swap supersedes it here, as it makes the swap's restore a no-op
+      if (!record || this.bindings.get(token) !== record.swapped) continue
+      const copy = record.carried.find(carried => carried.app === app)
+      if (!copy) {
+        if (app.has(token as Token)) continue
+        record.carried.push({ app, restore: app.swap(token as Token, record.value) })
+        continue
+      }
+      if (!replace) continue
+      // A provider may have bound over our copy: undo ours first, so the fake's undo restores the provider's binding
+      copy.restore()
+      copy.restore = app.swap(token as Token, record.value)
     }
   }
 
-  /** Replay the active swaps in `app`, unless it already binds the token: the app container's own binding wins. */
-  carrySwapsTo(app: Container): void {
-    for (const [token, record] of this.swaps) {
-      // A bind after the swap supersedes it here, as it makes the swap's restore a no-op
-      if (this.bindings.get(token) !== record.swapped) continue
-      if (app.has(token as Token)) continue
-      record.carried.push(app.swap(token as Token, record.value))
+  /** Undo one swap: drop its record, then put the previous active one back here and in every app it was carried into. */
+  private release(token: unknown, record: FallbackSwap, restore: () => void): void {
+    restore()
+    const stack = this.swaps.get(token)
+    const index = stack?.indexOf(record) ?? -1
+    if (!stack || index === -1) return
+    stack.splice(index, 1)
+    if (stack.length === 0) this.swaps.delete(token)
+    const previous = stack.at(-1)
+    for (const { app, restore: undo } of record.carried) {
+      undo()
+      // A restore of an inner fake reinstates the outer one over whatever the app had (a provider binding included)
+      if (previous && this.bindings.get(token) === previous.swapped) this.forceCarry(token, previous, app)
     }
+  }
+
+  /** Whether a swap is still active: some token's newest record still owns its fallback binding. */
+  hasActiveSwaps(): boolean {
+    for (const [token, stack] of this.swaps) {
+      const record = stack.at(-1)
+      if (record && this.bindings.get(token) === record.swapped) return true
+    }
+    return false
+  }
+
+  /** Put `record`'s value in `app` over its current binding, replacing this record's earlier copy there. */
+  private forceCarry(token: unknown, record: FallbackSwap, app: Container): void {
+    const copy = record.carried.find(carried => carried.app === app)
+    if (copy) copy.restore()
+    const restore = app.swap(token as Token, record.value)
+    if (copy) copy.restore = restore
+    else record.carried.push({ app, restore })
   }
 }
 
 /**
  * The app container: the one `setFacadeApplication()` set, else one autowire-only container shared by every facade and
- * app lookup. Creating the fallback warns once per process in dev (D9 #270). http's `Request` fallback switches to this
- * lookup after #379 / #400 merge (D11 #318).
+ * by the app lookups that move onto it. Creating the fallback warns once per process in dev (D9 #270). http's `Request`
+ * fallback switches to this lookup after #379 / #400 merge (D11 #318).
  */
 export function appContainer(): Container {
   const current = state()
@@ -99,15 +157,44 @@ export abstract class Facade {
 
   /**
    * Set the container facades resolve from (the kernel sets the app container); `undefined` unsets it.
-   * A swap made while facades used the fallback (a `Hash.fake()` before boot) is carried into `app`, so it survives the
-   * boot; either way the fallback container is dropped, so its autowired instances do not outlive the app.
+   * A fake made while facades used the fallback is carried into `app` (a token the app already binds keeps its binding);
+   * `reapplyFakes(app)` then puts it over a provider's binding. Unsetting while an application is set gives the pre-boot
+   * fallback back, so a failed boot keeps its fakes. The new container is read before the state changes, so one that
+   * throws leaves the state as it was.
    */
   static setFacadeApplication(app: Container | undefined): void {
     const current = state()
-    const fallback = current.fallback
-    current.app = app ?? undefined
-    current.fallback = undefined
-    if (app && fallback) fallback.carrySwapsTo(app)
+    if (app) {
+      const fallback = current.fallback ?? current.pending
+      // Carry first: a container whose get throws must not leave the facade state half-changed
+      if (fallback) fallback.carrySwapsTo(app)
+      current.app = app
+      current.pending = fallback
+      current.fallback = undefined
+      return
+    }
+    const pending = current.pending
+    const hadApp = current.app !== undefined
+    current.app = undefined
+    current.pending = undefined
+    // A failed boot puts the fallback that served before it back, with its fakes; a plain unset drops the fallback
+    current.fallback = hadApp && pending?.hasActiveSwaps() ? pending : undefined
+  }
+
+  /**
+   * Boot hook (`bootProviders()`): re-apply the pre-boot fakes over the bindings providers registered or booted, so an
+   * explicit fake wins over a provider's implementation (D11 #318).
+   */
+  static reapplyFakes(app: Container): void {
+    const current = state()
+    if (current.app !== app || !current.pending) return
+    current.pending.carrySwapsTo(app, true)
+  }
+
+  /** Boot hook (`bootProviders()`): a successful boot consumes the pre-boot fallback, so a later unset cannot revive it. */
+  static confirmFakes(app: Container): void {
+    const current = state()
+    if (current.app === app) current.pending = undefined
   }
 
   /** Whether `setFacadeApplication()` set a container: false while facades use the fallback container. */

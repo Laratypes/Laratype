@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { __laratype_deps, Container, depsRegistry, Facade } from "@laratype/core";
-import { AppServiceProvider, bootProviders, ContextApi, Hash, Hasher, ServiceProvider } from "@laratype/support";
+import { AppServiceProvider, bootProviders, Hash, Hasher, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
 
 class Clock {}
@@ -15,6 +15,13 @@ __laratype_deps(Greeter, [() => Clock], { params: ["clock"] });
 class Fixed extends Hasher {
   override make() {
     return "fixed";
+  }
+}
+
+/** A Hasher a provider binds over the fake, to check the fake still wins. */
+class OtherHash extends Hasher {
+  override make() {
+    return "provider";
   }
 }
 
@@ -106,13 +113,22 @@ describe("facade application (D11 #318)", () => {
     Facade.setFacadeApplication(undefined);
   });
 
-  it("getContainer() re-sets the facade application on every call, so provider bindings still apply after a clear", () => {
+  it("re-sets a facade application cleared while the container lives", () => {
     const container = Serve.getContainer().bind(Hasher, Fixed);
     // A test afterEach of another suite cleared it while Serve's container lives
     Facade.setFacadeApplication(undefined);
     expect(Serve.getContainer()).toBe(container);
     expect(Facade.getFacadeApplication()).toBe(container);
     expect(Hash.make("secret")).toBe("fixed");
+  });
+
+  it("leaves a facade application another component set", () => {
+    const container = Serve.getContainer();
+    const other = new Container().bind(Hasher, OtherHash);
+    Facade.setFacadeApplication(other);
+    expect(Serve.getContainer()).toBe(container);
+    expect(Facade.getFacadeApplication()).toBe(other);
+    expect(Hash.make("secret")).toBe("provider");
   });
 
   it("a Hash.fake() made before bootProvider() survives the boot", async () => {
@@ -123,6 +139,36 @@ describe("facade application (D11 #318)", () => {
     expect(Hash.make("secret")).toBe("fixed");
     restore();
     // The undo carried into the app container removes the fake there too
+    expect(Hash.make("secret")).not.toBe("fixed");
+  });
+
+  it("a pre-boot fake beats a provider binding of the accessor", async () => {
+    const restore = Hash.fake(new Fixed());
+    class BindHash extends ServiceProvider {
+      register() {
+        this.app.bind(Hasher, OtherHash);
+      }
+    }
+    await Serve.bootProvider([BindHash]);
+    expect(Hash.make("secret")).toBe("fixed");
+    restore();
+    expect(Hash.make("secret")).toBe("provider");
+  });
+
+  it("a failed boot keeps a pre-boot fake, and a retried boot keeps it", async () => {
+    let failing = true;
+    class Flaky extends ServiceProvider {
+      boot() {
+        if (failing) throw new Error("boot failed");
+      }
+    }
+    const restore = Hash.fake(new Fixed());
+    await expect(Serve.bootProvider([Flaky])).rejects.toThrow("boot failed");
+    expect(Hash.make("secret")).toBe("fixed");
+    failing = false;
+    await Serve.bootProvider([Flaky]);
+    expect(Hash.make("secret")).toBe("fixed");
+    restore();
     expect(Hash.make("secret")).not.toBe("fixed");
   });
 
@@ -144,19 +190,6 @@ describe("facade application (D11 #318)", () => {
     ]);
     const container = Serve.getContainer();
     expect(Facade.getFacadeApplication()).toBe(container);
-    expect(ContextApi.getContainer()).toBe(container);
     for (const down of [...first, ...second]) await down();
-  });
-
-  it("ContextApi.getContainer() is the Serve container outside a request, and the facade sees a binding made there", () => {
-    const container = Serve.getContainer();
-    expect(ContextApi.getContainer()).toBe(container);
-    const other = new Fixed();
-    ContextApi.getContainer()!.instance(Hasher, other);
-    expect(Hash.make("secret")).toBe("fixed");
-    const fake = new Fixed();
-    const restore = Hash.fake(fake);
-    expect(ContextApi.getContainer()!.make(Hasher)).toBe(fake);
-    restore();
   });
 });

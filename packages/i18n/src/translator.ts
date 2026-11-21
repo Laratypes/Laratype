@@ -108,8 +108,6 @@ export class Translator {
 
   /** The request-scoped `Locale`, or `undefined` outside a request. */
   private requestLocale(): Locale | undefined {
-    // The request's container only: `ContextApi.getContainer()` also answers with the app container outside a request
-    // (D11 #318), where a request-scoped Locale cannot be built.
-    return ContextApi.getRequestStore().getStore()?.container?.make(Locale);
+    return ContextApi.getContainer()?.make(Locale);
   }
 }

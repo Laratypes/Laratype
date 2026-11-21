@@ -279,19 +279,56 @@ describe('setFacadeApplication() carry-over', () => {
 
   it('keeps the app container binding over a fallback swap', () => {
     vi.stubGlobal('__PROD__', true)
-    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
     const bound = new Counter()
     const app = new Container().instance(Counter, bound)
     Facade.setFacadeApplication(app)
     expect(app.make(Counter)).toBe(bound)
+    restore()
   })
 
   it('does not carry a swap a later bind on the fallback superseded', () => {
     vi.stubGlobal('__PROD__', true)
-    Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
     Facade.getFacadeApplication().instance(Counter, new Counter())
     const app = new Container()
     Facade.setFacadeApplication(app)
     expect(app.has(Counter)).toBe(false)
+    restore()
+  })
+
+  it('carries the outer fake when nested fakes are restored before the app container is set', () => {
+    vi.stubGlobal('__PROD__', true)
+    const outer = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const inner = Count.fake(Object.assign(new Counter(), { count: 19 }))
+    inner()
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(Count.next()).toBe(10)
+    outer()
+    expect(Count.next()).toBe(1)
+  })
+
+  it('a restore after the app container is set reinstates the outer fake in the app', () => {
+    vi.stubGlobal('__PROD__', true)
+    const outer = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const inner = Count.fake(Object.assign(new Counter(), { count: 19 }))
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(Count.next()).toBe(20)
+    inner()
+    expect(Count.next()).toBe(10)
+    outer()
+    expect(Count.next()).toBe(1)
+  })
+
+  it('leaves the fallback and its fake in place when the new container throws before it is committed', () => {
+    vi.stubGlobal('__PROD__', true)
+    const restore = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    const throwing = new Proxy({}, { get: () => { throw new Error('the container was read') } }) as unknown as Container
+    expect(() => Facade.setFacadeApplication(throwing)).toThrow('the container was read')
+    expect(Facade.hasFacadeApplication()).toBe(false)
+    expect(Count.next()).toBe(10)
+    restore()
   })
 })
