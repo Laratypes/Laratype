@@ -41,12 +41,15 @@ type JsonValue<T> = unknown extends T
 /**
  * The wire type of a response body after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through
  * `toJSON`), `undefined` / functions / symbols are removed from unions, a property that may be `undefined` is optional
- * and dropped, `bigint` → `never`, `Map` / `Set` → `{}`. A top-level value JSON has no text for (`undefined`, and the
- * server's `null` for it) is `null`, so `Jsonify<string | undefined>` is `string | null` (H32 #312). The server serializes
- * a response schema's output with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ * and dropped, `bigint` → `never`, `Map` / `Set` → `{}`. A top-level value JSON has no text for (`undefined`, the
+ * server's `null` for it, and a root `toJSON()` that returns `undefined`) is `null`, so `Jsonify<string | undefined>` is
+ * `string | null` (H32 #312). The server serializes a response schema's output with `JSON.stringify`, so the frontend
+ * reads it as `Jsonify<InferOut<schema>>`.
  */
 export type Jsonify<T> = unknown extends T
   ? T
-  : undefined extends T
-    ? JsonValue<T> | null
-    : JsonValue<T>;
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : undefined extends T
+      ? JsonValue<T> | null
+      : JsonValue<T>;

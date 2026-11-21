@@ -11,6 +11,10 @@ describe('Jsonify (the wire type, #107)', () => {
     expectTypeOf<Jsonify<bigint>>().toEqualTypeOf<never>()
     expectTypeOf<Jsonify<Map<string, number>>>().toEqualTypeOf<{}>()
     expectTypeOf<Jsonify<unknown>>().toEqualTypeOf<unknown>()
+    // a root toJSON() result of undefined has no JSON text either: JSON.stringify returns undefined, the server sends null
+    expectTypeOf<Jsonify<{ toJSON(): string | undefined }>>().toEqualTypeOf<string | null>()
+    expectTypeOf<Jsonify<{ toJSON(): Date }>>().toEqualTypeOf<string>()
+    expectTypeOf<Jsonify<{ toJSON(): undefined }>>().toEqualTypeOf<null>()
   })
 
   // H32 #312: the server sends no JSON text as `null` (`contractResponse.serialize`), so a top-level `undefined` is
