@@ -966,6 +966,19 @@ describe('createClient(manifest), the separate-repo FE', () => {
     for (const { url } of calls) expect(new URL(url).host).toBe('api.example.com')
   })
 
+  it('rejects a call to a wildcard route before fetch, naming the path', async () => {
+    // a wildcard adds no typed params, so the call compiles: buildUrl is what refuses it
+    const forged = { 'files.all': { method: 'get', path: '/files/*' } }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as {
+      files: { all: () => Promise<unknown> }
+    }
+    await expect(api.files.all()).rejects.toThrow(
+      new TypeError('[@laratype/contract] buildUrl: path "/files/*" has a "*" segment, which buildUrl cannot fill'),
+    )
+    expect(calls).toEqual([])
+  })
+
   it('rejects a route path that would leave the page\'s origin under a same-origin baseUrl', async () => {
     const forged = {
       't.slashes': { method: 'get', path: '//evil.com/x' },

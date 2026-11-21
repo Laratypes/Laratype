@@ -1,5 +1,5 @@
 import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, joinPath, routeErrors } from "@laratype/contract";
-import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1 } from "@laratype/contract";
+import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1, UrlQuery } from "@laratype/contract";
 import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, ManifestRoute, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
 import { checkResponseBody } from "./validate";
 import type { ResponseCheckFailure } from "./validate";
@@ -8,10 +8,10 @@ const fail = (message: string): never => {
   throw new TypeError(`[@laratype/client] ${message}`);
 };
 
-/** What a call passes on: the runtime view of `CallInput`. */
+/** What a call passes on: the runtime view of `CallInput`, whose query is flat (`UrlQuery`) even when the schema input is wider. */
 interface RequestInput {
   readonly params?: Readonly<Record<string, string | number>>;
-  readonly query?: object;
+  readonly query?: UrlQuery;
   readonly body?: unknown;
   readonly headers?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
