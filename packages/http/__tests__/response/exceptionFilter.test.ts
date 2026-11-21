@@ -278,7 +278,11 @@ describe('an Exception body that cannot be built', () => {
 
   it('a 5xx body is not built at all: the generic body goes out', async () => {
     quiet()
-    await expectBody(await throwing(() => new BrokenBody(503)), 503, GENERIC)
+    const failure = new BrokenBody(503)
+    const toJson = vi.spyOn(failure, 'toJson')
+    await expectBody(await throwing(() => failure), 503, GENERIC)
+    // skipped, not a thrown toJson() caught into the same generic 503: the spy proves the body was never serialized
+    expect(toJson).not.toHaveBeenCalled()
   })
 })
 
