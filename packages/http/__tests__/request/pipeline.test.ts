@@ -373,7 +373,7 @@ describe('the body by media type (H26 #287)', () => {
 
   it('a client that disconnects mid-body is a 400 with no server-side log, form and JSON alike', async () => {
     const errors = quiet()
-    // @hono/node-server aborts the request's signal on close, and errors the stream with a plain Error('aborted')
+    // The node adapter aborts the request's signal on close, and errors the stream with a plain Error('aborted')
     const aborted = (contentType: string, firstChunk: string) => {
       const abort = new AbortController()
       const body = new ReadableStream<Uint8Array>({

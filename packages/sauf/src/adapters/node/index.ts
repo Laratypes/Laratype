@@ -4,6 +4,7 @@ import { useAppManifest } from "../../manifest/load";
 import { blue, green } from "kolorist";
 import { serve } from "@hono/node-server";
 import { guardStreamErrors } from "./streamErrors";
+import { mountNodeConnInfo } from "./connInfo";
 import path from "path";
 
 globalThis.__PROD__ = true;
@@ -17,10 +18,13 @@ export const start = async () => {
 
   const laratype = await importModule(resolveSync("laratype"))
   
+  const app = laratype.Serve.getInstance();
+
+  // Before bootProvider(): the getConnInfo middleware must run before the providers mount the routes (H30 #299)
+  await mountNodeConnInfo(app);
+
   await laratype.Serve.bootProvider();
 
-  const app = laratype.Serve.getInstance();
-  
   const version = await getLaratypeVersion();
   const rootInfo = await getRootPackageInfo();
   let envFileName = '';
