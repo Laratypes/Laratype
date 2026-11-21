@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appContainer, Container, DiError, Facade, peekAppContainer, token } from '@laratype/core'
+import type { Token } from '@laratype/core'
 
 abstract class Greeter {
   abstract greet(name: string): string
@@ -359,6 +360,42 @@ describe('setFacadeApplication() dropped fakes', () => {
     expect(() => Facade.setFacadeApplication(proxy)).not.toThrow()
     expect(peekAppContainer()).toBe(proxy)
     expect(warn).toHaveBeenCalledTimes(1)
+    restore()
+  })
+
+  it('warns without throwing when a class token name is not a string', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    class Tok {
+      static name() {}
+    }
+    class TokFacade extends Facade {
+      static override readonly accessor = Tok
+    }
+    const restore = TokFacade.fake(new Tok())
+    const app = new Container()
+    expect(() => Facade.setFacadeApplication(app)).not.toThrow()
+    expect(peekAppContainer()).toBe(app)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes')
+    restore()
+  })
+
+  it('warns without throwing when a token cannot be printed', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    const unprintable = { toString() { throw new Error('no label') } } as unknown as Token<object>
+    class UnprintableFacade extends Facade {
+      static override readonly accessor = unprintable
+    }
+    const restore = UnprintableFacade.fake({})
+    const app = new Container()
+    expect(() => Facade.setFacadeApplication(app)).not.toThrow()
+    expect(peekAppContainer()).toBe(app)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('<unprintable token>')
     restore()
   })
 })

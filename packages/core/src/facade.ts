@@ -36,13 +36,16 @@ const warnFallback = (): void => {
   )
 }
 
-/** A token's name, escaped so a hostile token name cannot break or forge the warning line. */
+/** A token's label, coerced and escaped: a hostile token cannot make the warning throw or break the line. */
 const tokenLabel = (token: unknown): string => {
-  const name = typeof token === 'function'
-    ? ((token as { name?: string }).name || '<anonymous class>')
-    : String(token)
-  return name.replace(/[\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) =>
-    char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  try {
+    const name = typeof token === 'function' ? (token as { name?: unknown }).name : token
+    const label = name === undefined || name === null || name === '' ? '<anonymous class>' : String(name)
+    return label.replace(/[\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) =>
+      char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  } catch {
+    return '<unprintable token>'
+  }
 }
 
 const warnDroppedFakes = (tokens: ReadonlyArray<unknown>): void => {
