@@ -253,6 +253,12 @@ describe('PassportServiceProvider', () => {
 
     // A dev restart or a second test boot starts from passport's defaults, not the previous credentials
     expect(unuse.mock.calls.map(([name]) => name)).toEqual(['web', 'admin'])
+    expect(Passport.passport._strategy('web')).toBeUndefined()
+    expect(Passport.passport._strategy('admin')).toBeUndefined()
+
+    // down() clears its list, so calling the cleanup again unregisters nothing
+    await Promise.all(cleanups.map((down) => down()))
+    expect(unuse).toHaveBeenCalledTimes(2)
   })
 
   it('fails the boot without app/config/auth.ts', async () => {
