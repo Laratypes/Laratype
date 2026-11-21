@@ -64,31 +64,6 @@ const NUMERIC_TYPES: readonly ColumnType[] = [
   "tinyint",
 ];
 
-/**
- * The integer range of a route-key column (docs/v1/database.md › BindableModel): `smallint` / `int2` are 16-bit,
- * `int` / `int4` / `integer` 32-bit, and MySQL's `mediumint` / `tinyint` narrower. A `Number` column is TypeORM's
- * `int` on the three known drivers but SQLite's 64-bit `INTEGER`, so an unknown driver keeps the safe-integer rule.
- * `bigint` is not in `NUMERIC_TYPES`: it keeps the string, so its precision is not reduced to a `Number`.
- */
-const integerLimits = (type: ColumnType, driver: RouteKeyDriver): readonly [number, number] | undefined => {
-  if (type === "smallint" || type === "int2") {
-    return [-32768, 32767];
-  }
-  if (type === "mediumint") {
-    return [-8388608, 8388607];
-  }
-  if (type === "tinyint") {
-    return [-128, 127];
-  }
-  if (type === "int" || type === "int4" || type === "integer") {
-    return [-2147483648, 2147483647];
-  }
-  if (type === Number) {
-    return driver === "unknown" ? undefined : [-2147483648, 2147483647];
-  }
-  return undefined;
-};
-
 const DATE_TYPES: readonly ColumnType[] = [
   Date,
   "date",
@@ -272,12 +247,9 @@ const convertRouteKey = (
   const type = column.type;
   if (NUMERIC_TYPES.includes(type)) {
     // The round-trip check refuses 1e3, " 1", "01", "1.0" and values above 2^53, which Number cannot hold exactly
-    if (!INTEGER_KEY.test(key) || String(Number(key)) !== key || !Number.isSafeInteger(Number(key))) {
-      return undefined;
-    }
-    const value = Number(key);
-    const limits = integerLimits(type, driver);
-    return limits === undefined || (value >= limits[0] && value <= limits[1]) ? value : undefined;
+    return INTEGER_KEY.test(key) && String(Number(key)) === key && Number.isSafeInteger(Number(key))
+      ? Number(key)
+      : undefined;
   }
   if (TIME_TYPES.includes(type)) {
     // A MySQL TIME hydrates as "HH:MM:SS" and a PostgreSQL time as a string too, never a Date; a malformed one is a
@@ -323,7 +295,7 @@ const isRouteKeyValue = (value: unknown): value is string | number | bigint | bo
  * Applies the plain path's column-type rule to a value `transformer.to` returned (docs/v1/database.md › BindableModel).
  * A string is only validated: it binds as the transformer returned it, so a `date` / `datetime` / integer / boolean
  * string does not become a `Date` (which the driver would serialize in the process timezone). A typed value must match
- * the column's class, integer range and enum labels. `undefined` is a miss.
+ * the column's class and enum labels. `undefined` is a miss.
  */
 const checkRouteKeyType = (
   column: ColumnMetadata,
@@ -335,12 +307,7 @@ const checkRouteKeyType = (
     return convertRouteKey(column, value, driver) === undefined ? undefined : value;
   }
   if (NUMERIC_TYPES.includes(type)) {
-    const limits = integerLimits(type, driver);
-    return typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      (limits === undefined || (value >= limits[0] && value <= limits[1]))
-      ? value
-      : undefined;
+    return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
   }
   if (DATE_TYPES.includes(type)) {
     return isValidDate(value) ? value : undefined;

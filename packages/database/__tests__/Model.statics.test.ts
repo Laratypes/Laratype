@@ -89,11 +89,8 @@ const COLUMNS: FakeColumn[] = [
   { propertyName: 'hostileRoute', propertyPath: 'hostileRoute', type: String, transformer: toObject },
   // A bigint route key: getRouteKey() may carry a bigint, while findByRouteKey() keeps the path string
   { propertyName: 'snowflake', propertyPath: 'snowflake', type: 'bigint' },
-  // Integer columns whose route key must stay inside the column's range
-  { propertyName: 'smallValue', propertyPath: 'smallValue', type: 'smallint' },
+  // An int column used for the unsigned / SQLite above-2^31 regression key
   { propertyName: 'intValue', propertyPath: 'intValue', type: 'int' },
-  { propertyName: 'mediumValue', propertyPath: 'mediumValue', type: 'mediumint' },
-  { propertyName: 'tinyValue', propertyPath: 'tinyValue', type: 'tinyint' },
   // A date-only key: TypeORM hydrates "YYYY-MM-DD", not a Date
   { propertyName: 'birthday', propertyPath: 'birthday', type: 'date' },
   // An enum route key: PostgreSQL rejects a label outside column.enum
@@ -652,50 +649,15 @@ describe('Model.findByRouteKey', () => {
     }
   })
 
-  it('refuses an integer key outside the column range', async () => {
-    const cases: [string, string, string, string, string][] = [
-      ['smallValue', '32767', '32768', '-32768', '-32769'],
-      ['intValue', '2147483647', '2147483648', '-2147483648', '-2147483649'],
-      ['mediumValue', '8388607', '8388608', '-8388608', '-8388609'],
-      ['tinyValue', '127', '128', '-128', '-129'],
-    ]
-    for (const [routeKeyName, max, over, min, under] of cases) {
-      for (const key of [max, min]) {
-        const hit = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: Number(key) }] })
-        await expect(hit.User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toMatchObject({ id: 1 })
-        expect(hit.findOneCalls, key).toEqual([{ where: { [routeKeyName]: Number(key) } }])
-      }
-      for (const key of [over, under]) {
-        const miss = model({ routeKeyName, rows: [{ id: 1, [routeKeyName]: 0 }] })
-        await expect(miss.User.findByRouteKey(key), `${routeKeyName} ${key}`).resolves.toBeNull()
-        expect(miss.findOneCalls, key).toEqual([])
-      }
-    }
+  it('accepts an integer key above 2^31 on an int column and a SQLite integer key', async () => {
+    // A MySQL unsigned int id can exceed 2^31; the round-4 rule only checks a canonical safe integer
+    const unsigned = model({ routeKeyName: 'intValue', rows: [{ id: 1, intValue: 3_000_000_000 }] })
+    await expect(unsigned.User.findByRouteKey('3000000000')).resolves.toMatchObject({ id: 1, intValue: 3_000_000_000 })
+    expect(unsigned.findOneCalls).toEqual([{ where: { intValue: 3_000_000_000 } }])
 
-    // The default Number column is a 32-bit int on the known drivers
-    const idHit = model({ rows: [{ id: 2147483647 }] })
-    await expect(idHit.User.findByRouteKey('2147483647')).resolves.toMatchObject({ id: 2147483647 })
-    const idMiss = model({ rows: [{ id: 2147483647 }] })
-    await expect(idMiss.User.findByRouteKey('2147483648')).resolves.toBeNull()
-    expect(idMiss.findOneCalls).toEqual([])
-
-    // An unknown driver (SQLite, ...) keeps the safe-integer rule for a Number column, whose INTEGER is 64-bit
-    const idUnknown = model({ driver: 'unknown', rows: [{ id: 2147483648 }] })
-    await expect(idUnknown.User.findByRouteKey('2147483648')).resolves.toMatchObject({ id: 2147483648 })
-
-    // A transformer's number takes the same range check
-    const columns: FakeColumn[] = [
-      ...COLUMNS,
-      {
-        propertyName: 'smallCode',
-        propertyPath: 'smallCode',
-        type: 'smallint',
-        transformer: { to: () => 40000, from: (value: unknown) => value },
-      },
-    ]
-    const transformedMiss = model({ routeKeyName: 'smallCode', columns, rows: [{ id: 1 }] })
-    await expect(transformedMiss.User.findByRouteKey('ignored')).resolves.toBeNull()
-    expect(transformedMiss.findOneCalls).toEqual([])
+    // SQLite's INTEGER is 64-bit; the unknown driver must not cap it at 2^31-1
+    const sqlite = model({ driver: 'sqlite', routeKeyName: 'intValue', rows: [{ id: 1, intValue: 3_000_000_000 }] })
+    await expect(sqlite.User.findByRouteKey('3000000000')).resolves.toMatchObject({ id: 1, intValue: 3_000_000_000 })
   })
 
   it('refuses an enum key outside column.enum', async () => {
