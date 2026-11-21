@@ -33,7 +33,7 @@
   "dependencies": {
     "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",
-    "winston": "^3.17.0"
+    "winston": "^3.19.0"
   },
   "buildOptions": {},
   "files": [
