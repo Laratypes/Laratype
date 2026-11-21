@@ -242,6 +242,19 @@ describe('PassportServiceProvider', () => {
     expect(use.mock.calls.map(([name]) => name)).toEqual(['web', 'admin'])
   })
 
+  it('unregisters the strategies this boot added in down()', async () => {
+    const unuse = vi.spyOn(Passport.passport, 'unuse')
+    setAppManifest(manifest())
+    const container = new Container({ deps: depsRegistry })
+    container.instance(HTTP_APP, new Hono())
+    const cleanups = await bootProviders(container, [PassportServiceProvider])
+
+    await Promise.all(cleanups.map((down) => down()))
+
+    // A dev restart or a second test boot starts from passport's defaults, not the previous credentials
+    expect(unuse.mock.calls.map(([name]) => name)).toEqual(['web', 'admin'])
+  })
+
   it('fails the boot without app/config/auth.ts', async () => {
     setAppManifest({ ...manifest(), configs: [] })
     const container = new Container({ deps: depsRegistry })
