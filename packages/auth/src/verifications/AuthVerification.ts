@@ -2,6 +2,7 @@ import type { Model } from "@laratype/database";
 import type TokenGuard from "../guard/TokenGuard";
 import type { JWTSignOptions } from "../guard/TokenGuard";
 import { authManager } from "../guard/resolve";
+import type { GuardName } from "../Register";
 
 export class Authenticated<T extends Model = any> {
 
@@ -25,7 +26,7 @@ export class Authenticated<T extends Model = any> {
 export default class AuthVerification {
 
   /** The guard named `guardName`, from the app container's `AuthManager`. */
-  public static guard(guardName: string) {
+  public static guard(guardName: GuardName) {
     return authManager().guard(guardName);
   }
 

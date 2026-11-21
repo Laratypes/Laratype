@@ -1,4 +1,4 @@
-import type { ApiTypes, EndpointShape, Jsonify, Prettify } from "@laratype/contract";
+import type { ApiTypes, EndpointShape, Jsonify, Method, Prettify } from "@laratype/contract";
 
 /** What `JSON.stringify` drops from an object or sends as `null` in an array; the same set as `Jsonify` in @laratype/contract. */
 type NotJson = undefined | symbol | ((...args: any[]) => unknown);
@@ -117,6 +117,8 @@ export type ClientFailure<E extends EndpointShape> = Failure<E["errors"]>;
  * - a network failure or abort before the headers arrive: `status: 0`, no `response`, `error` is the thrown error;
  * - an error while the body is read (an abort or network error after the headers): the HTTP status, `response`, that error;
  * - a 2xx other than the declared status, or an empty body where a response schema is declared;
+ * - with `validateResponses`, a success body that does not match the response schema: a `ResponseValidationError`,
+ *   or the error the schema threw;
  * - a status or code the endpoint doesn't declare, or a body that isn't JSON.
  * `error` is the thrown error or the parsed body.
  */
@@ -150,7 +152,114 @@ export type Client<T, P = {}> = {
 /** The client `createClient(api)` returns: `ClientOf<typeof appApi>`. */
 export type ClientOf<A, P = {}> = Client<ApiTypes<A>, P>;
 
-/** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no header for sure. */
+/** Every endpoint of an API type, as a union: the tree flattened. */
+type ApiEndpoints<A> = { [K in keyof A]: A[K] extends EndpointShape ? A[K] : ApiEndpoints<A[K]> }[keyof A];
+
+/** The endpoint an API type declares at method `M` and full path `Path`; `never` when none matches. */
+type EndpointAt<A, M extends Method, Path extends string> = Extract<ApiEndpoints<A>, { method: M; path: Path }>;
+
+/** The paths an API type declares for method `M`; `never` when it declares none. */
+type PathsOf<A, M extends Method> = ApiEndpoints<A> extends infer E
+  ? E extends { method: M; path: infer P }
+    ? P
+    : never
+  : never;
+
+/**
+ * The tree locations of the endpoints that answer method `M` at path `Path`, as a union of tuples: the keys from the
+ * API root down to each endpoint. `ApiEndpoints` is a union of shapes, so two endpoints with identical types merge into
+ * one member and look like one match; a location per endpoint keeps them apart, so ambiguity can be counted.
+ */
+type MatchingLocations<A, M extends Method, Path extends string, Prefix extends readonly PropertyKey[] = []> = {
+  [K in keyof A]: A[K] extends EndpointShape
+    ? A[K] extends { method: M; path: Path }
+      ? readonly [...Prefix, K]
+      : never
+    : MatchingLocations<A[K], M, Path, readonly [...Prefix, K]>;
+}[keyof A];
+
+/** Whether `T` is a union: a path that matches two endpoints is ambiguous. */
+type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
+
+/** A refusal of the path-style types: the `error` text is the diagnostic. Private to the check below. */
+type PathError<Message extends string> = { readonly error: Message };
+
+/**
+ * Whether `A` has a key that is not a single literal at any level (a `string` or `number` index signature, or a
+ * template-literal pattern such as `` `/api/${string}` ``). Such a key names no location, so the check can't tell the
+ * endpoints under it apart (`Record<string, E>` matches every path with one endpoint's types). Symbol keys, the
+ * `defineApi` brands, are ignored: they name no path.
+ */
+type HasNonLiteralKey<A> = A extends object
+  ? true extends {
+      [K in keyof A]: K extends string | number
+        ? [LiteralKey<K>] extends [never]
+          ? true
+          : A[K] extends EndpointShape
+            ? false
+            : HasNonLiteralKey<A[K]>
+        : false;
+    }[keyof A]
+    ? true
+    : false
+  : false;
+
+/** Whether one endpoint shape declares a path that is not a single literal (`string` or a template-literal pattern). */
+type PatternEndpoint<E> = E extends { path: infer P } ? ([LiteralKey<P & string>] extends [never] ? true : false) : false;
+
+/**
+ * Whether some endpoint of method `M` declares a path that is not a single literal. `PatternEndpoint` distributes over
+ * the union, so one pattern path is found next to literal ones, which is what `PathsOf` as a whole would hide.
+ */
+type HasPatternPath<A, M extends Method> = true extends PatternEndpoint<Extract<ApiEndpoints<A>, { method: M }>>
+  ? true
+  : false;
+
+/**
+ * The type-level check of a path-style call: `unknown` when exactly one endpoint matches, otherwise a `PathError` whose
+ * `error` property names the problem. Intersecting the path with it makes a bad path a type error that shows the text.
+ * The API type is checked before the path: an index signature names no location, so every call is refused, and a
+ * pattern path type names no single path, so the calls of its method are. Ambiguity is checked on the matched
+ * locations, before the endpoint's shape: two identical endpoint types at two places are still two matches.
+ */
+type CheckPath<A, M extends Method, Path extends string> = true extends HasNonLiteralKey<A>
+  ? PathError<"[@laratype/client] createPathClient: the API type must declare literal keys (an index signature or a pattern key cannot name an endpoint)">
+  : HasPatternPath<A, M> extends true
+    ? PathError<`[@laratype/client] createPathClient: the API declares a ${Uppercase<M>} path that is not a single literal (a template-literal or string path matches more than one path)`>
+    : [string] extends [Path]
+      ? PathError<"[@laratype/client] createPathClient: the path must be a literal (a string variable is not a path)">
+      : [Path] extends [PathsOf<A, M>]
+        ? true extends IsUnion<MatchingLocations<A, M, Path>>
+          ? PathError<`[@laratype/client] createPathClient: more than one endpoint answers ${Uppercase<M>} at path "${Path}"`>
+          : [EndpointAt<A, M, Path>] extends [never]
+            ? PathError<`[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"`>
+            : unknown
+        : PathError<`[@laratype/client] createPathClient: no ${Uppercase<M>} endpoint at path "${Path}"`>;
+
+/** The input of a path-style call: the matched endpoint's `CallInput`, with the headers `options.headers` provides. */
+type PathInput<A, M extends Method, Path extends string, P> = CallInput<EndpointAt<A, M, Path>, P>;
+
+/**
+ * One path-style call: `api.get('/api/users/:user', { params })`. The path is the full request path the server
+ * mounts and selects the endpoint whose input, result and errors type the call; a path that matches none or more
+ * than one is an error (see `client.md › Diagnostics`), and a `string` variable is rejected.
+ */
+export type PathCall<A, M extends Method, P = {}> = <Path extends string>(
+  path: Path & CheckPath<A, M, Path>,
+  ...input: [EndpointAt<A, M, Path>] extends [never]
+    ? [input?: never]
+    : {} extends PathInput<A, M, Path, P>
+      ? [input?: PathInput<A, M, Path, P>]
+      : [input: PathInput<A, M, Path, P>]
+) => Promise<ClientResult<EndpointAt<A, M, Path>>>;
+
+/**
+ * The client `createPathClient(...)` returns: one call per HTTP method (`get`, `post`, `put`, `patch`, `delete`),
+ * each taking the full request path of the endpoint it calls. `P` holds the headers `options.headers` provides.
+ */
+export type PathClient<A, P = {}> = { readonly [M in Method]: PathCall<A, M, P> };
+
+/** A literal key: not `string` or a pattern such as `` `x-${string}` ``, which name no single key (a header, a path). */
 type LiteralKey<K> = K extends string ? ({} extends Record<K, unknown> ? never : K) : never;
 
 /** The literal keys of every member of `Hd`: an index signature next to them is left out, not the keys. */
@@ -230,4 +339,34 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    * when `fetch` rejects. A throw rejects the call.
    */
   onResponse?: (response: Response, request: ClientRequest) => void | Promise<void>;
+  /**
+   * Validate every success body against the endpoint's response schema (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159);
+   * `client.md` › Dev-mode response validation). Default: off.
+   *
+   * This is a development switch: wire it to the bundler's dev flag, so a production build never runs it, e.g.
+   * `createClient(appApi, { validateResponses: import.meta.env.DEV })` (Vite) or `process.env.NODE_ENV !== "production"`
+   * on SSR.
+   * The client can't detect dev itself: `process` does not exist in a browser bundle, `import.meta.env` is
+   * bundler-specific, and the package also builds for Node (CJS and ESM).
+   *
+   * A body-carrying 2xx with a response schema is checked; a 204/205, an endpoint without a schema and a declared
+   * error body (the contract has no schema for those) are not. A mismatch resolves as the unexpected result
+   * (`client.md` › Result union) with a `ResponseValidationError` as `error`, as the server answers a dev mismatch with
+   * a 500; a schema that throws or rejects resolves the same way, with that error. Only the schema's input is checked:
+   * `data` stays the parsed JSON body, typed with the schema's wire type (`Jsonify<output>`).
+   *
+   * The generated manifest carries no schemas, so the manifest client refuses this option at compile time and throws
+   * at `createClient`.
+   */
+  validateResponses?: boolean;
 }
+
+/** The manifest client's options: the generated manifest has no response schemas to validate against (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)). */
+export type ManifestClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & {
+  validateResponses?: false;
+};
+
+/** The path client's options: a path-style call has no contract runtime, so it can't validate responses (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)). */
+export type PathClientOptions<Hd extends HeadersInit = HeadersInit> = Omit<ClientOptions<Hd>, "validateResponses"> & {
+  validateResponses?: false;
+};

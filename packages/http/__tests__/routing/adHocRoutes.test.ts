@@ -1,5 +1,7 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { Facade } from '@laratype/core'
+import { ModelBindingRegistry } from '@laratype/support'
 import { apiRoutes, defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route } from '../../src/index'
 import type { ApiRoutes } from '../../src/index'
@@ -26,11 +28,6 @@ const mount = (routes: ApiRoutes) => {
   const app = new Hono()
   return { app, entries: routes.mount(app) }
 }
-
-beforeAll(() => {
-  // RequestKernel.boot() sets this in an app
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 afterEach(() => {
   calls.length = 0
@@ -79,13 +76,14 @@ describe('ad-hoc routes', () => {
 
   it('passes the raw path params, with no 0.5 model binding', async () => {
     const lookup = vi.fn(() => ({ bound: true }))
-    globalThis.__laratype_route_model_bindings = { name: lookup }
+    ModelBindingRegistry.current().bindings = { name: lookup }
     try {
       const { app } = mount(routes)
       expect(await (await app.request('/hello/ada')).json()).toEqual({ hello: 'ada' })
       expect(lookup).not.toHaveBeenCalled()
     } finally {
-      globalThis.__laratype_route_model_bindings = {}
+      ModelBindingRegistry.current().bindings = {}
+      Facade.setFacadeApplication(undefined)
     }
   })
 

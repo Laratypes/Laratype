@@ -1,6 +1,6 @@
 // A5 #288: AuthGuard reads the token with request.bearerToken(), so the Bearer scheme ignores case
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
@@ -30,10 +30,6 @@ const bootApp = () => {
 }
 
 let verify: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 afterEach(() => {
   vi.restoreAllMocks()

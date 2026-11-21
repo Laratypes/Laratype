@@ -1,94 +1,14 @@
-// The password is checked with Hash.check() after the lookup, never matched in the query
+// The password is checked with Hash.checkAsync() after the lookup, never matched in the query
 import 'reflect-metadata'
-import { describe, expect, it, vi } from 'vitest'
-import { Container, depsRegistry } from '@laratype/core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Container, Facade, depsRegistry } from '@laratype/core'
 import { Model } from '@laratype/database'
-import { ContextApi, Hash } from '@laratype/support'
-import { Auth, AuthManager, PassportGuard } from '../src'
+import { Hash, Hasher } from '@laratype/support'
+import { Auth, PassportGuard } from '../src'
+import { SHA256_SECRET, attempt, configOf, fakeModel, inApp, type Row } from './fixtures/login'
 
-/** sha256('secret'), the 0.5 format. */
-const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b'
-
-type Row = { id: number; [key: string]: any }
-
-/** The slice of a typeorm Model that the login uses, over rows in memory; the password column is { select: false } by default. */
-const fakeModel = (rows: Row[], { column = 'password', declared = column, select = false, failUpdate = false } = {}) => {
-  const calls = { where: [] as object[], addSelect: [] as string[], update: [] as [unknown, object][] }
-  const builders = vi.fn()
-  const findOneBy = vi.fn(async () => null)
-  class User {
-    /** The credential column the model declares: cast() hashes it and attempt() checks it. */
-    static readonly passwordField = declared
-    static findOneBy = findOneBy
-    static getRepository() {
-      return {
-        metadata: {
-          findColumnWithPropertyName: (name: string) => (name === column ? { propertyPath: column, isSelect: select } : undefined),
-        },
-        update: async (id: number, data: Partial<Row>) => {
-          calls.update.push([id, data])
-          if (failUpdate) throw new Error('the database is down')
-          Object.assign(rows.find((row) => row.id === id)!, data)
-        },
-      }
-    }
-    static createQueryBuilder(alias: string) {
-      builders()
-      let where: Record<string, unknown> = {}
-      const qb = {
-        where(value: Record<string, unknown>) {
-          where = value
-          calls.where.push(value)
-          return qb
-        },
-        addSelect(selection: string) {
-          calls.addSelect.push(selection)
-          expect(selection.startsWith(`${alias}.`)).toBe(true)
-          return qb
-        },
-        async getOne() {
-          // A typeorm entity: the login reads the column and the caller keeps the model's identity
-          const row = rows.find((r) => Object.entries(where).every(([key, value]) => r[key as keyof Row] === value))
-          return row ? Object.assign(new User(), row) : null
-        },
-      }
-      return qb
-    }
-    static getId(user: Row) {
-      return user.id
-    }
-  }
-  return { User, calls, builders, findOneBy }
-}
-
-const options = (custom: Record<string, unknown> = {}) => ({ usernameField: 'email', passwordField: 'password', ...custom })
-
-const configOf = (provider: unknown, custom: Record<string, unknown> = {}) => ({
-  default: { guard: 'web' },
-  guards: {
-    web: {
-      strategyName: 'local',
-      strategy: class {},
-      options: options(custom),
-      provider,
-      verification: 'jwt',
-    },
-  },
-})
-
-/** Runs `callback` in a request whose container holds an `AuthManager` over `provider`, as RequestKernel does. */
-const inApp = <T>(provider: unknown, callback: () => Promise<T>, custom: Record<string, unknown> = {}): Promise<T> => {
-  const container = new Container({ deps: depsRegistry })
-  container.instance(AuthManager, new AuthManager(configOf(provider, custom) as any))
-  return ContextApi.run({ container } as any, callback) as unknown as Promise<T>
-}
-
-/** `Auth.guard('web').attempt()`, flattened to the user or `null`, as a caller sees it. */
-const attempt = (provider: unknown, fields: Record<string, any>, custom: Record<string, unknown> = {}) =>
-  inApp(provider, async () => {
-    const authenticated = await Auth.guard<any>('web').attempt(fields)
-    return authenticated ? authenticated.getUser() : null
-  }, custom)
+// A fresh facade application per test, so a bound Hasher and its container do not carry over
+afterEach(() => Facade.setFacadeApplication(undefined))
 
 /** The local strategy's verify callback, through `PassportGuard.verifyLocal()`. */
 const verifyLocal = (provider: unknown, username: any, password: any, custom: Record<string, unknown> = {}) =>
@@ -105,7 +25,7 @@ const verifyLocal = (provider: unknown, username: any, password: any, custom: Re
   })
 
 describe('TokenGuard.attempt()', () => {
-  it('finds the user by the other fields and checks the password with Hash.check()', async () => {
+  it('finds the user by the other fields and checks the password with Hash.checkAsync()', async () => {
     const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     const user = await attempt(User, { email: 'ada@example.com', password: 'secret' })
     expect(user).toEqual({ id: 1, email: 'ada@example.com' })
@@ -124,20 +44,71 @@ describe('TokenGuard.attempt()', () => {
     expect(calls.where).toEqual([{ email: 'ada@example.com' }])
   })
 
+  it('runs one async check against the dummy hash when the user is unknown', async () => {
+    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // A Hasher class of its own, so its dummy is cold and this pins the async build too
+    class Fresh extends Hasher {}
+    Facade.setFacadeApplication(new Container({ deps: depsRegistry }).instance(Hasher, new Fresh()))
+    // The guard builds and checks the dummy hash on the class the facade resolves, not through the Hash statics
+    const check = vi.spyOn(Hasher.prototype, 'checkAsync')
+    const make = vi.spyOn(Hasher.prototype, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
+    expect(make).toHaveBeenCalledTimes(1)
+    expect(make.mock.calls[0]).toEqual([''])
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toEqual([])
+    check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
+  })
+
   it('refuses a wrong password and an unknown user', async () => {
     const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await attempt(User, { email: 'ada@example.com', password: 'wrong' })).toBeNull()
     expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
   })
 
-  it('runs one check against the dummy hash when the user is unknown', async () => {
-    const { User, calls } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    const check = vi.spyOn(Hash, 'check')
-    expect(await attempt(User, { email: 'bob@example.com', password: 'secret' })).toBeNull()
-    expect(check).toHaveBeenCalledTimes(1)
+  it('leaves the event loop free while the password is checked', async () => {
+    const { User } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
+    // The timer is scheduled first: with scrypt on the loop it can only run after attempt() settled
+    const tick = new Promise((resolve) => setTimeout(resolve, 0))
+    let settled = false
+    const login = attempt(User, { email: 'ada@example.com', password: 'secret' }).finally(() => {
+      settled = true
+    })
+    await tick
+    expect(settled).toBe(false)
+    await expect(login).resolves.toEqual({ id: 1, email: 'ada@example.com' })
+  })
+
+  it('checks and rehashes through the async Hasher methods only', async () => {
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows)
+    const check = vi.spyOn(Hasher.prototype, 'checkAsync')
+    const make = vi.spyOn(Hasher.prototype, 'makeAsync')
+    const syncCheck = vi.spyOn(Hash, 'check')
+    const syncMake = vi.spyOn(Hash, 'make')
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({ id: 7, email: 'old@example.com' })
+    // The legacy hash pays the dummy check first, then the real check reads the stored hash
+    expect(check).toHaveBeenCalledTimes(2)
     expect(Hash.isHashed(check.mock.calls[0]![1])).toBe(true)
-    expect(calls.update).toEqual([])
+    expect(check.mock.calls[1]![1]).toBe(SHA256_SECRET)
+    // The dummy hash may already be cached by an earlier test; the new hash for this user is always derived
+    expect(make.mock.calls).toContainEqual(['secret'])
+    expect(syncCheck).not.toHaveBeenCalled()
+    expect(syncMake).not.toHaveBeenCalled()
+    expect(calls.update).toHaveLength(1)
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
     check.mockRestore()
+    make.mockRestore()
+    syncCheck.mockRestore()
+    syncMake.mockRestore()
   })
 
   it('keeps the password on the user when the column is selectable, as a plain lookup does', async () => {
@@ -187,6 +158,124 @@ describe('TokenGuard.attempt()', () => {
     expect(rows[0]!.password).toBe(SHA256_SECRET)
   })
 
+  it('keeps a hash changed between the check and the rehash, and still logs in', async () => {
+    const newer = Hash.make('newer')
+    const rows = [{ id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      select: true,
+      beforeUpdate: () => {
+        rows[0]!.password = newer
+      },
+    })
+    const user: any = await attempt(User, { email: 'old@example.com', password: 'secret' })
+    expect(user).not.toBeNull()
+    expect(calls.update).toHaveLength(1)
+    // The update names the hash that was checked, so it cannot match the newer one
+    expect(calls.update[0]![0]).toEqual({ id: 7, password: SHA256_SECRET })
+    expect(rows[0]!.password).toBe(newer)
+    // The response does not carry a rehash of the old password
+    expect(user.password).toBe(SHA256_SECRET)
+    expect(Hash.check('newer', rows[0]!.password)).toBe(true)
+  })
+
+  it('rehashes a composite-key user by its whole key, and only that row', async () => {
+    // Two rows share the legacy hash; only the full key tells them apart, so a criteria over the first column alone
+    // would either miss the row (an object value) or match both
+    const rows = [
+      { tenant: 1, id: 7, email: 'old@example.com', password: SHA256_SECRET },
+      { tenant: 2, id: 7, email: 'other@example.com', password: SHA256_SECRET },
+    ]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['tenant', 'id'] })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({
+      tenant: 1,
+      id: 7,
+      email: 'old@example.com',
+    })
+    expect(calls.update).toHaveLength(1)
+    // Every primary column names the row: getId() is { tenant, id }, which one column cannot hold
+    expect(calls.update[0]![0]).toEqual({ tenant: 1, id: 7, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+    expect(rows[1]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('skips the rehash when the row is missing part of its composite key', async () => {
+    const rows = [{ tenant: 1, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    // `region` is a primary column the row does not carry: no update may be sent without the whole key
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
+    // typeorm drops the whole id map when a primary column's property is missing
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toBeUndefined()
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('authenticates a user whose composite key part is null without rehashing', async () => {
+    const rows = [{ region: null, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['region', 'id'] })
+    // typeorm 0.3.26 keeps a null part in the id map, so the guard must reject it instead of comparing `= NULL`
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toEqual({ region: null, id: 7 })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).toEqual({
+      region: null,
+      id: 7,
+      email: 'old@example.com',
+    })
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('rehashes a composite key whose part is 0', async () => {
+    const rows = [
+      { tenant: 0, id: 7, email: 'old@example.com', password: SHA256_SECRET },
+      { tenant: 1, id: 7, email: 'other@example.com', password: SHA256_SECRET },
+    ]
+    const { User, calls } = fakeModel(rows, { primaryColumns: ['tenant', 'id'] })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    // 0 is a valid key part: a truthiness check would skip this row
+    expect(calls.update[0]![0]).toEqual({ tenant: 0, id: 7, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+    expect(rows[1]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('rehashes a composite key whose primary columns live in an embed', async () => {
+    const rows = [{ data: { region: 1, id: 7 }, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [
+        { propertyName: 'region', propertyPath: 'data.region' },
+        { propertyName: 'id', propertyPath: 'data.id' },
+      ],
+    })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    // An embed's id map is nested, so the part is read by property path, not by the bare column name
+    expect(calls.update[0]![0]).toEqual({ data: { region: 1, id: 7 }, password: SHA256_SECRET })
+    expect(Hash.isHashed(rows[0]!.password)).toBe(true)
+  })
+
+  it('logs in when a null embed stops the id map from being read', async () => {
+    const rows = [{ data: null, id: 7, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [{ propertyName: 'region', propertyPath: 'data.region' }],
+    })
+    // typeorm throws while reading a null embed: the guard's rehash catch must still log the user in
+    expect(() => User.getRepository().metadata.getEntityIdMap(rows[0])).toThrow(TypeError)
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
+  it('skips the rehash when an embedded composite-key part is null', async () => {
+    const rows = [{ data: { region: null, id: 7 }, email: 'old@example.com', password: SHA256_SECRET }]
+    const { User, calls } = fakeModel(rows, {
+      primaryColumns: [
+        { propertyName: 'region', propertyPath: 'data.region' },
+        { propertyName: 'id', propertyPath: 'data.id' },
+      ],
+    })
+    expect(User.getRepository().metadata.getEntityIdMap(rows[0])).toEqual({ data: { region: null, id: 7 } })
+    expect(await attempt(User, { email: 'old@example.com', password: 'secret' })).not.toBeNull()
+    expect(calls.update).toEqual([])
+    expect(rows[0]!.password).toBe(SHA256_SECRET)
+  })
+
   it('never queries without a password or a lookup field', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
     expect(await attempt(User, { email: 'ada@example.com' })).toBeNull()
@@ -199,7 +288,8 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a lookup value that is not a string, a boolean or a finite number, before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    for (const email of [{ $ne: null }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    // An operator object, an array-like, an array, null, undefined, NaN or an infinity: none is a lookup value
+    for (const email of [{ $ne: null }, { length: 1e9 }, ['ada@example.com'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(await attempt(User, { email, password: 'secret' })).toBeNull()
     }
     expect(calls.where).toEqual([])
@@ -223,7 +313,8 @@ describe('TokenGuard.attempt()', () => {
 
   it('refuses a password that is not a string before any query', async () => {
     const { User, calls, builders, findOneBy } = fakeModel([{ id: 1, email: 'ada@example.com', password: Hash.make('secret') }])
-    for (const password of [{ $ne: null }, ['secret'], 42, null, true]) {
+    // An operator object, an array-like, an array, a number, null or a boolean: none is a string
+    for (const password of [{ $ne: null }, { length: 1e9 }, ['secret'], 42, null, true]) {
       expect(await attempt(User, { email: 'ada@example.com', password })).toBeNull()
     }
     expect(calls.where).toEqual([])
@@ -270,14 +361,20 @@ describe('a custom password column end to end', () => {
     }
     Object.assign(Account, {
       getRepository: () => ({
-        metadata: { findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined) },
+        metadata: {
+          primaryColumns: [{ propertyName: 'id' }],
+          findColumnWithPropertyName: (name: string) => (name === 'pass' ? { propertyPath: 'pass', isSelect: false } : undefined),
+        },
         save: async (data: Row) => {
           const row = { id: rows.length + 1, ...data }
           rows.push(row)
           return row
         },
-        update: async (id: number, data: Partial<Row>) => {
-          Object.assign(rows.find((row) => row.id === id)!, data)
+        update: async (criteria: Record<string, unknown>, data: Partial<Row>) => {
+          const row = rows.find((candidate) => Object.entries(criteria).every(([key, value]) => candidate[key] === value))
+          if (!row) return { affected: 0 }
+          Object.assign(row, data)
+          return { affected: 1 }
         },
       }),
       createQueryBuilder: () => {

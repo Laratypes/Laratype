@@ -3,15 +3,19 @@ import { HonoRequest } from "hono/request"
 import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
+import { checkUndeclaredError } from "../response/undeclaredError";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
-import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelManagement, NotFoundException, ValidationException } from "@laratype/support"
+import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
-import Middleware from "../middleware/Middleware";
+import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
 import { validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
+import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
+import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { mountCors } from "../middleware/cors";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -31,6 +35,15 @@ let fallbackContainer: Container | undefined;
 /** Set once the fallback warning printed: per process, as dev restarts and a second copy of the module create another. */
 const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
 
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** The own enumerable keys of an extension, symbol keys included: the keys `applyExtensions()` copies. */
+const extensionKeys = (ext: object): PropertyKey[] =>
+  Reflect.ownKeys(ext).filter((key) => Object.prototype.propertyIsEnumerable.call(ext, key));
+
+/** The ctx keys of a contract route an extension cannot replace: the validated input and the pinned endpoint. */
+const RESERVED_EXTENSION_KEYS: ReadonlySet<string> = new Set(["query", "body", "endpoint"]);
+
 /** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
 const createFallbackContainer = () => {
   const store = globalThis as { [FALLBACK_WARNED]?: true };
@@ -44,7 +57,10 @@ const createFallbackContainer = () => {
 
 type PipeLineType = {
   type: 'middleware',
-  handler: typeof Middleware,
+  handler: MiddlewareClass,
+} | {
+  type: 'typed-middleware',
+  handler: AnyTypedMiddleware,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -75,8 +91,9 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers are resolved from: the request scope of the app container `boot()` puts on each request, else one
-   * autowire-only container (outside `RequestKernel`, controllers are autowired without app bindings).
+   * The container controllers, middleware and policies are resolved from: the request scope of the app container
+   * `boot()` puts on each request, else one autowire-only container (outside `RequestKernel`, they are autowired
+   * without app bindings).
    */
   public static container(): Container {
     return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
@@ -110,13 +127,14 @@ export default class Request extends AppServiceProvider {
   public static explicitModelBinding(request: RequestSupport) {
     const res: Record<string, any> = {};
     const params = request.param();
+    const registry = ModelBindingRegistry.current();
     
     for (const paramName in params) {
-      let model = globalThis.__laratype_route_model_bindings[paramName];
+      let model = registry.bindings[paramName];
       if (!model) {
-        const modelName = globalThis.__laratype_param_model_map?.[paramName];
+        const modelName = registry.paramModelMap?.[paramName];
         if(modelName) {
-          model = globalThis.__laratype_db?.models?.[modelName];
+          model = registry.models?.[modelName];
         }
       }
 
@@ -188,10 +206,53 @@ export default class Request extends AppServiceProvider {
    * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
    * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
    */
-  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }) {
+  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }, extensions: readonly object[] = []) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = { params: input.params, query, body };
+    const ctx = this.applyExtensions({ params: input.params, query, body }, extensions);
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
+  }
+
+  /**
+   * Merges the context keys typed middleware passed to `next(ext)` into the handler argument (docs/v1/http.md › Typed
+   * middleware, H6 #117): a later middleware wins a key it also adds, and `params` is merged one level deep, as `Ctx`
+   * merges it, so an extension adds a key next to the path params instead of dropping them. Own enumerable string and
+   * symbol keys are copied; each is an own data property, never an assignment: an own `__proto__` key (JSON.parse,
+   * `{ ['__proto__']: ... }`) then stays a field of the ctx instead of swapping its prototype, and no inherited setter
+   * runs for another key.
+   */
+  private static applyExtensions<T extends object>(arg: T, extensions: readonly object[]): T {
+    const target = arg as Record<PropertyKey, unknown>;
+    for (const ext of extensions) {
+      for (const key of extensionKeys(ext)) {
+        const value = (ext as Record<PropertyKey, unknown>)[key];
+        const params = target.params;
+        const merged = key === "params" && isObject(value) && isObject(params) ? { ...params, ...value } : value;
+        Object.defineProperty(target, key, { value: merged, writable: true, enumerable: true, configurable: true });
+      }
+    }
+    return arg;
+  }
+
+  /**
+   * Rejects an extension key that would replace something the route owns (docs/v1/http.md › Typed middleware ›
+   * Diagnostics): `query`, `body` and `endpoint` of a contract route, whose ctx keeps the validated input and the pinned
+   * endpoint, and a request method on a route without a contract, whose extensions are applied onto the 0.5 request
+   * object (`next({ param })` would replace `request.param`).
+   */
+  private static checkExtension(ext: object, name: string, request: RequestSupport, contract: boolean): void {
+    for (const key of extensionKeys(ext)) {
+      if (contract) {
+        if (typeof key === "string" && RESERVED_EXTENSION_KEYS.has(key)) {
+          throw new TypeError(
+            `[@laratype/http] typed middleware ${name} passed ${key} to next(): \`${key}\` is reserved on a contract route (the validated query and body, and the endpoint)`,
+          );
+        }
+      } else if (typeof (request as unknown as Record<PropertyKey, unknown>)[key] === "function") {
+        throw new TypeError(
+          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a method of the request, and the extension would replace it`,
+        );
+      }
+    }
   }
 
   public static async pipeline(requestInstance: RequestSupport, pipelines: PipeLineType[], routeOption: KernelRouteParams, res: Response) {
@@ -201,6 +262,8 @@ export default class Request extends AppServiceProvider {
         let error: any;
         // What the handler gets: the 0.5 request, or the ctx of a contract route
         let handlerArg: unknown = requestInstance;
+        // What typed middleware passed to next(ext), merged into the handler argument once the request step runs
+        const extensions: object[] = [];
         const next = async (arg?: any) => {
           const currentPipeline = pipelines[index++];
           if(arg instanceof Error) {
@@ -211,8 +274,8 @@ export default class Request extends AppServiceProvider {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'request') {
               handlerArg = currentPipeline.contract
-                ? await this.contractContext(currentPipeline.contract)
-                : await this.processValidation(requestInstance, routeOption);
+                ? await this.contractContext(currentPipeline.contract, extensions)
+                : this.applyExtensions(await this.processValidation(requestInstance, routeOption), extensions);
               return await next(arg);
             }
             else if(currentPipelineType === 'controller') {
@@ -241,9 +304,10 @@ export default class Request extends AppServiceProvider {
 
               let modelPolicy = policyHandler.modelPolicy;
               if(typeof modelPolicy === 'string') {
-                const modelName = globalThis.__laratype_param_model_map?.[modelPolicy];
+                const registry = ModelBindingRegistry.current();
+                const modelName = registry.paramModelMap?.[modelPolicy];
                 if(modelName) {
-                  modelPolicy = globalThis.__laratype_db.models?.[modelName];
+                  modelPolicy = registry.models?.[modelName];
                 }
               }
               
@@ -251,13 +315,56 @@ export default class Request extends AppServiceProvider {
               if(!policy) {
                 throw new InternalException(`Policy not found for model ${policyHandler.modelPolicy}`);
               }
-              await policyHandler.handle(policyHandler.ability, policy, ...modelArgs);
+              // Constructor DI (H21 #269): the policy comes from the request's container, as the controller does
+              const allowed = await policyHandler.handle(policyHandler.ability, Request.container().make(policy), ...modelArgs);
+              // A policy handler allows a request explicitly: any other result, `undefined` from a custom one included,
+              // answers 401 rather than running the controller
+              if(allowed !== true) {
+                throw new UnauthorizedException();
+              }
               return await next(arg);
             }
+            else if(currentPipelineType === 'typed-middleware') {
+              const middleware = currentPipeline.handler;
+              const name = middlewareName(middleware);
+              // One run of the rest of the pipeline per middleware: a second next() would advance the shared index again
+              // and run the controller a second time (H6 #117)
+              let called = false;
+              return await middleware.handle(requestInstance, async (ext): Promise<unknown> => {
+                if(called) {
+                  throw new TypeError(`[@laratype/http] typed middleware ${name} called next() more than once`);
+                }
+                called = true;
+                if(ext !== undefined) {
+                  if(!isObject(ext)) {
+                    throw new TypeError(`[@laratype/http] typed middleware ${name} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
+                  }
+                  this.checkExtension(ext, name, requestInstance, routeOption.endpoint !== undefined);
+                  extensions.push(ext);
+                }
+                return await next(arg);
+              });
+            }
             else {
-              const middleware = await new currentPipeline.handler();
+              // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
+              const middleware = Request.container().make(currentPipeline.handler);
+              // A subclass that redeclares the 0.5 field (`protected previousResult!: T`) gets an own property under
+              // define semantics (sauf's SWC, esbuild), which hides the request-local accessor: fail closed (H21 #269)
+              if(Object.hasOwn(middleware, "previousResult")) {
+                throw new InternalException(
+                  `[@laratype/http] ${middleware.constructor.name} declares previousResult as a class field, which hides the request-local previous result. Fix: remove the field, use \`declare\`, or type it through Middleware<T>.`
+                );
+              }
+              // The same instance can be mounted at more than one level (a container singleton at group and route
+              // level): each run restores the value it found, so an inner run leaves no result behind for the outer
+              // one to read after `next()` (H21 #269)
+              const previousResult = middleware.getPreviousResult();
               middleware.setPreviousResult(arg);
-              return await middleware.handle(requestInstance, res, next);
+              try {
+                return await middleware.handle(requestInstance, res, next);
+              } finally {
+                middleware.setPreviousResult(previousResult);
+              }
             }
           }
         };
@@ -277,7 +384,7 @@ export default class Request extends AppServiceProvider {
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
       const rules = requestInstance.rules() as StandardSchemaV1;
       if(typeof rules?.["~standard"]?.validate !== "function") {
-        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)`);
       }
       // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only
       const result = await validate(rules, requestInstance.all());
@@ -326,7 +433,10 @@ export default class Request extends AppServiceProvider {
 
         const pipelines: PipeLineType[] = [];
         if(routeOption.middleware?.length) {
-          pipelines.push(...routeOption.middleware.map(m => ({ type: 'middleware' as const, handler: m })));
+          // Order is the route's: a 0.5 class, or a typed middleware whose next(ext) extends the handler ctx (H6 #117)
+          pipelines.push(...routeOption.middleware.map(m => isTypedMiddleware(m)
+            ? { type: 'typed-middleware' as const, handler: m }
+            : { type: 'middleware' as const, handler: m }));
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
@@ -334,14 +444,23 @@ export default class Request extends AppServiceProvider {
         pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
-        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
-
-        if(pipelineResult instanceof Error) {
-          throw pipelineResult;
+        try {
+          const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
+          if(pipelineResult instanceof Error) {
+            throw pipelineResult;
+          }
+          // `await`ed inside the try: a contract response resolution that rejects (a `JsonResource` whose `toJson()`
+          // throws) is a route error too, and must be checked, not escape the catch as a rejected promise
+          return routeOption.endpoint
+            ? await resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+            : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
         }
-        return routeOption.endpoint
-          ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
-          : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
+        catch (error) {
+          // A route's thrown error must be declared on its endpoint (docs/v1/http.md › Undeclared-error check, X3 #157):
+          // dev logs it, test answers the generic 500, production skips the check and the error is rethrown untouched
+          checkUndeclaredError(error, routeOption);
+          throw error;
+        }
       });
     }
   }
@@ -353,8 +472,20 @@ export default class Request extends AppServiceProvider {
   /** Disposals `boot()` started that have not settled yet; `settled()` awaits them. */
   protected readonly disposals = new Set<Promise<void>>();
 
+  /**
+   * Fresh route bindings per app boot (an HMR restart boots again): they do not outlive the previous app. Cleared in
+   * `register()`, which runs before the app providers' (bootstrap lists RequestKernel first), so a `Route.bind()` from
+   * an app provider's `register()` or `boot()` is kept. Only the bindings are cleared: the models and the param map
+   * `DatabaseServiceProvider` fills stay.
+   */
+  public register(): void {
+    this.app.make(ModelBindingRegistry).bindings = {};
+  }
+
   public boot(): void {
-    globalThis.__laratype_route_model_bindings = {};
+    // First, before the routes are mounted (an app provider's boot) and before the request scope: a preflight is
+    // answered before routing and before the body read, and the headers Hono sets before next() reach error responses
+    mountCors(this.apps);
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response

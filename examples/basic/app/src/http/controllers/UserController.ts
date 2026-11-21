@@ -23,7 +23,7 @@ export default class UserController extends Controller {
   }
 
   async me() {
-    const user = Auth.user<User>();
+    const user = Auth.user();
     if(!user) throw new UnauthorizedException({ httpCode: 401, message: "Not signed in." });
     return user.getUser();
   }

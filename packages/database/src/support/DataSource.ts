@@ -1,23 +1,21 @@
+import { Facade } from "@laratype/core";
 import { DataSource } from "typeorm";
 import DataSourceNotInitYet from "../exceptions/DataSourceNotInitYet";
 
-if(!globalThis.__laratype_db) {
-  globalThis.__laratype_db = {
-    ds: {} as DataSource,
-    models: {},
-  }
-}
-
-const DS = new Proxy(globalThis.__laratype_db.ds, {
-  get(target, prop, receiver) {
-    if(!globalThis.__laratype_db.ds) {
+/**
+ * The app's initialized DataSource: `DatabaseServiceProvider.boot()` binds it in the app container (D7 #114).
+ * @deprecated Resolve `DataSource` from the container instead of importing this proxy.
+ */
+const DS = new Proxy({} as DataSource, {
+  get(_target, prop) {
+    const app = Facade.getFacadeApplication();
+    if(!app.has(DataSource)) {
       throw new DataSourceNotInitYet();
     }
-    return Reflect.get(globalThis.__laratype_db.ds, prop, receiver);
+    const ds = app.make(DataSource);
+    const value = Reflect.get(ds, prop, ds);
+    return typeof value === "function" ? value.bind(ds) : value;
   },
-  set(target, prop, value, receiver) {
-    return Reflect.set(target, prop, value, receiver);
-  }
 }) as DataSource;
 
 export default DS;

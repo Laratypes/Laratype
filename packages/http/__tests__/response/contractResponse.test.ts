@@ -1,6 +1,6 @@
 // H4 #107: a Route.api route answers with its endpoint's status and a JSON body, checked against the response schema in dev
 import 'reflect-metadata'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { Container, depsRegistry } from '@laratype/core'
@@ -48,10 +48,6 @@ const bootApp = (use?: (app: Hono) => void) => {
 }
 
 let errors: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 beforeEach(() => {
   result = { id: 1, name: 'Ada' }

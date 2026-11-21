@@ -1,5 +1,5 @@
 import { Log } from "@laratype/log";
-import { appManifest, camelize, Config, ServiceProvider, ServiceProviderType } from "@laratype/support";
+import { appManifest, camelize, Config, ModelBindingRegistry, ServiceProvider, ServiceProviderType } from "@laratype/support";
 import { BaseEntity, DataSource } from "typeorm";
 import DatabaseConnectionNotConfigYet from "../exceptions/DatabaseConnectionNotConfigYet";
 import "reflect-metadata"
@@ -31,12 +31,13 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       // The model files of the app manifest (docs/v1/build.md › Plugin chain)
       const instances = await Promise.all(appManifest().models.map(entry => entry.load()));
       const models = this.flattenModels(instances);
-      globalThis.__laratype_db.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
+      if (!this.app.has(ModelBindingRegistry)) this.app.singleton(ModelBindingRegistry);
+      const registry = this.app.make(ModelBindingRegistry);
+      registry.models = Object.fromEntries(models.map((m: any) => [m.name, m]));
 
-      globalThis.__laratype_param_model_map ??= {};
-      for (const modelName in globalThis.__laratype_db.models) {
+      for (const modelName in registry.models) {
         const modelCamel = camelize(modelName);
-        globalThis.__laratype_param_model_map[modelCamel] = modelName;
+        registry.paramModelMap[modelCamel] = modelName;
       }
       
       this.dataSource = new DataSource({
@@ -58,7 +59,7 @@ export default class DatabaseServiceProvider extends ServiceProvider {
 
   public async boot() {
     try {
-      globalThis.__laratype_db.ds = await this.initConnection();
+      this.app.instance(DataSource, await this.initConnection());
     } catch (error) {
       console.log(error);
       Log.error(error);

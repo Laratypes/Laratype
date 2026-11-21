@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Console } from '@laratype/console';
+import { Console, command } from '@laratype/console';
 import { appManifest, manifestEntry, setAppManifest, type AppManifest } from '@laratype/support';
 import {
   emitManifest, emitManifestError, inManifestDirs, isManifestFile, laratypeManifest, MANIFEST_DIRS, MANIFEST_ID,
@@ -52,6 +52,10 @@ const project = (name: string) => {
   write(dir, 'app/modules/billing/helpers.ts');          // a module is its index only
   write(dir, 'app/modules/notes/index.mts');
   write(dir, 'app/modules/loose.ts');                    // a module is a folder with an index
+  write(dir, 'lang/en/messages.ts', 'export default { greeting: "Hello {name}" };\n');
+  write(dir, 'lang/vi/messages.ts', 'export default { greeting: "Xin chào {name}" };\n');
+  write(dir, 'lang/en/nested/ignored.ts');                // a lang file is lang/<locale>/<file>.ts
+  write(dir, 'lang/stray.ts');                            // never read directly in lang/
   return dir;
 };
 
@@ -83,9 +87,11 @@ describe('scanManifest', () => {
       seeders: ['app/database/seeders/Admin/UserSeeder.ts', 'app/database/seeders/DatabaseSeeder.ts', 'database/seeders/PostSeeder.ts'],
       factories: [],
       modules: ['app/modules/billing/index.ts', 'app/modules/notes/index.mts'],
+      lang: ['lang/en/messages.ts', 'lang/vi/messages.ts'],
     });
     expect(scan.kinds.models.map((e) => e.name)).toEqual(['Legacy', 'User', 'Post', 'Tag']);
     expect(scan.kinds.modules.map((e) => e.name)).toEqual(['billing', 'notes']);
+    expect(scan.kinds.lang.map((e) => e.name)).toEqual(['en/messages', 'vi/messages']);
   });
 
   it('each kind reads its own extensions: a stray .js among the commands or configs is ignored, models take any', () => {
@@ -158,6 +164,9 @@ describe('scanManifest', () => {
     expect(inManifestDirs('app/src/models/Tag.ts')).toBe(true);
     expect(inManifestDirs('database\\seeders\\X.ts')).toBe(true);
     expect(inManifestDirs('database/seeders/Admin/X.ts')).toBe(true);           // seeders: any depth
+    expect(inManifestDirs('lang/en/messages.ts')).toBe(true);
+    expect(inManifestDirs('lang/en/nested/messages.ts')).toBe(false);            // lang: one locale level
+    expect(inManifestDirs('lang/messages.ts')).toBe(false);
     expect(inManifestDirs('app/models/concerns/HasSlug.ts')).toBe(false);       // models: top level only
     expect(inManifestDirs('app/modules/billing/index.mts')).toBe(true);
     expect(inManifestDirs('app/modules/billing/helpers.ts')).toBe(false);
@@ -168,7 +177,7 @@ describe('scanManifest', () => {
     expect(isManifestFile('/p', '/p/app/models/X.ts~')).toBe(false);
     expect(isManifestFile('/p', '/p/app/models/X.d.ts')).toBe(false);
     expect(isManifestFile('/p', '/other/app/models/X.ts')).toBe(false);
-    expect(Object.keys(MANIFEST_DIRS)).toEqual(['configs', 'routes', 'commands', 'models', 'migrations', 'seeders', 'factories', 'modules']);
+    expect(Object.keys(MANIFEST_DIRS)).toEqual(['configs', 'routes', 'commands', 'models', 'migrations', 'seeders', 'factories', 'modules', 'lang']);
   });
 });
 
@@ -239,6 +248,7 @@ describe('emitManifest', () => {
         seeders: [],
         factories: [],
         modules: [],
+        lang: [],
       };
       "
     `);
@@ -339,7 +349,7 @@ describe('importRootCommands', () => {
     class SendMail { static signature = 'send:mail'; }
     const entry = (path: string, mod: Record<string, unknown>) => ({ name: path, path, load: async () => mod });
     const manifest = {
-      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [], lang: [],
       commands: [entry('app/src/console/commands/SendMail.ts', { default: SendMail }), entry('app/src/console/commands/format.ts', { default: () => '' }), entry('app/src/console/commands/util.ts', {})],
     } satisfies AppManifest;
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
@@ -356,7 +366,7 @@ describe('importRootCommands', () => {
     class SendMail { static signature = 'send:mail'; }
     const entry = (path: string, load: () => Promise<Record<string, unknown>>) => ({ name: path, path, load });
     const manifest = {
-      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+      configs: [], routes: [], migrations: [], seeders: [], factories: [], modules: [], models: [], lang: [],
       commands: [
         entry('app/src/console/commands/Broken.ts', () => Promise.reject(Object.assign(new SyntaxError("Unexpected token '}'"), { stack: "SyntaxError: Unexpected token '}'\n    at Broken.ts:3:1" }))),
         entry('app/src/console/commands/SendMail.ts', async () => ({ default: SendMail })),
@@ -374,6 +384,42 @@ describe('importRootCommands', () => {
       const routes = { ...manifest, commands: [], routes: [{ ...entry('app/routes/console.ts', () => Promise.reject('broken import')), name: 'console' }] };
       expect(await importRouteConsoleCommands(routes)).toEqual([]);
       expect(warn).toHaveBeenLastCalledWith('Skipped app/routes/console.ts: the command file failed to load\nbroken import');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('importRouteConsoleCommands', () => {
+  const routes = (value: unknown) => ({
+    configs: [], commands: [], migrations: [], seeders: [], factories: [], modules: [], models: [],
+    routes: [{ name: 'console', path: 'app/routes/console.ts', load: async () => ({ default: value }) }],
+  }) satisfies AppManifest;
+  class Publish { static signature = 'auth:publish'; }
+
+  it('accepts class commands and closure commands in the array', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    expect(await importRouteConsoleCommands(routes([Publish, hello]))).toEqual([Publish, hello]);
+    expect(await importRouteConsoleCommands(routes(undefined))).toEqual([]);
+  });
+
+  it('skips a default export that is not an array, with a warning naming the file', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRouteConsoleCommands(routes(hello))).toEqual([]);
+      expect(warn).toHaveBeenCalledWith('Skipped app/routes/console.ts: the default export is not an array of commands');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('skips an entry that is not a command, with one warning naming the file', async () => {
+    const hello = command('hello:user {user}', () => undefined);
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await importRouteConsoleCommands(routes([Publish, 42, hello]))).toEqual([Publish, hello]);
+      expect(warn).toHaveBeenCalledWith('Skipped 1 entry of app/routes/console.ts: not a command (a class with a static signature, or a closure from command())');
     } finally {
       warn.mockRestore();
     }

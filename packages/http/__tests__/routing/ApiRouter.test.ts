@@ -1,7 +1,9 @@
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { Facade } from '@laratype/core'
+import { ModelBindingRegistry } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Middleware, Route, UNENFORCED_NOTICE } from '../../src/index'
@@ -45,11 +47,6 @@ const mount = (routes: ApiRoutes) => {
 
 afterEach(() => {
   vi.restoreAllMocks()
-})
-
-beforeAll(() => {
-  // RequestKernel.boot() sets this in an app
-  globalThis.__laratype_route_model_bindings = {}
 })
 
 describe('Route.api', () => {
@@ -190,11 +187,11 @@ describe('Route.api', () => {
 
   it('contract routes get the raw path params: no 0.5 implicit or Route.model binding', async () => {
     const lookups: string[] = []
-    const g = globalThis as Record<string, unknown>
-    const saved = { bindings: g.__laratype_route_model_bindings, map: g.__laratype_param_model_map }
-    // a resolver bound to the param name, and an entity mapped to it, as the 0.5 router would use
-    g.__laratype_route_model_bindings = { user: async (value: string) => (lookups.push(value), null) }
-    g.__laratype_param_model_map = { user: 'User' }
+    // A resolver bound to the param name, as the 0.5 router would use; the contract routes skip the registry
+    const registry = ModelBindingRegistry.current()
+    const saved = { bindings: registry.bindings, map: registry.paramModelMap }
+    registry.bindings = { user: async (value: string) => (lookups.push(value), null) }
+    registry.paramModelMap = { user: 'User' }
     try {
       const { app } = mount(routes)
       const res = await app.request('/api/users/7/posts')
@@ -208,8 +205,9 @@ describe('Route.api', () => {
       expect(await (await memberApp.request('/members/7')).json()).toEqual({ user: '7' })
       expect(lookups).toEqual([])
     } finally {
-      g.__laratype_route_model_bindings = saved.bindings
-      g.__laratype_param_model_map = saved.map
+      registry.bindings = saved.bindings
+      registry.paramModelMap = saved.map
+      Facade.setFacadeApplication(undefined)
     }
   })
 

@@ -11,7 +11,7 @@
     "catalog": {
       "vite": "^7.1.9",
       "hono": "^4.8.0",
-      "zod": "^3.25"
+      "zod": "^4.6.6"
     }
   },
   "repository": {
@@ -19,6 +19,7 @@
     "url": "git+https://github.com/Laratypes/Laratype.git"
   },
   "scripts": {
+    "bench:types": "node scripts/bench-types/run.mjs",
     "build": "bun bun.build.js",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
     "check:dist": "node scripts/check-dist.mjs",

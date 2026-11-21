@@ -1,8 +1,9 @@
+import ModelBindingRegistry from "../registries/ModelBindingRegistry";
 
 export default class ModelManagement {
 
   static getModelByName(name: string) {
-    return globalThis.__laratype_db.models?.[name] || null;
+    return ModelBindingRegistry.current().models[name] || null;
   }
 
   static getPrimaryKeyFromModelInstance(modelInstance: any) {

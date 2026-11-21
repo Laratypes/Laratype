@@ -1,8 +1,9 @@
 import type { Ability, Policy } from "@laratype/auth";
-import type { AnyEndpoint } from "@laratype/contract";
+import type { AnyEndpoint, AnyErrorDef } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
-import Middleware from "../middleware/Middleware"
+import type { MiddlewareItem } from "../middleware/defineMiddleware"
+import type { MiddlewareClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
 
@@ -12,12 +13,13 @@ export type PolicyFactory = {
   ability: Ability,
   args: any[],
   modelPolicy: any,
-  handle: (ability: Ability, policy: new () => Policy, ...args: any[]) => Promise<boolean>
+  /** The policy instance the request pipeline resolves from its container (H21 #269). */
+  handle: (ability: Ability, policy: Policy, ...args: any[]) => Promise<boolean>
 }
 
 export type RouteOptions = ({
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   children: Array<RouteOptions>,
   method?: METHOD,
   controller?: [typeof Controller, string],
@@ -27,8 +29,8 @@ export type RouteOptions = ({
   controller: [typeof Controller, string],
 }) & {
   path: string,
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  middleware?: Array<MiddlewareClass>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   request?: typeof Request,
   can?: PolicyFactory,
   name?: string,
@@ -42,12 +44,18 @@ export type RouteParams = {
   modelBinding?: false,
   /** The endpoint of a `Route.api` route, exposed to the handler as the read-only `ctx.endpoint` (#105). */
   endpoint?: AnyEndpoint,
+  /**
+   * @internal The errors the route's contract declares, derived ones included: `apiRoutes()`'s `errors` for the route,
+   * which the dev and test undeclared-error check reads (docs/v1/http.md › Undeclared-error check, X3 #157).
+   */
+  errors?: readonly AnyErrorDef[],
   request?: typeof Request,
   can?: PolicyFactory[],
   /** Any class the container can construct: `app.make()` injects its constructor params (H2 #105). */
   controller: [Newable<object>, string]
-  middleware?: Array<typeof Middleware>,
-  withoutMiddleware?: Array<typeof Middleware>,
+  /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
+  middleware?: Array<MiddlewareItem>,
+  withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,
 }

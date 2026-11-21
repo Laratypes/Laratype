@@ -22,6 +22,12 @@ class Server extends Facade {
 const typeOnly = (_fn: () => void) => {}
 
 describe('Facade types', () => {
+  it('hasFacadeApplication() returns whether one is set', () => {
+    typeOnly(() => {
+      expectTypeOf(Facade.hasFacadeApplication()).toEqualTypeOf<boolean>()
+    })
+  })
+
   it('fake() takes the accessor type and returns a restore function', () => {
     typeOnly(() => {
       expectTypeOf(Greet.fake({ greet: () => 'x' })).toEqualTypeOf<() => void>()

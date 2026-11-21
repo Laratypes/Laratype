@@ -1,7 +1,7 @@
 // H5 #108: the exception filter maps a thrown contract error to its own status and `{ code, ...body }`, tells errors
 // by brand (not instanceof), and answers anything else, non-Error throws included, with the generic 500
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, NotFoundException } from '@laratype/support'
@@ -32,10 +32,6 @@ const throwing = (error: () => unknown) => {
 const GENERIC = { message: 'Server Error' }
 
 let logged: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 const quiet = () => {
   vi.spyOn(console, 'log').mockImplementation(() => {})

@@ -35,6 +35,11 @@ export abstract class Facade {
     current.fallback = undefined
   }
 
+  /** Whether `setFacadeApplication()` set a container: false while facades use the fallback container. */
+  static hasFacadeApplication(): boolean {
+    return state().app !== undefined
+  }
+
   /** The container set by `setFacadeApplication()`, else one autowire-only container shared by every facade. */
   static getFacadeApplication(): Container {
     const current = state()

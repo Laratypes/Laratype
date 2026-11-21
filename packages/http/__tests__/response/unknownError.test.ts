@@ -1,7 +1,7 @@
 // H20 #267: an unknown error answers 500 with a generic body, whatever the route or controller status
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { Container, depsRegistry } from '@laratype/core'
@@ -27,10 +27,6 @@ const GENERIC = { message: 'Server Error' }
 // The log counts below are of console.error, the one resolveException writes. The Exception constructor's own consola
 // log of reportable Exceptions is separate (#273) and not counted
 let errors: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 const quiet = () => {
   vi.spyOn(console, 'log').mockImplementation(() => {})

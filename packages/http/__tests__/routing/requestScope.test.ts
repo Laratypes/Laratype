@@ -1,6 +1,6 @@
 // D6 #112: RequestKernel gives each request its own request scope and disposes it after the response is resolved
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
@@ -76,10 +76,6 @@ const disposalLogs = async (error: ReturnType<typeof vi.spyOn>, paths: string[])
   }
   return error.mock.calls.map(([message]) => message)
 }
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 afterEach(() => {
   delete (globalThis as { [BUBBLE_WARNED]?: unknown })[BUBBLE_WARNED]

@@ -28,6 +28,8 @@ export interface AppManifest {
   readonly factories: readonly ManifestEntry[];
   /** `app/modules/<name>/index.ts`, by folder name. Read by K2 (#153); nothing boots them yet. */
   readonly modules: readonly ManifestEntry[];
+  /** `lang/<locale>/<file>.ts`, by `<locale>/<file>` (I1 #167). */
+  readonly lang: readonly ManifestEntry[];
   /**
    * Set when the dev scan failed (one name twice in a kind); the lists are then empty. `appManifest()` throws it, so
    * only what needs the app fails; `sauf --help`, `types:generate` and `make:*` print it as a warning and run.

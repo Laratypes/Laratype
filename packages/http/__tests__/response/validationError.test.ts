@@ -1,6 +1,6 @@
 // H24 #275: only a real validation failure answers 422; any other error thrown while validating is a generic 500
 import 'reflect-metadata'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { Container, depsRegistry } from '@laratype/core'
@@ -28,10 +28,6 @@ const post = async (rules: () => unknown, body: object) => {
 }
 
 let errors: ReturnType<typeof vi.spyOn>
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 const quiet = () => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -148,6 +144,6 @@ describe('validation errors', () => {
   it('rules() that returns no schema is a 500 with a server-side message', async () => {
     quiet()
     await expectGeneric500(await post(() => ({ parse: () => ({}) }), { name: 'ada' }))
-    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 3.25+, valibot, ...)' }))
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'UserRequest.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)' }))
   })
 })

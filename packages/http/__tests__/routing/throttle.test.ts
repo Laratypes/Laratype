@@ -1,7 +1,7 @@
 // H17 #229: the rate limit from the contract's .throttle() flag
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
@@ -51,10 +51,6 @@ const bootApp = () => {
 const from = (address: string) => ({ requestIP: () => ({ address }) })
 
 let app: Hono
-
-beforeAll(() => {
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 beforeEach(() => {
   vi.useFakeTimers()

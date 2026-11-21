@@ -21,10 +21,14 @@ export const MANIFEST_DIRS: Readonly<Record<ManifestKind, readonly string[]>> = 
   seeders: ["app/database/seeders", "database/seeders"],
   factories: ["app/database/factories", "database/factories"],
   modules: ["app/modules"],
+  lang: ["lang"],
 };
 
 /** The kinds read with their sub-folders, named by their path in the folder (`Admin/UserSeeder`, as `db:seed --class` takes it). */
 const NESTED: ReadonlySet<ManifestKind> = new Set(["seeders"]);
+
+/** The kind whose one folder level is the locale: `lang/<locale>/<file>.ts`, named `<locale>/<file>` (I1 #167). */
+const LOCALE_KIND: ManifestKind = "lang";
 
 /** Every module extension: the provider list, module indexes and models. A declaration, test or spec file is never read. */
 export const MODULE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs"] as const;
@@ -43,6 +47,7 @@ export const KIND_EXTENSIONS: Readonly<Record<ManifestKind, readonly string[]>> 
   seeders: [".ts", ".mts"],
   factories: [".ts", ".mts"],
   modules: MODULE_EXTENSIONS,
+  lang: [".ts", ".mts"],
 };
 
 /** The config named `providers` (`app/config/providers.ts`, or `.mts`, `.js`, `.mjs`): the provider list, kept apart from the configs. */
@@ -147,9 +152,11 @@ function scanDir(ctx: ScanContext, projectDir: string, dir: string, kind: Manife
       for (const file of files.filter((name) => isModuleIndex(name) && !isEmittedNextTo(name, names))) {
         entries.push({ name: entry.name, path: posix.join(dir, entry.name, file) });
       }
-    } else if (type === "dir" && NESTED.has(kind) && entry.name !== "node_modules") {
+    } else if (type === "dir" && (NESTED.has(kind) || (kind === LOCALE_KIND && prefix === "")) && entry.name !== "node_modules") {
       entries.push(...scanDir(ctx, projectDir, dir, kind, posix.join(prefix, entry.name), within));
     } else if (type === "file" && isKindFile(kind, entry.name) && !isEmittedNextTo(entry.name, siblings)) {
+      // `lang` reads one level only: `lang/<locale>/<file>.ts`, never a file directly in `lang/`
+      if (kind === LOCALE_KIND && prefix === "") continue;
       entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path: posix.join(dir, prefix, entry.name) });
     }
   }
@@ -201,6 +208,7 @@ export function inManifestDirs(relativePath: string): boolean {
       if (!path.startsWith(`${dir}/`)) return false;
       const depth = path.slice(dir.length + 1).split("/").length;
       if (kind === "modules") return depth === 2 && isModuleIndex(base);
+      if (kind === LOCALE_KIND) return depth === 2 && isKindFile(kind, base);
       return (NESTED.has(kind) || depth === 1) && isKindFile(kind, base);
     }),
   );

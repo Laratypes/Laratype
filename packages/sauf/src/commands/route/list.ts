@@ -1,4 +1,4 @@
-import { AppServiceProvider, ServiceProviderType } from "@laratype/support";
+import { AppServiceProvider, RouteRegistry, ServiceProviderType } from "@laratype/support";
 import { Console, Command } from "@laratype/console";
 
 export default class RouteListCommand extends Command {
@@ -14,7 +14,7 @@ export default class RouteListCommand extends Command {
 
   public async handle() {
 
-    const routes = globalThis.__laratype_routes?.map(routeRow) ?? [];
+    const routes = RouteRegistry.current().routes.map(routeRow);
 
     if(routes.length === 0) {
       Console.warn("No routes registered.");
@@ -54,7 +54,14 @@ export const routeRow = (route: Record<string, any>) => ({
   Name: route.name ?? '-',
   // An ad-hoc Route.api route (`r.get('/health', () => 'ok')`) has a handler, not a controller
   Controller: route.controller ? `${route.controller[0].name}::${route.controller[1]}` : 'Closure',
-  Middleware: route.middleware?.length ? route.middleware.map((mw: any) => mw.name).join(', ') : '-',
+  // A 0.5 middleware class has a name; a `defineMiddleware()` value (H6 #117) names its handle. sauf takes no
+  // dependency on @laratype/http, so the fallback stays here rather than in the package's `middlewareName`.
+  Middleware: route.middleware?.length
+    ? route.middleware
+      .map((middleware: { name?: string; handle?: { name?: string } }) =>
+        middleware.name || middleware.handle?.name || 'middleware')
+      .join(', ')
+    : '-',
   Policies: Array.isArray(route.policies)
     ? [
       ...route.policies.map((p: any) => `${p.dir || '(root)'}: ${p.policy.name}`),

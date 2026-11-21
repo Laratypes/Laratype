@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import * as z from 'zod/v4'
-import { config, Container, defineEnv } from '@laratype/core'
+import { config, Container, defineEnv, Facade } from '@laratype/core'
 import { bootProviders, ConfigLoadServiceProvider, EnvLoadServiceProvider, EnvValidationError, HTTP_APP, setAppManifest } from '@laratype/support'
 import type { AppManifest, ManifestEntry } from '@laratype/support'
 
@@ -16,7 +16,7 @@ const env = defineEnv(z.object({
 const entry = (name: string, value: unknown): ManifestEntry => ({ name, path: `app/config/${name}.ts`, load: async () => ({ default: value }) })
 
 const manifest = (configs: ManifestEntry[]): AppManifest => ({
-  configs, routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [],
+  configs, routes: [], commands: [], models: [], migrations: [], seeders: [], factories: [], modules: [], lang: [],
 })
 
 const boot = () => bootProviders(new Container().instance(HTTP_APP, new Hono()), [EnvLoadServiceProvider, ConfigLoadServiceProvider])
@@ -37,6 +37,8 @@ describe('env validation at boot (K1 #152)', () => {
     delete store.__laratype_manifest
     delete store.__laratype_configs
     delete store.__laratype_config
+    // bootProviders() makes its container the facade application when none is set: don't leak it into the next test
+    Facade.setFacadeApplication(undefined)
     vi.restoreAllMocks()
   })
 

@@ -57,7 +57,6 @@ describe('request.ip()', () => {
   let origin: string
 
   beforeAll(async () => {
-    globalThis.__laratype_route_model_bindings = {}
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const app = bootApp()
     await new Promise<void>((resolve) => {

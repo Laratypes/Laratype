@@ -100,6 +100,15 @@ describe('Container.swap', () => {
 describe('Facade', () => {
   afterEach(() => Facade.setFacadeApplication(undefined))
 
+  it('reports whether a facade application is set', () => {
+    expect(Facade.hasFacadeApplication()).toBe(false)
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    expect(Facade.hasFacadeApplication()).toBe(true)
+    Facade.setFacadeApplication(undefined)
+    expect(Facade.hasFacadeApplication()).toBe(false)
+  })
+
   it('forwards to the binding of its accessor in the facade application', () => {
     Facade.setFacadeApplication(new Container().bind(Greeter, Hello).instance(NAME, { value: 'app' }))
     expect(Greet.greet('Ada')).toBe('hello Ada')

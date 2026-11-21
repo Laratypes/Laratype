@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+import { Container, Facade } from '@laratype/core';
+import { RouteRegistry } from '@laratype/support';
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract';
 import type { ContractPrefix } from '@laratype/contract';
-import { Controller, Middleware, Route } from '@laratype/http';
+import { Controller, Middleware, Route, defineMiddleware } from '@laratype/http';
 import { Console } from '@laratype/console';
 import RouteListCommand, { routeRow } from '../src/commands/route/list';
 
@@ -28,15 +30,20 @@ const routes = Route.api(appApi, (r) => [
   r.middleware(Audit).contract(posts, PostController, { policy: PostPolicy }),
 ]);
 
+/** The kernel sets the facade application and `RouteAppServiceProvider` binds the registry in it (D7 #114). */
+const useRegistry = (entries: Array<Record<string, any>>) => {
+  Facade.setFacadeApplication(new Container().instance(RouteRegistry, new RouteRegistry(entries)));
+};
+
 afterEach(() => {
-  globalThis.__laratype_routes = undefined;
+  Facade.setFacadeApplication(undefined);
   vi.restoreAllMocks();
 });
 
 describe('sauf route:list', () => {
   it('lists the Route.api registry entries and marks auth that is not enforced yet', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    globalThis.__laratype_routes = routes.mount(new Hono());
+    useRegistry(routes.mount(new Hono()));
     const table = vi.spyOn(Console, 'table').mockImplementation(() => {});
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     expect(await new RouteListCommand().handle()).toBe(0);
@@ -53,7 +60,7 @@ describe('sauf route:list', () => {
   it('shows the Domain column when a domain is set', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(Console, 'warn').mockImplementation(() => {});
-    globalThis.__laratype_routes = routes.domain('api.example.test').mount(new Hono());
+    useRegistry(routes.domain('api.example.test').mount(new Hono()));
     const table = vi.spyOn(Console, 'table').mockImplementation(() => {});
     await new RouteListCommand().handle();
     expect(table.mock.calls[0]![0]).toEqual([
@@ -62,17 +69,22 @@ describe('sauf route:list', () => {
     ]);
   });
 
-  it('lists an ad-hoc route as a Closure', () => {
+  it('lists an ad-hoc route as a Closure, with the name .name() gave it (H13 #162)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const [, , health] = Route.api(appApi, (r) => [
       r.contract(users, UserController),
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController, { policy: PostPolicy }),
-      r.middleware(Audit).get('/health', () => 'ok'),
+      r.middleware(Audit).get('/health', () => 'ok').name('health'),
     ]).mount(new Hono());
     expect(routeRow(health!)).toEqual({
-      Method: 'get', path: '/health', Name: '-', Controller: 'Closure', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',
+      Method: 'get', path: '/health', Name: 'health', Controller: 'Closure', Middleware: 'Audit', Policies: '-', 'Not enforced': '-', Domain: '-',
     });
+  });
+
+  it('names a typed middleware by its handle (H6 #117)', () => {
+    const trace = defineMiddleware(function traceMiddleware(): never { throw new Error('not run') });
+    expect(routeRow({ method: 'get', path: '/me', controller: [UserController, 'me'], middleware: [Audit, trace], can: [] }).Middleware).toBe('Audit, traceMiddleware');
   });
 
   it('still reads 0.5 entries', () => {

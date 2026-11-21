@@ -2,6 +2,7 @@ import type { Model } from "@laratype/database";
 import type { LaratypeConfig as Config } from "@laratype/support";
 import TokenGuard from "./TokenGuard";
 import PassportGuard from "./PassportGuard";
+import type { GuardName } from "../Register";
 
 /**
  * Builds the guards of `app/config/auth.ts` (A4 #151). A singleton in the app container, bound by
@@ -27,7 +28,7 @@ export default class AuthManager {
    * The guard named `name` (the default guard when omitted), built once and cached: a `PassportGuard` when its
    * config has a `strategy`, else a `TokenGuard`.
    */
-  guard<User = any>(name: string = this.defaultGuard): TokenGuard<User> {
+  guard<User = any>(name: GuardName = this.defaultGuard as GuardName): TokenGuard<User> {
     let guard = this.guards.get(name);
     if (!guard) {
       if (!Object.prototype.hasOwnProperty.call(this.config.guards, name)) {

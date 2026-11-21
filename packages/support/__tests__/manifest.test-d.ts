@@ -5,7 +5,7 @@ import type { AppManifest, ManifestEntry, ManifestKind } from '../src/manifest/A
 
 describe('AppManifest', () => {
   test('ManifestKind is every list of the manifest, not providers, error or appDir', () => {
-    expectTypeOf<ManifestKind>().toEqualTypeOf<'configs' | 'routes' | 'commands' | 'models' | 'migrations' | 'seeders' | 'factories' | 'modules'>()
+    expectTypeOf<ManifestKind>().toEqualTypeOf<'configs' | 'routes' | 'commands' | 'models' | 'migrations' | 'seeders' | 'factories' | 'modules' | 'lang'>()
   })
 
   test('the lists are read-only entries, providers is optional', () => {
