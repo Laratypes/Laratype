@@ -1,9 +1,10 @@
 /**
  * `laratype:api`: resolves `$api` to the generated `<out>/api/index.gen.ts` (docs/v1/http.md › Router v2).
  * The first `$api` import scans the contract tree and writes its files, with the root and base from config
- * `api.root` / `api.base`. Once the app has imported `$api`, `sauf dev` rescans before a restart when the tree can
- * have changed (`affectsTree()`, then `restart()`), so an app that never imports it is never scanned. Production scans
- * nothing: the build compiles the generated index (#125). No runtime import of vite: this module is loaded on every `sauf` start.
+ * `api.root` / `api.base`. Once the app has imported `$api`, the type watch (`refresh()`, G2 #142) and `sauf dev`'s
+ * `--hmr` restarts rescan when the tree can have changed (`affectsTree()`), so an app that never imports it is never
+ * scanned. Production scans nothing: the build compiles the generated index (#125). No runtime import of vite: this
+ * module is loaded on every `sauf` start.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -27,8 +28,16 @@ export interface ApiPluginOptions {
 
 /** `plugin.api` of `laratype:api`, used by `sauf dev`. */
 export interface ApiPluginApi {
-  /** Scans the tree again and writes the files that changed. A rejected scan is not cached: the next call retries. */
+  /**
+   * Scans the tree again and writes the files that changed. Serialized with every other scan (a call during a scan
+   * queues exactly one follow-up). A rejected scan is not cached: the next call retries.
+   */
   rescan(): Promise<void>;
+  /**
+   * The type watch's scan (G2 #142): rescans when the app has imported `$api` before, otherwise does nothing. Called
+   * by `sauf dev` on every relevant watcher event, without a restart.
+   */
+  refresh(): Promise<void>;
   /** Called before each dev (re)start: rescans when the app has imported `$api` before, otherwise does nothing. */
   restart(): Promise<void>;
   /** Whether adding or deleting `file` changes the contract tree: it is under the root of the last scan (the default root until a config loaded). */
@@ -47,7 +56,7 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   const indexId = slash(indexFile);
   const configFile = resolve(projectDir, 'app', 'config', 'config.ts');
   const outPath = resolve(projectDir, outDir);
-  let current: Promise<void> | undefined;
+  let lastScan: Promise<void> | undefined;
   let used = false;
   // The default root until a scan has read the config, so a first scan that fails still restarts on contract adds
   let rootPath = resolve(projectDir, DEFAULT_ROOT);
@@ -79,14 +88,24 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     }
   };
 
+  // One scan at a time: the type watch, a restart and a first $api import can ask together, and a scan reads names
+  // only, so the calls that arrive during one coalesce into exactly one follow-up instead of racing its writes.
+  const scans = coalesce(scan);
   const rescan = () => {
-    const run = scan().catch((error: unknown) => {
-      if (current === run) current = undefined;
+    const run = scans.run().catch((error: unknown) => {
       // The original's cause (the jiti import error and its stack) is kept
       throw error instanceof ScanError ? new ScanError(`[${API_PLUGIN_NAME}] ${error.message}`, { cause: error.cause }) : error;
     });
-    current = run;
+    lastScan = run;
+    // A rejected scan is not cached: the next import or watcher event retries
+    void run.catch(() => {
+      if (lastScan === run) lastScan = undefined;
+    });
     return run;
+  };
+
+  const refresh = async () => {
+    if (used) await rescan();
   };
 
   // A stale index.gen.ts would import contracts that may be gone
@@ -98,9 +117,8 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
 
   const api: ApiPluginApi = {
     rescan,
-    restart: async () => {
-      if (used) await rescan();
-    },
+    refresh,
+    restart: refresh,
     // A contract or a _scope.ts the scan would read: not a private _x/$x folder, a non-.ts file or an editor temp file
     // The output folder is skipped like the scan does (it is inside the root with `api.root: '.'`)
     inTree: (file) =>
@@ -119,7 +137,7 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     async resolveId(source) {
       if (source !== API_ALIAS) return null;
       used = true;
-      await (current ?? rescan());
+      await (lastScan ?? rescan());
       checkRoot();
       return existsSync(indexFile) ? indexFile : null;
     },
@@ -134,3 +152,53 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
 /** The `laratype:api` plugin API of a Vite server, if it has the plugin. */
 export const contractTreePlugin = (plugins: readonly { name: string; api?: unknown }[]): ApiPluginApi | undefined =>
   plugins.find((p) => p.name === API_PLUGIN_NAME)?.api as ApiPluginApi | undefined;
+
+/** One task at a time: calls during a run coalesce into exactly one follow-up run, never a concurrent one. */
+export interface CoalescedTask {
+  /** Runs now, or after the in-flight run. Resolves with the last queued run's outcome. */
+  run(): Promise<void>;
+}
+
+/**
+ * Serializes `task` and coalesces concurrent calls: while a run is in flight any number of `run()` calls queue exactly
+ * one follow-up. The queue drains even when a run throws and the shared promise rejects only when the last run failed,
+ * so a call that arrives during a failed run is not dropped and a failing scan, even one that throws synchronously, is
+ * not cached.
+ */
+export function coalesce(task: () => Promise<void>): CoalescedTask {
+  let running: Promise<void> | undefined;
+  let requested = false;
+  let settled = 0;
+  const drain = async (): Promise<void> => {
+    let failed = false;
+    let failure: unknown;
+    try {
+      while (requested) {
+        requested = false;
+        failed = false;
+        try {
+          await task();
+        } catch (error) {
+          failed = true;
+          failure = error;
+        }
+      }
+      if (failed) throw failure;
+    } finally {
+      running = undefined;
+      settled++;
+    }
+  };
+  return {
+    run() {
+      requested = true;
+      if (running) return running;
+      const before = settled;
+      const current = drain();
+      // `drain` runs synchronously up to its first `await`, so a task that throws synchronously settles it (and clears
+      // `running`) before this assignment. Storing that rejected promise would cache the failure and drop later calls.
+      if (settled === before) running = current;
+      return current;
+    },
+  };
+}

@@ -12,6 +12,22 @@ const usingHasher = (hasher: Hasher) => {
   Facade.setFacadeApplication(app);
 };
 
+/** A plain object Hasher whose dummy carries its mark, so a check shows which object built the hash it checked. */
+const literalHasher = (mark: string) => {
+  const calls = { makes: [] as string[], checks: [] as [string, string][] };
+  const hasher = {
+    makeAsync: async (value: string) => {
+      calls.makes.push(value);
+      return `${mark}:${value}`;
+    },
+    checkAsync: async (value: string, hashed: string) => {
+      calls.checks.push([value, hashed]);
+      return hashed === `${mark}:${value}`;
+    },
+  } as unknown as Hasher;
+  return { hasher, calls };
+};
+
 /** A Hasher that records every check and derivation, so a test can count the scrypt work of a path. */
 class RecordingHasher extends Hasher {
   checks: [string, string][] = [];
@@ -124,6 +140,42 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(first.checks).toHaveLength(2);
   });
 
+  it("shares the first dummy when one Hasher class is bound with two formats", async () => {
+    /** A Hasher class whose instances can use different formats, which today's class key cannot tell apart. */
+    class Format extends Hasher {
+      checks: [string, string][] = [];
+      makes: string[] = [];
+
+      constructor(private readonly format: string) {
+        super();
+      }
+
+      override async makeAsync(value: string): Promise<string> {
+        this.makes.push(value);
+        return `${this.format}:${value}`;
+      }
+
+      override async checkAsync(value: string, hashed: string): Promise<boolean> {
+        this.checks.push([value, hashed]);
+        return hashed === `${this.format}:${value}`;
+      }
+    }
+    const first = new Format("first");
+    const second = new Format("second");
+    usingHasher(first);
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    expect(first.makes).toEqual([""]);
+    expect(first.checks).toEqual([["secret", "first:"]]);
+
+    // Pinned today: the class is the key, so the second format checks the first format's dummy and rejects it before
+    // any derivation. Use one class per format or cost (di.md / auth.md) to keep the dummy check's timing padding.
+    usingHasher(second);
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(second.makes).toEqual([]);
+    expect(second.checks).toEqual([["secret", "first:"]]);
+  });
+
   it("shares one dummy hash when a custom Hasher class is bound transient", async () => {
     class Custom extends Hasher {
       override async makeAsync(value: string): Promise<string> {
@@ -173,24 +225,54 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     expect(calls.checks).toEqual([["secret", "bare:"], ["secret", "bare:"]]);
   });
 
-  it("gives each object-literal Hasher its own dummy: their constructor is Object, not a class", async () => {
-    /** A plain object Hasher whose dummy carries its mark, so a check shows which object built the hash it checked. */
-    const literal = (mark: string) => {
-      const calls = { makes: [] as string[], checks: [] as [string, string][] };
-      const hasher = {
-        makeAsync: async (value: string) => {
-          calls.makes.push(value);
-          return `${mark}:${value}`;
-        },
-        checkAsync: async (value: string, hashed: string) => {
-          calls.checks.push([value, hashed]);
-          return hashed === `${mark}:${value}`;
-        },
-      } as unknown as Hasher;
-      return { hasher, calls };
+  it("falls back to the instance key when a Hasher's constructor getter throws", async () => {
+    const calls = { makes: [] as string[], checks: [] as [string, string][] };
+    const target = {
+      makeAsync: async (value: string) => {
+        calls.makes.push(value);
+        return `hostile:${value}`;
+      },
+      checkAsync: async (value: string, hashed: string) => {
+        calls.checks.push([value, hashed]);
+        return hashed === `hostile:${value}`;
+      },
     };
-    const first = literal("first");
-    const second = literal("second");
+    // A Proxy that throws on the constructor read, as a hostile Hasher can
+    const hostile = new Proxy(target, {
+      get(object, property, receiver) {
+        if (property === "constructor") throw new Error("hostile constructor getter");
+        return Reflect.get(object, property, receiver);
+      },
+    }) as Hasher;
+    usingHasher(hostile);
+    const { User } = fakeModel([]);
+
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    // The guard built and ran the dummy check instead of skipping it on the failed read
+    expect(calls.makes).toEqual([""]);
+    expect(calls.checks).toEqual([["secret", "hostile:"]]);
+
+    // The instance is the key, so a second request reuses that dummy as an object literal does
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    expect(calls.makes).toEqual([""]);
+    expect(calls.checks).toHaveLength(2);
+  });
+
+  it("answers null for a login without a raw throw when every read on a Proxy Hasher throws", async () => {
+    // hasherKey(), makeAsync() and checkAsync() all throw on the read: the dummy check swallows it, the login answers
+    const hostile = new Proxy({}, {
+      get() {
+        throw new Error("hostile Hasher");
+      },
+    }) as unknown as Hasher;
+    usingHasher(hostile);
+    const { User } = fakeModel([]);
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+  });
+
+  it("gives each object-literal Hasher its own dummy: their constructor is Object, not a class", async () => {
+    const first = literalHasher("first");
+    const second = literalHasher("second");
     expect(first.hasher.constructor).toBe(Object);
     const { User } = fakeModel([]);
 
@@ -209,6 +291,28 @@ describe("TokenGuard.attempt() with a custom Hasher", () => {
     await expect(attempt(User, { email: "eve@example.com", password: "secret" })).resolves.toBeNull();
     expect(first.calls.makes).toEqual([""]);
     expect(first.calls.checks).toHaveLength(2);
+  });
+
+  it("builds a new dummy for each object literal a transient factory returns", async () => {
+    const built: ReturnType<typeof literalHasher>[] = [];
+    const app = new Container({ deps: depsRegistry });
+    // A factory binding is transient: every resolve returns a new object literal, so its instance key never repeats
+    app.bind(Hasher, () => {
+      const next = literalHasher(`literal-${built.length}`);
+      built.push(next);
+      return next.hasher;
+    });
+    Facade.setFacadeApplication(app);
+    const { User } = fakeModel([]);
+
+    await expect(attempt(User, { email: "ada@example.com", password: "secret" })).resolves.toBeNull();
+    await expect(attempt(User, { email: "bob@example.com", password: "secret" })).resolves.toBeNull();
+    // Pinned today: each resolve is a new object literal, so each builds its own dummy; a class binding shares one
+    expect(built).toHaveLength(2);
+    expect(built[0]!.calls.makes).toEqual([""]);
+    expect(built[1]!.calls.makes).toEqual([""]);
+    expect(built[0]!.calls.checks).toEqual([["secret", "literal-0:"]]);
+    expect(built[1]!.calls.checks).toEqual([["secret", "literal-1:"]]);
   });
 
   it("shares one dummy hash between unknown users under the default binding", async () => {

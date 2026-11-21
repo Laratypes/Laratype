@@ -22,7 +22,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; root brand, `isApiRoot`/`isApiNode` and entry `scopes: [{ scope, dir }]` proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
+| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); watch proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9 ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
@@ -617,7 +617,7 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and s
 ## Contract folder tree
 
 ### Status
-The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The root config key and the server's dev scan are merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1). The watch is planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2).
+The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The root config key and the server's dev scan are merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1). The dev type watch is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -674,9 +674,8 @@ export type ScopePrefix = ContractPrefix<'/api/users/:user', [typeof import('../
 ```
 
 ### Design (non-binding)
-The parts that G2 and H1 will build:
-- **Watch:** `sauf dev` rescans the tree on file add, rename and delete, and regenerates the files above ([#142](https://github.com/Laratypes/Laratype/issues/142)).
-- **Rescan:** in dev the server rescans the tree on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production nothing scans: the build compiles the generated `index.gen.ts` ([build.md › Plugin chain](./build.md#plugin-chain), merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
+- **Watch (proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9, G2 [#142](https://github.com/Laratypes/Laratype/issues/142)):** `sauf dev` watches the tree with Vite's own watcher, with or without `--hmr`, debounces a burst into one generation, and regenerates `$types.d.ts` and `index.gen.ts` only when their content changed ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)). A content edit needs no regeneration: the generated files import the contract.
+- **Rescan:** in dev the server rescans the tree on the same events ([#142](https://github.com/Laratypes/Laratype/issues/142)); reloading the running server's routes without a restart is a follow-up. In production nothing scans: the build compiles the generated `index.gen.ts` ([build.md › Plugin chain](./build.md#plugin-chain), merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
 ### Open questions
