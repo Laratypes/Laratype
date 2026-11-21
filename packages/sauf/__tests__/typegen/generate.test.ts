@@ -183,6 +183,34 @@ describe('sauf types:generate', () => {
     expect(Object.keys(client)).toEqual(['users', 'v1']);
   }, 60_000);
 
+  it('expands finite error-status unions and keeps a schema whose output is undefined', async () => {
+    const copy = join(tmp, 'unions');
+    cpSync(join(fixtures, 'project'), copy, { recursive: true });
+    writeFileSync(join(copy, 'tsconfig.json'), JSON.stringify(appTsconfig));
+    writeFileSync(
+      join(copy, 'app', 'api', 'unions.ts'),
+      [
+        "import * as z from 'zod'",
+        "import { defineContract, defineError, endpoint } from '@laratype/contract'",
+        "import type { ErrorDef } from '@laratype/contract'",
+        '',
+        '// a finite status union keeps both statuses; a wide `number` keeps the pre-CL8 code-string form',
+        "const Choice = defineError(Math.random() < 0.5 ? 409 : 422, 'CHOICE')",
+        "const Wide = defineError(409, 'WIDE') as unknown as ErrorDef<number, 'WIDE'>",
+        'export default defineContract()({',
+        "  choose: endpoint.post('/choose').response(z.undefined()).throws(Choice),",
+        "  wide: endpoint.get('/wide').throws(Wide),",
+        '})',
+      ].join('\n'),
+    );
+    await generateTypes({ projectDir: copy }, ts);
+    const api = readFileSync(join(copy, '.laratype', 'api.ts'), 'utf8');
+    expect(api).toContain(
+      "  'unions.choose': { method: 'post', path: '/api/unions/choose', status: 200, response: true, errors: [{ status: 409, code: 'CHOICE' }, { status: 422, code: 'CHOICE' }] },",
+    );
+    expect(api).toContain("  'unions.wide': { method: 'get', path: '/api/unions/wide', status: 204, response: false, errors: ['WIDE'] },");
+  }, 60_000);
+
   it('inlines named types (interfaces, contract error bodies) and keeps default-lib ones', () => {
     const api = result.files.find((f) => f.path === '.laratype/api.ts')!.content;
     expect(api).not.toMatch(/MessageBody|ValidationErrorBody|Address\b|ZodType/);

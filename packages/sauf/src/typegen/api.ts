@@ -141,14 +141,18 @@ function createPrinter(ts: typeof TS, program: TS.Program, checker: TS.TypeCheck
 export function generateApiFile(ts: typeof TS, options: ApiFileOptions): GeneratedFile & { manifest: Record<string, ManifestEntry> } {
   const entryFile = resolve(dirname(options.indexFile), ENTRY_NAME);
   const indexSpecifier = `./${options.indexFile.slice(dirname(options.indexFile).length + 1).replace(/\.ts$/, "")}`;
-  // `Kind` marks each member as `ApiTypes` reads it: `true` for an endpoint, else a node's members. It is `never` when
-  // `AppApi` is not a `defineApi` root, told by its brand as `isApiRoot` does at runtime (`any` included).
+  // `Kind` marks each member as `ApiTypes` reads it: `true` for an endpoint, else a node's members. `HasResponse` keeps
+  // the schema presence that `ApiTypes` drops when it projects `response` to `InferOut` (a schema whose output is
+  // `undefined` still declares a body). Both are `never` when `AppApi` is not a `defineApi` root, told by its brand as
+  // `isApiRoot` does at runtime (`any` included).
   const entrySource = lines([
     "import type { API_ROOT, AnyEndpoint, ApiTypes } from '@laratype/contract'",
     `import type { AppApi } from '${indexSpecifier}'`,
     "export type Flat = ApiTypes<AppApi>",
     "type Kinds<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? true : Kinds<A[K]> }",
+    "type Responses<A> = { [K in keyof A & string]: A[K] extends AnyEndpoint ? (A[K][\"__types\"][\"response\"] extends undefined ? false : true) : Responses<A[K]> }",
     "export type Kind = 0 extends 1 & AppApi ? never : AppApi extends { readonly [API_ROOT]: true } ? Kinds<AppApi> : never",
+    "export type HasResponse = 0 extends 1 & AppApi ? never : AppApi extends { readonly [API_ROOT]: true } ? Responses<AppApi> : never",
   ]);
 
   const compilerOpts = compilerOptions(ts, options);
@@ -176,6 +180,7 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   const alias = aliasOf("Flat");
   const kind = checker.getTypeAtLocation(aliasOf("Kind").name);
   if (kind.flags & ts.TypeFlags.Never) throw new ApiGenerationError(`AppApi in ${options.indexFile} must be the type of the appApi from defineApi`);
+  const responses = checker.getTypeAtLocation(aliasOf("HasResponse").name);
   const print = createPrinter(ts, program, checker, alias);
   const propType = (type: TS.Type, name: string) => {
     const symbol = type.getProperty(name);
@@ -184,18 +189,32 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   const literal = (type: TS.Type | undefined) => (type && type.flags & ts.TypeFlags.StringLiteral ? (type as TS.StringLiteralType).value : undefined);
   // A status is a number literal (`St extends SuccessStatus`); a cast to a wide `number` leaves it unknown, so it is not emitted.
   const numberLiteral = (type: TS.Type | undefined) => (type && type.flags & ts.TypeFlags.NumberLiteral ? (type as TS.NumberLiteralType).value : undefined);
-  const hasSchema = (type: TS.Type | undefined) => type !== undefined && !(type.flags & ts.TypeFlags.Undefined);
+  // A finite status union (`defineError(flag ? 409 : 422, "DOMAIN_ERROR")` keeps `409 | 422`); `undefined` for a wide `number`.
+  const numberLiterals = (type: TS.Type | undefined): readonly number[] | undefined => {
+    if (!type) return undefined;
+    if (type.flags & ts.TypeFlags.NumberLiteral) return [(type as TS.NumberLiteralType).value];
+    if (!(type.flags & ts.TypeFlags.Union)) return undefined;
+    const values: number[] = [];
+    for (const member of (type as TS.UnionType).types) {
+      if (!(member.flags & ts.TypeFlags.NumberLiteral)) return undefined;
+      values.push((member as TS.NumberLiteralType).value);
+    }
+    return values.length ? values : undefined;
+  };
+  // `HasResponse` gives a boolean literal per endpoint; a non-boolean (a forged `any` schema) keeps the old "has a schema".
+  const hasSchema = (type: TS.Type) => !(type.flags & ts.TypeFlags.BooleanLiteral && (type as TS.BooleanLiteralType).intrinsicName === "false");
 
   const manifest: Record<string, ManifestEntry> = {};
-  const walk = (type: TS.Type, kinds: TS.Type, prefix: string, indent: string): string => {
+  const walk = (type: TS.Type, kinds: TS.Type, responseFlags: TS.Type, prefix: string, indent: string): string => {
     const inner = `${indent}  `;
     const lines: string[] = [];
     for (const member of type.getProperties()) {
       const memberType = checker.getTypeOfSymbolAtLocation(member, alias);
       const memberKinds = propType(kinds, member.name)!;
+      const memberResponses = propType(responseFlags, member.name)!;
       const name = prefix ? `${prefix}.${member.name}` : member.name;
       if (!(memberKinds.flags & ts.TypeFlags.BooleanLiteral)) {
-        lines.push(`${inner}${key(member.name)}: ${walk(memberType, memberKinds, name, inner)};`);
+        lines.push(`${inner}${key(member.name)}: ${walk(memberType, memberKinds, memberResponses, name, inner)};`);
         continue;
       }
       const fields = FIELDS.map((f) => {
@@ -206,17 +225,18 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
       const errors = propType(memberType, "errors")!;
       const errorTypes = errors.flags & ts.TypeFlags.Never ? [] : errors.flags & ts.TypeFlags.Union ? (errors as TS.UnionType).types : [errors];
       const status = numberLiteral(propType(memberType, "status"));
-      // The same code may be declared at two statuses: keep each pair once. A wide `number` status (a forged endpoint
-      // type, not something the builder's generics produce) pins no status, so the code keeps the pre-CL8 string form
-      // and matches any 4xx/5xx; a wide `string` code names nothing the client could match, so it is left out.
+      // The same code may be declared at two statuses: keep each pair once. A finite status union is one pair per
+      // status. A wide `number` status (a forged endpoint type, not something the builder's generics produce) pins no
+      // status, so the code keeps the pre-CL8 string form and matches any 4xx/5xx; a wide `string` code names nothing
+      // the client could match, so it is left out.
       const pairs = new Map<string, ManifestError>();
       const wideStatuses = new Set<string>();
       for (const type of errorTypes) {
         const code = literal(propType(type, "code"));
         if (code === undefined) continue;
-        const errorStatus = numberLiteral(propType(type, "status"));
-        if (errorStatus === undefined) wideStatuses.add(code);
-        else pairs.set(`${errorStatus}:${code}`, { status: errorStatus, code });
+        const errorStatuses = numberLiterals(propType(type, "status"));
+        if (errorStatuses === undefined) wideStatuses.add(code);
+        else for (const errorStatus of errorStatuses) pairs.set(`${errorStatus}:${code}`, { status: errorStatus, code });
       }
       const errorEntries: Array<string | ManifestError> = [...wideStatuses, ...pairs.values()].sort((a, b) => {
         const codeA = typeof a === "string" ? a : a.code;
@@ -229,13 +249,13 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
         path: literal(propType(memberType, "path"))!,
         status,
         // a 204/205 never carries a body, whatever its response type says (the contract's isBodylessStatus rule)
-        response: hasSchema(propType(memberType, "response")) && status !== 204 && status !== 205,
+        response: hasSchema(memberResponses) && status !== 204 && status !== 205,
         errors: errorEntries,
       };
     }
     return lines.length ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
   };
-  const appApi = walk(checker.getTypeAtLocation(alias.name), kind, "", "");
+  const appApi = walk(checker.getTypeAtLocation(alias.name), kind, responses, "", "");
 
   const manifestLines = Object.entries(manifest)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
