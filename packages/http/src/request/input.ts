@@ -5,7 +5,7 @@ import { errors, issuePath, toErrorBag, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardIssue, StandardSchemaV1 } from "@laratype/contract";
 import { bodyCacheOf } from "./bodyCache";
 import type { BodyCache } from "./bodyCache";
-import { enforceBodyLimit, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
+import { enforceBodyLimit, formMediaType, isJsonMediaType, isPayloadTooLarge } from "./bodyLimit";
 
 /**
  * Parsing and validation of a request's input (docs/v1/validation.md › Pipeline validation and 422): the body by its
@@ -19,17 +19,14 @@ const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
 
 /**
- * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched on
- * the lowercased media type, as Hono 4.13.17's `parseBody()` does (4.9.6 matched case-sensitively): media types are
- * case-insensitive (RFC 9110 §8.3.1), so a `Multipart/Form-Data` body is a form body here and for a later
- * `c.req.parseBody()`. The parameters are not part of the match: a multipart boundary is case-sensitive and is passed
- * through unchanged (`lowercaseMediaType`). The cap follows the same lowercased split in `bodyLimit.ts`, so a
- * mixed-case form body is capped too.
+ * Whether Hono's `parseBody()` reads the request as a form body. The `hono` peer range (`^4.8.0`) has two classifiers:
+ * 4.8.0–4.12.27 matches the header as sent with `startsWith` (case-sensitive, no trim), while 4.12.28+ splits at `;`,
+ * trims, lowercases and compares exactly (`parseBody` in `hono/utils/body.ts`). `formMediaType` accepts a spelling
+ * either rule reads as a form (fail closed); the same helper decides the default cap in `bodyLimit.ts`, so the
+ * classifier and the cap cannot disagree. The parser gets the media type lowercased by `lowercaseMediaType`, with the
+ * parameters (a multipart boundary) as sent.
  */
-const isFormMediaType = (contentType: string | undefined): boolean => {
-  const type = contentType?.toLowerCase();
-  return type?.startsWith("multipart/form-data") === true || type?.startsWith("application/x-www-form-urlencoded") === true;
-};
+const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
 
 /**
  * The media type lowercased, its parameters untouched: RFC 9110 §8.3.1 makes the type and subtype case-insensitive,
@@ -308,7 +305,7 @@ const readCachedFormData = async (
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
   if (contentType === undefined || !isFormMediaType(contentType)) return {};
-  // The media type lowercased for the classifier and the parser; the parameters (a multipart boundary) keep their case
+  // The parser gets the media type lowercased; the parameters (a multipart boundary) keep their case
   const formContentType = lowercaseMediaType(contentType);
   const cache = bodyCacheOf(request);
   if (cache.text !== undefined) {
@@ -319,7 +316,7 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
       cacheFormData(cache, new FormData());
       return {};
     }
-    if (formContentType.startsWith("multipart/form-data")) throw textReadBodyError();
+    if (formMediaType(contentType) === "multipart/form-data") throw textReadBodyError();
     return readFormFields(request, bytes, formContentType);
   }
   // A FormData the cache holds is authoritative: it keeps a file part's bytes as they arrived

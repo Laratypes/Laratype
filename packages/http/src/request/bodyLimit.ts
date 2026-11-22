@@ -34,18 +34,41 @@ const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
+/** The two media types Hono's `parseBody()` reads as form fields. */
+export type FormMediaType = "multipart/form-data" | "application/x-www-form-urlencoded";
+
+/**
+ * The form media type the pipeline reads, or `undefined`, when EITHER Hono classifier in the `^4.8.0` peer range reads
+ * the request as a form body:
+ * - 4.8.0–4.12.27 (`parseBody` in `hono/utils/body.ts`): `contentType?.startsWith("multipart/form-data") || ...` on the
+ *   header as sent (case-sensitive, no trim);
+ * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
+ *   compared exactly to the two types.
+ * Accepting a spelling either rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a
+ * peer that reads it can never hand a handler fields validation did not see. A spelling neither rule accepts is `{}` to
+ * the pipeline, as it is to `parseBody()` on every peer. The classifier and the default cap both use this helper
+ * (`mediaTypeOf`), so they cannot disagree.
+ */
+export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
+  if (contentType === undefined) return undefined;
+  const exact = contentType.split(";")[0]!.trim().toLowerCase();
+  if (exact === "multipart/form-data" || exact === "application/x-www-form-urlencoded") return exact;
+  if (contentType.startsWith("multipart/form-data")) return "multipart/form-data";
+  if (contentType.startsWith("application/x-www-form-urlencoded")) return "application/x-www-form-urlencoded";
+  return undefined;
+};
+
 /**
  * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
- * does not parse). Matched on the lowercased value: media types are case-insensitive (RFC 9110 §8.3.1), so a
- * `Multipart/Form-Data` or `Application/X-WWW-Form-Urlencoded` body is capped as its lowercase spelling is. The
- * pipeline's form parse lowercases the media type too (`isFormMediaType` in `input.ts`), so the same body is parsed
- * and validated, not left `{}`.
+ * does not parse). The form types come from `formMediaType`, the same union of the peer range's classifiers the parse
+ * uses, so the cap and the parse can never disagree on a spelling. JSON uses `isJsonMediaType` (Hono's `validator('json')`
+ * shape, see the regex above).
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";
-  const type = contentType?.toLowerCase();
-  if (type?.startsWith("multipart/form-data")) return "multipart";
-  if (type?.startsWith("application/x-www-form-urlencoded")) return "form";
+  const form = formMediaType(contentType);
+  if (form === "multipart/form-data") return "multipart";
+  if (form === "application/x-www-form-urlencoded") return "form";
   return undefined;
 };
 
