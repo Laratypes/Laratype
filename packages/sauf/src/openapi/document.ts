@@ -1,9 +1,11 @@
 import type { Api, ApiRoute, Method } from "@laratype/contract";
 import { OpenApiGenerationError } from "./errors";
 import {
+  hasBaseDependentRefs,
   hasLocalRefs,
   isJsonObject,
   isParentRef,
+  isSchemaResource,
   oneLine,
   pointerSegment,
   rebaseRefs,
@@ -84,7 +86,8 @@ export interface OpenApiParameter {
   readonly in: "path" | "query" | "header";
   readonly required: boolean;
   readonly description?: string;
-  readonly schema: JsonSchema;
+  /** A JSON Schema: an object, or the draft 2020-12 boolean form a query/header property can carry (`false` refuses). */
+  readonly schema: JsonSchema | boolean;
 }
 
 /** A required JSON request body. */
@@ -136,6 +139,11 @@ const isErrorEntry = (value: unknown): boolean => {
     code !== ""
   );
 };
+
+/** A success status, the rule the contract's endpoint builder enforces: an integer from 200 to 299. A custom contract
+ * runtime can return any `def`, so the route guard checks it before `responses()` keys the success response by it. */
+const isSuccessStatus = (value: unknown): boolean =>
+  typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 299;
 
 /** A non-empty string, or the fallback: `info` requires both fields. */
 const metadataText = (value: unknown, fallback: string): string =>
@@ -283,12 +291,13 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
       !methodNames.has(route.method) ||
       typeof route.endpoint?.def !== "object" ||
       route.endpoint.def === null ||
+      !isSuccessStatus((route.endpoint.def as { status?: unknown }).status) ||
       !Array.isArray(route.errors) ||
       !route.errors.every(isErrorEntry) ||
       (route.auth !== undefined && route.auth !== true && typeof route.auth !== "string")
     ) {
       throw new OpenApiGenerationError(
-        "apiRoutes() returned an invalid route: it needs a name, a method, a path, an endpoint, errors and auth",
+        "apiRoutes() returned an invalid route: it needs a name, a method, a path, an endpoint with a 2xx status, errors and auth",
       );
     }
   }
@@ -384,9 +393,11 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
 
   /**
    * The query or headers parameters of one endpoint: the schema's `properties`, in declaration order, `required` from
-   * its `required` list. A property with a local `$ref` is served by hoisting the whole query/headers schema (once per
-   * endpoint and slot) and referencing the property inside it: the refs keep the root schema as their base, so `#`,
-   * `#/$defs/...` and `#anchor` still point at what they meant in the source schema.
+   * its `required` list. A property with a local `$ref`, or with a relative reference that only resolves against the
+   * schema root's `$id`, is served by hoisting the whole query/headers schema (once per endpoint and slot) and
+   * referencing the property inside it: the refs keep the root schema as their base, `$id` included, so `#`,
+   * `#/$defs/...`, `#anchor`, a relative `$ref` (`filter.json`) and a relative `$dynamicRef` still point at what they
+   * meant in the source schema. A property with no such reference is inlined.
    */
   const propertyParameters = (route: ApiRoute, label: "query" | "headers"): OpenApiParameter[] => {
     const def = route.endpoint.def;
@@ -411,11 +422,15 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
     const parameters: OpenApiParameter[] = [];
     let rootKey: string | undefined;
     for (const [name, property] of Object.entries(root.properties)) {
-      let json: JsonSchema;
-      if (!isJsonObject(property)) {
+      let json: JsonSchema | boolean;
+      if (typeof property === "boolean") {
+        // draft 2020-12 boolean schemas are valid everywhere a schema is (OAS 3.1's Schema Object is object|boolean):
+        // true accepts every value, false refuses every value, so neither may become {}
+        json = property;
+      } else if (!isJsonObject(property)) {
         warnings.push(
           oneLine(
-            `${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} is not a JSON Schema object; it is documented as {}`,
+            `${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} is not a JSON Schema; it is documented as {}`,
           ),
         );
         json = {};
@@ -429,7 +444,9 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
             `${JSON.stringify(route.name)}: the ${label} property ${JSON.stringify(name)} is documented as the whole ${label} schema; its parameter overlaps the sibling parameters`,
           ),
         );
-      } else if (hasLocalRefs(property)) {
+      } else if (hasLocalRefs(property) || (isSchemaResource(root) && hasBaseDependentRefs(property))) {
+        // The parent's $id is the property's base: keep the property in the hoisted root, which keeps that $id, instead
+        // of extracting it to a document where a relative ref would resolve against the OpenAPI document.
         rootKey ??= hoist(`${route.name}.${label}`, (key) => rebaseRefs(root, key));
         json = { $ref: `#/components/schemas/${rootKey}/properties/${pointerSegment(name)}` };
       } else {
@@ -607,9 +624,13 @@ export function generateOpenApiDocument(api: unknown, options: OpenApiOptions): 
 
 const SCHEMA_REF = "#/components/schemas/";
 
+/** The reference keywords a generated pointer can sit in: `$ref` and the `$dynamicRef` JSON Pointer form. */
+const COMPONENT_REF_KEYWORDS: ReadonlySet<string> = new Set(["$ref", "$dynamicRef"]);
+
 /**
- * Replaces the provisional component keys (a NUL and a number) in every `$ref` with the final key chosen in sorted base
- * order. Only refs this generator wrote carry the NUL marker (a final key cannot), so a schema's own ref is untouched.
+ * Replaces the provisional component keys (a NUL and a number) in every `$ref` and `$dynamicRef` this generator wrote
+ * with the final key chosen in sorted base order. Only those refs carry the NUL marker (a final key cannot), so a
+ * schema's own ref — a named dynamic reference included — is untouched.
  */
 function rewriteComponentRefs(document: OpenApiDocument, finals: ReadonlyMap<string, string>): OpenApiDocument {
   const rewrite = (value: unknown): unknown => {
@@ -617,7 +638,7 @@ function rewriteComponentRefs(document: OpenApiDocument, finals: ReadonlyMap<str
     if (!isJsonObject(value)) return value;
     return Object.fromEntries(
       Object.entries(value).map(([name, child]) => {
-        if (name !== "$ref" || typeof child !== "string" || !child.startsWith(SCHEMA_REF)) {
+        if (!COMPONENT_REF_KEYWORDS.has(name) || typeof child !== "string" || !child.startsWith(SCHEMA_REF)) {
           return [name, rewrite(child)];
         }
         const [provisional, ...rest] = child.slice(SCHEMA_REF.length).split("/");

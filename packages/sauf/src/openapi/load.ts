@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_OUT, ScanError, isolatedImport, resolveApiTree, syncContractTree } from "../typegen";
 import { readApiTreeConfigOrDefaults } from "../typegen/config";
@@ -116,16 +116,55 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   const metadata = readPackageMetadata(projectDir);
   const generated = generateOpenApiDocument(appApi, { contract, title: metadata.title, version: metadata.version });
   warnings.push(...generated.warnings);
-  const changed = writeDocument(projectDir, out, generated.document);
+  const changed = writeDocument(projectDir, gen, out, generated.document);
   return { document: generated.document, warnings, file: out, changed };
 }
 
-/** `--out` must not be a file the scan writes: the whole generated folder, since a first run has no target yet. */
+/**
+ * The location a path resolves to through the filesystem: the realpath of its nearest existing ancestor, with the
+ * segments below it appended. `undefined` when that ancestor cannot be resolved. A lexical `resolve` alone misses a
+ * link: a folder inside the project can point at the generated folder without the string saying so.
+ */
+function realLocation(target: string): string | undefined {
+  let current = target;
+  const rest: string[] = [];
+  for (;;) {
+    if (lstatSync(current, { throwIfNoEntry: false }) !== undefined) {
+      let real: string;
+      try {
+        real = realpathSync(current);
+      } catch {
+        return undefined;
+      }
+      return rest.length === 0 ? real : join(real, ...rest);
+    }
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    rest.unshift(basename(current));
+    current = parent;
+  }
+}
+
+/**
+ * `--out` must not be a file the scan writes: the whole generated folder, since a first run has no target yet. The
+ * check compares the location each path resolves to (realpath of the nearest existing ancestor plus the rest), not the
+ * raw string: `./`, a trailing slash, an absolute `--gen`, a case variant on Windows and an in-project folder link to
+ * `--gen` are the same place. It runs again right before the write, since the scan and the project imports run in
+ * between. `--gen .` is refused by the scan (the project itself): leave that diagnostic to it rather than refusing
+ * every out.
+ */
 function checkOutputOutsideGen(projectDir: string, gen: string, out: string): void {
   const genDir = resolve(projectDir, gen);
   const target = resolve(projectDir, out);
-  // `--gen .` is refused by the scan (the project itself): leave that diagnostic to it rather than refusing every out.
-  if (genDir !== projectDir && (target === genDir || inside(genDir, target))) {
+  if (genDir === projectDir) return;
+  const realGen = realLocation(genDir);
+  const realProject = realLocation(projectDir);
+  if (realGen !== undefined && realProject !== undefined && realGen === realProject) return;
+  const lexical = target === genDir || inside(genDir, target);
+  const realTarget = realLocation(target);
+  const resolved =
+    realGen !== undefined && realTarget !== undefined && (realTarget === realGen || inside(realGen, realTarget));
+  if (lexical || resolved) {
     throw new OpenApiGenerationError(
       `the output file "${out}" (--out) must not be the generated folder "${gen}" (--gen) or inside it; the scan writes there`,
     );
@@ -294,18 +333,21 @@ function readPackageMetadata(projectDir: string): { readonly title: string; read
 
 /**
  * Writes the document only when its content changed, so a repeated run leaves the file (and its mtime) alone. The
- * target is checked again right before the write: the scan and the project imports ran since the preflight, and a
- * file created in that window must not be replaced on the strength of the earlier decision.
+ * `--gen` exclusion and the target are checked again right before the write: the scan and the project imports ran
+ * since the preflight, and a link or file created in that window must not be written through or replaced on the
+ * strength of the earlier decision.
  *
  * The check and the write still resolve the path twice, so a process that can write the project could swap an
  * ancestor for a link in between; Node's synchronous `fs` API has no descriptor-relative open to close that, and it
  * is a residual race (a process with that access can change the imported project code anyway).
  */
-function writeDocument(projectDir: string, out: string, document: OpenApiDocument): boolean {
+function writeDocument(projectDir: string, gen: string, out: string, document: OpenApiDocument): boolean {
   const content = `${JSON.stringify(document, null, 2)}\n`;
   const target = resolve(projectDir, out);
-  // First, before the target is read: a link or a directory created in the window gets the documented diagnostic,
-  // not a raw read error, and a hard-linked file's content is never read through the other name.
+  // First, before the target is read: the scan and the imports ran since the preflight, so the --gen exclusion and the
+  // target's identity are rechecked (a link created in that window included); a link or a directory gets the
+  // documented diagnostic, not a raw read error, and a hard-linked file's content is never read through the other name.
+  checkOutputOutsideGen(projectDir, gen, out);
   checkOutputFile(projectDir, out);
   if (existsSync(target) && readFileSync(target, "utf8") === content) return false;
   mkdirSync(dirname(target), { recursive: true });

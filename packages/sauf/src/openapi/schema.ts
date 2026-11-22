@@ -233,6 +233,31 @@ export function hasLocalRefs(schema: JsonSchema): boolean {
   return found;
 }
 
+/** A reference with a URI scheme is absolute: its target does not depend on the base an outer `$id` sets. */
+const isAbsoluteRef = (ref: string): boolean => /^[A-Za-z][A-Za-z0-9+.-]*:/.test(ref);
+
+/**
+ * Whether a schema has a `$ref`, `$dynamicRef` or `$id` whose meaning depends on the base that an outer schema's `$id`
+ * establishes: a reference that is not absolute, or a nested `$id` that is not absolute, in a schema position outside
+ * a nested resource. Extracting such a property from its schema resource would resolve it against the OpenAPI
+ * document instead of the parent's `$id`, so the caller keeps it in place. A reference-free property is unaffected.
+ */
+export function hasBaseDependentRefs(schema: JsonSchema): boolean {
+  let found = false;
+  walkSchemas(schema, (value, resource) => {
+    if (found) return;
+    if (resource && typeof value.$id === "string" && !isAbsoluteRef(value.$id)) {
+      // the nested resource's own $id is resolved against the parent base
+      found = true;
+      return;
+    }
+    if (resource) return;
+    if (typeof value.$ref === "string" && !isAbsoluteRef(value.$ref)) found = true;
+    else if (typeof value.$dynamicRef === "string" && !isAbsoluteRef(value.$dynamicRef)) found = true;
+  });
+  return found;
+}
+
 /** The `$anchor` names in the root schema's own resource (a nested `$id` starts another resource, whose anchors are
  * not reachable from a root-scope `#name`), with the JSON Pointer of each. The first of a duplicate name wins. */
 function anchorsOf(root: JsonSchema): ReadonlyMap<string, string> {

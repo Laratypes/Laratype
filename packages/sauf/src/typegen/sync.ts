@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT } from "./config";
 import { emitTree } from "./emit";
 import type { GeneratedFile } from "./emit";
@@ -39,10 +39,11 @@ export interface SyncResult extends GenerateResult {
   readonly changed: readonly string[];
 }
 
-/** Whether `child` is strictly inside `parent` (both absolute). */
+/** Whether `child` is strictly inside `parent` (both absolute). Only a `..` path segment leaves the folder: a name that
+ * merely starts with two dots (`..openapi.json`, `...`) is a valid name inside it. */
 export const inside = (parent: string, child: string) => {
   const rel = relative(parent, child);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  return rel !== "" && !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
 };
 
 /** `--out` must be a folder of its own inside the project, apart from the tree it describes. */

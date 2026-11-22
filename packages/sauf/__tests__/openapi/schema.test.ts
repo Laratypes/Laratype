@@ -2,6 +2,7 @@ import * as z from "zod";
 import { describe, expect, it } from "vitest";
 import {
   errorReason,
+  hasBaseDependentRefs,
   hasLocalRefs,
   isParentRef,
   isSchemaResource,
@@ -214,6 +215,26 @@ describe("refs", () => {
     expect(isSchemaResource({ $id: 2 })).toBe(false);
   });
 
+  it("finds refs and $ids whose meaning depends on the parent resource's base", () => {
+    expect(hasBaseDependentRefs({ type: "string" })).toBe(false);
+    expect(hasBaseDependentRefs({ $ref: "filter.json" })).toBe(true);
+    expect(hasBaseDependentRefs({ $ref: "/v1/filter.json" })).toBe(true);
+    expect(hasBaseDependentRefs({ $ref: "https://example.com/filter" })).toBe(false);
+    expect(hasBaseDependentRefs({ $ref: "#/$defs/x" })).toBe(true);
+    expect(hasBaseDependentRefs({ $dynamicRef: "../node.json" })).toBe(true);
+    expect(hasBaseDependentRefs({ $dynamicRef: "#node" })).toBe(true);
+    // a relative $id is resolved against the parent base, so it is base-dependent too
+    expect(hasBaseDependentRefs({ $id: "nested", type: "string" })).toBe(true);
+    expect(hasBaseDependentRefs({ $id: "https://example.com/n", type: "string" })).toBe(false);
+    // an absolute nested $id makes the subtree its own base; a sibling outside it still depends on the parent
+    expect(hasBaseDependentRefs({ properties: { n: { $id: "https://e/n", $ref: "x.json" } } })).toBe(false);
+    expect(
+      hasBaseDependentRefs({ properties: { n: { $id: "https://e/n", $ref: "x.json" }, a: { $ref: "y.json" } } }),
+    ).toBe(true);
+    // instance values are data, not references
+    expect(hasBaseDependentRefs({ const: { $ref: "x.json" }, example: { $dynamicRef: "y.json" } })).toBe(false);
+  });
+
   it("rebases local refs on the component and clones the schema", () => {
     const source = {
       type: "object",
@@ -282,20 +303,30 @@ describe("refs", () => {
       $defs: { x: { type: "string" }, d: ref },
     };
     expect(hasLocalRefs(source)).toBe(true);
-    const found: string[] = [];
-    const walk = (value: unknown): void => {
-      if (Array.isArray(value)) {
-        value.forEach(walk);
-      } else if (typeof value === "object" && value !== null) {
-        for (const [key, child] of Object.entries(value)) {
-          if (key === "$ref" && typeof child === "string") found.push(child);
-          else walk(child);
-        }
-      }
-    };
-    walk(rebaseRefs(source, "k"));
-    expect(found.length).toBeGreaterThan(0);
-    expect(found.every((refValue) => refValue === "#/components/schemas/k/$defs/x")).toBe(true);
+    const rebased = { $ref: "#/components/schemas/k/$defs/x" };
+    // Assert each position, not just the collected refs: a dropped `not` or a ref moved to another keyword fails too.
+    expect(rebaseRefs(source, "k")).toEqual({
+      properties: { a: rebased },
+      patternProperties: { "^x": rebased },
+      dependentSchemas: { a: rebased },
+      definitions: { d: rebased },
+      additionalProperties: rebased,
+      contains: rebased,
+      propertyNames: rebased,
+      items: rebased,
+      not: rebased,
+      if: rebased,
+      then: rebased,
+      else: rebased,
+      unevaluatedProperties: rebased,
+      unevaluatedItems: rebased,
+      contentSchema: rebased,
+      allOf: [rebased],
+      anyOf: [rebased],
+      oneOf: [rebased],
+      prefixItems: [rebased],
+      $defs: { x: { type: "string" }, d: rebased },
+    });
   });
 
   it("finds and rebases refs under schema keywords, but not OpenAPI instance or vendor metadata", () => {
@@ -404,6 +435,7 @@ describe("refs", () => {
       ["100%", "100%25"],
       ["#x", "%23x"],
       ["caf\u00e9", "caf%C3%A9"],
+      ["\ud83d\ude00", "%F0%9F%98%80"],
       ["\ud800", "%EF%BF%BD"],
     ];
     for (const [name, segment] of cases) {

@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import OpenApiGenerateCommand from "../../src/commands/openapi/generate";
@@ -171,6 +171,17 @@ describe("sauf openapi:generate", () => {
     expect(existsSync(join(dir, ".laratype"))).toBe(false);
   }, 60_000);
 
+  it("accepts an --out name that starts with two dots, and still refuses a parent segment", async () => {
+    const dir = project("out-dots");
+    for (const out of ["..openapi.json", "x/../nested.json", "...openapi.json"]) {
+      await generateOpenApiFile({ projectDir: dir, out, load, contract: contractRuntime });
+      expect(existsSync(resolve(dir, out))).toBe(true);
+    }
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "../outside.json", load, contract: contractRuntime }),
+    ).rejects.toThrow('the output file "../outside.json" (--out) must be a file inside the project');
+  }, 60_000);
+
   it("refuses an --out at or inside --gen on a first run, before anything is written", async () => {
     const dir = project("out-gen");
     for (const out of [".laratype", ".laratype/api/index.gen.ts", ".laratype/types/users/$types.d.ts"]) {
@@ -207,6 +218,55 @@ describe("sauf openapi:generate", () => {
     expect(result.changed).toBe(true);
     expect(existsSync(join(dir, "build", "gen", "api", "index.gen.ts"))).toBe(true);
     expect(existsSync(join(dir, "build", "gen-openapi.json"))).toBe(true);
+  }, 60_000);
+
+  it("compares the --gen exclusion on the resolved location, not the flag strings", async () => {
+    const dir = project("out-gen-resolved");
+    // `load.ts` normalizes both flags with the typegen `slash` helper first; a `./` or a trailing slash is the same
+    // folder, and so is an absolute --gen or a case variant (the last case is Windows-only, below)
+    for (const [gen, out, shownGen] of [
+      ["./.laratype", ".laratype/openapi.json", ".laratype"],
+      [".laratype/", ".laratype/openapi.json", ".laratype"],
+      [join(dir, ".laratype"), ".laratype/openapi.json", join(dir, ".laratype").replace(/\\/g, "/")],
+      [".laratype", "./.laratype/./openapi.json", ".laratype"],
+    ] as const) {
+      await expect(generateOpenApiFile({ projectDir: dir, gen, out, load, contract: contractRuntime })).rejects.toThrow(
+        `the output file ".laratype/openapi.json" (--out) must not be the generated folder "${shownGen}" (--gen) or inside it; the scan writes there`,
+      );
+    }
+    expect(existsSync(join(dir, ".laratype"))).toBe(false);
+    // a folder of the project that a link makes the generated folder is the same place
+    await generateOpenApiFile({ projectDir: dir, load, contract: contractRuntime });
+    symlinkSync(join(dir, ".laratype"), join(dir, "docs"), "junction");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "docs/openapi.json", load, contract: contractRuntime }),
+    ).rejects.toThrow(
+      'the output file "docs/openapi.json" (--out) must not be the generated folder ".laratype" (--gen) or inside it; the scan writes there',
+    );
+    expect(existsSync(join(dir, ".laratype", "openapi.json"))).toBe(false);
+  }, 60_000);
+
+  it("rechecks the --gen exclusion right before the write, so a link created in between is refused", async () => {
+    const dir = project("out-gen-race");
+    const loadAndLink = async (url: string) => {
+      symlinkSync(join(dir, ".laratype"), join(dir, "docs"), "junction");
+      return load(url);
+    };
+    await expect(
+      generateOpenApiFile({ projectDir: dir, out: "docs/openapi.json", load: loadAndLink, contract: contractRuntime }),
+    ).rejects.toThrow(
+      'the output file "docs/openapi.json" (--out) must not be the generated folder ".laratype" (--gen) or inside it; the scan writes there',
+    );
+    // the scan had written .laratype before the load: the document did not land inside it
+    expect(existsSync(join(dir, ".laratype", "api", "index.gen.ts"))).toBe(true);
+    expect(existsSync(join(dir, ".laratype", "openapi.json"))).toBe(false);
+  }, 60_000);
+
+  it.runIf(process.platform === "win32")("treats --gen case-insensitively on Windows", async () => {
+    const dir = project("out-gen-case");
+    await expect(
+      generateOpenApiFile({ projectDir: dir, gen: ".laratype", out: ".LARATYPE/openapi.json", load, contract: contractRuntime }),
+    ).rejects.toThrow('the output file ".LARATYPE/openapi.json" (--out) must not be the generated folder ".laratype" (--gen) or inside it; the scan writes there');
   }, 60_000);
 
   it("refuses an --out target that is a hard link, so the other name's file is not replaced", async (context) => {

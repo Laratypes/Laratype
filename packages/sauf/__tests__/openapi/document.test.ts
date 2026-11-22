@@ -421,7 +421,7 @@ describe("JSON Schema fallbacks", () => {
       { name: "bad", in: "query", required: false, schema: {} },
     ]);
     expect(result.warnings).toEqual([
-      '"broken.index": the query property "bad" is not a JSON Schema object; it is documented as {}',
+      '"broken.index": the query property "bad" is not a JSON Schema; it is documented as {}',
     ]);
 
     const missing = {
@@ -433,6 +433,44 @@ describe("JSON Schema fallbacks", () => {
     expect(noSchemaResult.warnings[0]).toMatch(
       /^"missing\.index": the query schema has no JSON Schema .* the query parameters are not documented$/,
     );
+  });
+
+  it("keeps boolean query/header property schemas, so false still refuses every value", () => {
+    const booleans = {
+      "~standard": {
+        version: 1,
+        vendor: "boolean-properties",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            required: ["legacy"],
+            properties: { legacy: false, anything: true, bad: 5 },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({
+      index: endpoint.get("/").query(booleans),
+      show: endpoint.get("/headers").headers(booleans),
+    });
+    const result = openApi(defineApi({ b: { contract, path: "/api/b", scopes: [] } }));
+    expect(result.document.paths["/api/b"]!.get!.parameters).toEqual([
+      { name: "legacy", in: "query", required: true, schema: false },
+      { name: "anything", in: "query", required: false, schema: true },
+      { name: "bad", in: "query", required: false, schema: {} },
+    ]);
+    expect(result.document.paths["/api/b/headers"]!.get!.parameters).toEqual([
+      { name: "legacy", in: "header", required: true, schema: false },
+      { name: "anything", in: "header", required: false, schema: true },
+      { name: "bad", in: "header", required: false, schema: {} },
+    ]);
+    // only the non-schema value 5 falls back; the booleans are JSON Schemas
+    expect(result.warnings).toEqual([
+      '"b.index": the query property "bad" is not a JSON Schema; it is documented as {}',
+      '"b.show": the headers property "bad" is not a JSON Schema; it is documented as {}',
+    ]);
+    expect(JSON.parse(JSON.stringify(result.document))).toEqual(result.document);
   });
 });
 
@@ -573,8 +611,8 @@ describe("recursive schemas", () => {
   });
 
   it("escapes ~ and / in a hoisted query property's JSON Pointer", () => {
-    const names = ["a/b", "a~b", "a b", "100%", "#x", "caf\u00e9", "\ud800"];
-    const segments = ["a~1b", "a~0b", "a%20b", "100%25", "%23x", "caf%C3%A9", "%EF%BF%BD"];
+    const names = ["a/b", "a~b", "a b", "100%", "#x", "caf\u00e9", "\ud83d\ude00", "\ud800"];
+    const segments = ["a~1b", "a~0b", "a%20b", "100%25", "%23x", "caf%C3%A9", "%F0%9F%98%80", "%EF%BF%BD"];
     const escaped = {
       "~standard": {
         version: 1,
@@ -758,6 +796,92 @@ describe("recursive schemas", () => {
       properties: { self: { $ref: "#" }, legacy: { $ref: "#/components/schemas/$0" } },
     });
     expect(result.document.components.schemas).toEqual({});
+  });
+});
+
+describe("parameter schema resources", () => {
+  it("keeps a relative parameter $ref inside its parent's $id resource, and inlines a reference-free sibling", () => {
+    const query = {
+      "~standard": {
+        version: 1,
+        vendor: "relative-ref",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          input: () => ({
+            $id: "https://schemas.example/v1/query",
+            type: "object",
+            properties: {
+              filter: { $ref: "filter.json" },
+              remote: { $ref: "https://example.com/filter.json" },
+              name: { type: "string" },
+            },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ index: endpoint.get("/").query(query) });
+    const result = openApi(defineApi({ r: { contract, path: "/api/r", scopes: [] } }));
+    expect(result.document.paths["/api/r"]!.get!.parameters).toEqual([
+      {
+        name: "filter",
+        in: "query",
+        required: false,
+        // the parent resource is the base: filter.json resolves against its $id, not against the OpenAPI document
+        schema: { $ref: "#/components/schemas/r.index.query/properties/filter" },
+      },
+      // an absolute ref needs no base, so it is inlined
+      { name: "remote", in: "query", required: false, schema: { $ref: "https://example.com/filter.json" } },
+      { name: "name", in: "query", required: false, schema: { type: "string" } },
+    ]);
+    expect(result.document.components.schemas["r.index.query"]).toEqual({
+      $id: "https://schemas.example/v1/query",
+      type: "object",
+      properties: {
+        filter: { $ref: "filter.json" },
+        remote: { $ref: "https://example.com/filter.json" },
+        name: { type: "string" },
+      },
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("finalizes the component key inside a generated $dynamicRef pointer, leaving named and instance ones alone", () => {
+    const dynamic = {
+      "~standard": {
+        version: 1,
+        vendor: "dynamic-pointer",
+        validate: () => ({ value: 1 }),
+        jsonSchema: {
+          output: () => ({
+            type: "object",
+            properties: {
+              root: { $dynamicRef: "#" },
+              node: { $dynamicRef: "#/$defs/x" },
+              named: { $dynamicRef: "#node" },
+              data: { example: { $dynamicRef: "#node" } },
+            },
+            $defs: { x: { type: "string" } },
+          }),
+        },
+      },
+    } as unknown as StandardSchemaV1;
+    const contract = defineContract()({ show: endpoint.get("/").response(dynamic) });
+    const result = openApi(defineApi({ d: { contract, path: "/api/d", scopes: [] } }));
+    expect(content(result.document.paths["/api/d"]!.get!.responses["200"]!)).toEqual({
+      $ref: "#/components/schemas/d.show.response",
+    });
+    expect(result.document.components.schemas["d.show.response"]).toEqual({
+      type: "object",
+      properties: {
+        root: { $dynamicRef: "#/components/schemas/d.show.response" },
+        node: { $dynamicRef: "#/components/schemas/d.show.response/$defs/x" },
+        named: { $dynamicRef: "#node" },
+        data: { example: { $dynamicRef: "#node" } },
+      },
+      $defs: { x: { type: "string" } },
+    });
+    // the provisional key (a NUL) never reaches the document
+    expect(JSON.stringify(result.document)).not.toContain("\\u0000");
   });
 });
 
@@ -961,6 +1085,40 @@ describe("hostile contract input", () => {
     // an object with a valid status and code is accepted like an ErrorDef function
     const objectEntries = generateOpenApiDocument({}, { contract: routeWith([{ status: 409, code: "TAKEN" }]) });
     expect(objectEntries.document.paths["/a"]!.get!.responses["409"]!.description).toBe("TAKEN");
+  });
+
+  it("requires an integer 2xx success status before response assembly", () => {
+    const routeWith = (def: unknown) =>
+      ({
+        apiRoutes: () => [{ name: "a", method: "get", path: "/a", endpoint: { def }, errors: [] }],
+        isApiRoot: () => true,
+      }) as unknown as OpenApiContract;
+    for (const def of [
+      {},
+      { status: undefined },
+      { status: null },
+      { status: "200" },
+      { status: 200.5 },
+      { status: Number.NaN },
+      { status: Number.POSITIVE_INFINITY },
+      { status: 199 },
+      { status: 300 },
+      { status: 400 },
+    ]) {
+      expect(() => generateOpenApiDocument({}, { contract: routeWith(def) })).toThrow(
+        "[sauf openapi:generate] apiRoutes() returned an invalid route",
+      );
+    }
+    // every valid 2xx is kept; a status with no reason phrase in the table still answers "Success"
+    for (const [status, reason] of [
+      [200, "OK"],
+      [204, "No Content"],
+      [250, "Success"],
+      [299, "Success"],
+    ] as const) {
+      const result = generateOpenApiDocument({}, { contract: routeWith({ status }) });
+      expect(result.document.paths["/a"]!.get!.responses[String(status)]).toEqual({ description: reason });
+    }
   });
 
   it("handles a very long regex pattern and a wrong contract runtime with one diagnostic", () => {
