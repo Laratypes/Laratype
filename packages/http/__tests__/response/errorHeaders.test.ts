@@ -12,7 +12,7 @@ import { Container, depsRegistry } from '@laratype/core'
 import { errors as catalog } from '@laratype/contract'
 import { HTTP_APP, NotFoundException } from '@laratype/support'
 import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel } from '../../src/index'
-import { BODY_HEADERS } from '../../src/response/bodyHeaders'
+import { BODY_HEADERS, REDIRECT_HEADERS } from '../../src/response/bodyHeaders'
 import { DROPPED_ERROR_HEADERS } from '../../src/response/Response'
 
 /** An app booted like `sauf dev`: RequestKernel puts the container on each request, ResponseKernel handles errors. */
@@ -514,17 +514,17 @@ describe('error response headers set after the throw', () => {
 
 // H29 #295: the two lists, every entry, and the body headers on an error's own response
 describe('header lists', () => {
-  it('drops every body header the handler set before the throw', async () => {
+  it('drops every body and redirect header the handler set before the throw', async () => {
     quiet()
     const app = bootApp()
     app.get('/bodies', (c) => {
-      for (const name of BODY_HEADERS) c.header(name, 'handler-value')
+      for (const name of [...BODY_HEADERS, ...REDIRECT_HEADERS]) c.header(name, 'handler-value')
       throw new Error('secret detail')
     })
     const response = await app.request('/bodies')
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual(GENERIC)
-    for (const name of BODY_HEADERS) {
+    for (const name of [...BODY_HEADERS, ...REDIRECT_HEADERS]) {
       const value = response.headers.get(name)
       if (name === 'Content-Type' || name === 'Content-Length') {
         // the error body's own, never the handler's
@@ -535,7 +535,8 @@ describe('header lists', () => {
   })
 
   it.each([
-    'X-Accel-Redirect', 'X-Sendfile', 'X-Lighttpd-Send-File', 'X-LiteSpeed-Location',
+    'X-Accel-Redirect', 'X-Sendfile', 'X-Sendfile-Temporary', 'X-Sendfile2', 'X-Reproxy-URL', 'X-Lighttpd-Send-File',
+    'X-LiteSpeed-Location',
   ])('drops %s, which would make the server send a file in place of the error body', async (name) => {
     quiet()
     const app = bootApp()
@@ -698,6 +699,28 @@ describe('cancelled bodies', () => {
     // A tee cancels its source once both branches are cancelled: the scrub cancelled the stored clone, the client this
     // branch. The wait is bounded because the cancellations are promises.
     await vi.waitFor(() => expect(cancelled).toBe(1), { timeout: 2_000 })
+  })
+})
+
+describe('a rethrown c.error', () => {
+  // H32 #312: a middleware that rethrows `c.error` for an HTTPException carrying its own Response gets the generic 500,
+  // not the 429: that response's body was already sent (and teed by the error scrub). Nothing of it leaks
+  it('a 429 HTTPException with its own Response answers the generic 500', async () => {
+    quiet()
+    const res = new Response('Too Many Requests', { status: 429, headers: { 'Retry-After': '60' } })
+    class Limited extends Controller { index() { throw new HTTPException(429, { res }) } }
+    const app = bootApp()
+    app.use(async (c, next) => {
+      await next()
+      if (c.error) throw c.error
+    })
+    route(app, '/retry', Limited)
+    const response = await app.request('/retry')
+    expect(response.status).toBe(500)
+    const text = await response.text()
+    expect(JSON.parse(text)).toEqual(GENERIC)
+    // the first answer's body never reaches the client
+    expect(text).not.toContain('Too Many Requests')
   })
 })
 
