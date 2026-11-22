@@ -233,9 +233,6 @@ describe('buildUrl through a real Hono app', () => {
     for (const [path, expected] of [
       ['/files/:f{.+}', 'admin/all'],
       ['/files/:f{[^.]+}', 'admin/all'],
-      // Hono's trie router compiles a top-level "|" bare ("^a|.+/.+$"): the encoded value starts with "a", so the
-      // :f route reads "a", and the sibling is a path that pattern does not take
-      ['/files/:f{a|.+/.+}', 'a'],
     ] as const) {
       const app = new Hono()
       // registered first: a static sibling wins over a param route whenever the raw path matches it
@@ -252,6 +249,38 @@ describe('buildUrl through a real Hono app', () => {
     }
   })
 
+  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', async () => {
+    const app = new Hono()
+    app.delete('/files/admin/all', () => new Response('sibling'))
+    app.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The static
+    // path answers the split, and the encoded path reads the prefix, so neither URL carries "admin/all"
+    expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+    const encoded = await app.request('/files/admin%2Fall', { method: 'DELETE' })
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(
+      new TypeError(
+        '[@laratype/contract] buildUrl: param "f" for "/files/:f{a|.+/.+}" has a pattern Hono\'s two routers read differently for this value, so the URL depends on the app\'s router',
+      ),
+    )
+  })
+
+  it('sees the trie router once another route forces it, where a top-level "|" reads a prefix (C8 round 3)', async () => {
+    const app = new Hono()
+    app.get('/other/:x{.*}', (c) => c.json({ x: c.req.param('x') }))
+    app.get('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // the ".*" route makes RegExpRouter throw UnsupportedPathError, so SmartRouter serves the whole app with TrieRouter:
+    // both the encoded and the split URL are read as the prefix "a", never as "admin/all"
+    const encoded = await app.request('/files/admin%2Fall')
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
+    const split = await app.request('/files/admin/all')
+    expect(split.status).toBe(200)
+    expect(await split.json()).toEqual({ f: 'a' })
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(/two routers read differently/)
+  })
+
   it('matches the following static segment of a lookahead pattern, so the split reaches the route (C8 round 1)', async () => {
     const routes = Route.api(appApi, (r) => [
       r.contract(posts, PostController),
@@ -259,7 +288,8 @@ describe('buildUrl through a real Hono app', () => {
     ])
     const file = 'a/b'
     const url = route('file.lookahead', { file })
-    // the pattern's own lookahead needs the following "/raw", as Hono's trie router compiles it ("^pattern(?=/raw)")
+    // the pattern's own lookahead needs the following "/raw": Hono's RegExp router refuses it, the trie router serves
+    // the route and compiles "^pattern(?=/raw)"
     expect(url).toBe('/files/a/b/raw')
     const app = new Hono()
     routes.mount(app)
