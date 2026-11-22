@@ -1,3 +1,4 @@
+import { Console } from "@laratype/console";
 import { getConnInfo as getNodeConnInfo } from "@hono/node-server/conninfo";
 import { importModule } from "@laratype/support";
 
@@ -33,22 +34,39 @@ const isMissingHttpPackage = (error: unknown): boolean => {
  */
 const MISSING_HTTP_WARNED = Symbol.for("laratype.sauf.missingHttpWarned")
 
-/** Warns once per process that the optional `@laratype/http` (and so the IP-keyed rate limit) is off for this app. */
-const warnMissingHttp = (): void => {
+/**
+ * Set once the no-mountConnInfo warning printed, for the same per-process reason. A broken import of a resolvable copy
+ * and an older copy without the seam are different causes of the same lost `request.ip()`.
+ */
+const NO_MOUNT_CONN_INFO_WARNED = Symbol.for("laratype.sauf.noMountConnInfoWarned")
+
+/** Prints `text` the first time this process reaches the warning flagged by `flag`. */
+const warnOnce = (flag: symbol, text: string): void => {
   const store = globalThis as { [key: symbol]: true | undefined };
-  if (store[MISSING_HTTP_WARNED]) return;
-  store[MISSING_HTTP_WARNED] = true;
-  console.warn(
-    "[sauf] @laratype/http does not resolve from the app's working directory, so no getConnInfo is registered: request.ip() stays undefined and .throttle() routes keyed by IP have no address. Install @laratype/http where the app runs (an optional peer of laratype), or start the app from its project root.",
-  );
+  if (store[flag]) return;
+  store[flag] = true;
+  Console.warn(text);
 }
+
+/** Warns once per process that the optional `@laratype/http` does not resolve, so the IP-keyed limit is off. */
+const warnMissingHttp = () => warnOnce(
+  MISSING_HTTP_WARNED,
+  `[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http does not resolve from the working directory ${process.cwd()} (it is an optional peer of laratype). Install @laratype/http where the app runs and start the app from the project root.`,
+)
+
+/** Warns once per process that `@laratype/http` loaded without the seam, so the IP-keyed limit is off. */
+const warnWithoutMountConnInfo = () => warnOnce(
+  NO_MOUNT_CONN_INFO_WARNED,
+  "[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http loaded without mountConnInfo (its import failed and the loader logged that above, or the app has an older copy of the package).",
+)
 
 /**
  * Registers the node runtime's `getConnInfo` with `@laratype/http`, so `request.ip()` reads the socket the node server
  * accepted (H30 #299). `sauf`'s node entry and `sauf dev` call it before the app's providers mount their routes: the
  * middleware that carries the getter has to run before them. `@laratype/http` is an optional peer of `laratype` and not
- * a dependency of `sauf`, so it is loaded on demand; an app without it (or with an older copy) registers nothing, logs
- * one warning per process about the lost IP-keyed rate limit, and `ip()` answers undefined.
+ * a dependency of `sauf`, so it is loaded on demand; an app without it, or with a copy that loads without
+ * `mountConnInfo` (an import failure or an older copy), registers nothing, logs one warning per process about the lost
+ * IP-keyed rate limit, and `ip()` answers undefined.
  */
 export const mountNodeConnInfo = async (app: unknown, load: ModuleLoader = importModule): Promise<void> => {
   let http: HttpModule | undefined;
@@ -56,8 +74,10 @@ export const mountNodeConnInfo = async (app: unknown, load: ModuleLoader = impor
     http = await load("@laratype/http", { internal: true }) as HttpModule | undefined;
   }
   catch (error) {
-    // The loader resolves before it imports (support's importModule), so an app without the optional package rejects
-    // here, not with the undefined the guard below already accepted. Any other loader error is the app's: keep it.
+    // support's importModule resolves before it imports: when the optional package itself is absent, this is the
+    // resolver's rejection, which warns and skips. Every other rejection is the loader's own and is rethrown. A
+    // resolvable module that fails to import is not thrown at all (the loader logs it and returns undefined), so the
+    // no-mountConnInfo warning below covers that case.
     if (isMissingHttpPackage(error)) {
       warnMissingHttp();
       return;
@@ -66,5 +86,7 @@ export const mountNodeConnInfo = async (app: unknown, load: ModuleLoader = impor
   }
   if (typeof http?.mountConnInfo === "function") {
     http.mountConnInfo(app, getNodeConnInfo);
+    return;
   }
+  warnWithoutMountConnInfo();
 };

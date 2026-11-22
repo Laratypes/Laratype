@@ -1,13 +1,14 @@
 // H30 #299: the node entry registers @hono/node-server's getConnInfo, so request.ip() reads the socket of the server
 // that accepted the request; a dual-stack listener reports an IPv4 client as an IPv4-mapped IPv6 address.
 import "reflect-metadata";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
+import { Console } from "@laratype/console";
 import { Container, depsRegistry } from "@laratype/core";
 import { HTTP_APP } from "@laratype/support";
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel } from "@laratype/http";
@@ -16,10 +17,23 @@ import { mountNodeConnInfo } from "../src/adapters/node/connInfo";
 /** The module @laratype/http is loaded as: the real one, through the transpiler in a test as in `sauf dev`. */
 const loadHttp = async () => await import("@laratype/http");
 
-/** The per-process flag mountNodeConnInfo's missing-package warning sets; cleared so each test can see its first print. */
+/** The per-process flags mountNodeConnInfo's warnings set; cleared so each test can see its first print. */
 const MISSING_HTTP_WARNED = Symbol.for("laratype.sauf.missingHttpWarned");
-const resetMissingHttpWarning = () => {
-  delete (globalThis as { [key: symbol]: true | undefined })[MISSING_HTTP_WARNED];
+const NO_MOUNT_CONN_INFO_WARNED = Symbol.for("laratype.sauf.noMountConnInfoWarned");
+const resetConnInfoWarnings = () => {
+  const store = globalThis as { [key: symbol]: true | undefined };
+  delete store[MISSING_HTTP_WARNED];
+  delete store[NO_MOUNT_CONN_INFO_WARNED];
+};
+
+/** A `node_modules/@laratype/http` package in `directory` whose entry exports no `mountConnInfo` (an older copy). */
+const writeHttpPackageWithoutMountConnInfo = (directory: string) => {
+  const packageDir = join(directory, "node_modules", "@laratype", "http");
+  mkdirSync(packageDir, { recursive: true });
+  writeFileSync(join(packageDir, "package.json"), JSON.stringify({
+    name: "@laratype/http", version: "0.0.0", type: "module", main: "index.js", exports: { ".": "./index.js" },
+  }));
+  writeFileSync(join(packageDir, "index.js"), "export const value = 1;\n");
 };
 
 class WhoAmI extends Controller {
@@ -99,15 +113,28 @@ describe("mountNodeConnInfo", () => {
     expect(mountConnInfo.mock.calls[0]![1]).toBeTypeOf("function");
   });
 
-  it("registers nothing when @laratype/http is missing or has no mountConnInfo", async () => {
-    await expect(mountNodeConnInfo(new Hono(), async () => undefined)).resolves.toBeUndefined();
-    await expect(mountNodeConnInfo(new Hono(), async () => ({}))).resolves.toBeUndefined();
-    await expect(mountNodeConnInfo(new Hono(), async () => ({ mountConnInfo: 42 }))).resolves.toBeUndefined();
+  it("registers nothing and warns once when @laratype/http loads without mountConnInfo", async () => {
+    resetConnInfoWarnings();
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
+    try {
+      // support's importModule returns undefined after logging a failed import; an older copy loads without the seam
+      for (const http of [undefined, {}, { mountConnInfo: 42 }]) {
+        await expect(mountNodeConnInfo(new Hono(), async () => http)).resolves.toBeUndefined();
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      const text = String(warn.mock.calls[0]![0]);
+      expect(text).toContain("If this app serves routes with @laratype/http");
+      expect(text).toContain("@laratype/http loaded without mountConnInfo");
+      expect(text).toContain("request.ip()");
+      expect(text).toContain(".throttle()");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("skips only the exact missing @laratype/http resolution error, warning once", async () => {
-    resetMissingHttpWarning();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetConnInfoWarnings();
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
     try {
       // support's importModule resolves before its try: mlly's and Node's forms name the unresolved specifier
       const missing = [
@@ -123,7 +150,9 @@ describe("mountNodeConnInfo", () => {
       }
       expect(warn).toHaveBeenCalledTimes(1);
       const text = String(warn.mock.calls[0]![0]);
-      expect(text).toContain("@laratype/http");
+      expect(text).toContain("If this app serves routes with @laratype/http");
+      expect(text).toContain("@laratype/http does not resolve from the working directory");
+      expect(text).toContain(process.cwd());
       expect(text).toContain("request.ip()");
       expect(text).toContain(".throttle()");
       expect(text).toContain("Install @laratype/http");
@@ -134,8 +163,8 @@ describe("mountNodeConnInfo", () => {
   });
 
   it("rethrows a missing dependency inside @laratype/http, and a look-alike package", async () => {
-    resetMissingHttpWarning();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetConnInfoWarnings();
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
     try {
       const failures = [
         // Node and mlly forms: the importer is the installed @laratype/http, so the app's install is broken
@@ -163,8 +192,8 @@ describe("mountNodeConnInfo", () => {
   });
 
   it("skips and warns once with the real importModule where @laratype/http does not resolve", async () => {
-    resetMissingHttpWarning();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetConnInfoWarnings();
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
     const directory = mkdtempSync(join(tmpdir(), "laratype-sauf-no-http-"));
     const cwd = process.cwd();
     try {
@@ -172,8 +201,35 @@ describe("mountNodeConnInfo", () => {
       process.chdir(directory);
       await expect(mountNodeConnInfo(new Hono())).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0]![0])).toContain("@laratype/http");
+      const text = String(warn.mock.calls[0]![0]);
+      expect(text).toContain("@laratype/http does not resolve from the working directory");
+      expect(text).toContain(process.cwd());
     } finally {
+      process.chdir(cwd);
+      rmSync(directory, { recursive: true, force: true });
+      warn.mockRestore();
+    }
+  });
+
+  it("warns once with the real importModule when the installed @laratype/http has no mountConnInfo", async () => {
+    resetConnInfoWarnings();
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), "laratype-sauf-old-http-"));
+    const cwd = process.cwd();
+    // `sauf dev` gives importModule a Vite ssrLoadModule; here dynamic import stands in, so the temp package loads
+    const previousLoader = globalThis.__sauf_transpiler_instance;
+    globalThis.__sauf_transpiler_instance = async (id: string) => await import(id);
+    try {
+      writeHttpPackageWithoutMountConnInfo(directory);
+      process.chdir(directory);
+      await expect(mountNodeConnInfo(new Hono())).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const text = String(warn.mock.calls[0]![0]);
+      expect(text).toContain("@laratype/http loaded without mountConnInfo");
+      expect(text).toContain("request.ip()");
+      expect(text).toContain(".throttle()");
+    } finally {
+      globalThis.__sauf_transpiler_instance = previousLoader;
       process.chdir(cwd);
       rmSync(directory, { recursive: true, force: true });
       warn.mockRestore();
