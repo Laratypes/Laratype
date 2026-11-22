@@ -87,12 +87,32 @@ describe('buildUrl', () => {
     )
   })
 
-  it('rejects a top-level query array, while an array stays a valid query value', () => {
-    for (const query of [[], ['a'], [{ page: 1 }]]) {
+  it('rejects a query that is not a plain object, while an array stays a valid query value', () => {
+    class Filters {
+      page = 1
+    }
+    const values: readonly (readonly [unknown, string])[] = [
+      [[], 'Array'],
+      [['a'], 'Array'],
+      [new Map(), 'Map'],
+      [new URLSearchParams(), 'URLSearchParams'],
+      [new Date(), 'Date'],
+      [new Filters(), 'Filters'],
+    ]
+    for (const [query, kind] of values) {
       expect(() => buildUrl('/x', { query: query as never })).toThrow(
-        new TypeError('[@laratype/contract] buildUrl: query must be a flat object of keys, not an array or a function'),
+        new TypeError(`[@laratype/contract] buildUrl: query must be a plain object of keys, got ${kind}`),
       )
     }
+    // a proxy that throws on getPrototypeOf is refused with the package's TypeError too, never its own error
+    const hostile = new Proxy({}, { getPrototypeOf: () => { throw new Error('getPrototypeOf ran') } })
+    expect(() => buildUrl('/x', { query: hostile as never })).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: query must be a plain object of keys, got an object'),
+    )
+    // a null-prototype object is a plain object of keys
+    const bare = Object.create(null) as { page: number }
+    bare.page = 1
+    expect(buildUrl('/x', { query: bare })).toBe('/x?page=1')
     expect(buildUrl('/x', { query: { tag: ['a', 'b'], none: [] } })).toBe('/x?tag=a&tag=b')
   })
 })
@@ -114,14 +134,23 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{[^.]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
   })
 
-  it('scopes a top-level "|" as the RegExp router does, so the split is the URL the route reads', () => {
-    // Hono's SmartRouter serves a pattern its RegExp router compiles with that router, which puts the pattern in a group
-    // over the whole route: `a|.+/.+` is `(?:a|.+/.+)`, not the trie's bare `^a|.+/.+$` prefix match, so the encoded
-    // value does not match and the split is the URL the route reads (a bare prefix match would truncate the value)
-    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'admin/all' } })).toBe('/files/admin/all')
-    expect(buildUrl('/files/:file{a|.+/.+}/raw', { params: { file: 'admin/all' } })).toBe('/files/admin/all/raw')
-    // a value the pattern takes as one segment ("a", the first alternative) stays as it is
-    expect(buildUrl('/files/:file{a|.+/.+}', { params: { file: 'a' } })).toBe('/files/a')
+  it('throws when a top-level "|" would route a value differently under Hono\'s two routers', () => {
+    // SmartRouter picks one router for the whole app: the RegExp router scopes a top-level "|" to the param, while the
+    // trie router matches it bare and reads only the prefix. A value the two forms read differently has no URL that is
+    // right in every app (another route decides the router), so buildUrl refuses it instead of guessing
+    const path = '/files/:file{a|.+/.+}'
+    const expected = `[@laratype/contract] buildUrl: param "file" for "${path}" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
+    for (const file of ['admin/all', 'admin/x', 'admin', 'a/b']) {
+      expect(() => buildUrl(path, { params: { file } })).toThrow(new TypeError(expected))
+    }
+    // values both forms read the same way still build: "a" is the first alternative whole, "x/y" needs the literal "/"
+    expect(buildUrl(path, { params: { file: 'a' } })).toBe('/files/a')
+    expect(buildUrl(path, { params: { file: 'x/y' } })).toBe('/files/x/y')
+    // the same rule with a following static segment: the trie's first alternative would stop at the prefix
+    const rawPath = '/files/:file{a|.+/.+}/raw'
+    const rawExpected = `[@laratype/contract] buildUrl: param "file" for "${rawPath}" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
+    expect(() => buildUrl(rawPath, { params: { file: 'admin/all' } })).toThrow(new TypeError(rawExpected))
+    expect(buildUrl(rawPath, { params: { file: 'x/y' } })).toBe('/files/x/y/raw')
   })
 
   it('falls back to the trie form only for a pattern the RegExp router refuses', () => {
@@ -311,7 +340,7 @@ describe('buildUrl edge inputs', () => {
     expect(reads).toBe(0)
   })
 
-  it('needs an object for params and query, null and undefined meaning none', () => {
+  it('needs an object for params and a plain object for query, null and undefined meaning none', () => {
     expect(buildUrl('/health', { params: null as never, query: null as never })).toBe('/health')
     expect(buildUrl('/health', { params: undefined, query: undefined })).toBe('/health')
     for (const value of [42, Number.NaN, 'x', Symbol('x'), true, 1n, () => ({})]) {
@@ -319,7 +348,7 @@ describe('buildUrl edge inputs', () => {
         new TypeError(`[@laratype/contract] buildUrl: params must be an object, got ${typeof value}`),
       )
       expect(() => buildUrl('/health', { query: value as never })).toThrow(
-        new TypeError(`[@laratype/contract] buildUrl: query must be an object, got ${typeof value}`),
+        new TypeError(`[@laratype/contract] buildUrl: query must be a plain object of keys, got ${typeof value}`),
       )
     }
   })
@@ -372,8 +401,11 @@ describe('buildUrl edge inputs', () => {
   it('serializes query keys as plain own enumerable keys, "__proto__" included', () => {
     const parsed = JSON.parse('{"__proto__":"x","constructor":"y"}') as object
     expect(buildUrl('/x', { query: parsed })).toBe('/x?__proto__=x&constructor=y')
+    // a query with a custom prototype is not a plain object: refused rather than reading its prototype
     const inherited = Object.create({ page: 1 }) as { page: number }
-    expect(buildUrl('/x', { query: inherited })).toBe('/x')
+    expect(() => buildUrl('/x', { query: inherited })).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: query must be a plain object of keys, got an object'),
+    )
     const hidden = {}
     Object.defineProperty(hidden, 'page', { value: 1, enumerable: false })
     expect(buildUrl('/x', { query: hidden })).toBe('/x')

@@ -249,18 +249,32 @@ describe('buildUrl through a real Hono app', () => {
     }
   })
 
-  it('scopes a top-level "|" as the RegExp router does, so the split reaches the route with the whole value (C8 round 2)', async () => {
-    const path = '/files/:file{a|.+/.+}'
-    const file = 'admin/all'
-    const url = buildUrl(path, { params: { file } })
-    // the default SmartRouter serves this pattern with its RegExp router, whose group scopes the "|": the encoded value
-    // (a bare prefix "a" only) does not match, and the split reads the whole value
-    expect(url).toBe('/files/admin/all')
+  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', () => {
     const app = new Hono()
-    app.get(path, (c) => c.json({ file: c.req.param('file') }))
-    const res = await app.request(url)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ file })
+    app.delete('/files/admin/all', () => new Response('sibling'))
+    app.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The encoded and
+    // split URLs read different values under the two routers, so buildUrl refuses to pick one
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(
+      new TypeError(
+        '[@laratype/contract] buildUrl: param "f" for "/files/:f{a|.+/.+}" has a pattern Hono\'s two routers read differently for this value, so the URL depends on the app\'s router',
+      ),
+    )
+  })
+
+  it('sees the trie router once another route forces it, where a top-level "|" reads a prefix (C8 round 3)', async () => {
+    const app = new Hono()
+    app.get('/other/:x{.*}', (c) => c.json({ x: c.req.param('x') }))
+    app.get('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // the ".*" route makes RegExpRouter throw UnsupportedPathError, so SmartRouter serves the whole app with TrieRouter:
+    // both the encoded and the split URL are read as the prefix "a", never as "admin/all"
+    const encoded = await app.request('/files/admin%2Fall')
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
+    const split = await app.request('/files/admin/all')
+    expect(split.status).toBe(200)
+    expect(await split.json()).toEqual({ f: 'a' })
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(/two routers read differently/)
   })
 
   it('matches the following static segment of a lookahead pattern, so the split reaches the route (C8 round 1)', async () => {
