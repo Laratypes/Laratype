@@ -12,9 +12,9 @@ last-verified: 2026-10-13
 
 | Section | Status |
 |---|---|
-| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; hard-link guard proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03 |
-| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | merged @ 8ad92ae9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)); hard-link guard proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03 |
-| [OpenAPI](#openapi) | proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03 ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
+| [sauf types:generate](#sauf-typesgenerate) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); config key `api.root` / `api.base` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); `{ scope, dir }` entries and the walk by brand proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; hard-link guard proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032 |
+| [Watch mode in sauf dev](#watch-mode-in-sauf-dev) | merged @ 8ad92ae9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)); hard-link guard proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032 |
+| [OpenAPI](#openapi) | proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032 ([#143](https://github.com/Laratypes/Laratype/issues/143)) |
 | [Detective](#detective) | planned → #144 |
 
 ---
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is merged: 8ad92ae9 ([#142](https://github.com/Laratypes/Laratype/issues/142)). The generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03.
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is merged: 8ad92ae9 ([#142](https://github.com/Laratypes/Laratype/issues/142)). The generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032.
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -125,7 +125,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 ## Watch mode in sauf dev
 
 ### Status
-merged @ 8ad92ae9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha); the generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03.
+merged @ 8ad92ae9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142), v1 · M2 — v1-alpha); the generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032.
 
 ### Public API
 [`packages/sauf/src/typegen/watch.ts`](https://github.com/Laratypes/Laratype/blob/8ad92ae9d7b82975b7b6209268f6941da99e9d74/packages/sauf/src/typegen/watch.ts) · [`plugin.ts`](https://github.com/Laratypes/Laratype/blob/8ad92ae9d7b82975b7b6209268f6941da99e9d74/packages/sauf/src/typegen/plugin.ts) · [`commands/dev.ts`](https://github.com/Laratypes/Laratype/blob/8ad92ae9d7b82975b7b6209268f6941da99e9d74/packages/sauf/src/commands/dev.ts)
@@ -203,10 +203,10 @@ export class ContractTypeWatchHost {                       // one live watch for
 ## OpenAPI
 
 ### Status
-proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ ee014f03 ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
+proposed: PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032 ([#143](https://github.com/Laratypes/Laratype/issues/143), G3, M2). It is generated from the contract `appApi` that `defineApi` builds (`.laratype/api/index.gen.ts`), not from the runtime `RouteRegistry`: the registry exists only after a booted app's `RouteAppServiceProvider` ([http.md › Router v2](./http.md#router-v2)), while `Route.api()` resolves the same tree with `apiRoutes(appApi)`, and every contract of the tree is mounted exactly once (a compile and runtime check of `Route.api`). Ad-hoc routes are not in the tree, so they are excluded ([#139](https://github.com/Laratypes/Laratype/issues/139)).
 
 ### Public API
-[`packages/sauf/src/openapi/` @ ee014f03](https://github.com/Laratypes/Laratype/blob/ee014f0324ac51e69bc699562ee0a9c166976720/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ ee014f03](https://github.com/Laratypes/Laratype/blob/ee014f0324ac51e69bc699562ee0a9c166976720/packages/sauf/src/commands/openapi/generate.ts)
+[`packages/sauf/src/openapi/` @ b4418032](https://github.com/Laratypes/Laratype/blob/b4418032b1e4ea396a248cbe30843d224d453dbc/packages/sauf/src/openapi) · [`packages/sauf/src/commands/openapi/generate.ts` @ b4418032](https://github.com/Laratypes/Laratype/blob/b4418032b1e4ea396a248cbe30843d224d453dbc/packages/sauf/src/commands/openapi/generate.ts)
 
 ```
 sauf openapi:generate [--root <dir>] [--base <path>] [--gen .laratype] [--out openapi.json]
@@ -289,7 +289,7 @@ Warnings, printed and returned in `warnings`; the document is still valid:
 - Every warning is one line: a converter's multi-line message (such as the circular-structure error) is collapsed, then every control or format character in the whole message (ESC and other C0/C1 controls, Unicode format controls such as bidi overrides and isolates, the route and property names and the converter's reason included) is escaped as `\uXXXX`, so none of them reaches the terminal raw; the names are also `JSON.stringify`-quoted.
 
 ### Example
-[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/ee014f0324ac51e69bc699562ee0a9c166976720/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, reserved headers, boolean and fallback parameter schemas, recursion and anchors, out-of-list keywords, URI-encoded pointers, parent `$id` bases, `$dynamicRef` finalization, guard-key collisions and dropped routes, parent-ref warning, hostile names, format-control escaping), `schema.test.ts` (keyword walk, per-position rebasing, instance/vendor exclusions, base-dependent refs and `$id`s, dynamic refs, bounds, `oneLine`), `command.test.ts` (scan, import, `--out` overwrite, symlink, hard-link, resolved `--gen`-overlap and `..`-prefixed name guards, the pre-write recheck, `--gen`, the missing contract), `enotdir.test.ts` (an ancestor file that Linux reports as ENOTDIR, forced on every OS), `types.test-d.ts` (the exported types, the real contract runtime without a cast) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
+[`packages/sauf/__tests__/openapi/`](https://github.com/Laratypes/Laratype/tree/b4418032b1e4ea396a248cbe30843d224d453dbc/packages/sauf/__tests__/openapi): `document.test.ts` (mapping, reserved headers, boolean and fallback parameter schemas, recursion and anchors, out-of-list keywords, URI-encoded pointers, parent `$id` bases, `$dynamicRef` finalization, guard-key collisions and dropped routes, parent-ref warning, hostile names, format-control escaping), `schema.test.ts` (keyword walk, per-position rebasing, instance/vendor exclusions, base-dependent refs and `$id`s, dynamic refs, bounds, `oneLine`), `command.test.ts` (scan, import, `--out` overwrite, symlink, hard-link, resolved `--gen`-overlap and `..`-prefixed name guards, the pre-write recheck, `--gen`, the missing contract), `enotdir.test.ts` (an ancestor file that Linux reports as ENOTDIR, forced on every OS), `types.test-d.ts` (the exported types, the real contract runtime without a cast) and `__snapshots__/fixture-openapi.json`, the whole document of the typegen fixture. On `examples/basic`:
 ```
 $ sauf openapi:generate
 ... Wrote openapi.json (3 paths) in 12.34ms
