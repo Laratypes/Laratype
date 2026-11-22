@@ -18,13 +18,13 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 |---|---|
 | [Tokens](#tokens) | merged @ cfa85c3 |
 | [Container](#container) | merged @ cfa85c3 |
-| [Dependency metadata](#dependency-metadata) | merged @ cfa85c3 |
-| [Deps registry](#deps-registry) | merged @ 36ba917 |
+| [Dependency metadata](#dependency-metadata) | merged @ cfa85c3; `DepsLookup.hasOwn?` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
+| [Deps registry](#deps-registry) | merged @ 36ba917; `depsRegistry: Required<DepsLookup>` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
 | [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag merged (#101) |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336); D10 (`requiredBy`, production/third-party wording, zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 91538ea2 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336); D10 (`requiredBy`, production/third-party wording, zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c |
@@ -160,10 +160,10 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ## Dependency metadata
 
 ### Status
-merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
+merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)). `DepsLookup.hasOwn?` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2 (D10 [#298](https://github.com/Laratypes/Laratype/issues/298)).
 
 ### Public API
-[`deps.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/deps.ts#L1-L36)
+[`deps.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/deps.ts#L1-L36) · [`hasOwn?` @ 4d2306a2](https://github.com/Laratypes/Laratype/blob/4d2306a2/packages/core/src/deps.ts#L37-L37)
 
 ```ts
 export interface UnresolvedSlot { unresolved: string; index: number }
@@ -204,10 +204,10 @@ See [Container](#container): unresolved slots and thunks that return `undefined`
 ## Deps registry
 
 ### Status
-merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)).
+merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)). `depsRegistry: Required<DepsLookup>` (the required `hasOwn`) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2 (D10 [#298](https://github.com/Laratypes/Laratype/issues/298)).
 
 ### Public API
-[`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64)
+[`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64) · [`depsRegistry` @ 4d2306a2](https://github.com/Laratypes/Laratype/blob/4d2306a2/packages/core/src/registry.ts#L83-L83)
 
 ```ts
 export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[] | null, meta?: DepsMeta): T;  // returns cls unchanged
@@ -483,7 +483,7 @@ None of its own. The transform never throws on user code, and resolve-time failu
 ## Resolution errors with fix hints
 
 ### Status
-merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336). D10 [#298](https://github.com/Laratypes/Laratype/issues/298) (`requiredBy`, the production and third-party wordings and zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 91538ea2.
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336). D10 [#298](https://github.com/Laratypes/Laratype/issues/298) (`requiredBy`, the production and third-party wordings and zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 4d2306a2.
 
 ### Public API
 None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
@@ -507,7 +507,7 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`.`
 - `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata.` The first form is dev; the second is production (`__PROD__` true, or `NODE_ENV=production` when `__PROD__` is unset).
 
-Every `make()` gets one of the two forms, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)). `<C>` is the class name or `<anonymous class>`, escaped onto one line as above. A zero-length constructor whose params all have defaults reports the non-rest count read from its source, or `cls.length` when the constructor is not the first member ([#298](https://github.com/Laratypes/Laratype/issues/298)).
+Every `make()` gets one of the two forms, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)). `<C>` is the class name or `<anonymous class>`, escaped onto one line as above. An all-default constructor whose constructor is the first member reports the non-rest count read from its source ([#298](https://github.com/Laratypes/Laratype/issues/298)); when it is not the first member, `cls.length` is `0` and the class is built with `new cls()` without a diagnostic (known limit).
 
 `Cannot bind …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
 
