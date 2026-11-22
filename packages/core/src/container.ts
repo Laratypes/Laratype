@@ -108,9 +108,27 @@ const isWhitespace = (char: string): boolean => /\s/.test(char)
 
 const isLineTerminator = (char: string): boolean => char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
 
-/** Keywords after which a `/` starts a regex literal rather than a division. */
+/** The identifier ending at `end`, skipping whitespace before it. */
+const previousWord = (source: string, end: number): { word: string, start: number } | undefined => {
+  let index = end
+  while (index >= 0 && isWhitespace(source[index]!)) index--
+  const wordEnd = index
+  while (index >= 0 && /[A-Za-z0-9_$]/.test(source[index]!)) index--
+  return wordEnd > index ? { word: source.slice(index + 1, wordEnd + 1), start: index + 1 } : undefined
+}
+
+/** `of` is a keyword only in a `for (... of ...)` header; in a parameter list it is an identifier. */
+const isForOf = (source: string, wordStart: number): boolean => {
+  const open = source.lastIndexOf('(', wordStart - 1)
+  if (open < 0) return false
+  let before = previousWord(source, open - 1)
+  if (before?.word === 'await') before = previousWord(source, before.start - 1)
+  return before?.word === 'for'
+}
+
+/** Keywords after which a `/` starts a regex literal rather than a division. `of` is handled by `isForOf`. */
 const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
-  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'throw', 'typeof', 'void', 'yield',
+  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'return', 'throw', 'typeof', 'void', 'yield',
 ])
 
 /** Whether the `/` at `index` is in operator position, so it starts a regex literal, not a division. */
@@ -140,7 +158,9 @@ const startsRegex = (source: string, index: number): boolean => {
   while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source[wordStart - 1]!)) wordStart--
   // `obj.return / 2`: a property name, not the keyword.
   if (wordStart > 0 && source[wordStart - 1] === '.') return false
-  return REGEX_KEYWORDS.has(source.slice(wordStart, previous + 1))
+  const word = source.slice(wordStart, previous + 1)
+  if (word === 'of') return isForOf(source, wordStart)
+  return REGEX_KEYWORDS.has(word)
 }
 
 /** Index after a slash: a regex literal when it is in operator position, else a one-char division. */

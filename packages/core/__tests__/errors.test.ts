@@ -303,6 +303,20 @@ describe('zero-length constructors', () => {
     expect(messageOf(() => new Container().make(sourceClass(defaultSource)))).toContain('takes 2 param(s)')
   })
 
+  it.each(['of', 'as', 'get', 'set', 'async', 'from', 'type'])('reads %s as a parameter name', (name) => {
+    const cls = new Function(`return class Contextual { constructor(${name} = 1, extra = 2) {} }`)() as new () => unknown
+    expect(messageOf(() => new Container().make(cls))).toContain('takes 2 param(s)')
+  })
+
+  it('treats of as an identifier in a default expression', () => {
+    expect(messageOf(() => new Container().make(sourceClass('of / 2')))).toContain('takes 2 param(s)')
+  })
+
+  it('keeps of as a keyword in a for...of body', () => {
+    const forOf = new Function('return class ForOf { constructor(f = () => { for (const x of /\\)/) {} }, extra = 1) {} }')() as new () => unknown
+    expect(messageOf(() => new Container().make(forOf))).toContain('takes 2 param(s)')
+  })
+
   it('treats a postfix increment before a slash as a division', () => {
     const postfix = new Function('a', 'b', 'return class Postfix { constructor(value = a++ / b, extra = 1) { this.value = value; this.extra = extra } }')(1, 1) as new () => { value: unknown, extra: unknown }
     expect(messageOf(() => new Container().make(postfix))).toContain('takes 2 param(s)')
