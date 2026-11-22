@@ -566,6 +566,38 @@ describe("a multi-valued Content-Type (B30 #410 security review)", () => {
     expect(state.reached).toBe(false);
   });
 
+  it("answers 400 on a GET with no body", async () => {
+    quiet();
+    const app = bootApp();
+    let reached = false;
+    class Users extends Controller {
+      index() {
+        reached = true;
+        return { ok: true };
+      }
+    }
+    app.get("/users", RequestKernel.handle({ method: "get", path: "/users", controller: [Users, "index"] }));
+    const response = await app.request("/users", { headers: { "Content-Type": "application/json, text/plain" } });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(reached).toBe(false);
+  });
+
+  it("answers 400 when two Content-Type header lines are joined", async () => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    // Fetch's Headers.get joins repeated header lines with ", ", so the two singleton values reach readBody as one
+    const headers = new Headers();
+    headers.append("Content-Type", "application/json");
+    headers.append("Content-Type", "application/x-www-form-urlencoded");
+    expect(headers.get("Content-Type")).toBe("application/json, application/x-www-form-urlencoded");
+    const response = await app.request("/users", { method: "POST", headers, body: "name=ada" });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
   it("answers 400 before the default cap refuses the body", async () => {
     quiet();
     // The header classifies as multipart (its first value), so the 1 KiB cap would answer 413; the 400 comes first

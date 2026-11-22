@@ -179,6 +179,7 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
       URLENCODED,
     ],
     ["an unterminated quoted-string", 'multipart/form-data; boundary=x; note="a,b', MULTIPART],
+    ["an escaped comma in an unterminated quoted-string", 'text/plain; x="\\, application/x-www-form-urlencoded', URLENCODED],
   ] as const)("answers 400 for %s Content-Type", async (_label, header, body) => {
     // Two media types in one singleton field (RFC 9110 §8.3): the pipeline refuses it before classifying or capping,
     // instead of parsing a form the platform reads from the last value (B30 #410 security fix). An unterminated

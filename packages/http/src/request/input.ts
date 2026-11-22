@@ -24,11 +24,11 @@ const MULTIPLE_MEDIA_TYPES = "Invalid Content-Type header: more than one media t
  * classifiers: 4.8.0–4.12.27 matches the value `headers.get("Content-Type")` returns with a case-sensitive
  * `startsWith` (leading/trailing HTTP whitespace already stripped by `Headers`), while 4.12.28+ splits at `;`, trims,
  * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith` for a
- * mixed-case spelling such as `Application/X-WWW-Form-Urlencoded`. It accepts a spelling any rule reads as a form (fail
- * closed); for a single-valued header the same helper decides the default cap in `bodyLimit.ts`, so the classifier and
- * the cap parse and cap the spelling alike. `readBody` refuses a Content-Type with more than one media type before
- * either runs, so neither sees a comma-joined value. The parser gets the media type lowercased by
- * `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
+ * suffixed spelling such as `Application/X-WWW-Form-Urlencodedx` that the two exact rules miss. It accepts a spelling
+ * any rule reads as a form (fail closed); for a single-valued header the same helper decides the default cap in
+ * `bodyLimit.ts`, so the classifier and the cap parse and cap the spelling alike. `readBody` refuses a Content-Type
+ * with more than one media type before either runs, so neither sees a comma-joined value. The parser gets the media
+ * type lowercased by `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
  */
 const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
 
@@ -44,8 +44,12 @@ const hasMultipleMediaTypes = (contentType: string): boolean => {
   let commaAfterOpen = false;
   for (let index = 0; index < contentType.length; index++) {
     const char = contentType[index];
-    if (quoted && char === "\\") index++;
-    else if (char === '"') {
+    if (quoted && char === "\\") {
+      // The escaped character is part of the quoted value, but for an unterminated quote a skipped comma still counts:
+      // `x="\, ...` must fail closed like the unescaped comma (an unterminated quoted-string quotes nothing)
+      if (contentType[index + 1] === ",") commaAfterOpen = true;
+      index++;
+    } else if (char === '"') {
       quoted = !quoted;
       commaAfterOpen = false;
     } else if (char === ",") {

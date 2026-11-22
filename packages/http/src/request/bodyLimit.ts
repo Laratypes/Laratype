@@ -46,7 +46,7 @@ export type FormMediaType = "multipart/form-data" | "application/x-www-form-urle
  * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
  *   compared exactly to the two types;
  * - the 0.5 default cap's own rule (`mediaTypeOf` before B30): `contentType.toLowerCase().startsWith(...)`, which also
- *   covers a mixed-case spelling (`Application/X-WWW-Form-Urlencoded`) the two exact rules miss. Keeping it fail-closed
+ *   covers a suffixed spelling (`Application/X-WWW-Form-Urlencodedx`) the two exact rules miss. Keeping it fail-closed
  *   restores the cap such a request had before this PR.
  * Accepting a spelling any rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a peer
  * that reads it can never hand a handler fields validation did not see, and no request loses the cap it had. A spelling
