@@ -131,8 +131,51 @@ describe("a __proto__. segment in a form body (B30 #410)", () => {
   });
 });
 
+describe("a __proto__ query parameter (B30 #410)", () => {
+  it("stays an own data key in the query, input and all() of a 0.5 route", async () => {
+    const { app, captured } = captureRoute("get", "/q", (req) => ({ query: req.query(), input: req.input(), all: req.all() }));
+    const response = await app.request("/q?__proto__=polluted&a=1");
+    expect(response.status).toBe(200);
+
+    const values = captured.value as Record<string, Record<string, unknown>>;
+    // Hono 4.13.17 keeps the key on a null-prototype map (4.9.6 dropped it), and `Object.fromEntries`/spreads copy it
+    // as an own data key of the plain objects the facade returns
+    for (const value of Object.values(values)) {
+      expect(Object.hasOwn(value, "__proto__")).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(value, "__proto__")?.value).toBe("polluted");
+      expect(Object.getOwnPropertyDescriptor(value, "__proto__")?.get).toBeUndefined();
+      expect(value.a).toBe("1");
+    }
+    expect(Object.getPrototypeOf(values.input)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(values.all)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(values.query)).toBeNull();
+    expect(protoStates()).toEqual({ x: undefined, y: undefined });
+  });
+
+  it("is stripped from the validated query of a contract route, before the handler", async () => {
+    const contract = defineContract()({
+      index: endpoint.get("/").query(z.object({ a: z.string() })).response(z.unknown()),
+    });
+    let seen: unknown;
+    class Index extends Controller {
+      index(ctx: Ctx<typeof contract.index>) {
+        seen = ctx.query;
+        return ctx.query;
+      }
+    }
+    const app = bootApp();
+    Route.api(defineApi({ index: { contract, path: "/q", scopes: [] } }), (r) => [r.contract(contract, Index)]).mount(app);
+
+    const response = await app.request("/q?__proto__=polluted&a=1");
+    expect(response.status).toBe(200);
+    expect(seen).toEqual({ a: "1" });
+    expect(Object.hasOwn(seen as object, "__proto__")).toBe(false);
+    expect(await response.json()).toEqual({ a: "1" });
+    expect(protoStates()).toEqual({ x: undefined, y: undefined });
+  });
+});
+
 describe("a __proto__ key in a JSON body (B30 #410)", () => {
-  const body = { __proto__: { x: "polluted" }, constructor: { prototype: { y: "polluted" } }, z: 1 };
   // A JSON literal `{ __proto__: ... }` would set the literal's prototype; the body is built from JSON text, as the
   // client sends it, which makes `__proto__` an own data key
   const text = '{"__proto__":{"x":"polluted"},"constructor":{"prototype":{"y":"polluted"}},"z":1}';
@@ -159,6 +202,65 @@ describe("a __proto__ key in a JSON body (B30 #410)", () => {
     expect(response.status).toBe(200);
     expect(captured.value).toEqual({ x: "polluted" });
     expect(protoStates()).toEqual({ x: undefined, y: undefined });
+  });
+
+  it("picks and omits an own __proto__ key as data, never as the result's prototype", async () => {
+    const { app, captured } = captureRoute("post", "/json", (req) => ({
+      picked: req.input(["__proto__", "z"]),
+      only: req.only(["__proto__", "z"]),
+      except: req.except(["nope"]),
+      exceptProto: req.except(["__proto__"]),
+      field: req.input("__proto__"),
+      has: req.has("__proto__"),
+    }));
+    const response = await app.request("/json", { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+    expect(response.status).toBe(200);
+
+    const capturedValue = captured.value as Record<string, any>;
+    // es-toolkit's compat `pick` assigns each own key: without the accessor's fix, an own `__proto__` swapped the
+    // picked object's prototype, so `picked.x` answered the submitted value and the key itself was gone
+    for (const picked of [capturedValue.picked, capturedValue.only, capturedValue.except]) {
+      expect(Object.getPrototypeOf(picked)).toBe(Object.prototype);
+      expect(Object.hasOwn(picked, "__proto__")).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(picked, "__proto__")?.value).toEqual({ x: "polluted" });
+      expect(picked).toMatchObject({ z: 1 });
+    }
+    expect(capturedValue.except).not.toHaveProperty("nope");
+    // `omit` clones with define semantics and `unset` drops the own key: no prototype is reachable through it either
+    expect(Object.getPrototypeOf(capturedValue.exceptProto)).toBe(Object.prototype);
+    expect(Object.hasOwn(capturedValue.exceptProto, "__proto__")).toBe(false);
+    expect(capturedValue.exceptProto).toMatchObject({ z: 1 });
+    expect((capturedValue.exceptProto.constructor as any).prototype.y).toBe("polluted");
+    expect(capturedValue.field).toEqual({ x: "polluted" });
+    expect(capturedValue.has).toBe(true);
+    expect(protoStates()).toEqual({ x: undefined, y: undefined });
+  });
+
+  it("treats a non-array only() key as no keys, without walking an array-like", async () => {
+    // `only()` is typed `string[]`; a JS caller can still pass another value. `pick` would walk a `{ length: 1e9 }`
+    // object, and `.includes` would throw on a number, so the accessor refuses the shape before either
+    const { app, captured } = captureRoute("post", "/json", (req) => ({
+      object: req.only({ length: 1e9 } as never),
+      number: req.only(42 as never),
+      nan: req.only(Number.NaN as never),
+      missing: req.input(42 as never),
+      infinite: req.input(Number.POSITIVE_INFINITY as never),
+      arrayLike: req.input({ length: 1e9 } as never),
+      long: req.only(["x".repeat(100_000)]),
+      unicode: req.only(["__proto__\u0000", "\u{1F600}", "\uD800"]),
+    }));
+    const response = await app.request("/json", { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+    expect(response.status).toBe(200);
+    expect(captured.value).toEqual({
+      object: {},
+      number: {},
+      nan: {},
+      missing: undefined,
+      infinite: undefined,
+      arrayLike: undefined,
+      long: {},
+      unicode: {},
+    });
   });
 
   it("is stripped from the validated body of a contract route, before the handler", async () => {

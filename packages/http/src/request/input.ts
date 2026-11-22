@@ -104,6 +104,9 @@ const textReadBodyError = (): TypeError =>
 /** Whether a FormData holds fields: a form body of none is no body, `{}` (a client may send its Content-Type alone). */
 const hasFields = (formData: FormData): boolean => formData.entries().next().done !== true;
 
+/** Hono 4.13.17's guard in `handleParsingNestedValues`: a `__proto__` segment at the start or after a dot. */
+const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
+
 /**
  * The form fields as Hono 4.13.17's `parseBody({ dot: true })` builds them, from the FormData this pipeline already
  * holds. It mirrors its `convertFormDataToBodyData` with `{ all: false, dot: true }`: a key sent once is its value, a
@@ -116,10 +119,6 @@ const hasFields = (formData: FormData): boolean => formData.entries().next().don
  * prototype one. 4.13.17 drops a key with a `__proto__.` segment (`UNSAFE_DOT_KEY`), and this mirrors it: the key is
  * gone from the fields on every peer version, so no submitted value is reachable through a `__proto__` key.
  */
-
-/** Hono 4.13.17's guard in `handleParsingNestedValues`: a `__proto__` segment at the start or after a dot. */
-const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
-
 export const toDotFields = (formData: FormData): Record<string, unknown> => {
   const fields: Record<string, unknown> = Object.create(null);
   formData.forEach((value, key) => {
