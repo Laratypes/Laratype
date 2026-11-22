@@ -17,7 +17,10 @@ interface HttpModule {
  * The resolution failure of the optional `@laratype/http` itself: mlly's `Cannot find module @laratype/http imported
  * from ...` and Node's `Cannot find package '@laratype/http' imported from ...`. Anchored on the specifier, so a
  * missing dependency inside an installed copy (the importer is `.../node_modules/@laratype/http/dist/...`) and a
- * look-alike package (`@laratype/httpx`) are the app's failures, not a missing optional package.
+ * look-alike package (`@laratype/httpx`) are not the optional package. support's `importModule` catches an
+ * inner-dependency failure inside its own try (logs it, returns undefined, and the mount warns without
+ * `mountConnInfo`); this matcher only decides what a rejecting loader may skip, so its rethrow cases are guards for
+ * another loader.
  */
 const MISSING_HTTP = /^Cannot find (?:module @laratype\/http|package '@laratype\/http') imported from /
 
@@ -51,7 +54,7 @@ const warnOnce = (flag: symbol, text: string): void => {
 /** Warns once per process that the optional `@laratype/http` does not resolve, so the IP-keyed limit is off. */
 const warnMissingHttp = () => warnOnce(
   MISSING_HTTP_WARNED,
-  `[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http does not resolve from the working directory ${process.cwd()} (it is an optional peer of laratype). Install @laratype/http where the app runs and start the app from the project root.`,
+  `[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http does not resolve from the working directory ${process.cwd()} (it is an optional peer of laratype). Install @laratype/http where the app runs and start the app from the project root, or add @laratype/http as a direct dependency of the app.`,
 )
 
 /** Warns once per process that `@laratype/http` loaded without the seam, so the IP-keyed limit is off. */

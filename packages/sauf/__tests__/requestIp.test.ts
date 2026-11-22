@@ -26,14 +26,14 @@ const resetConnInfoWarnings = () => {
   delete store[NO_MOUNT_CONN_INFO_WARNED];
 };
 
-/** A `node_modules/@laratype/http` package in `directory` whose entry exports no `mountConnInfo` (an older copy). */
-const writeHttpPackageWithoutMountConnInfo = (directory: string) => {
+/** A `node_modules/@laratype/http` package in `directory`, with `entry` as its ESM entry (no `mountConnInfo` by default). */
+const writeHttpPackage = (directory: string, entry = "export const value = 1;\n") => {
   const packageDir = join(directory, "node_modules", "@laratype", "http");
   mkdirSync(packageDir, { recursive: true });
   writeFileSync(join(packageDir, "package.json"), JSON.stringify({
     name: "@laratype/http", version: "0.0.0", type: "module", main: "index.js", exports: { ".": "./index.js" },
   }));
-  writeFileSync(join(packageDir, "index.js"), "export const value = 1;\n");
+  writeFileSync(join(packageDir, "index.js"), entry);
 };
 
 class WhoAmI extends Controller {
@@ -113,20 +113,27 @@ describe("mountNodeConnInfo", () => {
     expect(mountConnInfo.mock.calls[0]![1]).toBeTypeOf("function");
   });
 
-  it("registers nothing and warns once when @laratype/http loads without mountConnInfo", async () => {
-    resetConnInfoWarnings();
+  it("registers nothing and warns once per input when @laratype/http loads without mountConnInfo", async () => {
     const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
     try {
       // support's importModule returns undefined after logging a failed import; an older copy loads without the seam
       for (const http of [undefined, {}, { mountConnInfo: 42 }]) {
+        resetConnInfoWarnings();
+        warn.mockClear();
         await expect(mountNodeConnInfo(new Hono(), async () => http)).resolves.toBeUndefined();
+        expect(warn, String(http)).toHaveBeenCalledTimes(1);
+        const text = String(warn.mock.calls[0]![0]);
+        expect(text).toContain("If this app serves routes with @laratype/http");
+        expect(text).toContain("@laratype/http loaded without mountConnInfo");
+        expect(text).toContain("request.ip()");
+        expect(text).toContain(".throttle()");
       }
+      // The per-process flag: a second call with the same input does not warn again
+      resetConnInfoWarnings();
+      warn.mockClear();
+      await mountNodeConnInfo(new Hono(), async () => undefined);
+      await mountNodeConnInfo(new Hono(), async () => undefined);
       expect(warn).toHaveBeenCalledTimes(1);
-      const text = String(warn.mock.calls[0]![0]);
-      expect(text).toContain("If this app serves routes with @laratype/http");
-      expect(text).toContain("@laratype/http loaded without mountConnInfo");
-      expect(text).toContain("request.ip()");
-      expect(text).toContain(".throttle()");
     } finally {
       warn.mockRestore();
     }
@@ -220,7 +227,7 @@ describe("mountNodeConnInfo", () => {
     const previousLoader = globalThis.__sauf_transpiler_instance;
     globalThis.__sauf_transpiler_instance = async (id: string) => await import(id);
     try {
-      writeHttpPackageWithoutMountConnInfo(directory);
+      writeHttpPackage(directory);
       process.chdir(directory);
       await expect(mountNodeConnInfo(new Hono())).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(1);
@@ -232,6 +239,31 @@ describe("mountNodeConnInfo", () => {
       globalThis.__sauf_transpiler_instance = previousLoader;
       process.chdir(cwd);
       rmSync(directory, { recursive: true, force: true });
+      warn.mockRestore();
+    }
+  });
+
+  it("logs the loader error once and warns once when the installed @laratype/http throws at import", async () => {
+    resetConnInfoWarnings();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(Console, "warn").mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), "laratype-sauf-broken-http-"));
+    const cwd = process.cwd();
+    const previousLoader = globalThis.__sauf_transpiler_instance;
+    globalThis.__sauf_transpiler_instance = async (id: string) => await import(id);
+    try {
+      writeHttpPackage(directory, 'throw new Error("the installed copy is broken");\n');
+      process.chdir(directory);
+      await expect(mountNodeConnInfo(new Hono())).resolves.toBeUndefined();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(String(error.mock.calls[0]![0])).toContain("Failed to import module: @laratype/http");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toContain("@laratype/http loaded without mountConnInfo");
+    } finally {
+      globalThis.__sauf_transpiler_instance = previousLoader;
+      process.chdir(cwd);
+      rmSync(directory, { recursive: true, force: true });
+      error.mockRestore();
       warn.mockRestore();
     }
   });
