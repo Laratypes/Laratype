@@ -18,6 +18,7 @@ const badRequest = (message: string) => new HTTPException(400, { res: Response.j
 const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
 const MULTIPLE_MEDIA_TYPES = "Invalid Content-Type header: more than one media type.";
+const FORM_MEDIA_TYPE_OUTSIDE_LEADING = "Invalid Content-Type header: a form media type name outside the leading media type.";
 
 /**
  * Whether the pipeline reads the request as a form body. The `hono` peer range (`^4.8.0`) has two `parseBody()`
@@ -25,10 +26,11 @@ const MULTIPLE_MEDIA_TYPES = "Invalid Content-Type header: more than one media t
  * `startsWith` (leading/trailing HTTP whitespace already stripped by `Headers`), while 4.12.28+ splits at `;`, trims,
  * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith` for a
  * suffixed spelling such as `Application/X-WWW-Form-Urlencodedx` that the two exact rules miss. It accepts a spelling
- * any rule reads as a form (fail closed); for a single-valued header the same helper decides the default cap in
- * `bodyLimit.ts`, so the classifier and the cap parse and cap the spelling alike. `readBody` refuses a Content-Type
- * with more than one media type before either runs, so neither sees a comma-joined value. The parser gets the media
- * type lowercased by `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
+ * any rule reads as a form (fail closed). `readBody` refuses a Content-Type with more than one media type, and one that
+ * holds a form type name anywhere outside the leading media type (Bun's form parser picks the type by a substring
+ * search over the whole header), before this helper or the cap runs; the arms only see the leading type of a header the
+ * pipeline accepts. The parser gets the media type lowercased by `lowercaseMediaType`, with the parameters (a multipart
+ * boundary) as sent.
  */
 const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
 
@@ -58,6 +60,30 @@ const hasMultipleMediaTypes = (contentType: string): boolean => {
     }
   }
   return quoted && commaAfterOpen;
+};
+
+const MULTIPART_FORM_DATA = "multipart/form-data";
+const URLENCODED_FORM_DATA = "application/x-www-form-urlencoded";
+
+/** One of the two media types `parseBody()` reads as form fields, compared exactly (the leading type is lowercased). */
+const isFormTypeName = (mediaType: string): boolean =>
+  mediaType === MULTIPART_FORM_DATA || mediaType === URLENCODED_FORM_DATA;
+
+/**
+ * Whether either form media type name appears anywhere in the Content-Type other than as the leading media type: in a
+ * parameter (quoted or not), inside another type (`x-multipart/form-data`), or as the second of two names. The leading
+ * media type is the part before the first `;`, trimmed. Bun's `formData()` chooses its parser by a case-sensitive
+ * substring search anywhere in the header (urlencoded first, then multipart when a boundary parameter exists), so a
+ * header whose leading type is not the form type it embeds can make the platform parse a body the pipeline did not
+ * classify or cap (B30 #410).
+ */
+const hasFormMediaTypeOutsideLeading = (contentType: string): boolean => {
+  const semicolon = contentType.indexOf(";");
+  const leading = (semicolon === -1 ? contentType : contentType.slice(0, semicolon)).trim().toLowerCase();
+  let search = contentType;
+  if (isFormTypeName(leading)) search = semicolon === -1 ? "" : contentType.slice(semicolon + 1);
+  const lower = search.toLowerCase();
+  return lower.includes(MULTIPART_FORM_DATA) || lower.includes(URLENCODED_FORM_DATA);
 };
 
 /**
@@ -404,12 +430,18 @@ const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
  * and the form types alike (a client may send its Content-Type on a GET); a malformed one is a 400, and so is a form
  * body `parseBody()` rejects (a missing or bad multipart boundary). A Content-Type that names more than one media type
  * is the 400 first: the field is a singleton (RFC 9110 §8.3), and the platform's MIME extraction takes the last value,
- * so a comma-joined value could otherwise be parsed as one media type while the platform reads another. The default
- * body limit runs after that check (H44 #341), so a body over its cap is the 413 before anything reads the stream.
+ * so a comma-joined value could otherwise be parsed as one media type while the platform reads another. So is a
+ * Content-Type holding a form media type name anywhere outside its leading media type: Bun's form parser picks the type
+ * by a case-sensitive substring search anywhere in the header, while this pipeline classifies and caps the leading type
+ * only. The default body limit runs after those checks (H44 #341), so a body over its cap is the 413 before anything
+ * reads the stream.
  */
 export const readBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
-  if (contentType !== undefined && hasMultipleMediaTypes(contentType)) throw badRequest(MULTIPLE_MEDIA_TYPES);
+  if (contentType !== undefined) {
+    if (hasMultipleMediaTypes(contentType)) throw badRequest(MULTIPLE_MEDIA_TYPES);
+    if (hasFormMediaTypeOutsideLeading(contentType)) throw badRequest(FORM_MEDIA_TYPE_OUTSIDE_LEADING);
+  }
   await enforceBodyLimit(request);
   return isJsonMediaType(contentType) ? readJsonBody(request) : readFormBody(request);
 };

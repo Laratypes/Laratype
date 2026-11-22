@@ -51,9 +51,10 @@ export type FormMediaType = "multipart/form-data" | "application/x-www-form-urle
  * Accepting a spelling any rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a peer
  * that reads it can never hand a handler fields validation did not see, and no request loses the cap it had. A spelling
  * no rule accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer. `readBody` refuses a Content-Type
- * holding more than one media type (a comma outside a quoted-string) before this helper or the cap runs, so the arms
- * only see a singleton field; for one value, the classifier and the default cap both use this helper (`mediaTypeOf`), so
- * the parse and the cap read the spelling alike.
+ * holding more than one media type, and one that holds a form type name outside its leading media type (Bun's form
+ * parser picks the type by a substring search over the whole header), before this helper or the cap runs; the arms only
+ * see the leading type of a header the pipeline accepts. The classifier and the default cap both use this helper
+ * (`mediaTypeOf`), so for an accepted header the parse and the cap read the same leading type.
  */
 export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
   if (contentType === undefined) return undefined;
@@ -70,8 +71,9 @@ export const formMediaType = (contentType: string | undefined): FormMediaType | 
 /**
  * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
  * does not parse). The form types come from `formMediaType`, the same union of the peer range's classifiers the parse
- * uses. `readBody` has already refused a Content-Type holding more than one media type, so the cap and the parse see the
- * same single value. JSON uses `isJsonMediaType` (Hono's `validator('json')` shape, see the regex above).
+ * uses. `readBody` has already refused a Content-Type holding more than one media type or a form type name outside the
+ * leading media type, so the cap and the parse see the same accepted leading type. JSON uses `isJsonMediaType` (Hono's
+ * `validator('json')` shape, see the regex above).
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";

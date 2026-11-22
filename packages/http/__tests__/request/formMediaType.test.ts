@@ -2,9 +2,10 @@
 // matches the header as sent with a case-sensitive `startsWith`; 4.12.28+ splits at `;`, trims, lowercases and compares
 // exactly. The pipeline reads a request as a form when EITHER rule does (fail closed), so a spelling one peer parses can
 // never reach a handler unvalidated because another peer's rule was copied. A Content-Type holding more than one media
-// type is the 400 before either rule (B30 #410 security fix). The suite runs under Node (vitest); the
-// runtime-dependent expectations below come from Hono's own parse on the running runtime, so Bun's parser differences
-// (leading U+00A0, old-only urlencoded) do not hard-code Node behavior.
+// type is the 400 before either rule, and so is a form type name anywhere outside the leading media type (Bun's
+// `formData()` picks the type by a substring search over the whole header; B30 #410 security fixes). The suite runs
+// under Node (vitest); the runtime-dependent expectations below come from Hono's own parse on the running runtime, so
+// Bun's parser differences (leading U+00A0, old-only urlencoded) do not hard-code Node behavior.
 import "reflect-metadata";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -69,6 +70,9 @@ const sendThroughPipeline = async (header: string, body: string) => {
 
 const URLENCODED = "a=1";
 const MULTIPART = "--x\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--x--\r\n";
+const WEBKIT_BOUNDARY = "----WebKitFormBoundaryAbC123";
+const WEBKIT_MULTIPART = `--${WEBKIT_BOUNDARY}\r\nContent-Disposition: form-data; name="a"\r\n\r\n1\r\n--${WEBKIT_BOUNDARY}--\r\n`;
+const FORM_MESSAGE = "Invalid Content-Type header: a form media type name outside the leading media type.";
 
 /** 4.8.0–4.12.27's rule: `contentType?.startsWith(...)` on `headers.get()` (leading/trailing HTTP whitespace stripped). */
 const oldRule = (header: string): boolean =>
@@ -102,9 +106,6 @@ const CASES: FormCase[] = [
   { header: "Multipart/Form-Data; boundary=x", kind: "new", multipart: true },
   { header: "\u00a0Multipart/Form-Data; boundary=x", kind: "new", multipart: true },
   { header: "\u00a0multipart/form-data; boundary=x", kind: "new", multipart: true },
-  { header: "application/x-www-form-urlencodedx", kind: "old" },
-  { header: "multipart/form-datax", kind: "old", multipart: true },
-  { header: "Application/X-WWW-Form-Urlencodedx", kind: "master" },
   { header: "", kind: "neither" },
   { header: "text/plain", kind: "neither" },
 ];
@@ -148,14 +149,6 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
       }
       return;
     }
-
-    // Only the old rule or the 0.5 cap's lowercased startsWith reads it as a form; Hono 4.13.17 answers `{}` but the
-    // pipeline must still parse it (or answer the malformed-form 400 where the platform's parser refuses the media
-    // type), never hand over `{}` as if it were not a form. On Bun `application/x-www-form-urlencodedx` parses; on Node
-    // the platform rejects it.
-    expect([200, 400]).toContain(pipeline.status);
-    if (pipeline.status === 200) expect(pipeline.input).toEqual({ a: "1" });
-    else expect(pipeline.input).toBeUndefined();
   });
 
   it("caps every spelling any rule reads as a form", async () => {
@@ -188,6 +181,48 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
     expect(status).toBe(400);
     expect(message).toBe("Invalid Content-Type header: more than one media type.");
     expect(input).toBeUndefined();
+  });
+
+  it.each([
+    ["a form name in a parameter", 'multipart/form-data; boundary=x; t="application/x-www-form-urlencoded"', URLENCODED],
+    ["a form name as a quoted boundary", 'multipart/form-data; boundary="application/x-www-form-urlencoded"', URLENCODED],
+    ["a form name on a non-form type", 'text/plain; t="application/x-www-form-urlencoded"', "u=1"],
+    ["a form name in an octet-stream parameter", "application/octet-stream; boundary=x; t=multipart/form-data", "u=1"],
+    ["both form names outside the leading type", "text/plain; a=multipart/form-data; b=application/x-www-form-urlencoded", "u=1"],
+    ["a form name as a suffix", "application/x-www-form-urlencodedx", URLENCODED],
+    ["a form name embedded in another type", "x-multipart/form-data", URLENCODED],
+  ] as const)("answers 400 for %s in the Content-Type", async (_label, header, body) => {
+    // Bun's formData() picks the type by a case-sensitive substring search anywhere in the header, while the pipeline
+    // classifies and caps the leading type only; a form name outside that leading type is refused before either.
+    const { status, input, message } = await sendThroughPipeline(header, body);
+    expect(status).toBe(400);
+    expect(message).toBe(FORM_MESSAGE);
+    expect(input).toBeUndefined();
+  });
+
+  it.each([
+    ["application/x-www-form-urlencodedx", "application/x-www-form-urlencoded"],
+    ["multipart/form-datax", "multipart/form-data"],
+    ["Application/X-WWW-Form-Urlencodedx", "application/x-www-form-urlencoded"],
+  ] as const)("keeps the three-arm classifier for %s while readBody refuses it", async (header, expected) => {
+    expect(formMediaType(header)).toBe(expected);
+    const { status, message } = await sendThroughPipeline(header, URLENCODED);
+    expect(status).toBe(400);
+    expect(message).toBe(FORM_MESSAGE);
+  });
+
+  it.each([
+    ["multipart/form-data; boundary=x", MULTIPART, { a: "1" }],
+    [`multipart/form-data; boundary="${WEBKIT_BOUNDARY}"`, WEBKIT_MULTIPART, { a: "1" }],
+    ["application/x-www-form-urlencoded; charset=utf-8", URLENCODED, { a: "1" }],
+    ["Multipart/Form-Data; boundary=x", MULTIPART, { a: "1" }],
+    ["text/plain; charset=utf-8", URLENCODED, {}],
+    ["application/json", '{"a":1}', { a: 1 }],
+  ] as const)("keeps %s a single accepted type", async (header, body, expected) => {
+    // The valid leading types, a browser-style boundary and a non-form type with no form name stay parsed as before.
+    const parsed = await sendThroughPipeline(header, body);
+    expect(parsed.status).toBe(200);
+    expect(parsed.input).toEqual(expected);
   });
 
   it.each([

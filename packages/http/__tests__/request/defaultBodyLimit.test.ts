@@ -538,6 +538,7 @@ describe("mixed-case form media types (H44 security review)", () => {
 
 describe("a multi-valued Content-Type (B30 #410 security review)", () => {
   const MESSAGE = "Invalid Content-Type header: more than one media type.";
+  const FORM_MESSAGE = "Invalid Content-Type header: a form media type name outside the leading media type.";
 
   /** A 0.5 route that records whether its handler ran. */
   const mountReached = (app: Hono): { reached: boolean } => {
@@ -563,6 +564,21 @@ describe("a multi-valued Content-Type (B30 #410 security review)", () => {
     const response = await app.request("/users", { method: "POST", headers: { "Content-Type": contentType }, body });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it.each([
+    ["a form name in a quoted boundary", 'multipart/form-data; boundary="application/x-www-form-urlencoded"', "u=1"],
+    ["a form name on a non-form type", 'text/plain; t="application/x-www-form-urlencoded"', "u=1"],
+    ["a form name in an octet-stream parameter", "application/octet-stream; boundary=x; t=multipart/form-data", "u=1"],
+    ["both form names outside the leading type", "text/plain; a=multipart/form-data; b=application/x-www-form-urlencoded", "u=1"],
+  ] as const)("answers 400 for %s in the Content-Type", async (_label, contentType, body) => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    const response = await app.request("/users", { method: "POST", headers: { "Content-Type": contentType }, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: FORM_MESSAGE });
     expect(state.reached).toBe(false);
   });
 
@@ -613,12 +629,15 @@ describe("a multi-valued Content-Type (B30 #410 security review)", () => {
     expect(state.reached).toBe(false);
   });
 
-  it("answers 400 before reading a comma-joined urlencoded body under the multipart cap", async () => {
+  it.each([
+    ["a comma-joined", "multipart/form-data, application/x-www-form-urlencoded", MESSAGE],
+    ["a form-name-in-a-parameter", 'multipart/form-data; boundary=x; t="application/x-www-form-urlencoded"', FORM_MESSAGE],
+  ] as const)("answers 400 before reading a %s urlencoded body under the multipart cap", async (_label, contentType, message) => {
     quiet();
     const app = bootApp();
     const state = mountReached(app);
-    // 5 MiB urlencoded: the last media type is the form type, so a comma-joined value used to take the 10 MiB multipart
-    // cap and parse the fields. The 400 comes before the cap and the parse, so the stream is not read.
+    // 5 MiB urlencoded: the header's leading type is multipart, so the platform form parser could parse the body while
+    // the pipeline took the 10 MiB multipart cap. The 400 comes before the cap and the parse, so the stream is not read.
     const payload = new TextEncoder().encode(`name=${"a".repeat(5 * MIB)}`);
     let offset = 0;
     let pulled = 0;
@@ -636,13 +655,13 @@ describe("a multi-valued Content-Type (B30 #410 security review)", () => {
     });
     const init: RequestInit & { duplex: "half" } = {
       method: "POST",
-      headers: { "Content-Type": "multipart/form-data, application/x-www-form-urlencoded" },
+      headers: { "Content-Type": contentType },
       body,
       duplex: "half",
     };
     const response = await app.request("/users", init);
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(await response.json()).toEqual({ message });
     expect(state.reached).toBe(false);
     // The request's own read-ahead aside, nothing was pulled: never the 5 MiB body, and so never the 10 MiB read
     expect(pulled).toBeLessThanOrEqual(64 * 1024);
