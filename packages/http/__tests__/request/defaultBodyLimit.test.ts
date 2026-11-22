@@ -535,3 +535,84 @@ describe("mixed-case form media types (H44 security review)", () => {
     expect(failure).toBeUndefined();
   });
 });
+
+describe("a multi-valued Content-Type (B30 #410 security review)", () => {
+  const MESSAGE = "Invalid Content-Type header: more than one media type.";
+
+  /** A 0.5 route that records whether its handler ran. */
+  const mountReached = (app: Hono): { reached: boolean } => {
+    const state = { reached: false };
+    class Users extends Controller {
+      store() {
+        state.reached = true;
+        return { ok: true };
+      }
+    }
+    app.post("/users", RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"] }));
+    return state;
+  };
+
+  it.each([
+    ["application/json, multipart/form-data; boundary=x", '{"name":"ada"}'],
+    ["text/plain, application/x-www-form-urlencoded", "name=ada"],
+    ['application/json; x=", multipart/form-data; boundary=x', '{"name":"ada"}'],
+  ])("answers 400 for %s before the handler", async (contentType, body) => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    const response = await app.request("/users", { method: "POST", headers: { "Content-Type": contentType }, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it("answers 400 before the default cap refuses the body", async () => {
+    quiet();
+    // The header classifies as multipart (its first value), so the 1 KiB cap would answer 413; the 400 comes first
+    const app = bootApp({ bodyLimit: { multipart: 1_024 } });
+    const state = mountReached(app);
+    const body = `name=${"a".repeat(4_096)}`;
+    const response = await app.request(
+      "/users",
+      sized({ method: "POST", headers: { "Content-Type": "multipart/form-data, application/x-www-form-urlencoded" }, body }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it("answers 400 before reading a comma-joined urlencoded body under the multipart cap", async () => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    // 5 MiB urlencoded: the last media type is the form type, so a comma-joined value used to take the 10 MiB multipart
+    // cap and parse the fields. The 400 comes before the cap and the parse, so the stream is not read.
+    const payload = new TextEncoder().encode(`name=${"a".repeat(5 * MIB)}`);
+    let offset = 0;
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= payload.length) {
+          controller.close();
+          return;
+        }
+        const chunk = payload.slice(offset, offset + 64 * 1024);
+        offset += chunk.byteLength;
+        pulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "Content-Type": "multipart/form-data, application/x-www-form-urlencoded" },
+      body,
+      duplex: "half",
+    };
+    const response = await app.request("/users", init);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+    // The request's own read-ahead aside, nothing was pulled: never the 5 MiB body, and so never the 10 MiB read
+    expect(pulled).toBeLessThanOrEqual(64 * 1024);
+  });
+});

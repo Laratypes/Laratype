@@ -17,18 +17,44 @@ const badRequest = (message: string) => new HTTPException(400, { res: Response.j
 
 const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
+const MULTIPLE_MEDIA_TYPES = "Invalid Content-Type header: more than one media type.";
 
 /**
  * Whether the pipeline reads the request as a form body. The `hono` peer range (`^4.8.0`) has two `parseBody()`
  * classifiers: 4.8.0–4.12.27 matches the value `headers.get("Content-Type")` returns with a case-sensitive
  * `startsWith` (leading/trailing HTTP whitespace already stripped by `Headers`), while 4.12.28+ splits at `;`, trims,
- * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith`, so a
- * comma-joined mixed-case value such as `MULTIPART/FORM-DATA, multipart/form-data; boundary=x` stays parsed and capped
- * as it was before B30. It accepts a spelling any rule reads as a form (fail closed); the same helper decides the
- * default cap in `bodyLimit.ts`, so the classifier and the cap cannot disagree. The parser gets the media type
- * lowercased by `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
+ * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith` for a
+ * mixed-case spelling such as `Application/X-WWW-Form-Urlencoded`. It accepts a spelling any rule reads as a form (fail
+ * closed); for a single-valued header the same helper decides the default cap in `bodyLimit.ts`, so the classifier and
+ * the cap parse and cap the spelling alike. `readBody` refuses a Content-Type with more than one media type before
+ * either runs, so neither sees a comma-joined value. The parser gets the media type lowercased by
+ * `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
  */
 const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
+
+/**
+ * Whether the Content-Type names more than one media type: Content-Type is a singleton field (RFC 9110 §8.3), so a
+ * comma outside a quoted-string separates two values. A comma inside a quoted-string is one value (`boundary="a,b"`,
+ * RFC 9110 §5.6.4), and a backslash escapes the next character there (`boundary="a\",b"`), so a quoted `\"` is not
+ * the closing quote. An unterminated quoted-string quotes nothing (it is not a valid quoted-string), so a comma after
+ * its opening quote is a separator too: fail closed, since a platform parser could take the last value.
+ */
+const hasMultipleMediaTypes = (contentType: string): boolean => {
+  let quoted = false;
+  let commaAfterOpen = false;
+  for (let index = 0; index < contentType.length; index++) {
+    const char = contentType[index];
+    if (quoted && char === "\\") index++;
+    else if (char === '"') {
+      quoted = !quoted;
+      commaAfterOpen = false;
+    } else if (char === ",") {
+      if (!quoted) return true;
+      commaAfterOpen = true;
+    }
+  }
+  return quoted && commaAfterOpen;
+};
 
 /**
  * The media type lowercased, its parameters untouched: RFC 9110 §8.3.1 makes the type and subtype case-insensitive,
@@ -372,12 +398,16 @@ const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
  * The request body: JSON for a JSON media type, else the form fields `parseBody()` reads (`multipart/form-data` and
  * `x-www-form-urlencoded`, files as web `File`s, `{}` for any other type). An empty body is no body, `{}` for the JSON
  * and the form types alike (a client may send its Content-Type on a GET); a malformed one is a 400, and so is a form
- * body `parseBody()` rejects (a missing or bad multipart boundary). The default body limit runs first (H44 #341), so a
- * body over its cap is the 413 before anything reads the stream.
+ * body `parseBody()` rejects (a missing or bad multipart boundary). A Content-Type that names more than one media type
+ * is the 400 first: the field is a singleton (RFC 9110 §8.3), and the platform's MIME extraction takes the last value,
+ * so a comma-joined value could otherwise be parsed as one media type while the platform reads another. The default
+ * body limit runs after that check (H44 #341), so a body over its cap is the 413 before anything reads the stream.
  */
 export const readBody = async (request: HonoRequest): Promise<unknown> => {
+  const contentType = request.header("Content-Type");
+  if (contentType !== undefined && hasMultipleMediaTypes(contentType)) throw badRequest(MULTIPLE_MEDIA_TYPES);
   await enforceBodyLimit(request);
-  return isJsonMediaType(request.header("Content-Type")) ? readJsonBody(request) : readFormBody(request);
+  return isJsonMediaType(contentType) ? readJsonBody(request) : readFormBody(request);
 };
 
 /**

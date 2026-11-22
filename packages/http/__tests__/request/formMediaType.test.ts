@@ -1,7 +1,8 @@
 // B30 #410 r2: the pipeline's form decision must cover every `hono` peer in `^4.8.0`. 4.8.0–4.12.27's `parseBody()`
 // matches the header as sent with a case-sensitive `startsWith`; 4.12.28+ splits at `;`, trims, lowercases and compares
 // exactly. The pipeline reads a request as a form when EITHER rule does (fail closed), so a spelling one peer parses can
-// never reach a handler unvalidated because another peer's rule was copied. The suite runs under Node (vitest); the
+// never reach a handler unvalidated because another peer's rule was copied. A Content-Type holding more than one media
+// type is the 400 before either rule (B30 #410 security fix). The suite runs under Node (vitest); the
 // runtime-dependent expectations below come from Hono's own parse on the running runtime, so Bun's parser differences
 // (leading U+00A0, old-only urlencoded) do not hard-code Node behavior.
 import "reflect-metadata";
@@ -61,7 +62,9 @@ const sendThroughPipeline = async (header: string, body: string) => {
   } satisfies AdHocRouteParams;
   app.post("/form", RequestKernel.handle(route));
   const response = await app.request("/form", { method: "POST", headers: { "Content-Type": header }, body });
-  return { status: response.status, input: captured.input };
+  // A 400 is the pipeline's JSON answer; the route's 200 is JSON too, and a 413 is text
+  const message = response.status === 400 ? ((await response.json()) as { message?: string }).message : undefined;
+  return { status: response.status, input: captured.input, message };
 };
 
 const URLENCODED = "a=1";
@@ -101,8 +104,6 @@ const CASES: FormCase[] = [
   { header: "\u00a0multipart/form-data; boundary=x", kind: "new", multipart: true },
   { header: "application/x-www-form-urlencodedx", kind: "old" },
   { header: "multipart/form-datax", kind: "old", multipart: true },
-  { header: "MULTIPART/FORM-DATA, multipart/form-data; boundary=x", kind: "master", multipart: true },
-  { header: "Application/X-WWW-Form-Urlencoded, application/x-www-form-urlencoded", kind: "master" },
   { header: "Application/X-WWW-Form-Urlencodedx", kind: "master" },
   { header: "", kind: "neither" },
   { header: "text/plain", kind: "neither" },
@@ -171,27 +172,39 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
   });
 
   it.each([
-    ["multipart", "MULTIPART/FORM-DATA, multipart/form-data; boundary=x", MULTIPART, true],
+    ["a comma-joined mixed-case multipart", "MULTIPART/FORM-DATA, multipart/form-data; boundary=x", MULTIPART],
     [
-      "urlencoded",
+      "a comma-joined mixed-case urlencoded",
       "Application/X-WWW-Form-Urlencoded, application/x-www-form-urlencoded",
       URLENCODED,
-      false,
     ],
-  ] as const)("parses and caps a comma-joined mixed-case %s Content-Type", async (_label, header, body, multipart) => {
-    // Master's cap rule (`toLowerCase().startsWith`) and r1's classifier read this as a form; the two exact rules do
-    // not, because the value has two media types. The platform's form parser takes the last type, so the pipeline
-    // parses the fields, and the default cap must apply again.
+    ["an unterminated quoted-string", 'multipart/form-data; boundary=x; note="a,b', MULTIPART],
+  ] as const)("answers 400 for %s Content-Type", async (_label, header, body) => {
+    // Two media types in one singleton field (RFC 9110 §8.3): the pipeline refuses it before classifying or capping,
+    // instead of parsing a form the platform reads from the last value (B30 #410 security fix). An unterminated
+    // quoted-string is no quoted-string, so its comma separates values too (fail closed).
+    const { status, input, message } = await sendThroughPipeline(header, body);
+    expect(status).toBe(400);
+    expect(message).toBe("Invalid Content-Type header: more than one media type.");
+    expect(input).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "a comma inside a quoted boundary",
+      'multipart/form-data; boundary="a,b"',
+      '--a,b\r\nContent-Disposition: form-data; name="a"\r\n\r\n1\r\n--a,b--\r\n',
+    ],
+    ["an escaped quote before a comma", 'multipart/form-data; boundary=x; note="a\\",b"', MULTIPART],
+    ["a long quoted parameter with a comma", `multipart/form-data; boundary=x; note="${"a".repeat(10_000)},b"`, MULTIPART],
+    ["a unicode quoted parameter with a comma", 'multipart/form-data; boundary=x; note="é,à"', MULTIPART],
+    ["OWS before the parameters", "multipart/form-data ; boundary=x", MULTIPART],
+  ] as const)("reads %s as one media type", async (_label, header, body) => {
+    // A comma inside a quoted-string is not a second value (RFC 9110 §5.6.4), and a quoted `\"` is not the closing
+    // quote; the header is still one form media type, so the body parses as usual.
     const parsed = await sendThroughPipeline(header, body);
     expect(parsed.status).toBe(200);
     expect(parsed.input).toEqual({ a: "1" });
-
-    const cap = multipart ? BODY_LIMIT_DEFAULTS.multipart : BODY_LIMIT_DEFAULTS.form;
-    const overCap = multipart
-      ? `--x\r\nContent-Disposition: form-data; name="data"\r\n\r\n${"a".repeat(cap + 1)}\r\n--x--\r\n`
-      : `name=${"a".repeat(cap + 1)}`;
-    const capped = await sendThroughPipeline(header, overCap);
-    expect(capped.status).toBe(413);
   });
 
   it("does not cap a spelling neither rule reads as a form", async () => {

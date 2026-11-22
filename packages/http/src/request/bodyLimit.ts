@@ -46,12 +46,14 @@ export type FormMediaType = "multipart/form-data" | "application/x-www-form-urle
  * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
  *   compared exactly to the two types;
  * - the 0.5 default cap's own rule (`mediaTypeOf` before B30): `contentType.toLowerCase().startsWith(...)`, which also
- *   covers a comma-joined mixed-case value (`MULTIPART/FORM-DATA, multipart/form-data; boundary=x`) the two exact rules
- *   miss. Keeping it fail-closed restores the cap such a request had before this PR.
+ *   covers a mixed-case spelling (`Application/X-WWW-Form-Urlencoded`) the two exact rules miss. Keeping it fail-closed
+ *   restores the cap such a request had before this PR.
  * Accepting a spelling any rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a peer
  * that reads it can never hand a handler fields validation did not see, and no request loses the cap it had. A spelling
- * no rule accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer. The classifier and the default cap
- * both use this helper (`mediaTypeOf`), so they cannot disagree.
+ * no rule accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer. `readBody` refuses a Content-Type
+ * holding more than one media type (a comma outside a quoted-string) before this helper or the cap runs, so the arms
+ * only see a singleton field; for one value, the classifier and the default cap both use this helper (`mediaTypeOf`), so
+ * the parse and the cap read the spelling alike.
  */
 export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
   if (contentType === undefined) return undefined;
@@ -68,8 +70,8 @@ export const formMediaType = (contentType: string | undefined): FormMediaType | 
 /**
  * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
  * does not parse). The form types come from `formMediaType`, the same union of the peer range's classifiers the parse
- * uses, so the cap and the parse can never disagree on a spelling. JSON uses `isJsonMediaType` (Hono's `validator('json')`
- * shape, see the regex above).
+ * uses. `readBody` has already refused a Content-Type holding more than one media type, so the cap and the parse see the
+ * same single value. JSON uses `isJsonMediaType` (Hono's `validator('json')` shape, see the regex above).
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";
