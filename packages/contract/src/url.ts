@@ -205,8 +205,8 @@ function encodeParam(name: string, text: string, path: string, pattern: string |
   const segments = text.split("/");
   const perSegment = segments.map((segment) => encodeValue(name, segment, path)).join("/");
   if (matchPattern(pattern, perSegment, context) !== "accepts") return encoded;
-  // the split is sent: it must read the same under both routers, on the encoded value and on the split
-  if (routerDisagrees(pattern, encoded, context) || routerDisagrees(pattern, perSegment, context)) {
+  // the split is sent: the two router forms must read it the same way
+  if (routerDisagrees(pattern, perSegment, context)) {
     failRouterDisagreement(name, path);
   }
   refuseEmptyOrDotSegments(name, segments, path);
@@ -261,9 +261,8 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
           break;
         }
       }
-      // an unclosed "{" would consume the rest of the path: refuse it instead of truncating the URL
-      if (pattern === undefined) fail(`buildUrl: param "${name}" for "${path}" has an unclosed "{" pattern`);
-      else refuseSplitPattern(name, pattern, path);
+      // a pattern that never closes keeps the base behavior: the loop runs to the end of the path
+      if (pattern !== undefined) refuseSplitPattern(name, pattern, path);
     }
     const optional = path[j] === "?";
     if (optional) j++;
@@ -329,16 +328,15 @@ function serializeQuery(query: UrlQuery): string {
  * Builds a URL from a full route path: `buildUrl("/api/users/:user/posts", { params: { user: 1 }, query: { page: 2 } })`
  * → `"/api/users/1/posts?page=2"`. Pure and browser-safe; shared by `@laratype/client` and the server `route()` helper (H13).
  * - Param values are a `string` or a finite `number`, encoded with `encodeURIComponent`, so a `/` in a value is `%2F`. A
- *   missing required param throws; an absent optional one drops its segment. The pattern is matched against the encoded
- *   value first, in both forms Hono's routers compile: when Hono's RegExp router compiles the pattern, the forms must
- *   agree or `buildUrl` throws (a top-level `|` can route a value differently depending on the router the app's other
- *   routes select), and a pattern the RegExp router refuses is matched in the trie form only. When the pattern rejects
- *   the encoded value (it needs a literal `/`, as `:file{.+/.+}` does: `%2F` would 404), the value is split on `/` and
- *   each segment is encoded; the split is used when the pattern matches it. A pattern with a `}` before a `/`
- *   (`:f{a{2}/x}`) throws: Hono reads the pattern up to that `}` and splits the route there, so it cannot route the
- *   path. The split is used when the pattern matches it, so its segments then become path segments, and a split that is
- *   used refuses an empty, `.` or `..` segment. A pattern that rejects both forms keeps the encoded value (the URL then
- *   404s as one segment). A `*` segment throws: there is no value to fill it with.
+ *   missing required param throws; an absent optional one drops its segment. A value without `/` is sent encoded and is
+ *   never compared across Hono's routers. When the pattern rejects the encoded value (it needs a literal `/`, as
+ *   `:file{.+/.+}` does: `%2F` would 404), the value is split on `/`, each segment encoded, and the split is sent when
+ *   the pattern accepts it; a split the pattern rejects keeps the encoded value, which 404s. Because a sent split turns
+ *   the value into path segments, the two router forms are compared on that split, and `buildUrl` throws when they read
+ *   it differently (a top-level `|`; another route of the app decides which router serves it). The sent split's segments
+ *   become path segments, so it refuses an empty, `.` or `..` segment. A pattern with a `}` before a `/` (`:f{a{2}/x}`)
+ *   throws: Hono reads the pattern up to that `}` and splits the route there, so it cannot route the path. A `*` segment
+ *   throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
  * - Query: a plain object of keys (a `null` prototype or any realm's `Object.prototype`), not an array, a `Map`, a

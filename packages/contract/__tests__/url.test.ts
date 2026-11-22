@@ -168,6 +168,12 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/:lang{en|fr}/docs', { params: { lang: 'xfr' } })).toBe('/xfr/docs')
   })
 
+  it('checks only the split that is sent, not the encoded value', () => {
+    // the encoded `a%2Fb` is read as the suffix "b" by the trie form, but the split `a/b` is read whole by both forms,
+    // so buildUrl sends it: comparing the encoded value too would refuse a URL both routers route correctly
+    expect(buildUrl('/files/:f{.+/.+|b}', { params: { f: 'a/b' } })).toBe('/files/a/b')
+  })
+
   it('falls back to the trie form only for a pattern the RegExp router refuses', () => {
     // a capturing group that is not the whole pattern makes Hono's RegExp router throw UnsupportedPathError, so the
     // trie router serves the route; its bare form matches the "a" prefix of the encoded value, the URL it reads
@@ -287,12 +293,9 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:f{a/b{2}}', { params: { f: 'a/bb' } })).toBe('/files/a/bb')
   })
 
-  it('refuses an unclosed "{" pattern instead of truncating the path', () => {
-    // the depth loop runs to the end of the path: it used to consume the rest and drop the static "/x"
-    expect(() => buildUrl('/files/:f{[{]}/x' as string, { params: { f: '{' } })).toThrow(
-      new TypeError('[@laratype/contract] buildUrl: param "f" for "/files/:f{[{]}/x" has an unclosed "{" pattern'),
-    )
-    expect(() => buildUrl('/files/:f{' as string, { params: { f: 'a' } } as never)).toThrow(/has an unclosed "\{" pattern/)
+  it('keeps a "{" inside a character class in the pattern (base behavior)', () => {
+    // the base builds this and Hono serves it: the "{" is part of a class, not an unclosed pattern
+    expect(buildUrl('/files/:f{[^{]+}', { params: { f: 'abc' } })).toBe('/files/abc')
   })
 
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {
