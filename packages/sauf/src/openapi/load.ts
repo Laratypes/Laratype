@@ -120,6 +120,12 @@ export async function generateOpenApiFile(options: OpenApiProjectOptions): Promi
   return { document: generated.document, warnings, file: out, changed };
 }
 
+/** The `code` of a filesystem error (Node's `ErrnoException`), or `undefined` for any other thrown value. */
+const errorCode = (error: unknown): string | undefined =>
+  typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+
 /**
  * The location a path resolves to through the filesystem: the realpath of its nearest existing ancestor, with the
  * segments below it appended. `undefined` when that ancestor cannot be resolved. A lexical `resolve` alone misses a
@@ -129,11 +135,23 @@ function realLocation(target: string): string | undefined {
   let current = target;
   const rest: string[] = [];
   for (;;) {
-    if (lstatSync(current, { throwIfNoEntry: false }) !== undefined) {
+    let entry: ReturnType<typeof lstatSync> | undefined;
+    try {
+      entry = lstatSync(current, { throwIfNoEntry: false });
+    } catch (error) {
+      // Linux throws ENOTDIR (not ENOENT) when an ancestor of the path is a file: there is no entry at this path
+      // either, so keep walking to the parent. The caller's own "below a path that is not a folder" guard then
+      // answers with the documented diagnostic. Any other code (a permission error, a loop) still propagates.
+      if (errorCode(error) !== "ENOTDIR") throw error;
+      entry = undefined;
+    }
+    if (entry !== undefined) {
       let real: string;
       try {
         real = realpathSync(current);
       } catch {
+        // A path lstat sees but realpath cannot resolve (a broken link, ENOENT, ELOOP, ENOTDIR) has no location to
+        // compare; leave the diagnostic to the caller's own link and folder guards, as before.
         return undefined;
       }
       return rest.length === 0 ? real : join(real, ...rest);
