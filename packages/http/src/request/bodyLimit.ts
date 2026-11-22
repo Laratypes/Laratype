@@ -38,23 +38,24 @@ export const isJsonMediaType = (contentType: string | undefined): boolean =>
 export type FormMediaType = "multipart/form-data" | "application/x-www-form-urlencoded";
 
 /**
- * The form media type the pipeline reads, or `undefined`, when ANY of the three rules the `^4.8.0` peer range and the
- * 0.5 cap used reads the request as a form body:
+ * The form media type `formMediaType` answers, or `undefined`, from the three rules the `^4.8.0` peer range and the
+ * 0.5 cap used:
  * - 4.8.0–4.12.27 (`parseBody` in `hono/utils/body.ts`): `contentType?.startsWith("multipart/form-data") || ...` on
  *   the value `headers.get("Content-Type")` returns (leading/trailing HTTP whitespace stripped by `Headers`; case and
  *   parameters as sent);
  * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
  *   compared exactly to the two types;
  * - the 0.5 default cap's own rule (`mediaTypeOf` before B30): `contentType.toLowerCase().startsWith(...)`, which also
- *   covers a suffixed spelling (`Application/X-WWW-Form-Urlencodedx`) the two exact rules miss. Keeping it fail-closed
- *   restores the cap such a request had before this PR.
- * Accepting a spelling any rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a peer
- * that reads it can never hand a handler fields validation did not see, and no request loses the cap it had. A spelling
- * no rule accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer. `readBody` refuses a Content-Type
- * holding more than one media type, and one that holds a form type name outside its leading media type (Bun's form
- * parser picks the type by a substring search over the whole header), before this helper or the cap runs; the arms only
- * see the leading type of a header the pipeline accepts. The classifier and the default cap both use this helper
- * (`mediaTypeOf`), so for an accepted header the parse and the cap read the same leading type.
+ *   returns a form for a suffixed spelling (`Application/X-WWW-Form-Urlencodedx`) the two exact rules miss.
+ * The helper keeps all three arms as the description of every spelling a peer or the old cap read as a form. Through
+ * `readBody`, however, the arms decide nothing for a suffixed or embedded form name in the leading type: that header is
+ * the form-name 400 before this helper or the cap runs, so the third arm does not restore a pipeline parse or cap. A
+ * header the pipeline accepts has a leading type exactly one of the two form names; it is parsed, validated and capped
+ * from that type, and a spelling no arm accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer.
+ * `readBody` also refuses a Content-Type holding more than one media type, or a form type name outside its leading media
+ * type (Bun's form parser picks the type by a substring search over the whole header), before this helper or the cap
+ * runs. The classifier and the default cap both use this helper (`mediaTypeOf`), so for an accepted header the parse and
+ * the cap read the same leading type.
  */
 export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
   if (contentType === undefined) return undefined;

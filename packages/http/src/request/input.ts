@@ -24,13 +24,13 @@ const FORM_MEDIA_TYPE_OUTSIDE_LEADING = "Invalid Content-Type header: a form med
  * Whether the pipeline reads the request as a form body. The `hono` peer range (`^4.8.0`) has two `parseBody()`
  * classifiers: 4.8.0–4.12.27 matches the value `headers.get("Content-Type")` returns with a case-sensitive
  * `startsWith` (leading/trailing HTTP whitespace already stripped by `Headers`), while 4.12.28+ splits at `;`, trims,
- * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith` for a
- * suffixed spelling such as `Application/X-WWW-Form-Urlencodedx` that the two exact rules miss. It accepts a spelling
- * any rule reads as a form (fail closed). `readBody` refuses a Content-Type with more than one media type, and one that
- * holds a form type name anywhere outside the leading media type (Bun's form parser picks the type by a substring
- * search over the whole header), before this helper or the cap runs; the arms only see the leading type of a header the
- * pipeline accepts. The parser gets the media type lowercased by `lowercaseMediaType`, with the parameters (a multipart
- * boundary) as sent.
+ * lowercases and compares exactly. The `formMediaType` helper also keeps the 0.5 default cap's lowercased `startsWith`,
+ * whose only extra reach is a suffixed spelling such as `Application/X-WWW-Form-Urlencodedx` the two exact rules miss.
+ * The arms describe every spelling a peer or the old cap read as a form, but through `readBody` a suffixed or embedded
+ * form name in the leading type is the form-name 400 before this helper or the cap runs, so the third arm decides
+ * nothing in the pipeline; only a leading type that is exactly one of the two form names reaches it as a form.
+ * `readBody` also refuses a Content-Type with more than one media type before either runs. The parser gets the media
+ * type lowercased by `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
  */
 const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
 
