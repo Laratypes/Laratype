@@ -38,16 +38,20 @@ export const isJsonMediaType = (contentType: string | undefined): boolean =>
 export type FormMediaType = "multipart/form-data" | "application/x-www-form-urlencoded";
 
 /**
- * The form media type the pipeline reads, or `undefined`, when EITHER Hono classifier in the `^4.8.0` peer range reads
- * the request as a form body:
- * - 4.8.0–4.12.27 (`parseBody` in `hono/utils/body.ts`): `contentType?.startsWith("multipart/form-data") || ...` on the
- *   header as sent (case-sensitive, no trim);
+ * The form media type the pipeline reads, or `undefined`, when ANY of the three rules the `^4.8.0` peer range and the
+ * 0.5 cap used reads the request as a form body:
+ * - 4.8.0–4.12.27 (`parseBody` in `hono/utils/body.ts`): `contentType?.startsWith("multipart/form-data") || ...` on
+ *   the value `headers.get("Content-Type")` returns (leading/trailing HTTP whitespace stripped by `Headers`; case and
+ *   parameters as sent);
  * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
- *   compared exactly to the two types.
- * Accepting a spelling either rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a
- * peer that reads it can never hand a handler fields validation did not see. A spelling neither rule accepts is `{}` to
- * the pipeline, as it is to `parseBody()` on every peer. The classifier and the default cap both use this helper
- * (`mediaTypeOf`), so they cannot disagree.
+ *   compared exactly to the two types;
+ * - the 0.5 default cap's own rule (`mediaTypeOf` before B30): `contentType.toLowerCase().startsWith(...)`, which also
+ *   covers a comma-joined mixed-case value (`MULTIPART/FORM-DATA, multipart/form-data; boundary=x`) the two exact rules
+ *   miss. Keeping it fail-closed restores the cap such a request had before this PR.
+ * Accepting a spelling any rule reads as a form is fail-closed: the pipeline parses, validates and caps it, so a peer
+ * that reads it can never hand a handler fields validation did not see, and no request loses the cap it had. A spelling
+ * no rule accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer. The classifier and the default cap
+ * both use this helper (`mediaTypeOf`), so they cannot disagree.
  */
 export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
   if (contentType === undefined) return undefined;
@@ -55,6 +59,9 @@ export const formMediaType = (contentType: string | undefined): FormMediaType | 
   if (exact === "multipart/form-data" || exact === "application/x-www-form-urlencoded") return exact;
   if (contentType.startsWith("multipart/form-data")) return "multipart/form-data";
   if (contentType.startsWith("application/x-www-form-urlencoded")) return "application/x-www-form-urlencoded";
+  const lower = contentType.toLowerCase();
+  if (lower.startsWith("multipart/form-data")) return "multipart/form-data";
+  if (lower.startsWith("application/x-www-form-urlencoded")) return "application/x-www-form-urlencoded";
   return undefined;
 };
 

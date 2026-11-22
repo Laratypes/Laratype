@@ -19,12 +19,14 @@ const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
 
 /**
- * Whether Hono's `parseBody()` reads the request as a form body. The `hono` peer range (`^4.8.0`) has two classifiers:
- * 4.8.0–4.12.27 matches the header as sent with `startsWith` (case-sensitive, no trim), while 4.12.28+ splits at `;`,
- * trims, lowercases and compares exactly (`parseBody` in `hono/utils/body.ts`). `formMediaType` accepts a spelling
- * either rule reads as a form (fail closed); the same helper decides the default cap in `bodyLimit.ts`, so the
- * classifier and the cap cannot disagree. The parser gets the media type lowercased by `lowercaseMediaType`, with the
- * parameters (a multipart boundary) as sent.
+ * Whether the pipeline reads the request as a form body. The `hono` peer range (`^4.8.0`) has two `parseBody()`
+ * classifiers: 4.8.0–4.12.27 matches the value `headers.get("Content-Type")` returns with a case-sensitive
+ * `startsWith` (leading/trailing HTTP whitespace already stripped by `Headers`), while 4.12.28+ splits at `;`, trims,
+ * lowercases and compares exactly. `formMediaType` also keeps the 0.5 default cap's lowercased `startsWith`, so a
+ * comma-joined mixed-case value such as `MULTIPART/FORM-DATA, multipart/form-data; boundary=x` stays parsed and capped
+ * as it was before B30. It accepts a spelling any rule reads as a form (fail closed); the same helper decides the
+ * default cap in `bodyLimit.ts`, so the classifier and the cap cannot disagree. The parser gets the media type
+ * lowercased by `lowercaseMediaType`, with the parameters (a multipart boundary) as sent.
  */
 const isFormMediaType = (contentType: string | undefined): boolean => formMediaType(contentType) !== undefined;
 

@@ -67,7 +67,7 @@ const sendThroughPipeline = async (header: string, body: string) => {
 const URLENCODED = "a=1";
 const MULTIPART = "--x\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--x--\r\n";
 
-/** 4.8.0–4.12.27's rule: `contentType?.startsWith(...)` on the header as sent (case-sensitive, no trim). */
+/** 4.8.0–4.12.27's rule: `contentType?.startsWith(...)` on `headers.get()` (leading/trailing HTTP whitespace stripped). */
 const oldRule = (header: string): boolean =>
   header.startsWith("multipart/form-data") || header.startsWith("application/x-www-form-urlencoded");
 
@@ -77,7 +77,13 @@ const newRule = (header: string): boolean => {
   return mediaType === "multipart/form-data" || mediaType === "application/x-www-form-urlencoded";
 };
 
-type FormCase = { header: string; kind: "both" | "old" | "new" | "neither"; multipart?: boolean };
+/** The 0.5 default cap's rule (and r1's classifier): `contentType.toLowerCase().startsWith(...)`. */
+const masterRule = (header: string): boolean => {
+  const lower = header.toLowerCase();
+  return lower.startsWith("multipart/form-data") || lower.startsWith("application/x-www-form-urlencoded");
+};
+
+type FormCase = { header: string; kind: "both" | "old" | "new" | "master" | "neither"; multipart?: boolean };
 
 const CASES: FormCase[] = [
   { header: "application/x-www-form-urlencoded", kind: "both" },
@@ -95,25 +101,35 @@ const CASES: FormCase[] = [
   { header: "\u00a0multipart/form-data; boundary=x", kind: "new", multipart: true },
   { header: "application/x-www-form-urlencodedx", kind: "old" },
   { header: "multipart/form-datax", kind: "old", multipart: true },
+  { header: "MULTIPART/FORM-DATA, multipart/form-data; boundary=x", kind: "master", multipart: true },
+  { header: "Application/X-WWW-Form-Urlencoded, application/x-www-form-urlencoded", kind: "master" },
+  { header: "Application/X-WWW-Form-Urlencodedx", kind: "master" },
   { header: "", kind: "neither" },
   { header: "text/plain", kind: "neither" },
-  { header: "Application/X-WWW-Form-Urlencodedx", kind: "neither" },
 ];
 
 describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
   it.each(CASES)("classifies and parses $header exactly as the union of Hono's rules", async ({ header, kind, multipart }) => {
     const body = multipart ? MULTIPART : URLENCODED;
-    const union = oldRule(header) || newRule(header);
-    expect(kind, `the case is labelled with the rules it exercises`).toBe(
-      oldRule(header) && newRule(header) ? "both" : oldRule(header) ? "old" : newRule(header) ? "new" : "neither",
-    );
+    const union = oldRule(header) || newRule(header) || masterRule(header);
+    const expectedKind =
+      oldRule(header) && newRule(header)
+        ? "both"
+        : oldRule(header)
+          ? "old"
+          : newRule(header)
+            ? "new"
+            : masterRule(header)
+              ? "master"
+              : "neither";
+    expect(kind, `the case is labelled with the rules it exercises`).toBe(expectedKind);
     expect(formMediaType(header) !== undefined).toBe(union);
 
     const pipeline = await sendThroughPipeline(header, body);
     const hono = await parseWithHono(header, body);
 
     if (!union) {
-      // Neither rule reads it as a form: the pipeline leaves it `{}` and Hono's `parseBody()` returns `{}` on every peer
+      // No rule reads it as a form: the pipeline leaves it `{}` and Hono's `parseBody()` returns `{}` on every peer
       expect(hono).toEqual({ ok: true, value: {} });
       expect(pipeline.status).toBe(200);
       expect(pipeline.input).toEqual({});
@@ -132,16 +148,19 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
       return;
     }
 
-    // Only the old rule reads it as a form; Hono 4.13.17 answers `{}` but the pipeline must still parse it (or answer
-    // the malformed-form 400 where the platform's parser refuses the media type), never hand over `{}` as if it were
-    // not a form. On Bun `application/x-www-form-urlencodedx` parses; on Node the platform rejects it.
+    // Only the old rule or the 0.5 cap's lowercased startsWith reads it as a form; Hono 4.13.17 answers `{}` but the
+    // pipeline must still parse it (or answer the malformed-form 400 where the platform's parser refuses the media
+    // type), never hand over `{}` as if it were not a form. On Bun `application/x-www-form-urlencodedx` parses; on Node
+    // the platform rejects it.
     expect([200, 400]).toContain(pipeline.status);
     if (pipeline.status === 200) expect(pipeline.input).toEqual({ a: "1" });
     else expect(pipeline.input).toBeUndefined();
   });
 
-  it("caps every spelling either rule reads as a form", async () => {
-    for (const { header, multipart } of CASES.filter((item) => oldRule(item.header) || newRule(item.header))) {
+  it("caps every spelling any rule reads as a form", async () => {
+    for (const { header, multipart } of CASES.filter(
+      (item) => oldRule(item.header) || newRule(item.header) || masterRule(item.header),
+    )) {
       const cap = multipart ? BODY_LIMIT_DEFAULTS.multipart : BODY_LIMIT_DEFAULTS.form;
       const body = multipart
         ? `--x\r\nContent-Disposition: form-data; name="data"\r\n\r\n${"a".repeat(cap + 1)}\r\n--x--\r\n`
@@ -149,6 +168,30 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
       const { status } = await sendThroughPipeline(header, body);
       expect(status, `${JSON.stringify(header)} over its ${multipart ? "multipart" : "form"} cap`).toBe(413);
     }
+  });
+
+  it.each([
+    ["multipart", "MULTIPART/FORM-DATA, multipart/form-data; boundary=x", MULTIPART, true],
+    [
+      "urlencoded",
+      "Application/X-WWW-Form-Urlencoded, application/x-www-form-urlencoded",
+      URLENCODED,
+      false,
+    ],
+  ] as const)("parses and caps a comma-joined mixed-case %s Content-Type", async (_label, header, body, multipart) => {
+    // Master's cap rule (`toLowerCase().startsWith`) and r1's classifier read this as a form; the two exact rules do
+    // not, because the value has two media types. The platform's form parser takes the last type, so the pipeline
+    // parses the fields, and the default cap must apply again.
+    const parsed = await sendThroughPipeline(header, body);
+    expect(parsed.status).toBe(200);
+    expect(parsed.input).toEqual({ a: "1" });
+
+    const cap = multipart ? BODY_LIMIT_DEFAULTS.multipart : BODY_LIMIT_DEFAULTS.form;
+    const overCap = multipart
+      ? `--x\r\nContent-Disposition: form-data; name="data"\r\n\r\n${"a".repeat(cap + 1)}\r\n--x--\r\n`
+      : `name=${"a".repeat(cap + 1)}`;
+    const capped = await sendThroughPipeline(header, overCap);
+    expect(capped.status).toBe(413);
   });
 
   it("does not cap a spelling neither rule reads as a form", async () => {
