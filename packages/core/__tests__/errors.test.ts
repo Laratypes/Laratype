@@ -304,7 +304,7 @@ describe('zero-length constructors', () => {
   })
 
   it.each(['of', 'as', 'get', 'set', 'async', 'from', 'type'])('reads %s as a parameter name', (name) => {
-    const cls = new Function(`return class Contextual { constructor(${name} = 1, extra = 2) {} }`)() as new () => unknown
+    const cls = new Function(`return class Contextual { constructor(${name} = 1, extra = ${name} / 2) {} }`)() as new () => unknown
     expect(messageOf(() => new Container().make(cls))).toContain('takes 2 param(s)')
   })
 
@@ -312,9 +312,26 @@ describe('zero-length constructors', () => {
     expect(messageOf(() => new Container().make(sourceClass('of / 2')))).toContain('takes 2 param(s)')
   })
 
-  it('keeps of as a keyword in a for...of body', () => {
-    const forOf = new Function('return class ForOf { constructor(f = () => { for (const x of /\\)/) {} }, extra = 1) {} }')() as new () => unknown
-    expect(messageOf(() => new Container().make(forOf))).toContain('takes 2 param(s)')
+  it.each([
+    ['a destructured LHS with a call default', 'Destructured { constructor(f = () => { for (const {a = g()} of /\\)/) {} }, extra = 1) {} }'],
+    ['an array LHS with a grouped default', 'ArrayLhs { constructor(f = () => { for (const [a = (1)] of /\\)/) {} }, extra = 1) {} }'],
+    ['a block comment before the header', 'BlockComment { constructor(f = () => { for /*c*/ (const x of /\\)/) {} }, extra = 1) {} }'],
+    ['a string containing "for ("', 'StringParen { constructor(a = "for (", b = of / 2) {} }'],
+    ['an earlier for-of', 'EarlierForOf { constructor(f = () => { for (const x of xs) {} return of / 2 }, extra = 1) {} }'],
+    ['of in a comparison header', 'CompareOf { constructor(f = () => { for (let i = 0; i < of / 2; i++) {} }, extra = 1) {} }'],
+    ['of in a declaration init', 'InitOf { constructor(f = () => { for (let i = of / 2; i < 1; i++) {} }, extra = 1) {} }'],
+    ['a property named for', 'PropertyFor { constructor(f = q.for(of / 2), extra = 1) {} }'],
+    ['an of argument', 'CallOf { constructor(f = f(of / 2), extra = 1) {} }'],
+    ['a real for...of keyword', 'RealForOf { constructor(f = () => { for (const x of /\\)/) {} }, extra = 1) {} }'],
+    ['a real for await keyword', 'AwaitForOf { constructor(f = async () => { for await (const x of /\\)/) {} }, extra = 1) {} }'],
+  ])('counts both params when a for header has %s', (_, body) => {
+    const cls = new Function(`return class ${body}`)() as new () => unknown
+    expect(messageOf(() => new Container().make(cls))).toContain('takes 2 param(s)')
+  })
+
+  it('counts await as a keyword in a parameter name (known limit)', () => {
+    const cls = new Function('return class AwaitName { constructor(await = 1, b = await / 2) {} }')() as new () => unknown
+    expect(messageOf(() => new Container().make(cls))).toContain('takes 1 param(s)')
   })
 
   it('treats a postfix increment before a slash as a division', () => {

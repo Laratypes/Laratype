@@ -108,31 +108,102 @@ const isWhitespace = (char: string): boolean => /\s/.test(char)
 
 const isLineTerminator = (char: string): boolean => char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
 
-/** The identifier ending at `end`, skipping whitespace before it. */
-const previousWord = (source: string, end: number): { word: string, start: number } | undefined => {
+/** Index of the last code character before `end`, skipping whitespace and comments. */
+const previousCodeIndex = (source: string, end: number): number => {
   let index = end
-  while (index >= 0 && isWhitespace(source[index]!)) index--
-  const wordEnd = index
-  while (index >= 0 && /[A-Za-z0-9_$]/.test(source[index]!)) index--
-  return wordEnd > index ? { word: source.slice(index + 1, wordEnd + 1), start: index + 1 } : undefined
+  while (index >= 0) {
+    while (index >= 0 && isWhitespace(source[index]!)) index--
+    if (index >= 1 && source[index] === '/' && source[index - 1] === '*') {
+      const open = source.lastIndexOf('/*', index - 2)
+      if (open < 0) return -1
+      index = open - 1
+      continue
+    }
+    const lineStart = Math.max(
+      source.lastIndexOf('\n', index),
+      source.lastIndexOf('\r', index),
+      source.lastIndexOf('\u2028', index),
+      source.lastIndexOf('\u2029', index),
+    ) + 1
+    const lineComment = source.indexOf('//', lineStart)
+    if (lineComment >= 0 && lineComment <= index) {
+      index = lineStart - 1
+      continue
+    }
+    return index
+  }
+  return -1
 }
 
-/** `of` is a keyword only in a `for (... of ...)` header; in a parameter list it is an identifier. */
-const isForOf = (source: string, wordStart: number): boolean => {
-  const open = source.lastIndexOf('(', wordStart - 1)
-  if (open < 0) return false
-  let before = previousWord(source, open - 1)
+const previousCodeChar = (source: string, end: number): string | undefined => {
+  const index = previousCodeIndex(source, end)
+  return index < 0 ? undefined : source[index]
+}
+
+/** The identifier ending at `end`, skipping whitespace and comments before it. */
+const previousWord = (source: string, end: number): { word: string, start: number } | undefined => {
+  const wordEnd = previousCodeIndex(source, end)
+  if (wordEnd < 0 || !/[A-Za-z_$]/.test(source[wordEnd]!)) return undefined
+  let start = wordEnd
+  while (start > 0 && /[A-Za-z0-9_$]/.test(source[start - 1]!)) start--
+  return { word: source.slice(start, wordEnd + 1), start }
+}
+
+/** Whether the `(` at `index` opens a `for (...)` or `for await (...)` header. */
+const forHeaderAt = (source: string, index: number): boolean => {
+  let before = previousWord(source, index - 1)
   if (before?.word === 'await') before = previousWord(source, before.start - 1)
-  return before?.word === 'for'
+  if (before?.word !== 'for') return false
+  // `q.for(...)`: a property, not the keyword.
+  return previousCodeChar(source, before.start - 1) !== '.'
 }
 
-/** Keywords after which a `/` starts a regex literal rather than a division. `of` is handled by `isForOf`. */
+/** A bracket being scanned; `ofStart` is the `of` separator of a `for...of` header, when found. */
+interface ScanFrame {
+  close: string
+  forHeader: boolean
+  forOfSeen: boolean
+  ofStart?: number
+}
+
+const openFrame = (source: string, index: number): ScanFrame => {
+  const char = source[index]!
+  return {
+    close: char === '(' ? ')' : char === '[' ? ']' : '}',
+    forHeader: char === '(' && forHeaderAt(source, index),
+    forOfSeen: false,
+  }
+}
+
+const wordEndAt = (source: string, index: number): number => {
+  let end = index + 1
+  while (end < source.length && /[A-Za-z0-9_$]/.test(source[end]!)) end++
+  return end
+}
+
+/** Mark the `of` separator of a `for...of` header when it follows the declaration/LHS. */
+const noteFrameWord = (source: string, frame: ScanFrame | undefined, start: number, end: number): void => {
+  if (!frame?.forHeader || frame.forOfSeen || source.slice(start, end) !== 'of') return
+  const before = previousCodeChar(source, start - 1)
+  if (before !== undefined && /[A-Za-z0-9_$)\]}]/.test(before)) {
+    frame.forOfSeen = true
+    frame.ofStart = start
+  }
+}
+
+/** Whether the `/` at `index` follows the `for...of` separator of the current header. */
+const isForOfSlash = (source: string, index: number, frame: ScanFrame | undefined): boolean =>
+  frame?.forHeader === true
+  && frame.ofStart !== undefined
+  && previousWord(source, index - 1)?.start === frame.ofStart
+
+/** Keywords after which a `/` starts a regex literal rather than a division. `of` is handled by the frame scan. */
 const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
   'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'return', 'throw', 'typeof', 'void', 'yield',
 ])
 
 /** Whether the `/` at `index` is in operator position, so it starts a regex literal, not a division. */
-const startsRegex = (source: string, index: number): boolean => {
+const startsRegex = (source: string, index: number, ofKeyword = false): boolean => {
   let previous = index - 1
   while (previous >= 0) {
     const char = source[previous]!
@@ -159,13 +230,13 @@ const startsRegex = (source: string, index: number): boolean => {
   // `obj.return / 2`: a property name, not the keyword.
   if (wordStart > 0 && source[wordStart - 1] === '.') return false
   const word = source.slice(wordStart, previous + 1)
-  if (word === 'of') return isForOf(source, wordStart)
+  if (word === 'of') return ofKeyword
   return REGEX_KEYWORDS.has(word)
 }
 
 /** Index after a slash: a regex literal when it is in operator position, else a one-char division. */
-const skipSlash = (source: string, index: number): number | undefined =>
-  startsRegex(source, index) ? skipRegex(source, index) : index + 1
+const skipSlash = (source: string, index: number, ofKeyword = false): number | undefined =>
+  startsRegex(source, index, ofKeyword) ? skipRegex(source, index) : index + 1
 
 /** Index after the regex literal at `index`, or `undefined` when it does not close on this line. */
 const skipRegex = (source: string, index: number): number | undefined => {
@@ -224,7 +295,7 @@ const skipQuoted = (source: string, index: number): number => {
     } else if (char === quote) {
       return index + 1
     } else if (quote === '`' && char === '$' && source[index + 1] === '{') {
-      index = skipBalanced(source, index + 1, '{', '}')
+      index = skipBalanced(source, index + 1)
     } else {
       index++
     }
@@ -232,9 +303,10 @@ const skipQuoted = (source: string, index: number): number => {
   return index
 }
 
-/** Index after the `close` that matches the `open` at `index`, skipping strings and comments. */
-const skipBalanced = (source: string, index: number, open: string, close: string): number => {
-  let depth = 0
+/** Index after the bracket matching the one at `index`, skipping strings, comments and regex bodies. */
+const skipBalanced = (source: string, index: number): number => {
+  const stack: ScanFrame[] = [openFrame(source, index)]
+  index++
   while (index < source.length) {
     const char = source[index]
     if (char === '"' || char === "'" || char === '`') {
@@ -242,12 +314,25 @@ const skipBalanced = (source: string, index: number, open: string, close: string
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
     } else if (char === '/') {
-      const next = skipSlash(source, index)
+      const next = skipSlash(source, index, isForOfSlash(source, index, stack.at(-1)))
       if (next === undefined) return source.length
       index = next
+    } else if (char === '(' || char === '[' || char === '{') {
+      stack.push(openFrame(source, index))
+      index++
+    } else if (char === ')' || char === ']' || char === '}') {
+      if (stack.at(-1)?.close !== char) {
+        index++
+        continue
+      }
+      stack.pop()
+      if (stack.length === 0) return index + 1
+      index++
+    } else if (/[A-Za-z_$]/.test(char!)) {
+      const wordEnd = wordEndAt(source, index)
+      noteFrameWord(source, stack.at(-1), index, wordEnd)
+      index = wordEnd
     } else {
-      if (char === open) depth++
-      else if (char === close && --depth === 0) return index + 1
       index++
     }
   }
@@ -258,7 +343,7 @@ const skipBalanced = (source: string, index: number, open: string, close: string
 const splitParams = (source: string, start: number, end: number): string[] => {
   const params: string[] = []
   let from = start
-  let depth = 0
+  const stack: ScanFrame[] = []
   let index = start
   while (index < end) {
     const char = source[index]
@@ -267,16 +352,24 @@ const splitParams = (source: string, start: number, end: number): string[] => {
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
     } else if (char === '/') {
-      const next = skipSlash(source, index)
+      const next = skipSlash(source, index, isForOfSlash(source, index, stack.at(-1)))
       if (next === undefined) break
       index = next
+    } else if (char === '(' || char === '[' || char === '{') {
+      stack.push(openFrame(source, index))
+      index++
+    } else if (char === ')' || char === ']' || char === '}') {
+      if (stack.at(-1)?.close === char) stack.pop()
+      index++
+    } else if (/[A-Za-z_$]/.test(char!)) {
+      const wordEnd = wordEndAt(source, index)
+      noteFrameWord(source, stack.at(-1), index, wordEnd)
+      index = wordEnd
+    } else if (char === ',' && stack.length === 0) {
+      params.push(source.slice(from, index))
+      from = index + 1
+      index++
     } else {
-      if (char === '(' || char === '[' || char === '{') depth++
-      else if (char === ')' || char === ']' || char === '}') depth--
-      else if (char === ',' && depth === 0) {
-        params.push(source.slice(from, index))
-        from = index + 1
-      }
       index++
     }
   }
@@ -300,9 +393,9 @@ const classBodyStart = (source: string): number | undefined => {
     } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
       index = skipTrivia(source, index)
     } else if (char === '(') {
-      index = skipBalanced(source, index, '(', ')')
+      index = skipBalanced(source, index)
     } else if (char === '[') {
-      index = skipBalanced(source, index, '[', ']')
+      index = skipBalanced(source, index)
     } else if (char === '{') {
       return index
     } else {
@@ -330,7 +423,7 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
   if (!source.startsWith('constructor', index)) return undefined
   index = skipTrivia(source, index + 'constructor'.length)
   if (source[index] !== '(') return undefined
-  const close = skipBalanced(source, index, '(', ')')
+  const close = skipBalanced(source, index)
   if (source[close - 1] !== ')') {
     // The scan could not parse the list (an ambiguous regex-like literal or an unbalanced source): do not fail open
     // when there is something between the parentheses.
