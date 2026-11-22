@@ -56,25 +56,6 @@ describe('buildUrl', () => {
     buildUrl('/files/:f{a{2}/*/b}', { params: { f: 'aa/b' } })
   })
 
-  test('a pattern Hono cuts at an inner "}" is an error type, like the runtime refusal', () => {
-    // the same rule as buildUrl's runtime refusal, in the params type: no keys to fill, since the path cannot be routed
-    expectTypeOf<UrlParams<'/files/:f{[a-z]{2}/x}'>>().toEqualTypeOf<{
-      readonly error: 'buildUrl: path "/files/:f{[a-z]{2}/x}" has a pattern with "}" before "/", which Hono cannot route'
-    }>()
-    expectTypeOf<UrlParams<'/files/:f{a{2}/.*/b}'>>().toEqualTypeOf<{
-      readonly error: 'buildUrl: path "/files/:f{a{2}/.*/b}" has a pattern with "}" before "/", which Hono cannot route'
-    }>()
-    // @ts-expect-error the params type is the cut-pattern error, so the call is a type error too
-    buildUrl('/files/:f{[a-z]{2}/x}', { params: { f: 'ab' } })
-    // braces that close their pattern are still params: a quantifier, a "/" before the inner "}", and a merged pattern
-    expectTypeOf<UrlParams<'/files/:f{a{2}}'>>().toEqualTypeOf<{ f: string | number }>()
-    expectTypeOf<UrlParams<'/files/:f{[a-z]{2,3}}'>>().toEqualTypeOf<{ f: string | number }>()
-    expectTypeOf<UrlParams<'/files/:f{a/b{2}}'>>().toEqualTypeOf<{ f: string | number }>()
-    expectTypeOf<UrlParams<'/files/:file{.+/.+}'>>().toEqualTypeOf<{ file: string | number }>()
-    // a "}" inside a class is not a nested brace: the path is not cut when no "/" follows it
-    expectTypeOf<UrlParams<'/files/:f{[^}]*}'>>().toEqualTypeOf<{ f: string | number }>()
-  })
-
   test('query values are flat: primitives, a Date, null/undefined, or an array of them', () => {
     expectTypeOf<UrlQueryValue>().toEqualTypeOf<string | number | bigint | boolean | Date | null | undefined>()
     expectTypeOf<UrlQuery>().toEqualTypeOf<{ readonly [key: string]: UrlQueryValue | readonly UrlQueryValue[] }>()

@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { buildUrl } from '@laratype/contract'
 
@@ -109,6 +110,9 @@ describe('buildUrl', () => {
     expect(() => buildUrl('/x', { query: hostile as never })).toThrow(
       new TypeError('[@laratype/contract] buildUrl: query must be a plain object of keys, got an object'),
     )
+    // a plain object from another realm (a vm context) is a plain object too
+    const foreign = runInNewContext('({ page: 1 })') as { page: number }
+    expect(buildUrl('/x', { query: foreign })).toBe('/x?page=1')
     // a null-prototype object is a plain object of keys
     const bare = Object.create(null) as { page: number }
     bare.page = 1
@@ -134,23 +138,34 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:file{[^.]+}', { params: { file: 'a/b' } })).toBe('/files/a%2Fb')
   })
 
-  it('throws when a top-level "|" would route a value differently under Hono\'s two routers', () => {
+  it('throws when a top-level "|" would route a split differently under Hono\'s two routers', () => {
     // SmartRouter picks one router for the whole app: the RegExp router scopes a top-level "|" to the param, while the
-    // trie router matches it bare and reads only the prefix. A value the two forms read differently has no URL that is
-    // right in every app (another route decides the router), so buildUrl refuses it instead of guessing
+    // trie router matches it bare and reads only the prefix. Only a split that buildUrl would send is checked: a value
+    // without a "/" is the encoded value, and a value whose split the pattern rejects keeps the encoded one
     const path = '/files/:file{a|.+/.+}'
     const expected = `[@laratype/contract] buildUrl: param "file" for "${path}" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
-    for (const file of ['admin/all', 'admin/x', 'admin', 'a/b']) {
+    for (const file of ['admin/all', 'admin/x', 'a/b']) {
       expect(() => buildUrl(path, { params: { file } })).toThrow(new TypeError(expected))
     }
     // values both forms read the same way still build: "a" is the first alternative whole, "x/y" needs the literal "/"
     expect(buildUrl(path, { params: { file: 'a' } })).toBe('/files/a')
     expect(buildUrl(path, { params: { file: 'x/y' } })).toBe('/files/x/y')
+    // without a "/" there is no split to send: the encoded value is kept, the trie prefix read is Hono's matching
+    expect(buildUrl(path, { params: { file: 'admin' } })).toBe('/files/admin')
     // the same rule with a following static segment: the trie's first alternative would stop at the prefix
     const rawPath = '/files/:file{a|.+/.+}/raw'
     const rawExpected = `[@laratype/contract] buildUrl: param "file" for "${rawPath}" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
     expect(() => buildUrl(rawPath, { params: { file: 'admin/all' } })).toThrow(new TypeError(rawExpected))
     expect(buildUrl(rawPath, { params: { file: 'x/y' } })).toBe('/files/x/y/raw')
+  })
+
+  it('keeps the encoded value when no split is sent, even where the trie form would read a prefix', () => {
+    // a common alternation pattern: the trie form matches "english" as "en" and "xfr" as the suffix "fr", but the
+    // encoded value is what buildUrl sends and what the app's router does with it is not a URL choice
+    expect(buildUrl('/:lang{en|fr}', { params: { lang: 'en' } })).toBe('/en')
+    expect(buildUrl('/:lang{en|fr}', { params: { lang: 'english' } })).toBe('/english')
+    expect(buildUrl('/:lang{en|fr}', { params: { lang: 'xfr' } })).toBe('/xfr')
+    expect(buildUrl('/:lang{en|fr}/docs', { params: { lang: 'xfr' } })).toBe('/xfr/docs')
   })
 
   it('falls back to the trie form only for a pattern the RegExp router refuses', () => {
@@ -254,7 +269,7 @@ describe('buildUrl regex params and "/"', () => {
   it('refuses a pattern with "}" before "/", which Hono cuts at that slash and cannot route', () => {
     // Hono reads a pattern up to its first "}" and splits the route on "/", so a quantifier before a slash is cut:
     // `[a-z]{2}/x` becomes `([a-z]{2)/x}`, which matches no path (checked on Hono 4.9.6, both routers)
-    for (const path of ['/files/:f{a{2}/*/b}', '/files/:f{[a-z]{2}/x}', '/files/:f{a{2}/.*/b}']) {
+    for (const path of ['/files/:f{a{2}/*/b}', '/files/:f{[a-z]{2}/x}', '/files/:f{a{2}/.*/b}', '/files/:f{a{2}b/c}']) {
       let error: unknown
       try {
         buildUrl(path as string, { params: { f: 'aa/b' } })
@@ -270,6 +285,14 @@ describe('buildUrl regex params and "/"', () => {
     expect(buildUrl('/files/:f{a{2}}', { params: { f: 'aa' } })).toBe('/files/aa')
     expect(buildUrl('/files/:f{a{2}}/x', { params: { f: 'aa' } })).toBe('/files/aa/x')
     expect(buildUrl('/files/:f{a/b{2}}', { params: { f: 'a/bb' } })).toBe('/files/a/bb')
+  })
+
+  it('refuses an unclosed "{" pattern instead of truncating the path', () => {
+    // the depth loop runs to the end of the path: it used to consume the rest and drop the static "/x"
+    expect(() => buildUrl('/files/:f{[{]}/x' as string, { params: { f: '{' } })).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: param "f" for "/files/:f{[{]}/x" has an unclosed "{" pattern'),
+    )
+    expect(() => buildUrl('/files/:f{' as string, { params: { f: 'a' } } as never)).toThrow(/has an unclosed "\{" pattern/)
   })
 
   it('keeps "%2e%2e" literal: only a segment that is exactly "." or ".." is a dot segment', () => {

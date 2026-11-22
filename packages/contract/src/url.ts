@@ -1,5 +1,5 @@
 import type { PathParams } from "./path";
-import { fail } from "./internal";
+import { fail, isPlainObject } from "./internal";
 
 /** A value a query string carries: a primitive, a `Date` (sent as ISO 8601), or no value (`null` and `undefined` are skipped). */
 export type UrlQueryValue = string | number | bigint | boolean | Date | null | undefined;
@@ -19,7 +19,7 @@ type UrlQueryShape<Q> = { [K in keyof Q]: Q[K] extends UrlQueryValue | readonly 
 
 /** The query check that is not part of the constraint: an array or a function is an object, but not a query at runtime. */
 type UrlQueryCheck<Q> = Q extends readonly unknown[] | ((...args: never[]) => unknown)
-  ? { readonly error: "buildUrl: query must be a plain object of keys, not an array or a function" }
+  ? { readonly error: "buildUrl: query must be a plain object of keys" }
   : unknown;
 
 /** The segments of a path: a "/" inside a param's regex (`:file{.+/.+}`) stays in its segment (the split `path.ts` uses). */
@@ -38,37 +38,6 @@ type WildcardParams<P extends string> = {
   readonly error: `buildUrl: path "${P}" has a "*" segment, which buildUrl cannot fill`;
 };
 
-/**
- * Counts `Char` in `Text`, as a string of dots: the brace balance of a pattern body Hono cuts at an inner `}`. A body
- * whose `{` and `}` counts differ ends at a `}` that is not its own closing brace (`[a-z]{2` from `[a-z]{2}/x`).
- */
-type CountChar<Text extends string, Char extends string, Count extends string = ""> =
-  Text extends `${infer Head}${infer Rest}`
-    ? Head extends Char ? CountChar<Rest, Char, `${Count}.`> : CountChar<Rest, Char, Count>
-    : Count;
-
-/** Whether a pattern body is cut at an inner `}`: its `{` and `}` counts differ. */
-type UnbalancedBody<Body extends string> = CountChar<Body, "{"> extends CountChar<Body, "}"> ? false : true;
-
-/** A segment Hono closes at an inner `}`: it ends with `}`, but its body has an unmatched `{` (`:f{[a-z]{2}`). */
-type CutPatternSegment<S extends string> = S extends `:${infer _Name}{${infer Body}}` ? UnbalancedBody<Body> : false;
-
-/** Whether `P` holds `S` followed by a `/`: the slice Hono cuts the route at, which proves the pattern went on. */
-type FollowedBySlash<P extends string, S extends string> = P extends `${string}${S}/${string}` ? true : false;
-
-/** Whether a segment of the path is a param Hono cuts at an inner `}` and a later `/` (distributes over the segments). */
-type AnyCutPattern<P extends string, S extends string = Segments<P>> = S extends unknown
-  ? CutPatternSegment<S> extends true ? FollowedBySlash<P, S> : false
-  : never;
-
-/** Whether the path has a param pattern Hono cuts at an inner `}` before a `/`: no router can route it. */
-type HasCutPattern<P extends string> = string extends P ? false : true extends AnyCutPattern<P> ? true : false;
-
-/** The `params` of a path Hono cuts at an inner `}`: an error instead of keys, since `buildUrl` refuses the path. */
-type CutPatternParams<P extends string> = {
-  readonly error: `buildUrl: path "${P}" has a pattern with "}" before "/", which Hono cannot route`;
-};
-
 /** Whether `buildUrl` takes its input: a required param, or a `*` segment, needs it. */
 type NeedsInput<P extends string> = HasWildcard<P> extends true ? true : {} extends PathParams<P> ? false : true;
 
@@ -77,11 +46,9 @@ export type UrlParams<P extends string> = string extends P
   ? Record<string, string | number>
   : HasWildcard<P> extends true
     ? WildcardParams<P>
-    : HasCutPattern<P> extends true
-      ? CutPatternParams<P>
-      : { [K in keyof PathParams<P>]: string | number };
+    : { [K in keyof PathParams<P>]: string | number };
 
-/** `params` is required when the path has a required param, a `*` segment, or a pattern error (whose `params` is the error type above). */
+/** `params` is required when the path has a required param, or a `*` segment (whose `params` is the error type above). */
 export type UrlInput<P extends string, Q extends UrlQueryShape<Q> & object = UrlQuery> = (NeedsInput<P> extends true
   ? { params: UrlParams<P> }
   : { params?: UrlParams<P> | undefined }) & {
@@ -108,11 +75,10 @@ function encodeValue(name: string, text: string, path: string): string {
 }
 
 /**
- * A param pattern's answer for a value: `accepts` or `rejects` when Hono's two routers agree, `differs` when the value
- * would route differently under them (the app's router decides one app-wide, so no URL is right), and `unusable` when
- * `new RegExp` throws for both forms Hono compiles.
+ * A param pattern's answer for a value in the form of the router that serves it: `accepts` or `rejects`, or `unusable`
+ * when `new RegExp` throws for both forms Hono compiles.
  */
-type PatternAnswer = "accepts" | "rejects" | "unusable" | "differs";
+type PatternAnswer = "accepts" | "rejects" | "unusable";
 
 /**
  * The static path that follows a param, the context Hono compiles the param's pattern with: `suffix` holds its static
@@ -162,46 +128,56 @@ function regexpRouterCompiles(pattern: string): boolean {
 
 /**
  * Matches a param's pattern against `value` the way Hono matches a param: anchored, with no flags, and with the static
- * path that follows the param as context. Hono's default SmartRouter picks one router for the whole app: it tries
- * `router/reg-exp-router` first and keeps it once every route compiles, and falls back to `router/trie-router` for the
- * whole app as soon as one route makes the RegExp router throw. So a pattern the RegExp router refuses is matched in
- * the trie router's form only, while for a pattern it compiles the two forms must agree: the RegExp form wraps the
- * source in a group over the whole route (`^(?:pattern)/next$` here) and scopes a top-level `|`, while the trie form
- * matches the pattern bare (`^pattern$`, or `^pattern(?=/next)`) and takes the matched text as the param. When the forms
- * accept different text, the URL would route differently depending on some other route of the app, and the answer is
- * `differs` rather than a guess. Both run on the raw path, where `%2F` is still an escape (Hono's `getPath` decodes with
- * `decodeURI`, which keeps it).
+ * path that follows the param as context. A pattern Hono's RegExp router compiles is matched in its form, which wraps the
+ * source in a group over the whole route (`^(?:pattern)/next$` here); a pattern that router refuses (a lookahead, `.*`,
+ * a capturing group) is served by the trie router, whose form matches the pattern bare (`^pattern$`, or
+ * `^pattern(?=/next)`) against the rest of the path. This is the answer for the value `buildUrl` would send; the one
+ * place the two forms' disagreement matters (a split that is sent) is checked by `routerDisagrees`. Both run on the raw
+ * path, where `%2F` is still an escape (Hono's `getPath` decodes with `decodeURI`, which keeps it).
  */
 function matchPattern(pattern: string, value: string, context: PatternContext): PatternAnswer {
   const { suffix, next } = context;
   // both routers match from the start of the rest of the path, which starts with the value followed by the static rest
   const input = value + suffix;
-  // `^(?:pattern)$` is the RegExp router's form when the param ends the path; with a static rest, it appends it
-  const regexpSource = `^(?:${pattern})${escapeRegExp(suffix)}$`;
+  if (regexpRouterCompiles(pattern)) {
+    // `^(?:pattern)$` is the RegExp router's form when the param ends the path; with a static rest, it appends it
+    try {
+      return new RegExp(`^(?:${pattern})${escapeRegExp(suffix)}$`).test(input) ? "accepts" : "rejects";
+    } catch {
+      // the RegExp form cannot compile after all; the trie form is the only one left
+    }
+  }
   // a param the trie router sees without a static segment next to it is matched against the whole rest, anchored
-  const trieSource = next === undefined ? `^${pattern}$` : `^${pattern}(?=/${escapeRegExp(next)})`;
-  let trie: RegExpExecArray | null | undefined;
   try {
-    trie = new RegExp(trieSource).exec(input);
+    const source = next === undefined ? `^${pattern}$` : `^${pattern}(?=/${escapeRegExp(next)})`;
+    return new RegExp(source).test(input) ? "accepts" : "rejects";
   } catch {
-    trie = undefined;
+    return "unusable";
   }
-  const trieAnswer: PatternAnswer = trie === undefined ? "unusable" : trie === null ? "rejects" : "accepts";
-  // a pattern the RegExp router refuses makes SmartRouter serve the whole app with the trie router: only its form applies
-  if (!regexpRouterCompiles(pattern)) return trieAnswer;
-  let regexp: boolean | undefined;
+}
+
+/**
+ * Whether Hono's two routers would read `value` differently: the RegExp form groups a top-level `|` (and appends the
+ * static rest), while the trie form matches the pattern bare and takes the matched text as the param, so it can accept a
+ * prefix or suffix. A pattern the RegExp router refuses is served by the trie router alone, so there is no disagreement.
+ * This is consulted only for a split `buildUrl` is about to send; a value that stays encoded is not a router choice.
+ */
+function routerDisagrees(pattern: string, value: string, context: PatternContext): boolean {
+  if (!regexpRouterCompiles(pattern)) return false;
+  const { suffix, next } = context;
+  const input = value + suffix;
+  let regexp: boolean;
+  let trie: RegExpExecArray | null;
   try {
-    regexp = new RegExp(regexpSource).test(input);
+    regexp = new RegExp(`^(?:${pattern})${escapeRegExp(suffix)}$`).test(input);
+    trie = new RegExp(next === undefined ? `^${pattern}$` : `^${pattern}(?=/${escapeRegExp(next)})`).exec(input);
   } catch {
-    regexp = undefined;
+    // one form does not compile: the other is the only one that can serve the route
+    return false;
   }
-  // only one form compiles: that router's answer is the only possible one (the other could not register the route)
-  if (regexp === undefined) return trieAnswer;
-  if (trie === undefined) return regexp ? "accepts" : "rejects";
-  if (regexp !== (trie !== null)) return "differs";
-  if (!regexp) return "rejects";
-  // both accept: the trie router reads the matched text as the param, so it must be the whole value, not a prefix or suffix
-  return trie === null || trie[0] !== value ? "differs" : "accepts";
+  if (regexp !== (trie !== null)) return true;
+  // both accept: the trie router reads the matched text as the param, so a prefix or suffix is a different value
+  return regexp && trie !== null && trie[0] !== value;
 }
 
 /** Throws when a value would route differently under Hono's two routers; names the param and the path, never the value. */
@@ -213,32 +189,26 @@ function failRouterDisagreement(name: string, path: string): never {
 
 /**
  * Encodes one param value: the whole value by default, so a `/` is `%2F` and a value like `admin/all` cannot pick the
- * static `admin/all` sibling route. The pattern is always matched against the encoded value first, since a top-level `|`
- * can make the two routers read even a value without a `/` differently; such a value throws, because no URL is right
- * under both routers. Only a value with a `/` that its pattern rejects in that form is examined per segment: the
- * segments joined with `/`, as `:file{.+/.+}` (a literal `/`, where `%2F` would 404) needs a real split. The pattern is
- * matched with the static path that follows the param, as Hono compiles it. The split is used when the pattern accepts
- * it, and only then are its empty and `.`/`..` segments refused, since a split that is actually sent must not add a
- * segment or be resolved as a dot segment. A pattern that rejects the split too (the value cannot reach the route) and
- * an unusable pattern keep the encoded value, so it 404s as one segment instead of throwing in a server `route()` over a
- * request-derived value.
+ * static `admin/all` sibling route. A value without a `/` is the encoded value and is never matched for disagreement: the
+ * trie router reading a prefix of it is Hono's matching, not a URL choice. Only a value with a `/` that its pattern
+ * rejects in that form is examined per segment: the segments joined with `/`, as `:file{.+/.+}` (a literal `/`, where
+ * `%2F` would 404) needs a real split. The split is used when the pattern accepts it. Because a split that is sent turns
+ * the value into path segments, a split whose two router forms read differently throws (the app's router decides which
+ * one serves it); a split the pattern rejects keeps the encoded value, which 404s. Only a split that is used refuses an
+ * empty, `.` or `..` segment, since it must not add a segment or be resolved as a dot segment.
  */
 function encodeParam(name: string, text: string, path: string, pattern: string | undefined, rest: string): string {
   const encoded = encodeValue(name, text, path);
-  if (pattern === undefined) return encoded;
+  if (pattern === undefined || !text.includes("/")) return encoded;
   const context = patternContext(rest);
-  const encodedAnswer = matchPattern(pattern, encoded, context);
-  if (encodedAnswer === "differs") failRouterDisagreement(name, path);
-  // without a "/" the split is the same string: the encoded form is the one to send
-  if (!text.includes("/")) return encoded;
-  if (encodedAnswer !== "rejects") return encoded;
+  if (matchPattern(pattern, encoded, context) !== "rejects") return encoded;
   const segments = text.split("/");
   const perSegment = segments.map((segment) => encodeValue(name, segment, path)).join("/");
-  const splitAnswer = matchPattern(pattern, perSegment, context);
-  if (splitAnswer === "differs") failRouterDisagreement(name, path);
-  // A split the pattern rejects would never be sent, and refusing one of its segments would turn a URL that 404s into a
-  // 500: the check runs only on a split that is used
-  if (splitAnswer !== "accepts") return encoded;
+  if (matchPattern(pattern, perSegment, context) !== "accepts") return encoded;
+  // the split is sent: it must read the same under both routers, on the encoded value and on the split
+  if (routerDisagrees(pattern, encoded, context) || routerDisagrees(pattern, perSegment, context)) {
+    failRouterDisagreement(name, path);
+  }
   refuseEmptyOrDotSegments(name, segments, path);
   return perSegment;
 }
@@ -291,7 +261,9 @@ function fillPath(path: string, params: Readonly<Record<string, unknown>>): stri
           break;
         }
       }
-      if (pattern !== undefined) refuseSplitPattern(name, pattern, path);
+      // an unclosed "{" would consume the rest of the path: refuse it instead of truncating the URL
+      if (pattern === undefined) fail(`buildUrl: param "${name}" for "${path}" has an unclosed "{" pattern`);
+      else refuseSplitPattern(name, pattern, path);
     }
     const optional = path[j] === "?";
     if (optional) j++;
@@ -338,16 +310,6 @@ function queryKind(query: unknown): string {
   }
 }
 
-/** Whether `query` is a plain object of keys: its prototype is `Object.prototype` or `null`, never an array's, a `Map`'s or a class's. */
-function isPlainQuery(query: object): boolean {
-  try {
-    const prototype = Object.getPrototypeOf(query) as object | null;
-    return prototype === null || prototype === Object.prototype;
-  } catch {
-    return false;
-  }
-}
-
 function serializeQuery(query: UrlQuery): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -379,9 +341,9 @@ function serializeQuery(query: UrlQuery): string {
  *   404s as one segment). A `*` segment throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
- * - Query: a plain object of keys (prototype `Object.prototype` or `null`), not an array, a `Map`, a `Date` or a class
- *   instance. `undefined` and `null` are skipped, an array value repeats its key, a `Date` is sent as ISO 8601. A nested
- *   object, a function or a symbol value throws.
+ * - Query: a plain object of keys (a `null` prototype or any realm's `Object.prototype`), not an array, a `Map`, a
+ *   `Date` or a class instance. `undefined` and `null` are skipped, an array value repeats its key, a `Date` is sent as
+ *   ISO 8601. A nested object, a function or a symbol value throws.
  */
 export function buildUrl<P extends string, Q extends UrlQueryShape<Q> & object = UrlQuery>(
   path: P,
@@ -391,7 +353,7 @@ export function buildUrl<P extends string, Q extends UrlQueryShape<Q> & object =
   const params: unknown = input?.params;
   if (params != null && typeof params !== "object") fail(`buildUrl: params must be an object, got ${typeof params}`);
   const query: unknown = input?.query;
-  if (query != null && (typeof query !== "object" || !isPlainQuery(query))) {
+  if (query != null && (typeof query !== "object" || !isPlainObject(query))) {
     fail(`buildUrl: query must be a plain object of keys, got ${queryKind(query)}`);
   }
   const url = fillPath(path, (params ?? {}) as Readonly<Record<string, unknown>>);

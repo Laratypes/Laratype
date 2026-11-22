@@ -249,12 +249,16 @@ describe('buildUrl through a real Hono app', () => {
     }
   })
 
-  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', () => {
+  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', async () => {
     const app = new Hono()
     app.delete('/files/admin/all', () => new Response('sibling'))
     app.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
-    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The encoded and
-    // split URLs read different values under the two routers, so buildUrl refuses to pick one
+    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The static
+    // path answers the split, and the encoded path reads the prefix, so neither URL carries "admin/all"
+    expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+    const encoded = await app.request('/files/admin%2Fall', { method: 'DELETE' })
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
     expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(
       new TypeError(
         '[@laratype/contract] buildUrl: param "f" for "/files/:f{a|.+/.+}" has a pattern Hono\'s two routers read differently for this value, so the URL depends on the app\'s router',
