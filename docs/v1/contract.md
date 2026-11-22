@@ -26,7 +26,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); regex params, wildcard segments, flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ c82d1302 ([#253](https://github.com/Laratypes/Laratype/issues/253)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); regex params, wildcard segments, flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ b16f92d1 ([#253](https://github.com/Laratypes/Laratype/issues/253)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -898,7 +898,7 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; regex params that hold `/`, the wildcard refusal, the flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ c82d1302 (C8 [#253](https://github.com/Laratypes/Laratype/issues/253)); the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; regex params that hold `/`, the wildcard refusal, the flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ b16f92d1 (C8 [#253](https://github.com/Laratypes/Laratype/issues/253)); the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
@@ -944,13 +944,12 @@ Runtime `TypeError`s, prefixed `[@laratype/contract] `:
 - `buildUrl: param "<name>" for "<path>" has an empty segment` (a segment of a multi-segment value whose split the pattern accepts)
 - `buildUrl: param "<name>" for "<path>" has a "." or ".." segment (a dot segment)` (the same condition; never the value)
 - `buildUrl: param "<name>" for "<path>" has a pattern with "}" before "/", which Hono cannot route`
-- `buildUrl: param "<name>" for "<path>" has an unclosed "{" pattern`
 - `buildUrl: param "<name>" for "<path>" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
 - `buildUrl: param "<name>" for "<path>" has an unpaired surrogate`
 - `buildUrl: "<path>" builds "<result>", which a URL reads as another host`
 - `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`
 
-Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, a param value that is not a string or number, a path with a `*` segment (the nested-brace path whose split makes a `*` segment included), an array query, and a nested or non-flat query value; a flat named query (an interface or a type alias, an optional field, an array field) is accepted. A pattern with a `}` before a `/` and an unclosed `{` are refused at runtime only: the type does not detect them (`UrlParams` keeps the path's params), and a plain `Map`, `Date` or class instance as the query is refused at runtime only.
+Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, a param value that is not a string or number, a path with a `*` segment (the nested-brace path whose split makes a `*` segment included), an array query, and a nested or non-flat query value; a flat named query (an interface or a type alias, an optional field, an array field) is accepted. A pattern with a `}` before a `/` is refused at runtime only: the type does not detect it (`UrlParams` keeps the path's params), and a `Map`, `Date` or class instance as the query is refused at runtime only.
 
 ### Example
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
