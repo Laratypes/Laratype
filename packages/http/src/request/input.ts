@@ -20,12 +20,12 @@ const MALFORMED_JSON = "Malformed JSON in request body.";
 
 /**
  * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched
- * as Hono 4.9.6's check is, case-sensitively: the pipeline parses exactly the bodies a later `c.req.parseBody()` would.
- * A mixed-case form media type is therefore `{}` here. It is not parsed because the runtimes disagree on it: undici's
- * `Response.formData()` reads a `Multipart/Form-Data` body, Bun's rejects it, so parsing it in the pipeline would hand
- * the handler a different body per runtime. The cap does not follow this classifier: media types are case-insensitive
- * (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case form body too, and the bytes a later
- * `c.req.formData()` reads are bounded.
+ * case-sensitively: the pipeline parses exactly the bodies a 4.9.6 `parseBody()` read, and 4.13.17 lowercases the
+ * media type before its check, so a mixed-case form body is `{}` here and read there. It is not parsed in the pipeline
+ * because the runtimes disagree on it: undici's `Response.formData()` reads a `Multipart/Form-Data` body, Bun's rejects
+ * it, so parsing it in the pipeline would hand the handler a different body per runtime. The cap does not follow this
+ * classifier: media types are case-insensitive (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case
+ * form body too, and the bytes a later `c.req.formData()` reads are bounded.
  */
 const isFormMediaType = (contentType: string | undefined): boolean =>
   contentType?.startsWith("multipart/form-data") === true ||
@@ -41,7 +41,9 @@ const isBlankBody = (bytes: Uint8Array): boolean => {
 };
 
 /**
- * Hono's `bodyLimit` (4.9.6) errors the body stream with this error; its handler has to see it to answer the 413. The
+ * Hono's `bodyLimit` on 4.9.6 errors the body stream with this error; its handler has to see it to answer the 413.
+ * 4.13.17 buffers the body itself and answers its 413 before the pipeline runs, but a peer the `^4.8.0` range still
+ * allows, or a middleware that errors the stream the same way, can leave the named error in Hono's cache, and the
  * default limit's own 413 is the same answer and is rethrown here too (H44 #341).
  */
 const isBodyLimitError = (error: unknown): boolean =>
@@ -49,8 +51,8 @@ const isBodyLimitError = (error: unknown): boolean =>
 
 /**
  * The FormData this pipeline parsed, back in Hono's cache. A promise, even though the value is here: Hono chains every
- * other reader from the cache's first entry with `.then`, so a plain value alone there throws synchronously (4.9.6).
- * The earlier `parseBody()`'s fields go: this pipeline's options are the ones the handler gets.
+ * other reader from the cache's first entry with `.then`, so a plain value alone there throws synchronously (4.9.6 and
+ * 4.13.17 alike). The earlier `parseBody()`'s fields go: this pipeline's options are the ones the handler gets.
  */
 const cacheFormData = (cache: BodyCache, formData: FormData): void => {
   cache.formData = Promise.resolve(formData);
@@ -74,10 +76,11 @@ const orMalformed = async <T>(read: () => Promise<T> | T, message: string): Prom
 };
 
 /**
- * The body stream, read once. Hono's cache only serves a `text()`, `arrayBuffer()` or `formData()` it already holds: a
- * `c.req.parseBody()` on a JSON request caches its `{}` without reading the stream, so the bytes are still on
- * `c.req.raw`. They are read there and kept in the cache, so a later `c.req.text()`/`json()` has them too; the plain
- * `{}` is cleared, since Hono chains a later reader from the cache's first entry and cannot chain from it (4.9.6).
+ * The body stream, read once. Hono's cache only serves a `text()`, `arrayBuffer()` or `formData()` it already holds. A
+ * `c.req.parseBody()` on a JSON request leaves no cache entry on 4.13.17 (on 4.9.6 it cached its `{}` without reading
+ * the stream), so the bytes are read on `c.req.raw`. They are kept in the cache, so a later `c.req.text()`/`json()` has
+ * them too; a plain `parsedBody` a 4.9.6 middleware left is cleared, since Hono chains a later reader from the cache's
+ * first entry and cannot chain from it.
  */
 const readRawBody = async (request: HonoRequest, message: string): Promise<ArrayBuffer> => {
   const cache = bodyCacheOf(request);
@@ -102,15 +105,21 @@ const textReadBodyError = (): TypeError =>
 const hasFields = (formData: FormData): boolean => formData.entries().next().done !== true;
 
 /**
- * The form fields as Hono's `parseBody({ dot: true })` builds them, from the FormData this pipeline already holds. It
- * mirrors Hono 4.9.6's `convertFormDataToBodyData` with `{ all: false, dot: true }`: a key sent once is its value, a
+ * The form fields as Hono 4.13.17's `parseBody({ dot: true })` builds them, from the FormData this pipeline already
+ * holds. It mirrors its `convertFormDataToBodyData` with `{ all: false, dot: true }`: a key sent once is its value, a
  * repeated key the last value, a `[]` key an array, and a dotted key a nested object, replacing a non-object on the
- * way. Hono does not export that conversion, and `parseBody()` cannot read the request here: on 4.12.28 it always calls
- * `request.arrayBuffer()`, which rebuilds a cached FormData's bytes with a new multipart boundary, so they no longer
- * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded). Every object is built
- * with `Object.create(null)`, so a `__proto__`, `constructor` or `prototype` segment is an own key, never a prototype
- * one: 4.9.6 has no explicit `__proto__.` guard, and its null-prototype objects keep that key data.
+ * way. Hono does not export that conversion, and `parseBody()` cannot read the request here on the whole peer range
+ * (`^4.8.0`): on 4.12.28 it re-reads a cached FormData as bytes with a new multipart boundary, so they no longer
+ * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded); 4.13.17 converts the
+ * cached FormData, but the pipeline keeps its own conversion so every peer version reads the same fields. Every object
+ * is built with `Object.create(null)`, so a `constructor`, `prototype` or `__proto__` segment is an own key, never a
+ * prototype one. 4.13.17 drops a key with a `__proto__.` segment (`UNSAFE_DOT_KEY`), and this mirrors it: the key is
+ * gone from the fields on every peer version, so no submitted value is reachable through a `__proto__` key.
  */
+
+/** Hono 4.13.17's guard in `handleParsingNestedValues`: a `__proto__` segment at the start or after a dot. */
+const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
+
 export const toDotFields = (formData: FormData): Record<string, unknown> => {
   const fields: Record<string, unknown> = Object.create(null);
   formData.forEach((value, key) => {
@@ -119,7 +128,7 @@ export const toDotFields = (formData: FormData): Record<string, unknown> => {
   });
   for (const [key, value] of Object.entries(fields)) {
     if (!key.includes(".")) continue;
-    setNestedValue(fields, key, value);
+    if (!UNSAFE_DOT_KEY.test(key)) setNestedValue(fields, key, value);
     delete fields[key];
   }
   return fields;
@@ -151,10 +160,11 @@ const setNestedValue = (fields: Record<string, unknown>, key: string, value: unk
 };
 
 /**
- * Hono's own bytes-to-FormData parse (4.9.6). A cached body Hono rebuilds has no Content-Type, which a multipart
- * boundary needs, so the bytes are parsed with the request's. Its type asks for an `ArrayBuffer`, and the `Response` it
- * builds takes the view as it is, so the bytes are handed over without a copy. A malformed body is the platform's
- * `TypeError` ("Failed to parse body as FormData."): the client's 400. Everything else is a bug and goes on to the 500.
+ * Hono's own bytes-to-FormData parse (`bufferToFormData`, unchanged on 4.13.17). A cached body Hono rebuilds has no
+ * Content-Type, which a multipart boundary needs, so the bytes are parsed with the request's. Its type asks for an
+ * `ArrayBuffer`, and the `Response` it builds takes the view as it is, so the bytes are handed over without a copy. A
+ * malformed body is the platform's `TypeError` ("Failed to parse body as FormData."): the client's 400. Everything
+ * else is a bug and goes on to the 500.
  */
 const formDataFromBytes = async (bytes: Uint8Array, contentType: string): Promise<FormData> => {
   try {
@@ -280,17 +290,17 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
 
 /**
  * The JSON body. Hono's cache serves a body an earlier middleware read: `text()`, `arrayBuffer()`, `blob()` or
- * `json()`, and a form parse's FormData, which `text()` re-serialises. A `c.req.parseBody()` on a JSON request is the
- * exception: it caches `{}` without reading the stream, so `text()` fails on that plain object, and the raw body is
- * read instead. A stream a form parse consumed leaves nothing else to read: the JSON parse of the form's text is the
- * 400.
+ * `json()`, and a form parse's FormData, which `text()` re-serialises. A `c.req.parseBody()` on a JSON request leaves
+ * no cache entry on 4.13.17, and on 4.9.6 it cached its `{}` without reading the stream: either way the raw body is
+ * still unread, and `text()` on that plain 4.9.6 value would throw. A stream a form parse consumed leaves nothing else
+ * to read: the JSON parse of the form's text is the 400.
  */
 const readJsonBody = async (request: HonoRequest): Promise<unknown> => {
   const cache = bodyCacheOf(request);
   const keys = Object.keys(cache);
   let text: string;
   if (keys.length === 0 || (keys.length === 1 && keys[0] === "parsedBody")) {
-    // Nothing a reader cached, or only the parse of a JSON media type, which never read the stream
+    // Nothing a reader cached, or only the 4.9.6 parse of a JSON media type, which never read the stream
     if (request.raw.bodyUsed) throw unreadableBodyError();
     text = new TextDecoder().decode(await readRawBody(request, MALFORMED_JSON));
   } else {
@@ -319,7 +329,10 @@ export const readBody = async (request: HonoRequest): Promise<unknown> => {
 
 /**
  * The query string as the client's `buildUrl` sends it: a key once is a string, a repeated key an array. Converting
- * a value (`"2"` to `2`) is the schema's job (`z.coerce.number<number>()`). Hono's `queries()` drops a `__proto__` key.
+ * a value (`"2"` to `2`) is the schema's job (`z.coerce.number<number>()`). Hono 4.13.17 keeps a `__proto__` key as an
+ * own key of a null-prototype object (4.9.6 dropped it); `Object.fromEntries` copies it as an own data key of a plain
+ * object, so it stays data and never swaps a prototype. A contract's query schema drops it like any key it does not
+ * declare.
  */
 export const readQuery = (request: HonoRequest): Record<string, string | string[]> =>
   Object.fromEntries(Object.entries(request.queries()).map(([key, values]) => [key, values.length === 1 ? values[0]! : values]));

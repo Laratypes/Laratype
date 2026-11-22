@@ -434,14 +434,15 @@ describe("mixed-case form media types (H44 security review)", () => {
   it.each([
     ["multipart", { method: "POST", headers: { "Content-Type": MIXED_CASE_MULTIPART }, body: multipart(64) }],
     ["urlencoded", form("name=ada", MIXED_CASE_FORM)],
-  ] as const)("leaves a mixed-case %s body under the cap unparsed, as Hono's parseBody does", async (_label, init) => {
+  ] as const)("leaves a mixed-case %s body under the cap unparsed", async (_label, init) => {
     quiet();
     const app = bootApp();
     mountInput(app);
     const response = await app.request("/users", init);
     expect(response.status).toBe(201);
-    // Hono 4.9.6's parseBody() matches the form media types case-sensitively: a handler gets no fields, and the
-    // pipeline does not parse them either, so the limit and the parse stay separate classifiers
+    // The pipeline matches the form media types case-sensitively: a handler gets no fields. Hono 4.13.17 lowercases the
+    // media type in `parseBody()`, but the pipeline keeps the case-sensitive classifier because the runtime form
+    // parsers disagree on mixed case, so the limit and the parse stay separate classifiers
     expect(await response.json()).toEqual({ input: {} });
   });
 

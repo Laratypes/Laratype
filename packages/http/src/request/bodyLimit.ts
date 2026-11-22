@@ -10,8 +10,10 @@ import type { BodyCache } from "./bodyCache";
  *
  * Enforced at the start of `readBody`, before any reader touches the stream. Not with a second Hono `bodyLimit`
  * mounted by the kernel: on Hono 4.9.6 two stacked `bodyLimit`s lose bytes of a multi-chunk body, and the outer one
- * answers its own 413 over the inner one's (H44 #341). An app's own `bodyLimit` stays the one limiter in front of the
- * pipeline, and the caps here can only tighten it: an app that needs a larger body raises `http.bodyLimit`.
+ * answers its own 413 over the inner one's (H44 #341); 4.13.17 buffers the body itself and no longer loses the bytes,
+ * but a second limiter would still read and buffer the whole body twice. An app's own `bodyLimit` stays the one limiter
+ * in front of the pipeline, and the caps here can only tighten it: an app that needs a larger body raises
+ * `http.bodyLimit`.
  */
 
 /** The built-in caps in bytes: Fastify's JSON default, and a higher multipart cap for uploads. */
