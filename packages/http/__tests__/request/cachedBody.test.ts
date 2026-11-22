@@ -280,6 +280,70 @@ describe("a body that cannot be read (H43 #340)", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it("a form body over the dot-segment limit is the malformed-form 400", async () => {
+    const errors = quiet();
+    // Hono 4.13.17 refuses a dot key of more than 33 segments (`key.split(".", 34)`): the pipeline mirrors it, and the
+    // client's body is the malformed-form 400, not a logged 500 or a body of millions of nested objects
+    const { app } = mount([]);
+    const key = Array.from({ length: 34 }, (_, index) => `k${index}`).join(".");
+    const response = await app.request("/users", urlencoded(`${key}=x`));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a form body over the created-group limit is the malformed-form 400", async () => {
+    const errors = quiet();
+    // 10,000 groups are allowed; the 10,001st object is Hono's `MAX_NESTED_OBJECTS` limit
+    const { app } = mount([]);
+    const fields = Array.from({ length: 10_001 }, (_, index) => `g${index}.x=1`).join("&");
+    const response = await app.request("/users", urlencoded(fields));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a cached FormData over the dot-segment limit is the malformed-form 400 too", async () => {
+    const errors = quiet();
+    // The cached-FormData branch takes the conversion path without bytes: its nesting error is the same 400
+    const { app } = mount([
+      async (c, next) => {
+        await c.req.formData();
+        await next();
+      },
+    ]);
+    const key = Array.from({ length: 34 }, (_, index) => `k${index}`).join(".");
+    const body = `--x\r\nContent-Disposition: form-data; name="${key}"\r\n\r\nv\r\n--x--\r\n`;
+    const response = await app.request("/users", { method: "POST", headers: multipartHeaders, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a mixed-case multipart body read by c.req.text() is the same clear 500", async () => {
+    const errors = quiet();
+    // The lowercased media type is what the text-read check uses: a `Multipart/Form-Data` body is multipart, not a
+    // urlencoded body rebuilt from its text
+    const { app } = mount([
+      async (c, next) => {
+        await c.req.text();
+        await next();
+      },
+    ]);
+    const response = await app.request("/users", {
+      method: "POST",
+      headers: { "Content-Type": "Multipart/Form-Data; boundary=x" },
+      body: "--x\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nada\r\n--x--\r\n",
+    });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ message: "Server Error" });
+    expect(errors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "a middleware read the multipart body with c.req.text(), so its file parts cannot be rebuilt",
+      }),
+    );
+  });
+
   it("a truncated JSON body is a 400 even when the signal never aborted", async () => {
     const errors = quiet();
     // The stream errors without a socket close (or the adapter never aborts the signal): the client's half body is
@@ -765,8 +829,8 @@ describe("toDotFields (H43 #345 round 5)", () => {
     expect(Object.prototype).not.toHaveProperty("x");
     expect(Object.prototype).not.toHaveProperty("y");
     expect(Object.prototype).not.toHaveProperty("z");
-    // 4.13.17 refuses a dot key with a `__proto__` segment: neither conversion has that key, so the submitted value is
-    // not reachable through it at all (4.9.6 kept it as a nested own object)
+    // 4.13.17 refuses a key with a leading `__proto__.` segment: neither conversion has that key, so the submitted value
+    // is not reachable through it at all (4.9.6 kept it as a nested own object)
     expect(Object.hasOwn(fields, "__proto__")).toBe(false);
     expect(Object.hasOwn(hono, "__proto__")).toBe(false);
   });

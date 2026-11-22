@@ -86,7 +86,8 @@ describe("a __proto__. segment in a form body (B30 #410)", () => {
     expect(response.status).toBe(200);
 
     const input = captured.value as Record<string, unknown>;
-    // The nested `__proto__` object is gone: Hono's 4.13.17 guard drops any dot key with a `__proto__.` segment, and
+    // The nested `__proto__` object is gone: Hono's 4.13.17 guard drops a key in which `__proto__` is a segment followed
+    // by another segment, and
     // the pipeline mirrors it, so the submitted value cannot be reached through a `__proto__` key at all
     expect(Object.hasOwn(input, "__proto__")).toBe(false);
     expect(Object.hasOwn(input, "a")).toBe(false);
@@ -287,6 +288,32 @@ describe("a __proto__ key in a JSON body (B30 #410)", () => {
   });
 });
 
+describe("Hono 4.13.17's form nesting limits (B30 #410)", () => {
+  const dotKey = (segments: number) => Array.from({ length: segments }, (_, index) => `k${index}`).join(".");
+
+  it("accepts 33 dot segments and refuses 34", () => {
+    // Hono's `key.split(".", 34)` and `keys.length > 33` in `handleParsingNestedValues`
+    const at = new FormData();
+    at.append(dotKey(33), "x");
+    expect(() => toDotFields(at)).not.toThrow();
+
+    const over = new FormData();
+    over.append(dotKey(34), "x");
+    expect(() => toDotFields(over)).toThrow("Nesting limit exceeded");
+  });
+
+  it("accepts 10,000 created groups and refuses 10,001", () => {
+    // Hono's `state.count++ >= MAX_NESTED_OBJECTS` (10,000) in `handleParsingNestedValues`
+    const at = new FormData();
+    for (let index = 0; index < 10_000; index++) at.append(`g${index}.x`, "1");
+    expect(() => toDotFields(at)).not.toThrow();
+
+    const over = new FormData();
+    for (let index = 0; index <= 10_000; index++) over.append(`g${index}.x`, "1");
+    expect(() => toDotFields(over)).toThrow("Nesting limit exceeded");
+  });
+});
+
 describe("toDotFields' __proto__. guard (B30 #410)", () => {
   it("drops the keys Hono 4.13.17 drops and keeps a top-level __proto__", () => {
     const form = new FormData();
@@ -297,9 +324,9 @@ describe("toDotFields' __proto__. guard (B30 #410)", () => {
     form.append("x.__proto__", "tail");
 
     const fields = toDotFields(form);
-    // The guard is Hono's regex, `/(?:^|\.)__proto__\./`: a `__proto__` segment at the start or after a dot is refused,
-    // while `a__proto__` is a plain name and a trailing `__proto__` (no segment after it) is an own key of a null-
-    // prototype group
+    // The guard is Hono's regex, `/(?:^|\.)__proto__\./`: a `__proto__` segment at the start or after a dot **and
+    // followed by another segment** is refused, while `a__proto__` is a plain name and a trailing `__proto__` (no
+    // segment after it) is an own key of a null-prototype group
     expect(Object.hasOwn(fields, "__proto__")).toBe(true);
     expect(fields.__proto__).toBe("top");
     expect(Object.hasOwn(fields, "a")).toBe(false);

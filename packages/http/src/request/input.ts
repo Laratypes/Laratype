@@ -19,17 +19,25 @@ const MALFORMED_FORM = "Malformed form data in request body.";
 const MALFORMED_JSON = "Malformed JSON in request body.";
 
 /**
- * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched
- * case-sensitively: the pipeline parses exactly the bodies a 4.9.6 `parseBody()` read, and 4.13.17 lowercases the
- * media type before its check, so a mixed-case form body is `{}` here and read there. It is not parsed in the pipeline
- * because the runtimes disagree on it: undici's `Response.formData()` reads a `Multipart/Form-Data` body, Bun's rejects
- * it, so parsing it in the pipeline would hand the handler a different body per runtime. The cap does not follow this
- * classifier: media types are case-insensitive (RFC 9110 §8.3.1), so `mediaTypeOf` in `bodyLimit.ts` caps a mixed-case
- * form body too, and the bytes a later `c.req.formData()` reads are bounded.
+ * The media types Hono's `parseBody()` reads as form fields; a request of any other type has no body, `{}`. Matched on
+ * the lowercased media type, as Hono 4.13.17's `parseBody()` does (4.9.6 matched case-sensitively): media types are
+ * case-insensitive (RFC 9110 §8.3.1), so a `Multipart/Form-Data` body is a form body here and for a later
+ * `c.req.parseBody()`. The parameters are not part of the match: a multipart boundary is case-sensitive and is passed
+ * through unchanged (`lowercaseMediaType`). The cap follows the same lowercased split in `bodyLimit.ts`, so a
+ * mixed-case form body is capped too.
  */
-const isFormMediaType = (contentType: string | undefined): boolean =>
-  contentType?.startsWith("multipart/form-data") === true ||
-  contentType?.startsWith("application/x-www-form-urlencoded") === true;
+const isFormMediaType = (contentType: string | undefined): boolean => {
+  const type = contentType?.toLowerCase();
+  return type?.startsWith("multipart/form-data") === true || type?.startsWith("application/x-www-form-urlencoded") === true;
+};
+
+/**
+ * The media type lowercased, its parameters untouched: RFC 9110 §8.3.1 makes the type and subtype case-insensitive,
+ * while a multipart boundary (RFC 2046 §5.1.1) is case-sensitive. Hono 4.13.17's `bufferToFormData` lowercases the
+ * media type itself; 4.9.6 passed the header as sent, so the pipeline lowercases it for every peer version.
+ */
+const lowercaseMediaType = (contentType: string): string =>
+  contentType.replace(/^[^;]+/, (mediaType) => mediaType.toLowerCase());
 
 /** A form body of whitespace only: the ASCII whitespace `String.prototype.trim()` strips. A body is bytes: no encoding
  * tells Unicode whitespace from data, so only these count. */
@@ -104,8 +112,27 @@ const textReadBodyError = (): TypeError =>
 /** Whether a FormData holds fields: a form body of none is no body, `{}` (a client may send its Content-Type alone). */
 const hasFields = (formData: FormData): boolean => formData.entries().next().done !== true;
 
-/** Hono 4.13.17's guard in `handleParsingNestedValues`: a `__proto__` segment at the start or after a dot. */
+/**
+ * Hono 4.13.17's guard in `handleParsingNestedValues` (`hono/utils/body.ts`): a `__proto__` segment at the start or
+ * after a dot **and followed by another segment**. A trailing `x.__proto__` or a top-level `__proto__` names no nested
+ * object, so each stays an own data key of its null-prototype object.
+ */
 const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
+
+/**
+ * Hono 4.13.17's nesting limits (`hono/utils/body.ts`): a dot key has at most 33 segments, and one conversion creates
+ * at most 10,000 nested groups (`MAX_NESTED_OBJECTS = 1e4`). A field of many dots would otherwise build as many
+ * objects as the body cap allows; the pipeline answers the malformed-form 400 for it.
+ */
+const MAX_DOT_SEGMENTS = 33;
+const MAX_NESTED_OBJECTS = 10_000;
+
+/** Hono's `throwNestingLimitExceeded` (`hono/utils/body.ts`), mapped to the malformed-form 400 by `formFields`. */
+class FormNestingError extends Error {
+  constructor() {
+    super("Nesting limit exceeded");
+  }
+}
 
 /**
  * The form fields as Hono 4.13.17's `parseBody({ dot: true })` builds them, from the FormData this pipeline already
@@ -116,18 +143,20 @@ const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
  * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded); 4.13.17 converts the
  * cached FormData, but the pipeline keeps its own conversion so every peer version reads the same fields. Every object
  * is built with `Object.create(null)`, so a `constructor`, `prototype` or `__proto__` segment is an own key, never a
- * prototype one. 4.13.17 drops a key with a `__proto__.` segment (`UNSAFE_DOT_KEY`), and this mirrors it: the key is
- * gone from the fields on every peer version, so no submitted value is reachable through a `__proto__` key.
+ * prototype one. 4.13.17 drops a key with a `__proto__` segment at the start or after a dot **and followed by another
+ * segment** (`UNSAFE_DOT_KEY`: `__proto__.x`, `a.__proto__.x`); a trailing `x.__proto__` and a top-level `__proto__`
+ * stay own data keys, and the pipeline mirrors that on every peer version.
  */
 export const toDotFields = (formData: FormData): Record<string, unknown> => {
   const fields: Record<string, unknown> = Object.create(null);
+  const nestingState = { count: 0 };
   formData.forEach((value, key) => {
     if (!key.endsWith("[]")) fields[key] = value;
     else appendArrayValue(fields, key, value);
   });
   for (const [key, value] of Object.entries(fields)) {
     if (!key.includes(".")) continue;
-    if (!UNSAFE_DOT_KEY.test(key)) setNestedValue(fields, key, value);
+    if (!UNSAFE_DOT_KEY.test(key)) setNestedValue(fields, key, value, nestingState);
     delete fields[key];
   }
   return fields;
@@ -141,10 +170,20 @@ const appendArrayValue = (fields: Record<string, unknown>, key: string, value: F
   else fields[key] = [current, value];
 };
 
-/** Hono's `handleParsingNestedValues`: `a.b` walks `a` and sets `b`, replacing a non-object on the way. */
-const setNestedValue = (fields: Record<string, unknown>, key: string, value: unknown): void => {
+/**
+ * Hono's `handleParsingNestedValues`: `a.b` walks `a` and sets `b`, replacing a non-object on the way, within the
+ * 33-segment and 10,000-group limits (`handleParsingNestedValues` in `hono/utils/body.ts`: `key.split(".", 34)`, then
+ * `state.count++ >= MAX_NESTED_OBJECTS`). The split is bounded, so a key of millions of dots never walks them all.
+ */
+const setNestedValue = (
+  fields: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  state: { count: number },
+): void => {
   let nested = fields;
-  const parts = key.split(".");
+  const parts = key.split(".", MAX_DOT_SEGMENTS + 1);
+  if (parts.length > MAX_DOT_SEGMENTS) throw new FormNestingError();
   parts.forEach((part, index) => {
     if (index === parts.length - 1) {
       nested[part] = value;
@@ -152,18 +191,31 @@ const setNestedValue = (fields: Record<string, unknown>, key: string, value: unk
     }
     const current = nested[part];
     if (!current || typeof current !== "object" || Array.isArray(current) || current instanceof File) {
+      if (state.count++ >= MAX_NESTED_OBJECTS) throw new FormNestingError();
       nested[part] = Object.create(null);
     }
     nested = nested[part] as Record<string, unknown>;
   });
 };
 
+/** `toDotFields` with the nesting limit (Hono 4.13.17) answered as the malformed-form 400, not a logged 500. */
+const formFields = (formData: FormData): Record<string, unknown> => {
+  try {
+    return toDotFields(formData);
+  } catch (error) {
+    if (error instanceof FormNestingError) throw badRequest(MALFORMED_FORM);
+    throw error;
+  }
+};
+
 /**
- * Hono's own bytes-to-FormData parse (`bufferToFormData`, unchanged on 4.13.17). A cached body Hono rebuilds has no
- * Content-Type, which a multipart boundary needs, so the bytes are parsed with the request's. Its type asks for an
- * `ArrayBuffer`, and the `Response` it builds takes the view as it is, so the bytes are handed over without a copy. A
- * malformed body is the platform's `TypeError` ("Failed to parse body as FormData."): the client's 400. Everything
- * else is a bug and goes on to the 500.
+ * Hono's own bytes-to-FormData parse (`bufferToFormData`). 4.13.17 lowercases the media type itself before building
+ * the `Response`; 4.9.6 passes the header as it is, so the pipeline hands it a lowercased media type (its parameters,
+ * the multipart boundary included, keep their case: `lowercaseMediaType`) for every peer version. A cached body Hono
+ * rebuilds has no Content-Type, which a multipart boundary needs, so the bytes are parsed with the request's. Its type
+ * asks for an `ArrayBuffer`, and the `Response` it builds takes the view as it is, so the bytes are handed over without
+ * a copy. A malformed body is the platform's `TypeError` ("Failed to parse body as FormData."): the client's 400.
+ * Everything else is a bug and goes on to the 500.
  */
 const formDataFromBytes = async (bytes: Uint8Array, contentType: string): Promise<FormData> => {
   try {
@@ -175,12 +227,13 @@ const formDataFromBytes = async (bytes: Uint8Array, contentType: string): Promis
 
 /**
  * The form fields of the raw bytes. The FormData goes back into Hono's cache before the conversion, so a later
- * `c.req.formData()`/`parseBody()` has one Hono can serve and this pipeline reads the same one.
+ * `c.req.formData()`/`parseBody()` has one Hono can serve and this pipeline reads the same one. `contentType` has its
+ * media type lowercased already (`readFormBody`); the boundary keeps its case.
  */
 const readFormFields = async (request: HonoRequest, bytes: Uint8Array, contentType: string): Promise<unknown> => {
   const formData = await formDataFromBytes(bytes, contentType);
   cacheFormData(bodyCacheOf(request), formData);
-  return toDotFields(formData);
+  return formFields(formData);
 };
 
 /** The bytes a byte reader left in Hono's cache, or the unread ones on `raw`; `undefined` is a blank body, no body. */
@@ -255,6 +308,8 @@ const readCachedFormData = async (
 const readFormBody = async (request: HonoRequest): Promise<unknown> => {
   const contentType = request.header("Content-Type");
   if (contentType === undefined || !isFormMediaType(contentType)) return {};
+  // The media type lowercased for the classifier and the parser; the parameters (a multipart boundary) keep their case
+  const formContentType = lowercaseMediaType(contentType);
   const cache = bodyCacheOf(request);
   if (cache.text !== undefined) {
     // A text read keeps no bytes. A blank body loses nothing: it is no body, `{}`. So does a urlencoded body, which is
@@ -264,8 +319,8 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
       cacheFormData(cache, new FormData());
       return {};
     }
-    if (contentType.startsWith("multipart/form-data")) throw textReadBodyError();
-    return readFormFields(request, bytes, contentType);
+    if (formContentType.startsWith("multipart/form-data")) throw textReadBodyError();
+    return readFormFields(request, bytes, formContentType);
   }
   // A FormData the cache holds is authoritative: it keeps a file part's bytes as they arrived
   if (cache.formData !== undefined) {
@@ -276,7 +331,7 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
       return {};
     }
     cacheFormData(cache, formData);
-    return hasFields(formData) ? toDotFields(formData) : {};
+    return hasFields(formData) ? formFields(formData) : {};
   }
   // Bytes already (this pipeline's own read, `c.req.arrayBuffer()`, or a `c.req.blob()`), else the stream left on `raw`
   const bytes = await readFormBytes(request);
@@ -284,7 +339,7 @@ const readFormBody = async (request: HonoRequest): Promise<unknown> => {
     cacheFormData(cache, new FormData());
     return {};
   }
-  return readFormFields(request, bytes, contentType);
+  return readFormFields(request, bytes, formContentType);
 };
 
 /**
