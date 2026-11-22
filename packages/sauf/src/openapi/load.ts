@@ -127,6 +127,20 @@ const errorCode = (error: unknown): string | undefined =>
     : undefined;
 
 /**
+ * `lstatSync` with `throwIfNoEntry`, except that an ENOTDIR ancestor is "no entry" too: Linux reports it (not ENOENT)
+ * when a segment of the path is below a file, and the caller's own "below a path that is not a folder" guard answers
+ * for that. Any other error code (a permission error, a loop) propagates unchanged.
+ */
+const entryAt = (path: string): ReturnType<typeof lstatSync> | undefined => {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false });
+  } catch (error) {
+    if (errorCode(error) !== "ENOTDIR") throw error;
+    return undefined;
+  }
+};
+
+/**
  * The location a path resolves to through the filesystem: the realpath of its nearest existing ancestor, with the
  * segments below it appended. `undefined` when that ancestor cannot be resolved. A lexical `resolve` alone misses a
  * link: a folder inside the project can point at the generated folder without the string saying so.
@@ -135,17 +149,7 @@ function realLocation(target: string): string | undefined {
   let current = target;
   const rest: string[] = [];
   for (;;) {
-    let entry: ReturnType<typeof lstatSync> | undefined;
-    try {
-      entry = lstatSync(current, { throwIfNoEntry: false });
-    } catch (error) {
-      // Linux throws ENOTDIR (not ENOENT) when an ancestor of the path is a file: there is no entry at this path
-      // either, so keep walking to the parent. The caller's own "below a path that is not a folder" guard then
-      // answers with the documented diagnostic. Any other code (a permission error, a loop) still propagates.
-      if (errorCode(error) !== "ENOTDIR") throw error;
-      entry = undefined;
-    }
-    if (entry !== undefined) {
+    if (entryAt(current) !== undefined) {
       let real: string;
       try {
         real = realpathSync(current);
@@ -252,7 +256,7 @@ function checkOutputFolder(projectDir: string, out: string, target: string): voi
     return;
   }
   let folder = dirname(target);
-  while (lstatSync(folder, { throwIfNoEntry: false }) === undefined) {
+  while (entryAt(folder) === undefined) {
     const parent = dirname(folder);
     if (parent === folder) break;
     folder = parent;
