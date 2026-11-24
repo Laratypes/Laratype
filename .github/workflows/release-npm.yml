@@ -46,6 +46,39 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # The ref checks need no dependency install, so they run right after checkout and before setup-bun (which runs
+      # `bun install`, with lifecycle scripts) while `id-token: write` is live. A push must be a tag; the tag must be
+      # `v` + the committed version and its commit an ancestor of origin/master. A manual dispatch must be
+      # refs/heads/master at its current tip. Context values arrive as env, never interpolated into the script.
+      - name: Check the release ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          version=$(node -p "require('./packages/laratype/package.json').version")
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            test "$REF_TYPE" = "tag" || {
+              echo "::error::unexpected push ref $REF in the release workflow"; exit 1; }
+            test "$REF_NAME" = "v$version" || {
+              echo "::error::tag $REF_NAME does not match the tree version $version"; exit 1; }
+            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+            git merge-base --is-ancestor "$SHA" refs/remotes/origin/master || {
+              echo "::error::tag $REF_NAME is not an ancestor of origin/master"; exit 1; }
+          else
+            test "$REF" = "refs/heads/master" || {
+              echo "::error::manual publish must run from refs/heads/master, not $REF"; exit 1; }
+            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+            test "$SHA" = "$(git rev-parse refs/remotes/origin/master)" || {
+              echo "::error::manual publish must run from the tip of origin/master"; exit 1; }
+          fi
+
       - name: Setup bun
         uses: ./.github/setup-bun
 
@@ -61,10 +94,8 @@ jobs:
           npm install -g 'npm@11.21.0'
           npm --version
 
-      # A tag push is the release intent: it must name the tree's version and sit on master. A manual dispatch must
-      # run from refs/heads/master exactly, at its current tip. The dist-tag is derived from the version, never chosen
-      # by hand, so a prerelease can only go to `alpha` and never to `latest`; `check --publish` also rejects a
-      # non-alpha prerelease id and a stable tree that still has .changeset/pre.json.
+      # `check --publish` validates the fixed versions, the alpha channel, pre.json and the private-package rule;
+      # dist-tag derives alpha/latest from the version, never chosen by hand. The ref checks already ran above.
       - name: Resolve release
         id: release
         shell: bash
@@ -74,22 +105,6 @@ jobs:
           version=$(node -p "require('./packages/laratype/package.json').version")
           node scripts/release/cli.js check --version "$version" --publish
           dist_tag=$(node scripts/release/cli.js dist-tag "$version")
-
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            test "$GITHUB_REF_TYPE" = "tag" || {
-              echo "::error::unexpected push ref $GITHUB_REF in the release workflow"; exit 1; }
-            test "$GITHUB_REF_NAME" = "v$version" || {
-              echo "::error::tag $GITHUB_REF_NAME does not match the tree version $version"; exit 1; }
-            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
-            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master || {
-              echo "::error::tag $GITHUB_REF_NAME is not an ancestor of origin/master"; exit 1; }
-          else
-            test "$GITHUB_REF" = "refs/heads/master" || {
-              echo "::error::manual publish must run from refs/heads/master, not $GITHUB_REF"; exit 1; }
-            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
-            test "$GITHUB_SHA" = "$(git rev-parse refs/remotes/origin/master)" || {
-              echo "::error::manual publish must run from the tip of origin/master"; exit 1; }
-          fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
