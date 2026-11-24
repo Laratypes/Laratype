@@ -13,7 +13,7 @@ last-verified: 2026-10-09
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
-| [Authentication from the contract](#authentication-from-the-contract) | proposed: PR <leader fills> @ 633d314 → #120 |
+| [Authentication from the contract](#authentication-from-the-contract) | proposed: PR <leader fills> @ 6c680c59 → #120 |
 | [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async password check proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; composite-key rehash and login timing proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d; dummy-hash key hardening and the Hasher format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
@@ -97,7 +97,7 @@ export class AuthVerification {
 ## Authentication from the contract
 
 ### Status
-proposed: PR <leader fills> @ 633d314 ([#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts`](../../packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts`](../../packages/http/src/routing/api/contractAuth.ts).
+proposed: PR <leader fills> @ 6c680c59 ([#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts`](../../packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts`](../../packages/http/src/routing/api/contractAuth.ts).
 
 ### Public API
 
