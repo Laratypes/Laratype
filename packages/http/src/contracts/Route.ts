@@ -4,6 +4,7 @@ import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
 import type { ContractPolicyChecks } from "../routing/api/contractPolicies"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
+import type { AnyInterceptor } from "../interceptor/defineInterceptor"
 import type { Bindings } from "../routing/api/proof"
 import type { MiddlewareClass, PolicyClass } from "../routing/api/types";
 import Request from "../supports/Request";
@@ -71,6 +72,8 @@ export type RouteParams = {
   controller: [Newable<object>, string]
   /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
   middleware?: Array<MiddlewareItem>,
+  /** The `defineInterceptor()` values of a `Route.api` route, scope first, then contract, then endpoint (H11 #138). */
+  interceptors?: Array<AnyInterceptor>,
   /** The `r.bind()` bindings of a `Route.api` route, resolved once per request before policies (H7 #118). */
   bindings?: Bindings,
   /** @internal The contract policy chain, built by `Route.api` for a route whose resolved `authorize` is true (H8 #122). */

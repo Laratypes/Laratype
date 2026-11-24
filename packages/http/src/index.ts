@@ -15,6 +15,8 @@ export type { CorsConfig } from "./middleware/cors"
 export type {
   AnyTypedMiddleware, MiddlewareItem, TypedMiddleware, TypedMiddlewareHandler
 } from "./middleware/defineMiddleware"
+export { defineInterceptor, isInterceptor } from "./interceptor/defineInterceptor"
+export type { AnyInterceptor, Intercepted, Interceptor, InterceptorHandler } from "./interceptor/defineInterceptor"
 export * from "./routing/Route"
 export { route } from "./routing/routeUrl"
 export type {

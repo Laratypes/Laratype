@@ -1,5 +1,6 @@
-// Helpers shared by the contract modules. `leavesOrigin` and `isAbsoluteUrl` are re-exported from index.ts, marked
-// `@internal`, because `@laratype/client` follows the same origin and baseUrl rules (C11 #293).
+// Helpers shared by the contract modules. Three are re-exported from index.ts, all marked `@internal`, so they are not
+// part of the documented public API: `isEndpointPath`, the endpoint path rule `@laratype/client` validates each manifest
+// path with, and `leavesOrigin`/`isAbsoluteUrl`, the origin and baseUrl rules it follows (C11 #293).
 
 export type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 
@@ -20,7 +21,10 @@ const PATH_START = /^\/(?![/\\])/;
 /** The control characters a path must not contain (C0 controls and DEL). */
 const PATH_CONTROLS = /[\u0000-\u001f\u007f]/;
 
-/** The endpoint path rule without a diagnostic: no leading "//" or "/\\", no control character. */
+/**
+ * The endpoint path rule without a diagnostic: no leading "//" or "/\\", no control character.
+ * @internal Shared with `@laratype/client`'s manifest validation; not part of the documented public API.
+ */
 export const isEndpointPath = (path: unknown): path is string =>
   typeof path === "string" && PATH_START.test(path) && !PATH_CONTROLS.test(path);
 
