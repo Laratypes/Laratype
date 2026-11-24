@@ -25,7 +25,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
-| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed @ bad5bd7f → [#190](https://github.com/Laratypes/Laratype/issues/190) |
+| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed @ 62709a36 → [#190](https://github.com/Laratypes/Laratype/issues/190) |
 | [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 |
 
 ---
@@ -239,7 +239,7 @@ proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/iss
 ## CI and release
 
 ### Status
-B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in this PR @ bad5bd7f: the fixed-version
+B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in this PR @ 62709a36: the fixed-version
 release tool (`scripts/release/`), the `v*`-tag publish workflow inside the `npm-release` environment, and the `alpha`
 dist-tag.
 Its Done-when needs the user (one alpha publish from CI, the npm trusted publishers, deleting `NPM_TOKEN`), so the PR
@@ -254,7 +254,7 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
 - **Dependabot keeps dependencies and actions current** (`.github/dependabot.yml`, B27 [#364](https://github.com/Laratypes/Laratype/issues/364)). It opens weekly PRs for the `bun` workspace (`bun.lock`) and for `github-actions`, including the composite `.github/setup-bun`, bumping each SHA pin together with its `# vX.Y.Z` comment, and each action still pinned by tag (until B14) by its tag. A 14-day `cooldown` means an updated package younger than two weeks is never proposed. The cooldown does not cover transitive versions that bun resolves anew, so the `bun.lock` review checks the publish date of every added `name@version`. Minor and patch updates are grouped per ecosystem; majors come as their own PRs. Its PRs run CI like any branch of this repo (read-only token, no secrets) and go through the normal review: CodeRabbit, the leader, and security for any `bun.lock` change. They are never auto-merged. Before running `bun install` in a checkout of a Dependabot branch, read the lifecycle scripts of the updated packages, as [CONTRIBUTING.md › Security](../../CONTRIBUTING.md#security) requires for any branch.
 - **Text files are LF in the repo and in every checkout.** `.gitattributes` sets `* text=auto eol=lf` and marks `*.png` binary, so `core.autocrlf=true` on Windows no longer checks fixtures and snapshots out as CRLF.
 - **One fixed version for every package (B15).** `bun run release:check` fails when a `packages/*/package.json` or the root disagrees, and `bun run release:version` writes the same version to all 18 packages and the root before anything is tagged. The 13 public packages publish that version; the 5 private ones are bumped with the line and never packed.
-- **A `v*` tag is the release intent (B15).** `release-npm.yml` publishes on a push of a `v<version>` tag, and on a manual `workflow_dispatch` from `refs/heads/master` only. On a tag run the tag must equal `v` + the committed version and its commit must be an ancestor of `origin/master`; a dispatch must be the tip of `origin/master`. A repository ruleset restricts creating, updating and deleting `v*` tags to admins.
+- **A `v*` tag is the release intent (B15).** `release-npm.yml` publishes on a push of a `v<version>` tag, and on a manual `workflow_dispatch` from `refs/heads/master` only. On a tag run the tag must equal `v` + the committed version and its commit must be an ancestor of `origin/master`; a dispatch must be the tip of `origin/master`. The ref, tag/version and ancestry checks run right after checkout and before `setup-bun` installs dependencies, so a wrong ref never reaches a lifecycle script. A repository ruleset restricts creating, updating and deleting `v*` tags to admins.
 - **A prerelease publishes under `alpha`; `latest` only moves on a stable version (B15).** `node scripts/release/cli.js dist-tag <version>` returns `alpha` for `X.Y.Z-alpha.N` and `latest` for a stable `X.Y.Z`, and fails for any other prerelease id, so the publish step never passes `latest` for a prerelease. The workflow runs `check --publish`, which also fails a stable tree that still has `.changeset/pre.json`: `release:pre-exit` must run before a stable release. The 10 packages already on npm keep `latest` at `0.5.4` until a stable `1.0.0` is published.
 - **No workflow uses a secret (B15).** Trusted publishing: `permissions: contents: read` + `id-token: write`, `npm publish --provenance`, and the `npm-release` environment with required reviewers. The npm trusted publisher of each package names this repo, `release-npm.yml` and `npm-release`; no workflow reads `NPM_TOKEN`, and the repository secret is deleted after the first CI publish (procedure step 7).
 - **A package with no code is `private: true` (B15, B16 [#191](https://github.com/Laratypes/Laratype/issues/191)).** `release:check` fails a public `packages/*` without `src/`, and the pack loop skips private packages. Today: `@laratype/broadcast`, `mail`, `schedule`, `storage`, `ts-gen`.
@@ -267,8 +267,8 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
   current version; a prerelease id other than `alpha`; a public package without `src/`; a `CHANGELOG.md` without the
   `# Changelog` header; with `--publish`, a stable version that still has `.changeset/pre.json`.
   `release: nothing to release, staying at <version>` exits 0.
-- `release-npm.yml` fails with `::error::` when the tag is not `v` + the committed version, the tag commit is not an
-  ancestor of `origin/master`, a manual dispatch is not from `refs/heads/master` at its current tip, a public package
+- `release-npm.yml` fails with `::error::` before any dependency install when the ref type is wrong, the tag is not `v` + the committed version, the tag commit is not an
+  ancestor of `origin/master`, or a manual dispatch is not from `refs/heads/master` at its current tip; later it also fails when a public package
   version differs from the release, or a tarball still carries `workspace:`/`catalog:`.
 
 ### Example
@@ -303,8 +303,12 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
 
 #### One-time user setup (first release)
 - **Environment:** Settings › Environments › `npm-release`: required reviewers (your account, plus one more admin if
-  GitHub blocks self-approval), "Deployment branches and tags" = *Selected branches and tags* with `master` and `v*`,
-  and no environment secrets. The production rule is the reviewer.
+  GitHub blocks self-approval), "Deployment branches and tags" = *Selected branches and tags* with `master` as a
+  **branch** rule and `v*` as a **tag** rule, and no environment secrets. Name the ref types: a `v*` **branch** rule
+  would let any writer push a branch such as `v-x` with an edited `release-npm.yml` and dispatch it, and the in-file
+  master check would be gone because the dispatched run uses that branch's workflow. Before approving, the reviewer
+  checks the run's ref and SHA: a `v*` tag whose commit is on `master`, or a `workflow_dispatch` from
+  `refs/heads/master`. The production rule is the reviewer.
 - **Tag ruleset:** Settings › Rules › Rulesets › *New tag ruleset*, target `v*`, *Active*, bypass list = repository
   admins, rules *Restrict creations*, *Restrict updates* and *Restrict deletions*. The tag is the release intent, so
   only admins can create, move or delete one.
@@ -313,7 +317,7 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
   `npm-release`. The 10 existing packages can be configured now; `@laratype/client`, `@laratype/contract` and
   `@laratype/core` only after their first publish (the page exists only once the package does).
 - **First publish of the three new packages** (OIDC cannot create a package): after the first version PR is merged, on
-  that commit, with an npm account that can publish the `@laratypes` scope:
+  that commit, with an npm account that can publish the `@laratype` scope:
   ```sh
   npm login
   bun install --ignore-scripts
@@ -324,7 +328,11 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
     npm publish "$tarball" --access public --tag alpha
   done
   ```
-  These three first tarballs have no provenance attestation (that needs OIDC); every later CI publish does.
+  These three first tarballs have no provenance attestation (that needs OIDC); every later CI publish does. A package
+  with no `latest` gets `latest` pointed at its first published version even with `--tag alpha`, so `latest` of
+  `@laratype/client`, `contract` and `core` stays at the first alpha while CI publishes `alpha.N` under `alpha`. That
+  is expected until `1.0.0`. After the first publish run `npm view <pkg> dist-tags`; if the maintainer wants `latest`
+  to follow the alphas, `npm dist-tag add <pkg>@<version> latest` is a product choice.
 - **Delete the `NPM_TOKEN` repository secret** (Settings › Secrets and variables › Actions) after the first CI publish
   succeeds. No workflow reads it.
 
