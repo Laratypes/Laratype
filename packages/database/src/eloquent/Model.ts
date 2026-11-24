@@ -231,6 +231,12 @@ const errors = {
   scopeNoJoinColumn: (model: string, relation: string): string =>
     `[@laratype/database] ${model} relation ${formatValue(relation)} has no join column: .scopeBindings() needs the`
     + " owning side of a relation to the parent",
+  scopeAmbiguous: (model: string, parent: string, relations: string[]): string =>
+    `[@laratype/database] ${model} has ${relations.length} relations to ${parent} (${relations.join(", ")}):`
+    + ` .scopeBindings() cannot choose one; keep a single relation to ${parent}`,
+  scopeRelationKind: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} is not a many-to-one or an owning one-to-one`
+    + " relation: .scopeBindings() needs the side that holds the join column",
   scopeNotLoaded: (model: string, parent: string, name: string): string =>
     `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance has not`
     + " loaded: select it before .scopeBindings()",
@@ -384,33 +390,50 @@ interface ScopeCondition {
 
 /**
  * The conditions a `.scopeBindings()` lookup adds (docs/v1/http.md › Model binding › Scoped bindings, H14 #163): one
- * per parent model in `scope`, from the relation whose target is the parent's class and its owning join column. A
- * relation it cannot find, a relation with no join column and a parent property that is not loaded are configuration
- * errors (a lookup that silently ignored the parent would read another parent's row). A parent key that is `null`
- * references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar, so it is bound as a
- * parameter and never becomes SQL (a transformer that hydrates an object is refused).
+ * per parent model in `scope`, from the relation whose target is the parent's class and its owning join column. The
+ * child MUST relate to its immediate parent (the last entry, path order); an earlier parent adds a condition only when
+ * the child has a relation to it too, and is skipped otherwise (each level was already scoped by its own parent).
+ * More than one relation to a parent, a relation that is not many-to-one or an owning one-to-one, a relation with no
+ * join column and a parent property that is not loaded are configuration errors (a lookup that silently ignored the
+ * parent would read another parent's row, and one that picked a relation would choose a tenant for the app). A parent
+ * key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar,
+ * so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is refused).
  */
 const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: Readonly<Record<string, object>>): ScopeCondition[] | undefined => {
   const conditions: ScopeCondition[] = [];
-  for (const [key, parent] of Object.entries(scope)) {
+  const entries = Object.entries(scope);
+  for (const [index, [key, parent]] of entries.entries()) {
     if (parent === null || typeof parent !== "object") {
       throw new ModelError(errors.scopeNotModel(metadata.targetName, key, parent));
     }
     const target = (parent as { constructor?: unknown }).constructor;
-    const relation = (metadata.relations ?? []).find((entry) => {
+    const parentName = targetName(target);
+    const matches = (metadata.relations ?? []).filter((entry) => {
       // Match the parent's own class, or a scope value that is an instance of the relation's target (a subclass)
       const relationTarget: unknown = entry.inverseEntityMetadata?.target;
       return relationTarget === target || (typeof relationTarget === "function" && parent instanceof relationTarget);
     });
+    if (matches.length > 1) {
+      throw new ModelError(errors.scopeAmbiguous(metadata.targetName, parentName, matches.map((match) => match.propertyName)));
+    }
+    const relation = matches[0];
     if (relation === undefined) {
-      throw new ModelError(errors.scopeNoRelation(metadata.targetName, targetName(target)));
+      // The immediate parent is what makes the lookup safe; an earlier one is transitive and optional
+      if (index === entries.length - 1) {
+        throw new ModelError(errors.scopeNoRelation(metadata.targetName, parentName));
+      }
+      continue;
+    }
+    // Only the side that holds the join column can filter this table: a one-to-many, a many-to-many or a non-owning
+    // one-to-one names the parent's table instead
+    if (relation.isManyToOne !== true && relation.isOneToOneOwner !== true) {
+      throw new ModelError(errors.scopeRelationKind(metadata.targetName, relation.propertyName));
     }
     const join = relation.joinColumns?.[0];
     const referenced = join?.referencedColumn;
     if (join === undefined || referenced === undefined) {
       throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
     }
-    const parentName = targetName(target);
     let value: unknown;
     try {
       value = (parent as Record<string, unknown>)[referenced.propertyName];

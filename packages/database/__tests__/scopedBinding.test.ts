@@ -30,16 +30,20 @@ const parentModel = (options: { transformer?: AppTransformer } = {}) => {
 interface FakeRelation {
   readonly propertyName: string
   readonly inverseEntityMetadata: { readonly target: unknown }
+  readonly isManyToOne?: boolean
+  readonly isOneToOneOwner?: boolean
+  readonly isOneToMany?: boolean
   readonly joinColumns?: readonly { readonly propertyName: string; readonly referencedColumn?: { readonly propertyName: string } }[]
 }
 
 /** A child model (`Post`) whose `user` relation joins on `userId`, with the parent class the scope passes. */
-const postModel = (options: { relations?: FakeRelation[]; routeKeyName?: string; transformer?: AppTransformer } = {}) => {
+const postModel = (options: { relations?: FakeRelation[]; routeKeyName?: string; transformer?: AppTransformer; targetName?: string } = {}) => {
   class Post extends Model {
     declare id: number
     declare slug: string
     declare userId: number
   }
+  const targetName = options.targetName ?? 'Post'
   Object.defineProperty(Post, 'routeKeyName', { value: options.routeKeyName ?? 'slug' })
   const calls: { where: Row }[] = []
   const columns: Row[] = [
@@ -52,7 +56,7 @@ const postModel = (options: { relations?: FakeRelation[]; routeKeyName?: string;
   }
   ;(Post as any).getRepository = () => ({
     metadata: {
-      targetName: 'Post',
+      targetName,
       primaryColumns: [{ propertyName: 'id' }],
       columns,
       relations: options.relations ?? [],
@@ -77,10 +81,19 @@ const userRelation = (
 ): FakeRelation => ({
   propertyName: 'user',
   inverseEntityMetadata: { target: parent },
+  isManyToOne: true,
   joinColumns: [{ propertyName: 'userId', referencedColumn: referenced }],
 })
 
-/** The raw condition of a `where` value, for the SQL/parameter assertions (D9). */
+const postRelation = (
+  parent: unknown,
+  referenced: { readonly propertyName: string } = { propertyName: 'id' },
+): FakeRelation => ({
+  propertyName: 'post',
+  inverseEntityMetadata: { target: parent },
+  isManyToOne: true,
+  joinColumns: [{ propertyName: 'postId', referencedColumn: referenced }],
+})
 const rawOf = (value: unknown) => {
   if (!(value instanceof FindOperator)) throw new Error('not a FindOperator');
   return value
@@ -209,13 +222,72 @@ describe('Model.findByRouteKey scope (H14 #163)', () => {
     )
   })
 
+  it('a three-level scope needs a relation only to the immediate parent', async () => {
+    class Post {
+      declare id: number
+    }
+    const User = parentModel()
+    // Comment relates only to Post: the earlier `user` is transitive and adds no condition
+    const { Post: Comment, calls } = postModel({ targetName: 'Comment', relations: [postRelation(Post)] })
+    const user = Object.assign(new User(), { id: 7 })
+    const post = Object.assign(new Post(), { id: 9 })
+    await Comment.findByRouteKey('c1', { user, post })
+    const where = calls[0]!.where
+    expect(where.userId).toBeUndefined()
+    expect(rawOf(where.postId).objectLiteralParameters).toEqual({ scope0: 9 })
+  })
+
+  it('adds a condition for every parent the model relates to', async () => {
+    class Post {
+      declare id: number
+    }
+    const User = parentModel()
+    const { Post: Comment, calls } = postModel({ targetName: 'Comment', relations: [userRelation(User), postRelation(Post)] })
+    await Comment.findByRouteKey('c1', {
+      user: Object.assign(new User(), { id: 7 }),
+      post: Object.assign(new Post(), { id: 9 }),
+    })
+    const where = calls[0]!.where
+    expect(rawOf(where.userId).objectLiteralParameters).toEqual({ scope0: 7 })
+    expect(rawOf(where.postId).objectLiteralParameters).toEqual({ scope1: 9 })
+  })
+
+  it('refuses more than one relation to the same parent: the scope cannot choose one', async () => {
+    const User = parentModel()
+    const author = { ...userRelation(User), propertyName: 'author' }
+    const editor = { ...userRelation(User), propertyName: 'editor' }
+    const { Post } = postModel({ relations: [author, editor] })
+    await expect(Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
+      '[@laratype/database] Post has 2 relations to User (author, editor): .scopeBindings() cannot choose one; keep a single relation to User',
+    )
+  })
+
+  it('refuses a relation that is not many-to-one or an owning one-to-one', async () => {
+    const User = parentModel()
+    const members: FakeRelation = { propertyName: 'members', inverseEntityMetadata: { target: User }, isOneToMany: true, joinColumns: [] }
+    const oneToMany = postModel({ relations: [members] })
+    await expect(oneToMany.Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
+      '[@laratype/database] Post relation "members" is not a many-to-one or an owning one-to-one relation: .scopeBindings() needs the side that holds the join column',
+    )
+    const inverse: FakeRelation = {
+      propertyName: 'account',
+      inverseEntityMetadata: { target: User },
+      isOneToOneOwner: false,
+      joinColumns: [{ propertyName: 'userId', referencedColumn: { propertyName: 'id' } }],
+    }
+    const notOwner = postModel({ relations: [inverse] })
+    await expect(notOwner.Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
+      'is not a many-to-one or an owning one-to-one relation',
+    )
+  })
+
   it('refuses a model with no relation to the parent, and a relation with no join column', async () => {
     const User = parentModel()
     const unrelated = postModel()
     await expect(unrelated.Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
       '[@laratype/database] Post has no relation to User: .scopeBindings() scopes a child lookup through a relation whose target is the parent model',
     )
-    const noJoin = postModel({ relations: [{ propertyName: 'user', inverseEntityMetadata: { target: User } }] })
+    const noJoin = postModel({ relations: [{ propertyName: 'user', inverseEntityMetadata: { target: User }, isManyToOne: true }] })
     await expect(noJoin.Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
       '[@laratype/database] Post relation "user" has no join column: .scopeBindings() needs the owning side of a relation to the parent',
     )
