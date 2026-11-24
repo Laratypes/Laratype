@@ -311,24 +311,35 @@ describe('Model.findByRouteKey scope (H14 #163)', () => {
     expect(rawOf(calls[0]!.where.postId).objectLiteralParameters).toEqual({ scope0: 9 })
   })
 
-  it('refuses two parents that filter the same join column', async () => {
+  it('refuses two scoped parents that resolve to the same relation', async () => {
     const User = parentModel()
-    class Admin {
-      declare id: number
-    }
-    const admin: FakeRelation = {
-      propertyName: 'admin',
-      inverseEntityMetadata: { target: Admin },
-      isManyToOne: true,
-      joinColumns: [{ propertyName: 'userId', referencedColumn: { propertyName: 'id' } }],
-    }
-    const { Post } = postModel({ relations: [userRelation(User), admin] })
+    const { Post } = postModel({ relations: [userRelation(User)] })
+    // Two params bound to User would overwrite one another in the where: the second parent would replace the first
     await expect(
       Post.findByRouteKey('hello', {
         user: Object.assign(new User(), { id: 7 }),
-        admin: Object.assign(new Admin(), { id: 8 }),
+        owner: Object.assign(new User(), { id: 8 }),
       }),
-    ).rejects.toThrow('[@laratype/database] Post: two scoped parents filter the join column "userId": .scopeBindings() cannot filter it for both')
+    ).rejects.toThrow(
+      '[@laratype/database] Post: two scoped parents resolve to the relation "user": .scopeBindings() cannot scope the lookup by both',
+    )
+  })
+
+  it('skips an earlier parent that resolves to a relation already used', async () => {
+    class Post {
+      declare id: number
+    }
+    const User = parentModel()
+    const { Post: Comment, calls } = postModel({ targetName: 'Comment', relations: [userRelation(User), postRelation(Post)] })
+    await Comment.findByRouteKey('c1', {
+      user: Object.assign(new User(), { id: 7 }),
+      owner: Object.assign(new User(), { id: 8 }),
+      post: Object.assign(new Post(), { id: 9 }),
+    })
+    const where = calls[0]!.where
+    // The earlier duplicate is transitive: the first user condition and the immediate post condition stay
+    expect(rawOf(where.userId).objectLiteralParameters).toEqual({ scope0: 7 })
+    expect(rawOf(where.postId).objectLiteralParameters).toEqual({ scope1: 9 })
   })
 
   it('refuses a model with no relation to the parent, and a relation with no join column', async () => {
