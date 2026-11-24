@@ -264,7 +264,6 @@ describe('implicit binding (H14 #163)', () => {
     const wrong = mount(Route.api(usersApi, () => items([item('no')])), { user: User })
     expect(await (await wrong.app.request('/api/users/7')).json()).toEqual({ user: 'model:7' })
   })
-})
 
   it('binds nothing on an ad-hoc route', async () => {
     const { app } = mount(
