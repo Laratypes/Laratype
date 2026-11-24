@@ -39,7 +39,7 @@ The repo is a bun workspace monorepo (`packages/*`, `examples/*`). `examples/bas
 
 ## Commands
 
-The agent commands match [AGENTS.md](AGENTS.md#commands); the release rows at the end are maintainer-only.
+These match [AGENTS.md](AGENTS.md#commands).
 
 | What | Command |
 |---|---|

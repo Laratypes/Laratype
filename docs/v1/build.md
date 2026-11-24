@@ -25,7 +25,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
-| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed in this PR → [#190](https://github.com/Laratypes/Laratype/issues/190) |
+| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed @ bad5bd7f → [#190](https://github.com/Laratypes/Laratype/issues/190) |
 | [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 |
 
 ---
@@ -239,7 +239,7 @@ proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/iss
 ## CI and release
 
 ### Status
-B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in this PR @ 9664a4c8: the fixed-version
+B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in this PR @ bad5bd7f: the fixed-version
 release tool (`scripts/release/`), the `v*`-tag publish workflow inside the `npm-release` environment, and the `alpha`
 dist-tag.
 Its Done-when needs the user (one alpha publish from CI, the npm trusted publishers, deleting `NPM_TOKEN`), so the PR
@@ -256,11 +256,22 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
 - **One fixed version for every package (B15).** `bun run release:check` fails when a `packages/*/package.json` or the root disagrees, and `bun run release:version` writes the same version to all 18 packages and the root before anything is tagged. The 13 public packages publish that version; the 5 private ones are bumped with the line and never packed.
 - **A `v*` tag is the release intent (B15).** `release-npm.yml` publishes on a push of a `v<version>` tag, and on a manual `workflow_dispatch` from `refs/heads/master` only. On a tag run the tag must equal `v` + the committed version and its commit must be an ancestor of `origin/master`; a dispatch must be the tip of `origin/master`. A repository ruleset restricts creating, updating and deleting `v*` tags to admins.
 - **A prerelease publishes under `alpha`; `latest` only moves on a stable version (B15).** `node scripts/release/cli.js dist-tag <version>` returns `alpha` for `X.Y.Z-alpha.N` and `latest` for a stable `X.Y.Z`, and fails for any other prerelease id, so the publish step never passes `latest` for a prerelease. The workflow runs `check --publish`, which also fails a stable tree that still has `.changeset/pre.json`: `release:pre-exit` must run before a stable release. The 10 packages already on npm keep `latest` at `0.5.4` until a stable `1.0.0` is published.
-- **No workflow uses a secret (B15).** Trusted publishing: `permissions: contents: read` + `id-token: write`, `npm publish --provenance`, and the `npm-release` environment with required reviewers. The npm trusted publisher of each package names this repo, `release-npm.yml` and `npm-release`; no workflow reads `NPM_TOKEN`, and the repository secret is deleted after the first CI publish (procedure step 6).
+- **No workflow uses a secret (B15).** Trusted publishing: `permissions: contents: read` + `id-token: write`, `npm publish --provenance`, and the `npm-release` environment with required reviewers. The npm trusted publisher of each package names this repo, `release-npm.yml` and `npm-release`; no workflow reads `NPM_TOKEN`, and the repository secret is deleted after the first CI publish (procedure step 7).
 - **A package with no code is `private: true` (B15, B16 [#191](https://github.com/Laratypes/Laratype/issues/191)).** `release:check` fails a public `packages/*` without `src/`, and the pack loop skips private packages. Today: `@laratype/broadcast`, `mail`, `schedule`, `storage`, `ts-gen`.
 - **Changesets are files in `.changeset/` (B15).** `bun run release:changeset <pkg> <patch|minor|major> "<summary>"` writes the standard front matter; `release:version` consumes them into the root `CHANGELOG.md` and deletes them. `.changeset/pre.json` holds the alpha line (`base`); there is no version bot: the maintainer runs the versioner on a release branch.
 
-### Release procedure
+### Diagnostics
+- `scripts/release/cli.js` prints `release: <message>` and exits 1 on: a version mismatch between `packages/*` or the
+  root; a summary that is empty, over 2000 characters, has control characters or an unpaired UTF-16 surrogate; an
+  unknown or private package in a changeset; an unknown bump; a pre-mode base that is not stable or not ahead of the
+  current version; a prerelease id other than `alpha`; a public package without `src/`; a `CHANGELOG.md` without the
+  `# Changelog` header; with `--publish`, a stable version that still has `.changeset/pre.json`.
+  `release: nothing to release, staying at <version>` exits 0.
+- `release-npm.yml` fails with `::error::` when the tag is not `v` + the committed version, the tag commit is not an
+  ancestor of `origin/master`, a manual dispatch is not from `refs/heads/master` at its current tip, a public package
+  version differs from the release, or a tarball still carries `workspace:`/`catalog:`.
+
+### Example
 `scripts/release/` is dependency-free and local. The first v1 line is `1.0.0-alpha.N`, pinned by `.changeset/pre.json`
 (`base: 1.0.0`); a bump level never moves that line, and leaving pre mode writes the stable base.
 
@@ -269,21 +280,23 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
    `.changeset/<slug>.md` in the same format; see [`.changeset/README.md`](../../.changeset/README.md)). A package
    that is not public is rejected, the bump must be `patch`, `minor` or `major`, and the summary is the changelog
    entry (max 2000 characters).
-2. **Maintainer, version PR:** on a `chore/release-<version>` branch, `bun run release:version` writes the version to
-   every `packages/*/package.json` and the root, prepends `CHANGELOG.md`, deletes the applied changesets and prints
-   the new version and dist-tag. Review the diff (19 `package.json`, `CHANGELOG.md`, deleted changesets), commit
-   `chore(release): <version>`, open the PR. This is deliberately not a bot workflow: nothing gets
-   `contents: write` / `pull-requests: write`.
+2. **Maintainer, version PR:** on a `chore/release-<version>` branch, run `bun run release:version`; it writes the
+   version to every `packages/*/package.json` and the root, prepends `CHANGELOG.md`, deletes the applied changesets
+   and prints the new version and dist-tag. It is a no-op when no changeset is pending, so the first alpha needs one
+   first: `bun run release:changeset laratype minor "v1 alpha"`. Review the diff (19 `package.json`, `CHANGELOG.md`,
+   deleted changesets), commit `chore(release): <version>`, open the PR. This is deliberately not a bot workflow:
+   nothing gets `contents: write` / `pull-requests: write`.
 3. **The user merges the version PR** through the normal review (CI runs the full suite).
 4. **One-time user setup before the first tag** (see the sub-section below): the `npm-release` environment, the `v*`
-   tag ruleset, the npm trusted publishers, and the first manual publish of the three new packages. Delete
-   `NPM_TOKEN` after the first CI publish (step 6).
+   tag ruleset, the npm trusted publishers, and the first manual publish of the three new packages.
 5. **The user pushes the tag:** `git tag -a v<version> -m "<version>"` and `git push origin v<version>`. The publish
    workflow waits on the `npm-release` environment for a reviewer; approving it publishes every public package with
    `bun pm pack` + `npm publish --provenance --tag <dist-tag>`.
 6. **Verify:** `npm view @laratype/http@<version> version dist.attestations` and
    `npm view @laratype/http dist-tags` (`latest` must still be `0.5.4` while the release is an alpha).
-7. **Next alpha:** add changesets and run `release:version` again; the version becomes the next `alpha.N`. **Stable:**
+7. **Delete the `NPM_TOKEN` repository secret** (Settings › Secrets and variables › Actions) after the first CI
+   publish succeeds; no workflow reads it.
+8. **Next alpha:** add changesets and run `release:version` again; the version becomes the next `alpha.N`. **Stable:**
    `bun run release:pre-exit` then `bun run release:version` writes the stable `base`; pending changesets only
    contribute their notes, they never move the base, and the tag `v1.0.0` moves `latest`. The stable changelog section
    holds those notes, or is empty when every note was already recorded in a prerelease section.
@@ -314,17 +327,6 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
   These three first tarballs have no provenance attestation (that needs OIDC); every later CI publish does.
 - **Delete the `NPM_TOKEN` repository secret** (Settings › Secrets and variables › Actions) after the first CI publish
   succeeds. No workflow reads it.
-
-### Diagnostics
-- `scripts/release/cli.js` prints `release: <message>` and exits 1 on: a version mismatch between `packages/*` or the
-  root; a summary that is empty, over 2000 characters, has control characters or an unpaired UTF-16 surrogate; an
-  unknown or private package in a changeset; an unknown bump; a pre-mode base that is not stable or not ahead of the
-  current version; a prerelease id other than `alpha`; a public package without `src/`; a `CHANGELOG.md` without the
-  `# Changelog` header; with `--publish`, a stable version that still has `.changeset/pre.json`.
-  `release: nothing to release, staying at <version>` exits 0.
-- `release-npm.yml` fails with `::error::` when the tag is not `v` + the committed version, the tag commit is not an
-  ancestor of `origin/master`, a manual dispatch is not from `refs/heads/master` at its current tip, a public package
-  version differs from the release, or a tarball still carries `workspace:`/`catalog:`.
 
 ### Design (non-binding)
 - **B14:** one CI. Since H16 ([#184](https://github.com/Laratypes/Laratype/issues/184)), `ci.yml` runs the full test suite after the build, `check:dist` and `check:pkg`, including `devSsr.test.ts` and `docs/v1/examples/typecheck.test.ts`. What is left of B14 is workflow hardening and removing `github_actions_security.yml` from the branches that inherited it. The stacked-PR retarget note is in [AGENTS.md › Stacked PRs](../../AGENTS.md#stacked-prs).
