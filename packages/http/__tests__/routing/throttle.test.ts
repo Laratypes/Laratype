@@ -496,6 +496,13 @@ describe('clientPrefix', () => {
     expect(clientPrefix(ipBucket('::1')!)).toBe('0:0:0::/48')
     expect(clientPrefix(ipBucket('::ffff:203.0.113.5')!)).toBe('203.0.113.5')
   })
+
+  it('never throws on a string that is not a bucket: anything but a /64 is its own prefix (#319)', () => {
+    for (const value of ['', '2001:db8::', 'x'.repeat(100_000), 'a\nb', '\u0000', '__proto__', '0.0.0.0']) {
+      expect(typeof clientPrefix(value)).toBe('string')
+    }
+    expect(clientPrefix('__proto__')).toBe('__proto__')
+  })
 })
 
 describe('throttled', () => {
