@@ -351,8 +351,11 @@ export default class Request extends AppServiceProvider {
               // With no endpoint policy, at least one scope must allow explicitly: an ability(true) passes its scope
               // only, every scope falling through is the 403 (docs/v1/http.md › Authorization from the contract)
               let explicitlyAllowed = false;
+              // A scope hook gets a frozen snapshot: a mutation cannot change the endpoint policy's arguments or
+              // ctx.params, which keep reading the record. The record's prototype is not changed either.
+              const scopeBound = scopes.length ? Object.freeze({ ...bound }) : undefined;
               for (const scope of scopes) {
-                const answer = await checks.check(container.make(scope), user, ability, bound);
+                const answer = await checks.check(container.make(scope), user, ability, scopeBound!);
                 // false from before or the ability is the 403 at once; a null check (before fell through and the
                 // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
                 // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403
