@@ -226,8 +226,15 @@ const paramValues = (params: object | undefined): Record<string, string | number
     }
     const routeKey: unknown = getRouteKey.call(value);
     if (routeKey instanceof Date) {
-      // `toISOString()` throws a RangeError on an Invalid Date: answer the route() diagnostic instead
-      if (Number.isNaN(routeKey.getTime())) {
+      // `toISOString()` throws a RangeError on an Invalid Date: answer the route() diagnostic instead. The internal slot
+      // is read through the prototype, so a Date subclass or a proxy cannot run an overridden getTime().
+      let time: number;
+      try {
+        time = Date.prototype.getTime.call(routeKey);
+      } catch {
+        fail(`route: param "${key}" has a getRouteKey() that returns an invalid Date`);
+      }
+      if (Number.isNaN(time)) {
         fail(`route: param "${key}" has a getRouteKey() that returns an invalid Date`);
       }
       values[key] = routeKey.toISOString();

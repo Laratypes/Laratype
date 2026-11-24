@@ -62,7 +62,7 @@ class ScopedComment {
     lookups.push(`comment:${key}`)
     const post = scope?.post as ScopedPost | undefined
     // Only a comment of the post the route resolved: the user is transitive here
-    return post?.slug === 'hello' && key !== 'missing' ? new ScopedComment(key) : null
+    return post?.slug === 'hello' ? new ScopedComment(key) : null
   }
   constructor(readonly id: string) {}
 }
