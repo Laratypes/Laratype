@@ -6,7 +6,7 @@ import { Container, depsRegistry, Facade } from "@laratype/core";
 import { HTTP_APP, ModelBindingRegistry } from "@laratype/support";
 import { Model } from "@laratype/database";
 import { defineApi, defineContract, defineScope, endpoint } from "@laratype/contract";
-import { Controller, RequestKernel, ResponseKernel, Route, defineMiddleware, response } from "@laratype/http";
+import { Controller, RequestKernel, ResponseKernel, Route, defineInterceptor, defineMiddleware, response } from "@laratype/http";
 import type { ApiRouteBuilder } from "@laratype/http";
 import { Auth, AuthManager, auth } from "../src";
 
@@ -228,6 +228,24 @@ describe("authentication from the contract", () => {
     registered.web = user;
     expect((await audited.request("/api/users/me")).status).toBe(200);
     expect(ran).toEqual(["route"]);
+  });
+
+  it("the 401 comes before an interceptor, which never runs", async () => {
+    let runs = 0;
+    const spy = defineInterceptor((_ctx, next) => {
+      runs++;
+      return next();
+    });
+    const intercepted = appOf((r) => [
+      r.contract(contract, UserController, { endpoints: { me: (r) => r.interceptor(spy) } }),
+    ]);
+    const unauthorized = await intercepted.request("/api/users/me");
+    expect(unauthorized.status).toBe(401);
+    // The guard is prepended at mount, before the interceptor chain: an unauthenticated request never reaches it
+    expect(runs).toBe(0);
+    registered.web = user;
+    expect((await intercepted.request("/api/users/me")).status).toBe(200);
+    expect(runs).toBe(1);
   });
 
   it("a scope guard applies to every endpoint under it", async () => {
