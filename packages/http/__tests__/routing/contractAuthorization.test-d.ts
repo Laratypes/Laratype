@@ -112,4 +112,32 @@ describe('the resolved-authorize policy check', () => {
       "users.posts.update: the policy's `update` method does not accept the bound models the route passes (post)",
     )
   })
+
+  test('a regex-optional param is named as the runtime names it', () => {
+    // Hono accepts `:post{re}?`: the trailing `?` is the optional marker and the braces hold the regex. The proof must
+    // read `post`, as pathParamNames does, or the policy gets the wrong model and the diagnosis names `post{[0-9]+}`.
+    const regexPosts = defineContract<ContractPrefix<'/api/regex-posts', [typeof root]>>()({
+      update: endpoint.patch('/:post{[0-9]+}?').response(anything),
+    })
+    const regexApi = defineApi({
+      'regex.posts': { contract: regexPosts, path: '/api/regex-posts', scopes: [{ scope: root, dir: '' }] },
+    })
+    class RegexController extends Controller {
+      update() { return { ok: true } }
+    }
+    // The optional path param reaches an optional policy parameter, so this route passes
+    expectTypeOf<RouteProof<typeof regexApi, typeof regexPosts, RegexController, { policy: typeof OptionalPolicy }, {}, typeof bound>>().toEqualTypeOf<unknown>()
+    // The wrong model type is still a compile error, named after the runtime's param (`post`, not `post{[0-9]+}`)
+    class WrongRegexPolicy {
+      update(_user: User, _post?: { id: string }) { return true }
+    }
+    expectTypeOf<RouteProof<typeof regexApi, typeof regexPosts, RegexController, { policy: typeof WrongRegexPolicy }, {}, typeof bound>>().toHaveProperty(
+      "regex.posts.update: the policy's `update` method does not accept the bound models the route passes (post)",
+    )
+    Route.api(regexApi, (r) => [
+      r.bind(bound).scope('', { policy: BeforePolicy }),
+      // @ts-expect-error regex.posts.update: the policy's `update` method does not accept the bound models the route passes (post)
+      r.bind(bound).contract(regexPosts, RegexController, { policy: WrongRegexPolicy }),
+    ])
+  })
 })

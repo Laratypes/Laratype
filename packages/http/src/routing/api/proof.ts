@@ -350,13 +350,18 @@ type AbilityKeys<P> = Exclude<MethodKeys<P>, "before">;
 /** The parameters of a policy method after the user: `update(user, post)` gives `[post: Post]`, `viewAny(user)` gives `[]`. */
 type MethodRest<P, K> = K extends keyof P ? (P[K] extends (user: any, ...args: infer A) => any ? A : never) : never;
 
-/** The param name of one path segment, or `""` for a static, wildcard or empty segment (the runtime's `pathParamNames`). */
+/**
+ * The param name of one path segment, or `""` for a static, wildcard or empty segment (the runtime's
+ * `pathParamNames`). The regex form is read before the optional `?`: the trailing `?` of `:id{re}?` is not part of
+ * the name, while a `?` inside the regex (`:id{[a-z]?}`) is not the optional marker. Each form the runtime accepts
+ * (`:id`, `:id?`, `:id{re}`, `:id{re}?`, a regex holding `?` or `}`) gives the same name here.
+ */
 type SegmentParam<S extends string> = S extends `:${infer Rest}`
-  ? Rest extends `${infer N}?`
+  ? Rest extends `${infer N}{${string}}${string}`
     ? N
-    : Rest extends `${infer N}{${string}}${string}`
+    : Rest extends `${infer N}{${string}`
       ? N
-      : Rest extends `${infer N}{${string}`
+      : Rest extends `${infer N}?`
         ? N
         : Rest
   : "";

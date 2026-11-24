@@ -447,7 +447,7 @@ export interface RouteEntry extends ApiRoute {
   readonly policy: PolicyClass | undefined;
   /** The `r.bind()` binders of this route, its scopes' then its contract's and its path params only: `resolveBindings()` runs them per request. */
   readonly bindings: Bindings;
-  /** What the router does not enforce yet: resolved `authorize` (#121), headers schema validation. */
+  /** What the router does not enforce yet: headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
   readonly domain: string | undefined;
