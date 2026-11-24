@@ -55,8 +55,8 @@ describe('Route.api', () => {
 
   test('r.contract() and r.scope() return typed items', () => {
     Route.api(appApi, (r) => {
-      expectTypeOf(r.contract(users, UserController)).toEqualTypeOf<MountedContract<typeof users>>()
-      expectTypeOf(r.scope('users/[user]', { policy: UserScopePolicy })).toEqualTypeOf<MountedScope<'users/[user]'>>()
+      expectTypeOf(r.contract(users, UserController)).toEqualTypeOf<MountedContract<typeof users, {}>>()
+      expectTypeOf(r.scope('users/[user]', { policy: UserScopePolicy })).toEqualTypeOf<MountedScope<'users/[user]', {}>>()
       return [] as never
     })
   })
