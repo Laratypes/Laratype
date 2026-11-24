@@ -58,6 +58,17 @@ describe('createClient', () => {
     expect(calls[0]!.url).toBe('https://example.com/api/users/3')
   })
 
+  it('rejects a baseUrl whose normalized path leaves the page origin at the call, before fetch', async () => {
+    const { fetch, calls } = fakeFetch()
+    // a path on the raw string ("/a/.." is not "//"), but URL parsing normalizes it to "//evil.com": the joined pathname
+    // is another host, so the call-time origin check refuses it even though createClient accepted the baseUrl
+    const api = createClient(appApi, { fetch, baseUrl: '/a/..//evil.com' })
+    await expect(api.users.index()).rejects.toThrow(
+      new TypeError('[@laratype/client] route path "/api/users" would leave the page\'s origin: "//evil.com/api/users"'),
+    )
+    expect(calls).toEqual([])
+  })
+
   it('sends the method in upper case', async () => {
     const { fetch, calls } = fakeFetch()
     const api = createClient(appApi, { fetch })
