@@ -39,7 +39,7 @@ export default class RouteListCommand extends Command {
   }
 }
 
-/** `RouteEntry.unenforced` (authorize, validation), which @laratype/http decides (the CLI does not import that optional package). */
+/** `RouteEntry.unenforced` (validation), which @laratype/http decides (the CLI does not import that optional package). */
 const notEnforcedColumn = (route: Record<string, any>) =>
   route.unenforced?.length ? route.unenforced.join(', ') : '-';
 

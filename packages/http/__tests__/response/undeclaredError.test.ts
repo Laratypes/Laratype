@@ -8,13 +8,15 @@ import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, UnauthorizedException } from '@laratype/support'
 import { defineApi, defineContract, defineError, defineScope, endpoint, errors } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, JsonResource, Middleware, RequestKernel, ResponseKernel, Route, contractAuth, defineMiddleware, registerContractAuth } from '../../src/index'
-import type { MiddlewareClass } from '../../src/index'
+import { Controller, JsonResource, Middleware, RequestKernel, ResponseKernel, Route, contractAuth, contractPolicies, defineMiddleware, registerContractAuth, registerContractPolicies } from '../../src/index'
+import type { ContractPolicyChecks, MiddlewareClass } from '../../src/index'
 
-// A2 #120: mounting a route with a resolved auth needs @laratype/auth's registered factory. These tests exercise the
-// handler and the exception filter, so a permissive stand-in (no user, always next) is enough.
+// A2 #120 / H8 #122: mounting a route with a resolved auth or authorize needs @laratype/auth's registered slots. These
+// tests exercise the handler and the exception filter, so permissive stand-ins (no user, every policy allows) are enough.
 const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next())
 if (!contractAuth()) registerContractAuth(permissiveAuth)
+const permissivePolicies: ContractPolicyChecks = { check: async () => ({ by: 'ability', answer: true }), authorize: async () => {} }
+if (!contractPolicies()) registerContractPolicies(permissivePolicies)
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -110,7 +112,7 @@ const throwingMiddleware = (error: () => Error): MiddlewareClass => {
   return Throwing
 }
 
-/** The policy `users.admin`'s `.authorize()` needs at mount: its check is unenforced until A3 #121. */
+/** The policy `users.admin`'s `.authorize()` needs at mount; the permissive stand-in above allows it. */
 class AdminPolicy {
   before() { return true }
 }
@@ -130,7 +132,7 @@ let logged: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
-  // the mount warning (auth, authorize and headers validation are not enforced yet) and the throttle's no-IP one
+  // the mount warning (headers validation is not enforced yet) and the throttle's no-IP one
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   logged = vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.stubGlobal('__PROD__', false)
