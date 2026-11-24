@@ -472,6 +472,19 @@ describe('MemoryThrottleStore', () => {
     store.hit('k3', 10_000, 'p3')
     expect([...windowsOf(store).keys()]).toEqual(['k2', 'k3'])
   })
+
+  it("keeps the prefix index when the global eviction drops that prefix's last window (#319)", () => {
+    const store = new MemoryThrottleStore(2, 10)
+    store.hit('a1', 10_000, 'a')
+    store.hit('b1', 20_000, 'b')
+    // The store is full: a2's global eviction drops a1, the prefix's only window, and with it the prefix's set
+    store.hit('a2', 10_000, 'a')
+    const prefixes = (store as unknown as { byPrefix: Map<string, Set<string>> }).byPrefix
+    expect([...prefixes.get('a')!]).toEqual(['a2'])
+    // a2 is still indexed and droppable: a3's global eviction removes a2 through the prefix index, then a3 is indexed
+    store.hit('a3', 10_000, 'a')
+    expect([...prefixes.get('a')!]).toEqual(['a3'])
+  })
 })
 
 describe('clientPrefix', () => {

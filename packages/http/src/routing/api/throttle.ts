@@ -67,13 +67,11 @@ export class MemoryThrottleStore implements ThrottleStore {
       if (window !== undefined) this.drop(key, window);
       let prefixWindows = this.byPrefix.get(clientPrefix);
       if (prefixWindows === undefined) this.byPrefix.set(clientPrefix, (prefixWindows = new Set()));
-      if (prefixWindows.size >= this.maxWindowsPerPrefix) {
-        this.evictPrefix(prefixWindows);
-        // A prefix's last window was just dropped, with its empty set: take the set again for the new key
-        prefixWindows = this.byPrefix.get(clientPrefix);
-        if (prefixWindows === undefined) this.byPrefix.set(clientPrefix, (prefixWindows = new Set()));
-      }
+      if (prefixWindows.size >= this.maxWindowsPerPrefix) this.evictPrefix(prefixWindows);
       if (this.windows.size >= this.maxWindows) this.evict();
+      // Either eviction may have dropped this prefix's last window, taking its set with it: take it again for the new key
+      prefixWindows = this.byPrefix.get(clientPrefix);
+      if (prefixWindows === undefined) this.byPrefix.set(clientPrefix, (prefixWindows = new Set()));
       window = { hits: 0, resetAt: now + windowMs, windowMs, prefix: clientPrefix };
       this.windows.set(key, window);
       let keys = this.byLength.get(windowMs);
