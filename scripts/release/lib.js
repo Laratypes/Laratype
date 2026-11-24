@@ -8,11 +8,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export const CHANGELOG_FILE = "CHANGELOG.md";
-export const CHANGESET_DIR = ".changeset";
-export const PRE_FILE = "pre.json";
+const CHANGELOG_FILE = "CHANGELOG.md";
+const CHANGESET_DIR = ".changeset";
+const PRE_FILE = "pre.json";
 export const MAX_SUMMARY_LENGTH = 2000;
-export const BUMPS = /** @type {const} */ (["patch", "minor", "major"]);
+const BUMPS = /** @type {const} */ (["patch", "minor", "major"]);
 /** @typedef {'patch' | 'minor' | 'major'} Bump */
 /** @type {Set<string>} */
 const BUMP_LEVELS = new Set(BUMPS);
@@ -21,7 +21,7 @@ const BUMP_LEVELS = new Set(BUMPS);
  * @param {unknown} value
  * @returns {value is Bump}
  */
-export function isBump(value) {
+function isBump(value) {
   return typeof value === "string" && BUMP_LEVELS.has(value);
 }
 
@@ -46,7 +46,7 @@ const fail = (message) => {
 
 /**
  * @param {string} file
- * @returns {Record<string, any>}
+ * @returns {Record<string, unknown>}
  */
 function readJson(file) {
   let parsed;
@@ -58,22 +58,22 @@ function readJson(file) {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     fail(`${file}: expected a JSON object`);
   }
-  return /** @type {Record<string, any>} */ (parsed);
+  return /** @type {Record<string, unknown>} */ (parsed);
 }
 
 /**
- * @param {string} version
- * @returns {boolean}
+ * @param {unknown} value
+ * @returns {value is string}
  */
-export function isVersion(version) {
-  return typeof version === "string" && SEMVER.test(version);
+function isVersion(value) {
+  return typeof value === "string" && SEMVER.test(value);
 }
 
 /**
  * @param {string} version
  * @returns {string}
  */
-export function stableVersion(version) {
+function stableVersion(version) {
   if (!isVersion(version)) fail(`invalid semver version "${version}"`);
   return version.split("-")[0];
 }
@@ -84,7 +84,7 @@ export function stableVersion(version) {
  * @param {string} right
  * @returns {number} -1, 0 or 1
  */
-export function compareStable(left, right) {
+function compareStable(left, right) {
   const a = stableVersion(left).split(".").map(Number);
   const b = stableVersion(right).split(".").map(Number);
   for (let i = 0; i < 3; i++) {
@@ -116,7 +116,7 @@ export function readWorkspace(root) {
     fail(`no packages directory at ${packagesDir}`);
   }
 
-  /** @type {Array<{ dir: string, file: string, name: string, version: string, private: boolean, pkg: Record<string, any> }>} */
+  /** @type {Array<{ dir: string, file: string, name: string, version: string, private: boolean, pkg: Record<string, unknown> }>} */
   const packages = [];
   const names = new Set();
 
@@ -126,18 +126,20 @@ export function readWorkspace(root) {
     const file = path.join(dir, "package.json");
     if (!existsSync(file)) continue;
     const pkg = readJson(file);
-    if (typeof pkg.name !== "string" || pkg.name.length === 0) fail(`${file}: "name" must be a non-empty string`);
-    if (!isVersion(pkg.version)) fail(`${file}: "version" must be a semver string, got ${JSON.stringify(pkg.version)}`);
+    const name = pkg.name;
+    if (typeof name !== "string" || name.length === 0) fail(`${file}: "name" must be a non-empty string`);
+    const version = pkg.version;
+    if (!isVersion(version)) fail(`${file}: "version" must be a semver string, got ${JSON.stringify(pkg.version)}`);
     if (pkg.private !== undefined && typeof pkg.private !== "boolean") {
       fail(`${file}: "private" must be a boolean when present, got ${JSON.stringify(pkg.private)}`);
     }
-    if (names.has(pkg.name)) fail(`${file}: duplicate package name "${pkg.name}"`);
-    names.add(pkg.name);
+    if (names.has(name)) fail(`${file}: duplicate package name "${name}"`);
+    names.add(name);
     packages.push({
       dir: `packages/${entry}`,
       file,
-      name: pkg.name,
-      version: pkg.version,
+      name,
+      version,
       private: pkg.private === true,
       pkg,
     });
@@ -147,11 +149,12 @@ export function readWorkspace(root) {
 
   const rootFile = path.join(root, "package.json");
   const rootPkg = readJson(rootFile);
-  if (!isVersion(rootPkg.version)) {
+  const rootVersion = rootPkg.version;
+  if (!isVersion(rootVersion)) {
     fail(`${rootFile}: "version" must be a semver string, got ${JSON.stringify(rootPkg.version)}`);
   }
 
-  return { root, packages, rootPkg, rootFile };
+  return { root, packages, rootPkg, rootVersion, rootFile };
 }
 
 /**
@@ -160,7 +163,7 @@ export function readWorkspace(root) {
  * @returns {string}
  */
 export function fixedVersion(workspace) {
-  const versions = new Set([...workspace.packages.map((pkg) => pkg.version), workspace.rootPkg.version]);
+  const versions = new Set([...workspace.packages.map((pkg) => pkg.version), workspace.rootVersion]);
   if (versions.size !== 1) {
     fail(`fixed versioning needs one version for every package, found ${[...versions].sort().join(", ")}`);
   }
@@ -184,7 +187,7 @@ export function publicPackages(workspace) {
  * @param {{ dir: string }} pkg
  * @returns {boolean}
  */
-export function packageHasCode(root, pkg) {
+function packageHasCode(root, pkg) {
   const src = path.join(root, pkg.dir, "src");
   return existsSync(src) && statSync(src).isDirectory();
 }
@@ -293,7 +296,7 @@ export function readChangesets(root, packages) {
  * @param {string} what
  * @returns {string}
  */
-export function assertStableBase(value, what) {
+function assertStableBase(value, what) {
   if (typeof value !== "string" || !STABLE.test(value)) {
     fail(`${what} must be a stable semver version (X.Y.Z), got ${JSON.stringify(value)}`);
   }
@@ -345,11 +348,12 @@ export function removePre(root) {
  * @param {Array<{ bump: string }>} releases
  * @returns {'patch' | 'minor' | 'major' | null}
  */
-export function highestBump(releases) {
+function highestBump(releases) {
   let highest = -1;
   for (const release of releases) {
-    const index = BUMPS.indexOf(/** @type {any} */ (release.bump));
-    if (index === -1) fail(`unknown bump level "${release.bump}"`);
+    const bump = release.bump;
+    if (!isBump(bump)) fail(`unknown bump level "${release.bump}"`);
+    const index = BUMPS.indexOf(bump);
     if (index > highest) highest = index;
   }
   return highest === -1 ? null : BUMPS[highest];
@@ -360,7 +364,7 @@ export function highestBump(releases) {
  * @param {'patch' | 'minor' | 'major'} bump
  * @returns {string}
  */
-export function bumpVersion(version, bump) {
+function bumpVersion(version, bump) {
   const [major, minor, patch] = stableVersion(version).split(".").map(Number);
   if (bump === "major") return major === 0 ? "1.0.0" : `${major + 1}.0.0`;
   if (bump === "minor") return `${major}.${minor + 1}.0`;
@@ -416,7 +420,7 @@ export function nextVersion({ current, pre, releases }) {
  * @param {{ version: string, date: string, changesets: Array<{ releases: Array<{ name: string }>, summary: string }> }} input
  * @returns {string}
  */
-export function renderChangelogEntry({ version, date, changesets }) {
+function renderChangelogEntry({ version, date, changesets }) {
   if (!isVersion(version)) fail(`invalid version "${version}"`);
   if (typeof date !== "string" || !DATE.test(date)) fail(`invalid changelog date "${date}"`);
   /** @type {Map<string, string[]>} */
@@ -442,7 +446,7 @@ export function renderChangelogEntry({ version, date, changesets }) {
  * @param {string} entry
  * @returns {string}
  */
-export function mergeChangelog(existing, entry) {
+function mergeChangelog(existing, entry) {
   const normalized = existing.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("# Changelog")) fail(`${CHANGELOG_FILE} must start with "# Changelog"`);
   const rest = normalized.slice("# Changelog".length).trim();

@@ -30,6 +30,15 @@ jobs:
     # npm accepts only this job's OIDC token and a publish waits for a reviewer.
     environment: npm-release
     steps:
+      # A manual dispatch may only run from refs/heads/master. This is the first step so a non-master dispatch
+      # fails before the checkout and before setup-bun runs `bun install` (which runs lifecycle scripts).
+      - name: Refuse a non-master dispatch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master'
+        shell: bash
+        run: |
+          echo "::error::manual publish must run from refs/heads/master, not $GITHUB_REF"
+          exit 1
+
       # Nothing below needs git auth; keep the token out of .git/config while pack and publish run.
       # Full history is for the tag ancestry check.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

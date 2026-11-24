@@ -34,19 +34,22 @@ const USAGE = `usage:
 /**
  * @param {string[]} args
  * @param {import('node:util').ParseArgsConfig['options']} [options]
- * @returns {{ values: Record<string, any>, positionals: string[] }}
+ * @returns {{ values: Record<string, unknown>, positionals: string[] }}
  */
 function parse(args, options = {}) {
   try {
     const parsed = parseArgs({ args, options, allowPositionals: true, strict: true });
     return { values: parsed.values, positionals: parsed.positionals };
   } catch (error) {
-    throw new ReleaseError(`${/** @type {Error} */ (error).message}\n${USAGE}`);
+    failWithUsage(/** @type {Error} */ (error).message);
   }
 }
 
-/** @param {string} reason */
-function usage(reason) {
+/**
+ * @param {string} reason
+ * @returns {never}
+ */
+function failWithUsage(reason) {
   throw new ReleaseError(`${reason}\n${USAGE}`);
 }
 
@@ -57,7 +60,7 @@ function main(argv) {
   switch (command) {
     case "changeset": {
       const { positionals } = parse(rest);
-      if (positionals.length < 3) usage("release:changeset needs a package, a bump and a summary");
+      if (positionals.length < 3) failWithUsage("release:changeset needs a package, a bump and a summary");
       const [name, bump, ...summary] = positionals;
       const file = writeChangeset(ROOT, { name, bump, summary: summary.join(" ") });
       console.log(`release: wrote ${path.relative(ROOT, file)}`);
@@ -65,7 +68,7 @@ function main(argv) {
     }
 
     case "version": {
-      if (rest.length > 0) usage("release:version takes no arguments");
+      if (rest.length > 0) failWithUsage("release:version takes no arguments");
       const workspace = readWorkspace(ROOT);
       const current = fixedVersion(workspace);
       const pre = readPre(ROOT);
@@ -97,8 +100,9 @@ function main(argv) {
         version: { type: "string" },
         publish: { type: "boolean" },
       });
+      const expectedVersion = typeof values.version === "string" ? values.version : undefined;
       const { version, distTag } = checkWorkspace(ROOT, {
-        expectedVersion: values.version,
+        expectedVersion,
         publish: values.publish === true,
       });
       console.log(`release: ok, version ${version}, dist-tag ${distTag}`);
@@ -107,21 +111,21 @@ function main(argv) {
 
     case "dist-tag": {
       const { positionals } = parse(rest);
-      if (positionals.length !== 1) usage("dist-tag needs exactly one version");
+      if (positionals.length !== 1) failWithUsage("dist-tag needs exactly one version");
       console.log(distTagFor(positionals[0]));
       return;
     }
 
     case "pre": {
       const { positionals } = parse(rest);
-      if (positionals.length !== 1) usage("release:pre needs exactly one stable base version, e.g. 1.0.0");
+      if (positionals.length !== 1) failWithUsage("release:pre needs exactly one stable base version, e.g. 1.0.0");
       const file = writePre(ROOT, positionals[0]);
       console.log(`release: entered alpha pre mode for ${positionals[0]} (${path.relative(ROOT, file)})`);
       return;
     }
 
     case "pre-exit": {
-      if (rest.length > 0) usage("release:pre-exit takes no arguments");
+      if (rest.length > 0) failWithUsage("release:pre-exit takes no arguments");
       const file = removePre(ROOT);
       console.log(
         `release: left pre mode (${path.relative(ROOT, file)} removed); run release:version to write the stable version`,
@@ -130,7 +134,7 @@ function main(argv) {
     }
 
     default:
-      usage(command === undefined ? "missing command" : `unknown command "${command}"`);
+      failWithUsage(command === undefined ? "missing command" : `unknown command "${command}"`);
   }
 }
 
