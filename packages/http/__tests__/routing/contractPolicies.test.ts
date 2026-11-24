@@ -121,7 +121,22 @@ describe("the contract policy slot", () => {
   });
 
   it("rejects a value that is not an object with both members, with the documented text", () => {
-    for (const value of [undefined, null, 42, "checks", [], { check: 1, authorize: 1 }, { check: async () => true }]) {
+    const values = [
+      undefined,
+      null,
+      42,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "checks",
+      "x".repeat(1_000_000),
+      "\u{1f600}".repeat(1_000),
+      [],
+      { length: 1_000_000_000 },
+      { check: 1, authorize: 1 },
+      { check: async () => true },
+      () => true,
+    ];
+    for (const value of values) {
       expect(() => registerContractPolicies(value as never)).toThrow(
         /^\[@laratype\/http\] registerContractPolicies\(\): expected \{ check, authorize \} from @laratype\/auth, got /,
       );

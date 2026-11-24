@@ -463,7 +463,7 @@ type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = Poli
     : [P] extends [undefined]
     ? { [K in OwnAuthorizedKeys<C> as `${N}.${K}: endpoint has .authorize() but r.contract() has no { policy }`]: K }
     : "before" extends MethodKeys<P>
-      ? {}
+      ? PolicyArgumentIssues<N, C, Ctx, P, B>
       : {
           [K in Exclude<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as `${N}.${K}: .authorize() needs a \`${K}\` method or \`before\` on the policy`]: K
         } & PolicyArgumentIssues<N, C, Ctx, P, B>
