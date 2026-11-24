@@ -4,9 +4,7 @@ import { apiRoutes } from "../routes/api";
 export default class RouteServiceProvider extends RouteAppServiceProvider {
 
   public routes() {
-    return [
-      ...apiRoutes.mount(this.apps),
-    ];
+    return apiRoutes.mount(this.apps);
   }
 
 }

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { swapMemoryAuth, type MemoryAuth, type MemoryAuthOptions } from "./support/auth";
+import { swapAdminLookup, swapMemoryAuth, type MemoryAuth, type MemoryAuthOptions } from "./support/auth";
 import { bootExample, type BootedExample } from "./support/boot";
 
 // E3 #135: the ported auth surface. The 401s run against the real AuthManager; the authenticated cases swap it for the
@@ -114,13 +114,30 @@ describe("contract auth", () => {
 });
 
 describe("admin model binding", () => {
-  it("answers 404 for a non-numeric or oversized :admin id, never 500", async () => {
+  it("answers 200 for a known admin and 404 for unknown/invalid :admin ids, never 500", async () => {
+    // The model-binding lookup is the test seam here: the route resolver, AdminPolicy and response path are real.
     const auth = install();
-    const token = await auth.issue("admin", auth.admin(1));
-    for (const id of ["not-a-number", "999999999999999999999"]) {
-      const response = await request(`/api/admin/admins/${id}`, { headers: bearer(token) });
-      expect(response.status, id).toBe(404);
-      expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not Found." });
+    const admin = auth.admin(7);
+    const token = await auth.issue("admin", admin);
+    const lookup = swapAdminLookup();
+    try {
+      const found = await request("/api/admin/admins/7", { headers: bearer(token) });
+      expect(found.status).toBe(200);
+      expect(await found.json()).toEqual({
+        id: 7,
+        email: "admin7@example.com",
+        firstName: "Grace",
+        lastName: "Hopper",
+        age: 45,
+      });
+
+      for (const id of ["999", "not-a-number", "999999999999999999999"]) {
+        const response = await request(`/api/admin/admins/${id}`, { headers: bearer(token) });
+        expect(response.status, id).toBe(404);
+        expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not Found." });
+      }
+    } finally {
+      lookup.restore();
     }
   });
 });

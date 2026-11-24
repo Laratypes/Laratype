@@ -8,7 +8,7 @@ import { Middleware, type MiddlewareHandler } from "@laratype/http";
 export class GoogleAuthentication extends Middleware {
   handle: MiddlewareHandler = async (request, res, next) => {
     // The api guard in app/config/auth.ts carries the google strategy; strategies register under the guard's name
-    return (await Passport.authenticate('api', () => {
+    return (await Passport.authenticate("api", () => {
       return;
     }))(res, next);
   }

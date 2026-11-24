@@ -12,6 +12,7 @@ import UserController from "../http/controllers/UserController";
 import Admin from "../models/Admin";
 import AdminPolicy from "../policies/AdminPolicy";
 import UserPolicy from "../policies/UserPolicy";
+import { parseRouteId } from "../services/routeId";
 import adminsContract from "../api/admin/admins";
 import adminLoginContract from "../api/admin/login";
 import adminMeContract from "../api/admin/me";
@@ -28,11 +29,8 @@ import usersContract from "../api/users";
 
 // The ids a route may look an admin up by: a canonical safe integer. Anything else is a miss without a query, so
 // `/api/admin/admins/abc` and an oversized id answer the contract's 404 instead of reaching the database.
-const ADMIN_ID = /^[1-9]\d*$/;
-
 const adminByRouteKey = async (raw: string) => {
-  if (!ADMIN_ID.test(raw)) return null;
-  if (!Number.isSafeInteger(Number(raw))) return null;
+  if (parseRouteId(raw) === null) return null;
   return Admin.findByRouteKey(raw);
 };
 

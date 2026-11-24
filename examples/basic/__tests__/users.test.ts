@@ -104,6 +104,33 @@ describe("POST /api/users", () => {
     expect(errors.name.every((message) => typeof message === "string")).toBe(true);
     expect(errors.email.every((message) => typeof message === "string")).toBe(true);
   });
+
+  it("answers 422 for null, non-string and oversized object fields", async () => {
+    const cases = [
+      { name: { length: 1e9 }, email: "ok@example.com" },
+      { name: null, email: undefined },
+      { name: 42, email: [] },
+      { name: undefined, email: null },
+    ];
+    for (const body of cases) {
+      const response = await example.store(body, auth);
+      expect(response.response.status, JSON.stringify(body)).toBe(422);
+    }
+  });
+
+  it("stores a long unicode name and keeps __proto__ out of the store", async () => {
+    // A lone surrogate, a control character and a very long string are all valid strings to the zod schema.
+    const name = `\uD800${"a".repeat(10_000)}\u0007`;
+    const unicode = await example.store({ name, email: "unicode@example.com" }, auth);
+    expect(unicode.response.status).toBe(201);
+    expect((unicode.body as { name: string }).name).toBe(name);
+
+    // An own `__proto__` key in the JSON body is stripped by the schema; it never reaches the store or Object.prototype.
+    const body = JSON.parse(`{"__proto__":{"polluted":true},"name":"Proto","email":"proto@example.com"}`);
+    const proto = await example.store(body, auth);
+    expect(proto.response.status).toBe(201);
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
 });
 
 describe("GET /api/users/:id", () => {
@@ -133,8 +160,15 @@ describe("GET /api/users/:id", () => {
     const { response } = await requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
 
-    for (const malformed of [`0x${created.id.toString(16)}`, `${created.id}e0`, `0${created.id}`]) {
-      const { response, body } = await requestJson(`/api/users/${malformed}`);
+    for (const malformed of [
+      `0x${created.id.toString(16)}`,
+      `${created.id}e0`,
+      `0${created.id}`,
+      "999999999999999999999",
+      "a".repeat(10_000),
+      "__proto__",
+    ]) {
+      const { response, body } = await requestJson(`/api/users/${encodeURIComponent(malformed)}`);
       expect(response.status, malformed).toBe(404);
       expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
     }

@@ -3,6 +3,7 @@ import type { Container } from "@laratype/core";
 import { Hash, ModelBindingRegistry } from "@laratype/support";
 import Admin from "../../app/models/Admin";
 import User from "../../app/models/User";
+import { parseRouteId } from "../../app/services/routeId";
 
 /**
  * The no-MySQL auth seam for the e2e suite: after the real boot, swap the app container's `AuthManager` for one whose
@@ -79,6 +80,25 @@ export interface MemoryAuthOptions {
   /** `"user"` authenticates a User principal through the admin guard (the policy-chain 403 test). */
   readonly adminProvider?: "admin" | "user";
 }
+
+/**
+ * The no-DB model-binding seam: `/api/admin/admins/:admin` resolves `Admin.findByRouteKey`, so the suite replaces that
+ * lookup with the rows of `swapMemoryAuth`'s `admin()` factory. The route resolver, policy and response path are real.
+ */
+export const swapAdminLookup = (): { restore: () => void } => {
+  const original = Admin.findByRouteKey;
+  Object.assign(Admin, {
+    findByRouteKey: async (raw: string) => {
+      const id = parseRouteId(raw);
+      return id === null ? null : MemoryAdmin.rows.find((row) => row.id === id) ?? null;
+    },
+  });
+  return {
+    restore: () => {
+      Object.assign(Admin, { findByRouteKey: original });
+    },
+  };
+};
 
 export const swapMemoryAuth = (app: Container, options: MemoryAuthOptions = {}): MemoryAuth => {
   MemoryUser.rows = [];

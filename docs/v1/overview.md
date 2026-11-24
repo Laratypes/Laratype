@@ -70,7 +70,7 @@ The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `
 ## Project structure
 
 ### Status
-Discovery merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1): the manifest reads both this layout and the 0.5 one. `examples/basic` is on this layout (E3 [#135](https://github.com/Laratypes/Laratype/issues/135)): controllers, middleware, requests and resources under `app/http/`, models, policies, providers and services under `app/`, and factories and seeders under `database/`. Dropping the 0.5 paths and `getAppPath()` is follow-up [#419](https://github.com/Laratypes/Laratype/issues/419). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
+Discovery merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1): the manifest reads both this layout and the 0.5 one. `examples/basic` is on this layout (E3 [#135](https://github.com/Laratypes/Laratype/issues/135)): controllers, middleware and resources under `app/http/` (its 0.5 request classes were replaced by contract body schemas), models, policies, providers and services under `app/`, and factories and seeders under `database/`. Dropping the 0.5 paths and `getAppPath()` is follow-up [#419](https://github.com/Laratypes/Laratype/issues/419). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
 
 ### Design (non-binding)
 ```
