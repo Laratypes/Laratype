@@ -93,13 +93,15 @@ interface Call {
 
 const calls: Call[] = [];
 type ScopeAnswer = { by: "before" | "ability"; answer: boolean };
-let scopeAnswers: (ScopeAnswer | null)[] = [];
+// A wrong shape can reach the kernel from an older @laratype/auth copy registered on the slot (H8 #122): the kernel
+// fails closed on it, so the tests can put one here
+let scopeAnswers: unknown[] = [];
 let endpointResult: "allow" | "deny" | "throw" = "allow";
 
 const checks: ContractPolicyChecks = {
   async check(policy, user, ability, ...args) {
     calls.push({ level: "check", policy, user, ability, args });
-    return scopeAnswers.shift() ?? null;
+    return (scopeAnswers.shift() ?? null) as ScopeAnswer | null;
   },
   async authorize(policy, user, ability, ...args) {
     calls.push({ level: "authorize", policy, user, ability, args });
@@ -245,6 +247,42 @@ describe("the contract policy chain", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
     expect(calls.every((call) => call.level === "check")).toBe(true);
+  });
+
+  // H8 #122: a check of the wrong shape must be the 403, never the allow of a scope-only route. A bare `false` used to
+  // fall through to `explicitlyAllowed = true` (a denial read as an allow), and a `before` tag without `true` used to
+  // be the bypass.
+  it("a boolean false is the 403 on a scope-only route, never an allow", async () => {
+    scopeAnswers = [false];
+    const response = await build().request("/api/users/7/comments");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
+    expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
+  });
+
+  it("a boolean true is the 403 too: a bare true is not a tagged ability allow", async () => {
+    scopeAnswers = [true];
+    const response = await build().request("/api/users/7/comments");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
+    expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
+  });
+
+  it("a before tag whose answer is undefined is the 403, not the bypass", async () => {
+    scopeAnswers = [{ by: "before", answer: undefined }];
+    const response = await build().request("/api/users/7/comments");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
+    expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
+  });
+
+  it("an unknown tag with answer true is the 403, not an explicit allow", async () => {
+    scopeAnswers = [{ by: "other", answer: true }];
+    const response = await build().request("/api/users/7/comments");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
+    // The unknown tag is the 403 at once: it never sets the explicit allow nor passes to the inner scope
+    expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
   });
 
   it("runs before the 422: an invalid body is a 403 when the policy denies", async () => {

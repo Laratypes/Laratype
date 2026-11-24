@@ -347,12 +347,15 @@ export default class Request extends AppServiceProvider {
               for (const scope of scopes) {
                 const answer = await checks.check(container.make(scope), user, ability, bound);
                 // false from before or the ability is the 403 at once; a null check (before fell through and the
-                // ability matches no method) passes the scope and continues
+                // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
+                // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403
+                // too: a denial must never become the allow of a route with no endpoint policy
                 if (answer === null) continue;
-                if (answer.answer === false) throw errors.forbidden();
+                if (answer?.answer !== true) throw errors.forbidden();
                 // Only a scope's before(true) is the admin bypass: it allows the request and skips the remaining inner
                 // scopes and the endpoint policy. An ability(true) passes this scope only and the chain continues.
                 if (answer.by === "before") return await next(arg);
+                if (answer.by !== "ability") throw errors.forbidden();
                 explicitlyAllowed = true;
               }
               if (policy !== undefined) {
