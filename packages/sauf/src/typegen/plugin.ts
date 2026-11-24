@@ -7,10 +7,11 @@
  * module is loaded on every `sauf` start.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import { DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
 import type { ApiTreeConfig } from './config';
+import { inModelsDir } from '../manifest/scan';
 import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
 
@@ -115,6 +116,12 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     }
   };
 
+  /** Whether `file` is a model module the type scan reads (H14 #163): adding or deleting one changes `models.d.ts`. */
+  const inModels = (file: string) => {
+    const rel = relative(projectDir, resolve(file));
+    return !rel.startsWith('..') && !isAbsolute(rel) && inModelsDir(slash(rel));
+  };
+
   const api: ApiPluginApi = {
     rescan,
     refresh,
@@ -124,7 +131,8 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
     inTree: (file) =>
       used && inside(rootPath, resolve(file)) && !inside(outPath, resolve(file)) && isTreeFile(slash(relative(rootPath, resolve(file)))),
     isGenerated: (file) => inside(outPath, resolve(file)),
-    affectsTree: (event, file) => resolve(file) === configFile || (event !== 'change' && api.inTree(file)),
+    // A model added or deleted (not edited: the generated file imports it) changes `models.d.ts` too (H14 #163)
+    affectsTree: (event, file) => resolve(file) === configFile || (event !== 'change' && (api.inTree(file) || inModels(file))),
   };
 
   return {

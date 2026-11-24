@@ -55,16 +55,25 @@ const MAX_EXPANDED_STATUSES = 16;
 
 const key = (name: string) => (IDENT.test(name) ? name : quote(name));
 
-function compilerOptions(ts: typeof TS, options: ApiFileOptions): TS.CompilerOptions {
+/**
+ * The compiler options of the project's tsconfig, and its declaration files: an app-level ambient augmentation
+ * (`hono/request`'s `input`, `global.d.ts`) is part of the program the generated types resolve in, and only the
+ * tsconfig's `include` knows it (H14 #163: the generated `models.d.ts` loads `@laratype/http` for its `Register`
+ * augmentation).
+ */
+function compilerOptions(ts: typeof TS, options: ApiFileOptions): { options: TS.CompilerOptions; declarations: string[] } {
   let base: TS.CompilerOptions = { strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
+  let declarations: string[] = [];
   if (options.tsconfig) {
     const { config, error } = ts.readConfigFile(options.tsconfig, ts.sys.readFile);
     if (error) throw new ApiGenerationError(ts.flattenDiagnosticMessageText(error.messageText, "\n"));
-    base = ts.parseJsonConfigFileContent(config, ts.sys, dirname(options.tsconfig)).options;
+    const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dirname(options.tsconfig));
+    base = parsed.options;
+    declarations = parsed.fileNames.filter((file) => file.endsWith(".d.ts"));
   }
   // The overlay must resolve even before the app's tsconfig lists it.
   const rootDirs = [...(base.rootDirs ?? [options.projectDir]), options.typesDir];
-  return { ...base, rootDirs, noEmit: true, composite: false, incremental: false, declaration: false, skipLibCheck: true };
+  return { options: { ...base, rootDirs, noEmit: true, composite: false, incremental: false, declaration: false, skipLibCheck: true }, declarations };
 }
 
 /**
@@ -158,7 +167,7 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
     "export type HasResponse = 0 extends 1 & AppApi ? never : AppApi extends { readonly [API_ROOT]: true } ? Responses<AppApi> : never",
   ]);
 
-  const compilerOpts = compilerOptions(ts, options);
+  const { options: compilerOpts, declarations } = compilerOptions(ts, options);
   if (!(compilerOpts.strictNullChecks ?? compilerOpts.strict)) {
     throw new ApiGenerationError(`the contract types need strictNullChecks: set "strict": true in ${options.tsconfig ?? "the project's tsconfig"}`);
   }
@@ -170,7 +179,9 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
   host.fileExists = (fileName) => same(fileName) || fileExists.call(host, fileName);
   host.readFile = (fileName) => (same(fileName) ? entrySource : readFile.call(host, fileName));
 
-  const program = ts.createProgram([entryFile], compilerOpts, host);
+  // The project's own declaration files are roots too: they carry the ambient augmentations the app program has.
+  const roots = [entryFile, ...declarations.filter((file) => resolve(file) !== entryFile)];
+  const program = ts.createProgram(roots, compilerOpts, host);
   const diagnostics = ts.getPreEmitDiagnostics(program);
   if (diagnostics.length) {
     const text = ts.formatDiagnostics(diagnostics, { getCanonicalFileName: (f) => f, getCurrentDirectory: () => options.projectDir, getNewLine: () => "\n" });
