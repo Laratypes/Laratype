@@ -433,7 +433,7 @@ export default class Response extends AppServiceProvider {
     const status = responsible ? exceptionStatus(responsible) : httpError ? httpError.status : 500;
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
-    // constructor's own log of reportable Exceptions is separate, tracked in #273
+    // constructor logs nothing, so a thrown reportable Exception has this one report (#273)
     if ((err as { reportable?: unknown }).reportable || status >= 500) {
       quietLog(err);
     }

@@ -24,8 +24,8 @@ const bootApp = () => {
 // The unknown-error body of docs/v1/http.md › Exceptions: no code, so the client classifies it as unexpected
 const GENERIC = { message: 'Server Error' }
 
-// The log counts below are of console.error, the one resolveException writes. The Exception constructor's own consola
-// log of reportable Exceptions is separate (#273) and not counted
+// The log counts below are of console.error, the one resolveException writes; a reportable Exception is reported here
+// once, its constructor logs nothing (#273)
 let errors: ReturnType<typeof vi.spyOn>
 
 const quiet = () => {

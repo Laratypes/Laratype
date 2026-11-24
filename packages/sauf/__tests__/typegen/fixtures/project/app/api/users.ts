@@ -25,4 +25,6 @@ export default defineContract<Prefix>()({
   index: endpoint.get('/').query(z.object({ page: z.coerce.number<number>().optional() })).response(z.array(UserDto)),
   show: endpoint.get('/:user').response(UserDto),
   store: endpoint.post('/').body(z.object({ name: z.string(), email: z.string() })).response(UserDto, 201).throws(EmailTaken),
+  // no response schema: a 202 with no body, emitted as status 202 / response false
+  destroy: endpoint.delete('/:user').status(202),
 }, { auth: true })

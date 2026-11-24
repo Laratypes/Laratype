@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Console } from '@laratype/console'
 import { Exception, InternalException, NotFoundException, ValidationException, isException } from '../src/index'
 
 describe('isException', () => {
@@ -30,5 +31,51 @@ describe('isException', () => {
     const partial = Object.assign(new Error('x'), { canResponsible: () => true, getHttpCode: () => 404, toJson: () => ({}) })
     expect(isException(Object.defineProperty(partial, Symbol.for('laratype.exception'), { value: true }))).toBe(false)
     expect(isException('x')).toBe(false)
+  })
+})
+
+describe('Exception constructor', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // #273: reporting belongs to the exception filter, once; building an exception has no side effects
+  it('logs nothing, for a reportable exception or a plain one', () => {
+    const log = vi.spyOn(Console, 'error').mockImplementation(() => {})
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const reportable = new InternalException('secret detail')
+    const plain = new Exception({ message: 'secret detail' })
+    // the fields the constructor sets are still there
+    expect(reportable.message).toBe('secret detail')
+    expect(reportable.getErrorCode()).toBe('INTERNAL_ERROR')
+    expect(reportable.getHttpCode()).toBe(500)
+    expect(reportable.canResponsible()).toBe(true)
+    expect(plain.message).toBe('secret detail')
+    expect(plain.getErrorCode()).toBe('')
+    expect(plain.canResponsible()).toBe(false)
+
+    expect(log).not.toHaveBeenCalled()
+    expect(report).not.toHaveBeenCalled()
+  })
+
+  // The values the constructor used to hand to the console, and the option edges: none throws, none logs
+  it('logs nothing, and does not throw, on hostile option values', () => {
+    const log = vi.spyOn(Console, 'error').mockImplementation(() => {})
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const construct = (options: unknown) => () => new Exception(options as ConstructorParameters<typeof Exception>[0])
+
+    expect(construct({ message: 'x'.repeat(100_000) })).not.toThrow()
+    expect(construct({ message: '\ud800 \u0000 \u001b[31m' })).not.toThrow()
+    expect(construct({ message: { length: 1e9 } })).not.toThrow()
+    expect(construct({ code: { length: 1e9 } })).not.toThrow()
+    expect(construct({ httpCode: Number.NaN })).not.toThrow()
+    expect(construct({ httpCode: Number.POSITIVE_INFINITY })).not.toThrow()
+    // a __proto__ key is an option, not the prototype of the options: it never replaces the message
+    expect(construct(JSON.parse('{"__proto__": {"message": "polluted"}}'))).not.toThrow()
+    expect(new Exception(JSON.parse('{"__proto__": {"message": "polluted"}}')).message).toBe('')
+
+    expect(log).not.toHaveBeenCalled()
+    expect(report).not.toHaveBeenCalled()
   })
 })

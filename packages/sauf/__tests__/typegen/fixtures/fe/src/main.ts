@@ -23,5 +23,5 @@ export function describeError(error: AppApi['users']['store']['errors']): string
   return error.body.message
 }
 
-export const healthIsPublic: boolean = !(manifest['v1.health.check'].errors as readonly string[]).includes('UNAUTHORIZED')
+export const healthIsPublic: boolean = !(manifest['v1.health.check'].errors as readonly { code: string }[]).some((error) => error.code === 'UNAUTHORIZED')
 export const root: HTMLElement | null = document.querySelector('#app')
