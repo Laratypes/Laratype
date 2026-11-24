@@ -8,7 +8,7 @@ last-verified: 2026-10-09
 
 # Auth (`@laratype/auth`), skeleton
 
-> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed), [Policies and gates](#policies-and-gates) (proposed) and [Authentication from the contract](#authentication-from-the-contract) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
+> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed), [Policies and gates](#policies-and-gates) (proposed) and [Authentication from the contract](#authentication-from-the-contract) (merged) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
 
 | Section | Status |
 |---|---|
@@ -26,7 +26,7 @@ last-verified: 2026-10-09
 proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
-[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414); [`Register.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/Register.ts)).
+[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414); [`Register.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/Register.ts)).
 
 ```ts
 // @laratype/auth
@@ -34,7 +34,7 @@ export interface Register {}
 
 export type RegisteredUser<R = Register> = R extends { user: infer U extends Model } ? U : Model;
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
-// A2 #120, proposed: PR #414 @ 52a21000: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
+// A2 #120, merged @ 7040fd07: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
 export type GuardUser<A extends true | GuardName = true> = ...;
 ```
 
@@ -97,7 +97,7 @@ export class AuthVerification {
 ## Authentication from the contract
 
 ### Status
-merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414), [#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/contractAuth.ts).
+merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414), [#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/http/src/routing/api/contractAuth.ts).
 
 ### Public API
 
