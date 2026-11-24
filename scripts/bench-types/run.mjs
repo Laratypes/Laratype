@@ -117,10 +117,6 @@ const tail = (output) => output.split(/\r?\n/).filter(Boolean).slice(-30).join('
 
 /**
  * Generates one case and writes its tsconfig. Returns the tsconfig path and contract count.
- * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean }} testCase
- * @param {string} runRoot
- */
-/**
  * @param {BenchCase} testCase
  * @param {string} runRoot
  */
@@ -145,7 +141,7 @@ const writeCase = (testCase, runRoot) => {
 
 /**
  * Runs tsc on one case. Returns the result, or `undefined` after printing why the run failed.
- * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean }} testCase
+ * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean, models?: boolean }} testCase
  * @param {string} tsconfig @param {number} contractCount
  */
 const measure = (testCase, tsconfig, contractCount) => {

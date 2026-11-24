@@ -57,8 +57,8 @@ const prefixOf = (/** @type {number} */ i) => `/api/teams/:team/resource${i}`
  */
 const MODEL_KEYS = ['team', 'id', 'model2', 'model3', 'model4', 'model5', 'model6', 'model7', 'model8', 'model9']
 
-/** @param {string} key @param {number} index */
-const modelFile = (key, index) => `// A registered model (H14 #163): the class is the static side, its instance the bound param.
+/** @param {number} index */
+const modelFile = (index) => `// A registered model (H14 #163): the class is the static side, its instance the bound param.
 export default class Model${index} {
   static readonly primaryKey = 'id'
   static async findByRouteKey(key: string, _scope?: Readonly<Record<string, object>>): Promise<Model${index} | null> {
@@ -333,7 +333,7 @@ export function generateFixture(endpoints, options = {}) {
   files.set('routes.ts', routeLines.join('\n'))
 
   if (options.models) {
-    MODEL_KEYS.forEach((key, index) => files.set(`models/model-${index}.ts`, modelFile(key, index)))
+    MODEL_KEYS.forEach((_, index) => files.set(`models/model-${index}.ts`, modelFile(index)))
     files.set('models.ts', MODELS_FILE)
   }
 

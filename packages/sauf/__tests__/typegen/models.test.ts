@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { MODELS_FILE, emitModelsFile, generateTypes, modelKeys, syncContractTree } from '../../src/typegen'
+import { emitModelsFile, generateTypes, modelKeys, syncContractTree } from '../../src/typegen'
 import type { GenerateResult } from '../../src/typegen'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -123,6 +123,19 @@ describe('models.d.ts (H14 #163)', () => {
     rmSync(scanDir, { recursive: true, force: true })
   })
 
+  it('a manifest scan error in the models folders writes no models file and keeps the tree files', () => {
+    const errorDir = makeProject('manifest-error')
+    const project = copy(errorDir)
+    // The same model name in both layouts: the manifest scan (and scanModels) refuses it
+    mkdirSync(join(project, 'app/src/models'), { recursive: true })
+    writeFileSync(join(project, 'app/src/models/User.ts'), 'export default class User {}\n')
+    const result = syncContractTree({ projectDir: project })!
+    expect(result.files.map((f) => f.path)).not.toContain('.laratype/types/models.d.ts')
+    expect(result.files.map((f) => f.path)).toContain('.laratype/types/app/api/$types.d.ts')
+    expect(existsSync(join(project, '.laratype/types/models.d.ts'))).toBe(false)
+    rmSync(errorDir, { recursive: true, force: true })
+  })
+
   it('quotes a key that is not an identifier, and keeps the file parseable', () => {
     const quoteDir = makeProject('quote')
     const quoted = join(quoteDir, 'project')
@@ -147,9 +160,5 @@ describe('models.d.ts (H14 #163)', () => {
     )
     expect(() => modelKeys([{ name: 'User', path: 'app/models/User.ts' }])).not.toThrow()
     expect(() => modelKeys([])).not.toThrow()
-  })
-
-  it('names the one stale-swept file', () => {
-    expect(MODELS_FILE).toBe('models.d.ts')
   })
 })

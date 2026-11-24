@@ -347,9 +347,9 @@ export default class Request extends AppServiceProvider {
               let explicitlyAllowed = false;
               // A scope hook gets a frozen snapshot: a mutation cannot change the endpoint policy's arguments or
               // ctx.params, which keep reading the record. The record's prototype is not changed either.
-              const scopeBound = scopes.length ? Object.freeze({ ...bound }) : undefined;
+              const scopeBound = Object.freeze({ ...bound });
               for (const scope of scopes) {
-                const answer = await checks.check(container.make(scope), user, ability, scopeBound!);
+                const answer = await checks.check(container.make(scope), user, ability, scopeBound);
                 // false from before or the ability is the 403 at once; a null check (before fell through and the
                 // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
                 // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403

@@ -47,6 +47,9 @@ export function emitTree(tree: ContractTree, options: { root: string; outDir: st
 export function emitModelsFile(options: { projectDir: string; outDir: string }): GeneratedFile[];   // H14: [] when the app has no model, or a manifest scan error
 export function modelKeys(entries: readonly ScannedEntry[]): { key: string; path: string }[];        // H14: checked, key-sorted, `__proto__` / collisions refused
 export function scanModels(projectDir: string): ScannedEntry[];                                      // H14: the manifest's models kind only
+export function isModelFile(projectDir: string, file: string): boolean;                              // H14: a model module the type scan watches
+export function inModelsDir(relativePath: string): boolean;                                          // H14: the relative-path rule behind it
+export const MODELS_FILE = "models.d.ts";                                                            // H14: the one stale-swept name under <out>/types/
 export function generateApiFile(ts: typeof import("typescript"), options: ApiFileOptions): GeneratedFile & { manifest: Record<string, ManifestEntry> };
 export function loadTypeScript(): Promise<typeof import("typescript")>;
 export class ScanError extends Error {}
@@ -109,7 +112,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 - `AppApi in <index file> must be the type of the appApi from defineApi`
 - `"app/models/User.ts" and "app/models/user.ts" are both the implicit model "user": rename one (a model file's name is its path param)` (H14: the names differ but `camelize` maps them to the same path param; only a case-sensitive file system can hold both)
 - `"app/models/__proto__.ts": a model file cannot be named `__proto__`: every object reads it as its prototype, so the binding would be dropped` (H14)
-- A manifest scan error in the models folder (one name in both layouts) is **not** a `types:generate` error: the manifest pass prints it once as a warning, and the run writes no `models.d.ts` (it deletes a stale one) but still writes the tree's files.
+- A manifest scan error in the models folder (one name in both layouts) is **not** a `types:generate` error: the command's manifest load (the `laratype:manifest` plugin in `sauf dev`) prints it once as a warning, and the run writes no `models.d.ts` (it deletes a stale one) but still writes the tree's files.
 - `sauf types:generate needs the typescript package (>=5): add it to the project's devDependencies`
 
 ### Example

@@ -201,6 +201,14 @@ describe('Model.findByRouteKey scope (H14 #163)', () => {
     expect(calls).toEqual([])
   })
 
+  it('refuses a route key that is also the relation join column', async () => {
+    const User = parentModel()
+    const { Post } = postModel({ routeKeyName: 'userId', relations: [userRelation(User)] })
+    await expect(Post.findByRouteKey('7', { user: Object.assign(new User(), { id: 7 }) })).rejects.toThrow(
+      '[@laratype/database] Post route key "userId" is also the relation\'s join column: .scopeBindings() cannot scope the lookup by it',
+    )
+  })
+
   it('refuses a model with no relation to the parent, and a relation with no join column', async () => {
     const User = parentModel()
     const unrelated = postModel()

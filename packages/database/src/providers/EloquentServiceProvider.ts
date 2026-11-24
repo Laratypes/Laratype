@@ -34,8 +34,8 @@ const errors = {
  * Exported for the tests only; the package index does not re-export it.
  * @internal
  */
-export function implicitRouteModels(entries: readonly ManifestEntry[], modules: readonly unknown[]): Record<string, any> {
-  const models = new Map<string, any>();
+export function implicitRouteModels(entries: readonly ManifestEntry[], modules: readonly unknown[]): Record<string, unknown> {
+  const models = new Map<string, unknown>();
   const paths = new Map<string, string>();
   entries.forEach((entry, index) => {
     if (typeof entry?.name !== "string" || entry.name === "") {
@@ -134,6 +134,9 @@ export default class DatabaseServiceProvider extends ServiceProvider {
     try {
       this.app.instance(DataSource, await this.initConnection());
     } catch (error) {
+      // A model folder the implicit binding cannot key is a configuration error (D2): fail the boot, never serve a
+      // route whose params promise a model the registry does not have. A connection error keeps the 0.5 log-and-run.
+      if (error instanceof ModelError) throw error;
       console.log(error);
       Log.error(error);
     }

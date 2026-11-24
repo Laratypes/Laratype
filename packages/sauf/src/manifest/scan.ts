@@ -227,13 +227,19 @@ export function scanManifest(projectDir: string): ScannedManifest {
  */
 export function inModelsDir(relativePath: string): boolean {
   const path = relativePath.replace(/\\/g, "/");
-  const base = path.split("/").pop()!;
+  const base = path.split("/").pop() ?? "";
   return MANIFEST_DIRS.models.some(
     (dir) =>
       path.startsWith(`${dir}/`) &&
       path.slice(dir.length + 1).split("/").length === 1 &&
       isModuleFile(base, KIND_EXTENSIONS.models),
   );
+}
+
+/** Whether `file` (absolute) is a model module the type scan reads, with the same project-relative guard as `isManifestFile`. */
+export function isModelFile(projectDir: string, file: string): boolean {
+  const rel = relative(projectDir, resolve(file));
+  return !rel.startsWith("..") && !isAbsolute(rel) && inModelsDir(rel.replace(/\\/g, "/"));
 }
 
 /** Whether a project-relative file is one the scan reads: a module file where `MANIFEST_DIRS` look, at the depth they look. */

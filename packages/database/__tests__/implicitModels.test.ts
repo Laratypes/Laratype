@@ -96,6 +96,15 @@ describe('implicitRouteModels (H14 #163)', () => {
 })
 
 describe('DatabaseServiceProvider fills routeModels (H14 #163)', () => {
+  it('fails boot on a model folder it cannot key, instead of serving routes with no loaded model', async () => {
+    Config.setConfigs({ database: { default: 'mysql', connections: { mysql: { type: 'mysql', host: 'localhost', database: 'test' } } } })
+    setAppManifest(manifest(entry('User', {})))
+    const provider = new DatabaseServiceProvider(new Container({ deps: depsRegistry }))
+    await expect(provider.boot()).rejects.toThrow(
+      '[@laratype/database] app/models/User.ts has no default export: a model file exports its model class as the default export for implicit binding',
+    )
+  })
+
   it('fills the v1 map from the same manifest pass that fills the 0.5 maps', async () => {
     Config.setConfigs({ database: { default: 'mysql', connections: { mysql: { type: 'mysql', host: 'localhost', database: 'test' } } } })
     setAppManifest(manifest(entry('User'), entry('Post', { default: Post })))

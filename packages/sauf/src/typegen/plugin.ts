@@ -7,11 +7,11 @@
  * module is loaded on every `sauf` start.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import { DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, readApiTreeConfig, resolveApiTree } from './config';
 import type { ApiTreeConfig } from './config';
-import { inModelsDir } from '../manifest/scan';
+import { isModelFile } from '../manifest/scan';
 import { ScanError, isTreeFile } from './scan';
 import { inside, slash, syncContractTree } from './sync';
 
@@ -117,10 +117,7 @@ export function laratypeApi(options: ApiPluginOptions = {}): Plugin<ApiPluginApi
   };
 
   /** Whether `file` is a model module the type scan reads (H14 #163): adding or deleting one changes `models.d.ts`. */
-  const inModels = (file: string) => {
-    const rel = relative(projectDir, resolve(file));
-    return !rel.startsWith('..') && !isAbsolute(rel) && inModelsDir(slash(rel));
-  };
+  const inModels = (file: string) => isModelFile(projectDir, file);
 
   const api: ApiPluginApi = {
     rescan,

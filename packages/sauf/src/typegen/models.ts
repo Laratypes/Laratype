@@ -64,8 +64,9 @@ export function emitModelsFile({ projectDir, outDir }: ModelsFileOptions): Gener
   try {
     entries = scanModels(projectDir);
   } catch (error) {
-    // A manifest scan error (one model name in both layouts) is printed once by the manifest pass; a folder whose model
-    // list is ambiguous has no keys to write. The typegen's own errors (a camelize collision, `__proto__`) still fail.
+    // A manifest scan error (one model name in both layouts) is reported once by the command's manifest load (the dev
+    // manifest plugin in `sauf dev`); a folder whose model list is ambiguous has no keys to write. The typegen's own
+    // errors (a camelize collision, `__proto__`) still fail.
     if (error instanceof ManifestScanError) return [];
     throw error;
   }

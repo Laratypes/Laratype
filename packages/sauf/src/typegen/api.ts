@@ -163,20 +163,25 @@ export function generateApiFile(ts: typeof TS, options: ApiFileOptions): Generat
     throw new ApiGenerationError(`the contract types need strictNullChecks: set "strict": true in ${options.tsconfig ?? "the project's tsconfig"}`);
   }
   const host = ts.createCompilerHost(compilerOpts);
-  const same = (a: string) => resolve(a) === entryFile;
   // The app's index imports `.laratype/types/models` (H14). The api.ts types do not depend on that register, and the
   // checker must not load the app's model modules (docs/v1/typegen.md), so it checks the index without that one line.
-  const sameIndex = (a: string) => resolve(a) === resolve(options.indexFile);
   const indexSource = ts.sys.readFile(options.indexFile)?.replace(/^import type \{\} from '\.\.\/types\/models'\n/m, "");
+  const indexFile = resolve(options.indexFile);
   const { getSourceFile, fileExists, readFile } = host;
-  host.getSourceFile = (fileName, languageVersion, ...rest) =>
-    same(fileName)
-      ? ts.createSourceFile(fileName, entrySource, languageVersion, true)
-      : sameIndex(fileName) && indexSource !== undefined
-        ? ts.createSourceFile(fileName, indexSource, languageVersion, true)
-        : getSourceFile.call(host, fileName, languageVersion, ...rest);
-  host.fileExists = (fileName) => same(fileName) || (sameIndex(fileName) && indexSource !== undefined) || fileExists.call(host, fileName);
-  host.readFile = (fileName) => (same(fileName) ? entrySource : sameIndex(fileName) && indexSource !== undefined ? indexSource : readFile.call(host, fileName));
+  // The in-memory content of a generated root (the API entry, the stripped index), or undefined for a real file
+  const virtualSource = (fileName: string): string | undefined => {
+    if (resolve(fileName) === entryFile) return entrySource;
+    if (resolve(fileName) === indexFile) return indexSource;
+    return undefined;
+  };
+  host.getSourceFile = (fileName, languageVersion, ...rest) => {
+    const source = virtualSource(fileName);
+    return source === undefined
+      ? getSourceFile.call(host, fileName, languageVersion, ...rest)
+      : ts.createSourceFile(fileName, source, languageVersion, true);
+  };
+  host.fileExists = (fileName) => virtualSource(fileName) !== undefined || fileExists.call(host, fileName);
+  host.readFile = (fileName) => virtualSource(fileName) ?? readFile.call(host, fileName);
 
   const program = ts.createProgram([entryFile], compilerOpts, host);
   const diagnostics = ts.getPreEmitDiagnostics(program);

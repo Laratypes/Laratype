@@ -243,6 +243,9 @@ const errors = {
   scopeUnreadable: (model: string, parent: string, name: string): string =>
     `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance could not read:`
     + " .scopeBindings() cannot bind the parent key",
+  scopeRouteKey: (model: string, name: string): string =>
+    `[@laratype/database] ${model} route key ${formatValue(name)} is also the relation's join column: .scopeBindings()`
+    + " cannot scope the lookup by it",
 };
 
 /**
@@ -644,6 +647,10 @@ export default class Model extends BaseEntity {
     // A parent key that references no row: no child can match it
     if (conditions === undefined) {
       return null;
+    }
+    // The route-key condition and a join column cannot be the same column: one where-entry would overwrite the other
+    if (conditions.some((condition) => condition.property === property)) {
+      throw new ModelError(errors.scopeRouteKey(metadata.targetName, property));
     }
     let routeKey: ScalarValue | undefined;
     try {
