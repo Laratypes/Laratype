@@ -84,7 +84,7 @@ describe('implicitRouteModels (H14 #163)', () => {
       "[@laratype/database] the app manifest's models[0] has no name",
     )
     expect(() => implicitRouteModels([{ name: 'User' } as ManifestEntry], [{ default: User }])).toThrow(
-      "[@laratype/database] the app manifest's models[0] has no name",
+      "[@laratype/database] the app manifest's models[0] has no path",
     )
   })
 

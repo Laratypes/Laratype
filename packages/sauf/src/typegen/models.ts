@@ -19,6 +19,7 @@ import { ScanError } from "./scan";
 /** The models file's name under `<out>/types/`. */
 export const MODELS_FILE = "models.d.ts";
 
+/** The options of {@link emitModelsFile}: the project whose manifest model folders are scanned, and the output folder. */
 export interface ModelsFileOptions {
   /** Project directory (absolute). */
   readonly projectDir: string;

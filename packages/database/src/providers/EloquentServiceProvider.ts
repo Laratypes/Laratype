@@ -10,6 +10,8 @@ import "reflect-metadata"
 const errors = {
   unnamed: (index: number): string =>
     `[@laratype/database] the app manifest's models[${index}] has no name: a model entry carries the model file's name`,
+  unpathed: (index: number): string =>
+    `[@laratype/database] the app manifest's models[${index}] has no path: a model entry carries the source file it loads`,
   proto: (path: string): string =>
     `[@laratype/database] ${path}: a model file cannot be named \`__proto__\`: every object reads it as its prototype,`
     + " so the binding would be dropped",
@@ -40,7 +42,7 @@ export function implicitRouteModels(entries: readonly ManifestEntry[], modules: 
       throw new ModelError(errors.unnamed(index));
     }
     if (typeof entry.path !== "string" || entry.path === "") {
-      throw new ModelError(errors.unnamed(index));
+      throw new ModelError(errors.unpathed(index));
     }
     const key = camelize(entry.name);
     if (key === "__proto__") {

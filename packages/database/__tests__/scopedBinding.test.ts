@@ -10,12 +10,17 @@ import ModelError from '../src/exceptions/ModelError'
 type Row = Record<string, unknown>
 
 /** A parent model (`User`) whose repository answers a row, so the base statics can be read. */
-const parentModel = () => {
+const parentModel = (options: { transformer?: AppTransformer } = {}) => {
   class User extends Model {
     declare id: number
   }
   ;(User as any).getRepository = () => ({
-    metadata: { targetName: 'User', primaryColumns: [{ propertyName: 'id' }], columns: [{ propertyName: 'id', propertyPath: 'id', type: Number }], relations: [] },
+    metadata: {
+      targetName: 'User',
+      primaryColumns: [{ propertyName: 'id' }],
+      columns: [{ propertyName: 'id', propertyPath: 'id', type: Number, transformer: options.transformer }],
+      relations: [],
+    },
     manager: { connection: { driver: { options: { type: 'mysql' } } } },
     findOne: async () => ({ id: 7 }),
   })
@@ -66,10 +71,13 @@ interface AppTransformer {
   from(value: unknown): unknown
 }
 
-const userRelation = (parent: unknown): FakeRelation => ({
+const userRelation = (
+  parent: unknown,
+  referenced: { readonly propertyName: string; readonly transformer?: AppTransformer } = { propertyName: 'id' },
+): FakeRelation => ({
   propertyName: 'user',
   inverseEntityMetadata: { target: parent },
-  joinColumns: [{ propertyName: 'userId', referencedColumn: { propertyName: 'id' } }],
+  joinColumns: [{ propertyName: 'userId', referencedColumn: referenced }],
 })
 
 /** The raw condition of a `where` value, for the SQL/parameter assertions (D9). */
@@ -141,6 +149,56 @@ describe('Model.findByRouteKey scope (H14 #163)', () => {
     await expect(Post.findByRouteKey('hello', { user: null as never })).rejects.toThrow(
       '[@laratype/database] Post.findByRouteKey(): the scope `user` is not a model instance, got null',
     )
+  })
+
+  it('converts the parent value through the referenced column transformer, and refuses a throwing or non-scalar one', async () => {
+    const prefix = { to: (value: unknown) => `u-${String(value)}`, from: (value: unknown) => Number(String(value).replace('u-', '')) }
+    const User = parentModel({ transformer: prefix })
+    const { Post, calls } = postModel({ relations: [userRelation(User, { propertyName: 'id', transformer: prefix })] })
+    await Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })
+    expect(rawOf(calls[0]!.where.userId).objectLiteralParameters).toEqual({ scope0: 'u-7' })
+
+    const throwing = parentModel({ transformer: { to: () => { throw new Error('boom') }, from: (value: unknown) => value } })
+    const throwingPost = postModel({ relations: [userRelation(throwing, { propertyName: 'id', transformer: { to: () => { throw new Error('boom') }, from: (value: unknown) => value } })] })
+    await expect(throwingPost.Post.findByRouteKey('hello', { user: Object.assign(new throwing(), { id: 7 }) })).rejects.toThrow(
+      '[@laratype/database] Post relation "user" references a column whose transformer.to() throws on the parent value: .scopeBindings() cannot bind the parent key',
+    )
+
+    const toObject = { to: () => ({ id: 7 }), from: (value: unknown) => value }
+    const objectParent = parentModel({ transformer: toObject })
+    const objectPost = postModel({ relations: [userRelation(objectParent, { propertyName: 'id', transformer: toObject })] })
+    await expect(objectPost.Post.findByRouteKey('hello', { user: Object.assign(new objectParent(), { id: 7 }) })).rejects.toThrow(
+      'so it cannot scope a lookup',
+    )
+  })
+
+  it('scopes through the relation to the actual parent, not the first relation it has', async () => {
+    class Category {
+      declare id: number
+    }
+    const User = parentModel()
+    const { Post, calls } = postModel({
+      relations: [
+        { propertyName: 'category', inverseEntityMetadata: { target: Category }, joinColumns: [{ propertyName: 'categoryId', referencedColumn: { propertyName: 'id' } }] },
+        userRelation(User),
+      ],
+    })
+    await Post.findByRouteKey('hello', { user: Object.assign(new User(), { id: 7 }) })
+    const where = calls[0]!.where
+    // The category relation is unrelated: only the user relation's join column is filtered
+    expect(where.categoryId).toBeUndefined()
+    expect(rawOf(where.userId).objectLiteralParameters).toEqual({ scope0: 7 })
+  })
+
+  it('a parent value it cannot read is a configuration error, not SQL', async () => {
+    const User = parentModel()
+    const { Post, calls } = postModel({ relations: [userRelation(User)] })
+    const user = new User()
+    Object.defineProperty(user, 'id', { get: () => { throw new Error('boom') } })
+    await expect(Post.findByRouteKey('hello', { user })).rejects.toThrow(
+      '[@laratype/database] Post is scoped by User."id", which the parent instance could not read: .scopeBindings() cannot bind the parent key',
+    )
+    expect(calls).toEqual([])
   })
 
   it('refuses a model with no relation to the parent, and a relation with no join column', async () => {

@@ -19,7 +19,7 @@ import { interceptorName } from "../interceptor/defineInterceptor";
 import type { AnyInterceptor } from "../interceptor/defineInterceptor";
 import { mountCors } from "../middleware/cors";
 import { resolveRouteBindings } from "../routing/api/bindings";
-import type { Bindings } from "../routing/api/proof";
+import type { RouteBindingInput } from "../routing/api/bindings";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -85,11 +85,8 @@ type PipeLineType = {
   handler: AnyTypedMiddleware,
 } | {
   type: 'bindings',
-  bindings: Bindings,
-  /** The route's implicit model keys and whether it is scoped (H14 #163). */
-  implicit: readonly string[],
-  scoped: boolean,
-  path: string,
+  /** The route's explicit map, implicit keys, scoping and path (H7/H14). */
+  input: RouteBindingInput,
 } | {
   type: 'authorization',
   authorization: NonNullable<RouteParams["authorization"]>,
@@ -318,10 +315,7 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'bindings') {
-              bound = await resolveRouteBindings(
-                { explicit: currentPipeline.bindings, implicit: currentPipeline.implicit, scoped: currentPipeline.scoped, path: currentPipeline.path },
-                requestInstance.param(),
-              );
+              bound = await resolveRouteBindings(currentPipeline.input, requestInstance.param());
               return await next(arg);
             }
             if(currentPipelineType === 'request') {
@@ -558,10 +552,12 @@ export default class Request extends AppServiceProvider {
         if((routeOption.bindings && Object.keys(routeOption.bindings).length) || routeOption.implicitBindings?.length) {
           pipelines.push({
             type: 'bindings' as const,
-            bindings: routeOption.bindings ?? {},
-            implicit: routeOption.implicitBindings ?? [],
-            scoped: routeOption.scopedBindings === true,
-            path: routeOption.path,
+            input: {
+              explicit: routeOption.bindings ?? {},
+              implicit: routeOption.implicitBindings ?? [],
+              scoped: routeOption.scopedBindings === true,
+              path: routeOption.path,
+            },
           });
         }
         // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403

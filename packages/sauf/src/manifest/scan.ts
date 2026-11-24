@@ -183,16 +183,22 @@ const warnSkipped = (ctx: ScanContext) => {
  */
 export function scanModels(projectDir: string): ScannedEntry[] {
   const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
+  const entries = scanKind(ctx, projectDir, "models");
+  warnSkipped(ctx);
+  return entries;
+}
+
+/** The entries of one kind across its folders, with the duplicate-name refusal (a kind found in both layouts). */
+function scanKind(ctx: ScanContext, projectDir: string, kind: ManifestKind): ScannedEntry[] {
   const entries: ScannedEntry[] = [];
-  for (const dir of MANIFEST_DIRS.models) {
-    for (const entry of scanDir(ctx, projectDir, dir, "models")) {
+  for (const dir of MANIFEST_DIRS[kind]) {
+    for (const entry of scanDir(ctx, projectDir, dir, kind)) {
       // Lookups by name would pick one silently
       const other = entries.find((e) => e.name === entry.name);
-      if (other) throw new ManifestScanError(`models/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
+      if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
       entries.push(entry);
     }
   }
-  warnSkipped(ctx);
   return entries;
 }
 
@@ -206,16 +212,7 @@ export function scanManifest(projectDir: string): ScannedManifest {
   const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
   const kinds = {} as Record<ManifestKind, ScannedEntry[]>;
   for (const kind of Object.keys(MANIFEST_DIRS) as ManifestKind[]) {
-    const entries: ScannedEntry[] = [];
-    for (const dir of MANIFEST_DIRS[kind]) {
-      for (const entry of scanDir(ctx, projectDir, dir, kind)) {
-        // Lookups by name would pick one silently
-        const other = entries.find((e) => e.name === entry.name);
-        if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
-        entries.push(entry);
-      }
-    }
-    kinds[kind] = entries;
+    kinds[kind] = scanKind(ctx, projectDir, kind);
   }
   warnSkipped(ctx);
   const providers = kinds.configs.find((e) => e.name === PROVIDERS_NAME);

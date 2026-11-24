@@ -161,6 +161,22 @@ describe('implicit binding (H14 #163)', () => {
     expect(lookups).toEqual(['user:7'])
   })
 
+  it('binds through the model routeKeyName (a custom lookup column)', async () => {
+    class SlugUser {
+      static readonly primaryKey = 'id'
+      static readonly routeKeyName = 'slug'
+      static async findByRouteKey(key: string, _scope?: Readonly<Record<string, object>>): Promise<SlugUser | null> {
+        lookups.push(`slug:${key}`)
+        return key === 'missing' ? null : new SlugUser(key, key)
+      }
+      constructor(readonly slug: string, readonly id: string) {}
+    }
+    const { app } = mountUsers((r) => [r.contract(usersContract, ShowController)], { user: SlugUser })
+    expect(await (await app.request('/api/users/ada-lovelace')).json()).toEqual({ user: 'model:ada-lovelace' })
+    expect(lookups).toEqual(['slug:ada-lovelace'])
+    expect((await app.request('/api/users/missing')).status).toBe(404)
+  })
+
   it('a miss is the contract 404 and stops the lookups after it', async () => {
     const { app } = mountUsers((r) => [r.contract(usersContract, ShowController)])
     const res = await app.request('/api/users/missing')
@@ -214,6 +230,41 @@ describe('implicit binding (H14 #163)', () => {
     expect(await (await app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
     expect(lookups).toEqual([])
   })
+
+  it('does not bind when the manifest has a scan error', async () => {
+    setAppManifest({ ...manifest('User'), error: '[laratype:manifest] models/User is in both layouts' })
+    const { app } = mountUsers((r) => [r.contract(usersContract, ShowController)])
+    expect(await (await app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
+    expect(lookups).toEqual([])
+  })
+
+  it('a doubled .withoutImplicitBinding() and .scopeBindings() keep their flag, and .bind() still binds on an opted-out builder', async () => {
+    const optedOut = mountUsers((r) => [r.withoutImplicitBinding().withoutImplicitBinding().contract(usersContract, ShowController)])
+    expect(await (await optedOut.app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
+    const bound = mountUsers((r) => [
+      r.withoutImplicitBinding().scopeBindings().bind({ user: User }).contract(usersContract, ShowController),
+    ])
+    expect(await (await bound.app.request('/api/users/7')).json()).toEqual({ user: 'model:7' })
+    const scopedTwice = mountNested((r) => [r.scopeBindings().scopeBindings().contract(nestedContract, NestedController)])
+    expect(await (await scopedTwice.app.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
+  })
+
+  it('a hand-built contract item: only `implicitBinding: false` opts out; another value keeps the default', async () => {
+    // The untyped caller builds the items itself, as H7's tests do for hand-built maps
+    const items = (list: unknown[]) => list as never
+    const item = (implicitBinding: unknown) => ({
+      kind: 'contract',
+      contract: usersContract,
+      controller: ShowController,
+      middleware: [],
+      implicitBinding,
+    })
+    const off = mount(Route.api(usersApi, () => items([item(false)])), { user: User })
+    expect(await (await off.app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
+    const wrong = mount(Route.api(usersApi, () => items([item('no')])), { user: User })
+    expect(await (await wrong.app.request('/api/users/7')).json()).toEqual({ user: 'model:7' })
+  })
+})
 
   it('binds nothing on an ad-hoc route', async () => {
     const { app } = mount(

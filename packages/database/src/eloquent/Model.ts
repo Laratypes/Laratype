@@ -27,9 +27,6 @@ import ModelQueryBuilder from "./ModelQueryBuilder";
 /** A primary key value `find()` and `findOrFail()` take: a numeric id, a UUID / string id, or a bigint id. */
 export type PrimaryKeyValue = string | number | bigint;
 
-/** The models a `.scopeBindings()` lookup is scoped by: the route's earlier models, keyed by path param (H14 #163). */
-export type RouteScope = Readonly<Record<string, object>>;
-
 /** A model class: the instance type its statics return, plus the TypeORM `BaseEntity` statics they call. */
 export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
 
@@ -240,6 +237,12 @@ const errors = {
   scopeNotScalar: (parent: string, name: string, value: unknown): string =>
     `[@laratype/database] ${parent}.${formatValue(name)} is not a string, number, bigint, boolean or Date, so it`
     + ` cannot scope a lookup: got ${valueType(value)}`,
+  scopeTransformer: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} references a column whose transformer.to() throws`
+    + " on the parent value: .scopeBindings() cannot bind the parent key",
+  scopeUnreadable: (model: string, parent: string, name: string): string =>
+    `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance could not read:`
+    + " .scopeBindings() cannot bind the parent key",
 };
 
 /**
@@ -381,19 +384,21 @@ interface ScopeCondition {
  * per parent model in `scope`, from the relation whose target is the parent's class and its owning join column. A
  * relation it cannot find, a relation with no join column and a parent property that is not loaded are configuration
  * errors (a lookup that silently ignored the parent would read another parent's row). A parent key that is `null`
- * references nothing: `"missing"`, which the lookup answers as a miss. Every value must be scalar, so it is bound as a
+ * references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar, so it is bound as a
  * parameter and never becomes SQL (a transformer that hydrates an object is refused).
  */
-const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: RouteScope): ScopeCondition[] | "missing" => {
+const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: Readonly<Record<string, object>>): ScopeCondition[] | undefined => {
   const conditions: ScopeCondition[] = [];
   for (const [key, parent] of Object.entries(scope)) {
     if (parent === null || typeof parent !== "object") {
       throw new ModelError(errors.scopeNotModel(metadata.targetName, key, parent));
     }
     const target = (parent as { constructor?: unknown }).constructor;
-    const relation = (metadata.relations ?? []).find(
-      (entry) => entry.inverseEntityMetadata?.target === target || (typeof target === "function" && parent instanceof target),
-    );
+    const relation = (metadata.relations ?? []).find((entry) => {
+      // Match the parent's own class, or a scope value that is an instance of the relation's target (a subclass)
+      const relationTarget: unknown = entry.inverseEntityMetadata?.target;
+      return relationTarget === target || (typeof relationTarget === "function" && parent instanceof relationTarget);
+    });
     if (relation === undefined) {
       throw new ModelError(errors.scopeNoRelation(metadata.targetName, targetName(target)));
     }
@@ -403,18 +408,34 @@ const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: R
       throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
     }
     const parentName = targetName(target);
-    const value = (parent as Record<string, unknown>)[referenced.propertyName];
+    let value: unknown;
+    try {
+      value = (parent as Record<string, unknown>)[referenced.propertyName];
+    } catch {
+      // A getter that throws (a hostile Proxy, a computed property) is a configuration error, never SQL text
+      throw new ModelError(errors.scopeUnreadable(metadata.targetName, parentName, referenced.propertyName));
+    }
     if (value === undefined) {
       throw new ModelError(errors.scopeNotLoaded(metadata.targetName, parentName, referenced.propertyName));
     }
     // A null parent key references no row: no child can match, which is a miss (never `= NULL`, never a dropped filter)
     if (value === null) {
-      return "missing";
+      return undefined;
     }
-    if (!isScalarValue(value)) {
-      throw new ModelError(errors.scopeNotScalar(parentName, referenced.propertyName, value));
+    // A transformer hydrates the parent value, so the referenced column's to() converts it back before it is bound (as
+    // the route key does); a throwing to() is a configuration error, never SQL text
+    let bound: unknown = value;
+    if (referenced.transformer !== undefined) {
+      try {
+        bound = transformTo(referenced.transformer, value);
+      } catch {
+        throw new ModelError(errors.scopeTransformer(metadata.targetName, relation.propertyName));
+      }
     }
-    conditions.push({ property: join.propertyName, value });
+    if (!isScalarValue(bound)) {
+      throw new ModelError(errors.scopeNotScalar(parentName, referenced.propertyName, bound));
+    }
+    conditions.push({ property: join.propertyName, value: bound });
   }
   return conditions;
 };
@@ -610,10 +631,10 @@ export default class Model extends BaseEntity {
   static findByRouteKey<T extends BaseEntity>(
     this: ModelClass<T>,
     key: string,
-    scope?: RouteScope,
+    scope?: Readonly<Record<string, object>>,
   ): Promise<T | null>;
 
-  static async findByRouteKey(key: string, scope?: RouteScope): Promise<any> {
+  static async findByRouteKey(key: string, scope?: Readonly<Record<string, object>>): Promise<any> {
     const { property, column, driver, metadata } = routeKeyColumn(this);
     // The route key is a path string: a JS caller's other type is a miss, never a coercion or a throw
     if (typeof key !== "string") {
@@ -621,7 +642,7 @@ export default class Model extends BaseEntity {
     }
     const conditions = scope === undefined || Object.keys(scope).length === 0 ? [] : scopeConditions(this, metadata, scope);
     // A parent key that references no row: no child can match it
-    if (conditions === "missing") {
+    if (conditions === undefined) {
       return null;
     }
     let routeKey: ScalarValue | undefined;

@@ -196,32 +196,6 @@ export const expandedPathWithoutParam = (path: string, param: string): string | 
   return undefined;
 };
 
-/**
- * Resolves the bindings of one route, each once per request: a model class through `findByRouteKey`, a resolver called
- * with the raw param. A key absent from `params` is an optional path param and gives `undefined`; a present one with
- * no match (`null` / `undefined`) is the 404.
- */
-export const resolveBindings = async (
-  bindings: Bindings,
-  params: Record<string, string>,
-): Promise<Record<string, unknown>> => {
-  const resolved: [string, unknown][] = [];
-  // In order: a miss stops the lookups after it, so a 404 never waits on (or runs) the rest of the bindings
-  for (const [key, binder] of Object.entries(bindings)) {
-    // Own key: an absent optional param must not read a member of Object.prototype (`:constructor?`)
-    const raw = Object.hasOwn(params, key) ? params[key] : undefined;
-    if (raw === undefined) {
-      resolved.push([key, undefined]);
-      continue;
-    }
-    const value = isModelClass(binder) ? await binder.findByRouteKey(raw) : await binder(raw);
-    if (value === null || value === undefined) throw errors.notFound();
-    resolved.push([key, value]);
-  }
-  // fromEntries, not an assignment: a resolved key is always an own data property, never a prototype swap
-  return Object.fromEntries(resolved);
-};
-
 // ---- implicit model binding (H14 #163) --------------------------------------
 
 const NO_MODELS: ReadonlySet<string> = new Set();
@@ -292,11 +266,12 @@ export const resolveRouteBindings = async (
   const entries = new Map<string, Binder>();
   if (input.implicit.length) {
     const registry = input.implicit.some((key) => !Object.hasOwn(input.explicit, key)) ? ModelBindingRegistry.current() : undefined;
+    const models = registry?.routeModels;
     for (const key of input.implicit) {
       // An explicit binder wins the key without a registry read, so a route that binds all its models needs no database
       if (Object.hasOwn(input.explicit, key)) continue;
       // Own key: a `toString` model must not read Object.prototype.toString
-      const model: unknown = Object.hasOwn(registry!.routeModels, key) ? registry!.routeModels[key] : undefined;
+      const model: unknown = models !== undefined && Object.hasOwn(models, key) ? models[key] : undefined;
       if (typeof model !== "function" || typeof (model as { findByRouteKey?: unknown }).findByRouteKey !== "function") {
         throw new InternalException(
           `[@laratype/http] implicit model binding: \`${key}\` is a model of the app manifest, but no model class is loaded for it: ` +

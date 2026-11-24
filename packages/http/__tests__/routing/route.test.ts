@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { setConfigs } from '@laratype/core'
 import { defineApi, defineContract, endpoint, buildUrl } from '@laratype/contract'
+import { Model } from '@laratype/database'
 import { Controller, Route, redirect, route } from '../../src/index'
 import { resetRouteRegistry } from '../../src/routing/routeUrl'
 
@@ -255,6 +256,33 @@ describe('route()', () => {
     mount()
     expect(() => route('users.posts.show', { user: new WeirdUser() as never, post: 1 })).toThrow(
       new TypeError('[@laratype/http] route: param "user" has a getRouteKey() that is not a string, number, bigint, boolean or Date'),
+    )
+  })
+
+  it('a real Model instance builds the URL of its route key (issue #163 added task)', () => {
+    // DB1's getRouteKey() returns `string | number | bigint | boolean | Date`; route() converts it
+    class DbUser extends Model {
+      declare readonly id: number
+      declare readonly slug: string
+    }
+    Object.defineProperty(DbUser, 'routeKeyName', { value: 'slug' })
+    ;(DbUser as unknown as { getRepository: () => unknown }).getRepository = () => ({
+      metadata: {
+        targetName: 'DbUser',
+        primaryColumns: [{ propertyName: 'id' }],
+        columns: [
+          { propertyName: 'id', propertyPath: 'id', type: Number },
+          { propertyName: 'slug', propertyPath: 'slug', type: String },
+        ],
+      },
+      manager: { connection: { driver: { options: { type: 'mysql' } } } },
+    })
+    mount()
+    const user = Object.assign(new DbUser(), { id: 1, slug: 'ada lovelace' })
+    expect(route('users.posts.show', { user, post: 2 })).toBe('/api/users/ada%20lovelace/posts/2')
+    // The same URL the key alone builds
+    expect(route('users.posts.show', { user: user.getRouteKey(), post: 2 })).toBe(
+      route('users.posts.show', { user, post: 2 }),
     )
   })
 })

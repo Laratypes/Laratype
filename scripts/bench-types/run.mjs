@@ -30,6 +30,10 @@ const tscLabel = path.relative(root, tscPath).replaceAll('\\', '/')
  * `app-api-<group>` modules); `routes` adds `Route.api`/`r.contract()`, so the route proof is the difference
  * between the two. Sizes 100 / 500 / 1000 are recorded; the route proof is also measured at 50.
  */
+/**
+ * @typedef {{ scenario: string, endpoints: number, entry: string, globals: boolean, models?: boolean }} BenchCase
+ */
+/** @type {readonly BenchCase[]} */
 const CASES = [
   { scenario: 'app', endpoints: 100, entry: 'client.ts', globals: false },
   { scenario: 'app', endpoints: 500, entry: 'client.ts', globals: false },
@@ -114,6 +118,10 @@ const tail = (output) => output.split(/\r?\n/).filter(Boolean).slice(-30).join('
 /**
  * Generates one case and writes its tsconfig. Returns the tsconfig path and contract count.
  * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean }} testCase
+ * @param {string} runRoot
+ */
+/**
+ * @param {BenchCase} testCase
  * @param {string} runRoot
  */
 const writeCase = (testCase, runRoot) => {

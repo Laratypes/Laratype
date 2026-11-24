@@ -24,7 +24,7 @@ export default class ModelBindingRegistry {
    * `camelize(<manifest model file name>)`. `DatabaseServiceProvider` fills it from the app manifest; a route step reads
    * it once per request. Not public API.
    */
-  public routeModels: Record<string, any> = {};
+  public routeModels: Record<string, unknown> = {};
 
   /** The request's registry, else the app container's (the facade application `Serve` sets). */
   static current(): ModelBindingRegistry {
