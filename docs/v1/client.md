@@ -22,7 +22,7 @@ Decision record: S2 [#85](https://github.com/Laratypes/Laratype/issues/85), [DEC
 | [Path-style calls](#path-style-calls) | proposed: PR [#389](https://github.com/Laratypes/Laratype/pull/389) @ 3ec3396 ([#140](https://github.com/Laratypes/Laratype/issues/140)); `validateResponses` refused at compile time and at `createPathClient`: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc (CL6 [#159](https://github.com/Laratypes/Laratype/issues/159)) |
 | [Separate-repo FE (generated manifest)](#separate-repo-fe-generated-manifest) | merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); `createClient(manifest)` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)) |
 | [Bundle budget](#bundle-budget) | planned → #132 |
-| [TanStack Query adapter](#tanstack-query-adapter) | proposed: PR <leader fills> @ 5b22275 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5) |
+| [TanStack Query adapter](#tanstack-query-adapter) | proposed: PR <leader fills> @ 0e55491 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5) |
 | [Dev-mode response validation](#dev-mode-response-validation) | proposed: PR [#390](https://github.com/Laratypes/Laratype/pull/390) @ da9cbbcc ([#159](https://github.com/Laratypes/Laratype/issues/159)) |
 
 ---
@@ -458,7 +458,7 @@ planned → [#132](https://github.com/Laratypes/Laratype/issues/132) (B8). The r
 ## TanStack Query adapter
 
 ### Status
-proposed: PR <leader fills> @ 5b22275 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5). The issue's "Vue and React adapters" task is met by one options API that `@tanstack/vue-query` and `@tanstack/react-query` both consume: `packages/client-query/__tests__/vue.test.ts` and `react.test.ts` each render a component with a mocked fetch, and `query.test-d.ts` checks that both frameworks infer the data, variables and error types from the options. Wrapper hooks would be a follow-up. The usage in `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)) is the item still open.
+proposed: PR <leader fills> @ 0e55491 ([#141](https://github.com/Laratypes/Laratype/issues/141), CL5). The issue's "Vue and React adapters" task is met by one options API that `@tanstack/vue-query` and `@tanstack/react-query` both consume: `packages/client-query/__tests__/vue.test.ts` and `react.test.ts` each render a component with a mocked fetch, and `query.test-d.ts` checks that both frameworks infer the data, variables and error types from the options. Wrapper hooks would be a follow-up. `examples/fullstack-vue` ([#136](https://github.com/Laratypes/Laratype/issues/136)) uses it in an app: its users list is one `useQuery` on the generated key, and its create form is one `useMutation` whose typed 422 the component narrows (the example's type-check test asserts both).
 
 ### Public API
 [`packages/client-query/src/index.ts`](../../packages/client-query/src/index.ts)
@@ -538,7 +538,10 @@ queryClient.invalidateQueries({ queryKey: q.users.posts.queryKey })
 - Type-level: a value that is not a client (including one endpoint call), a missing required param, body or header, an unknown input key, and `queryOptions` on an endpoint without a response schema.
 
 ### Example
-[`examples/client/proposed/client-query.ts`](./examples/client/proposed/client-query.ts)
+[`examples/client/proposed/client-query.ts`](./examples/client/proposed/client-query.ts) is the API in one file.
+[`examples/fullstack-vue`](../../examples/fullstack-vue) uses it in an app: `src/api.ts` builds `q` once, the users list
+is `useQuery(q.users.index.queryOptions())`, and the create form is `useMutation(q.users.store.mutationOptions())`,
+whose `onError` narrows `err.result.code` to the declared `422 VALIDATION_ERROR`.
 
 ---
 
