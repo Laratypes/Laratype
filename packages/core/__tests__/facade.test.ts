@@ -204,6 +204,24 @@ describe('appContainer', () => {
     expect(warn.mock.calls[0]![0]).toContain('No app container')
   })
 
+  it('returns the stored fallback when the warning re-enters the lookup, so a fake made there applies', () => {
+    vi.stubGlobal('__PROD__', false)
+    let inner: Container | undefined
+    let viaFacade: Container | undefined
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {
+      inner = appContainer()
+      viaFacade = Facade.getFacadeApplication()
+      Count.fake(Object.assign(new Counter(), { count: 41 }))
+    })
+    const outer = appContainer()
+    expect(inner).toBeDefined()
+    expect(outer).toBe(inner)
+    expect(viaFacade).toBe(outer)
+    expect(peekAppContainer()).toBe(outer)
+    expect(Count.next()).toBe(42)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
   it('does not warn in production', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal('__PROD__', true)

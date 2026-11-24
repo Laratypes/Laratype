@@ -108,8 +108,11 @@ export function appContainer(): Container {
   const current = state()
   if (current.app) return current.app
   if (current.fallback) return current.fallback
+  // Store before warning: a warn adapter that resolves a facade re-enters this lookup, and must get this fallback.
+  const fallback = new FallbackContainer({ deps: depsRegistry })
+  current.fallback = fallback
   warnFallback()
-  return (current.fallback = new FallbackContainer({ deps: depsRegistry }))
+  return fallback
 }
 
 /** The app container, or the fallback when one was already created: `undefined` instead of allocating it. */
