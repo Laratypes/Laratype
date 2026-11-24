@@ -31,11 +31,11 @@ const SWEEP_MS = 60_000;
 const MAX_WINDOWS = 100_000;
 
 /**
- * The most windows one client prefix keeps: a client with an IPv6 /48 can rotate 65,536 /64 buckets, and each throttled
- * route adds one window per bucket, so without this cap a single /48 could fill the store and evict other clients'
- * windows.
+ * The floor of the per-client-prefix cap: one client has one window per throttled route, so `mount()` raises the cap to
+ * the mount's throttled-route count plus one; a small mount keeps this floor. A client with an IPv6 /48 can rotate
+ * 65,536 /64 buckets, so rotation is still bounded by the cap.
  */
-const MAX_WINDOWS_PER_PREFIX = 1_024;
+export const MIN_WINDOWS_PER_PREFIX = 1_024;
 
 interface Window {
   hits: number;
@@ -57,7 +57,7 @@ export class MemoryThrottleStore implements ThrottleStore {
   private readonly byPrefix = new Map<string, Set<string>>();
   private nextSweep = 0;
 
-  constructor(private readonly maxWindows = MAX_WINDOWS, private readonly maxWindowsPerPrefix = MAX_WINDOWS_PER_PREFIX) {}
+  constructor(private readonly maxWindows = MAX_WINDOWS, private readonly maxWindowsPerPrefix = MIN_WINDOWS_PER_PREFIX) {}
 
   hit(key: string, windowMs: number, clientPrefix: string): ThrottleHit {
     const now = Date.now();

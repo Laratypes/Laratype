@@ -28,7 +28,7 @@ import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
 import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
 import { fail } from "./fail";
-import { MemoryThrottleStore, throttled } from "./throttle";
+import { MemoryThrottleStore, MIN_WINDOWS_PER_PREFIX, throttled } from "./throttle";
 import { contractAuth } from "./contractAuth";
 import { contractPolicies } from "./contractPolicies";
 import type { ContractPolicyChecks } from "./contractPolicies";
@@ -762,8 +762,11 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
     // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
     const auth = contractAuth();
     // The counters of this mount, one store per mount (#319): two apps, or two test mounts, never share a window. The
-    // cache (#166) replaces the store later; injection is deferred to it (docs/v1/http.md › Rate limiting › Store)
-    const throttleStore = new MemoryThrottleStore();
+    // cache (#166) replaces the store later; injection is deferred to it (docs/v1/http.md › Rate limiting › Store).
+    // One client has one window per throttled route, so the prefix cap must exceed this mount's throttled-route count:
+    // otherwise visiting every route once evicts its own blocked window. The floor bounds a small mount's prefix.
+    const throttledRoutes = this.routes.filter((route) => route.throttle !== undefined).length;
+    const throttleStore = new MemoryThrottleStore(undefined, Math.max(MIN_WINDOWS_PER_PREFIX, throttledRoutes + 1));
     // The policy checks @laratype/auth registers on import (H8 #122), read once for the same reason. A route whose
     // resolved authorize is true fails mount() when they are missing: authorize requires auth, so a valid contract
     // reaches this only with a @laratype/auth that registers both.

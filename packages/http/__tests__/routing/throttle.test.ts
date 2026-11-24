@@ -331,6 +331,38 @@ describe('the limit runs before the contract auth guard (#319)', () => {
   })
 })
 
+describe('the per-prefix cap counts the mount throttled routes (#319 security round 1)', () => {
+  const ROUTES = 1_100
+  const manyEndpoints = Object.fromEntries(
+    Array.from({ length: ROUTES }, (_, index) => [
+      `r${index}`,
+      endpoint.get(`/r${index}`).response(anything).throttle({ limit: 1, per: 60 }),
+    ]),
+  )
+  const manyContract = defineContract()(manyEndpoints as any) as any
+  const manyApi = defineApi({ many: { contract: manyContract, path: '/many', scopes: [] } } as any) as any
+  class ManyController extends Controller {}
+  for (let index = 0; index < ROUTES; index++) {
+    Object.defineProperty(ManyController.prototype, `r${index}`, { value: () => ({ ok: true }), configurable: true })
+  }
+  const manyRoutes = () =>
+    Route.api(manyApi, ((r: any) => [r.contract(manyContract, ManyController)]) as any) as unknown as ApiRoutes
+
+  it('a blocked route stays blocked after the client visits every other route once', { timeout: 60_000 }, async () => {
+    const app = bootRoutes(manyRoutes())
+    const address = '203.0.113.60'
+    // r0 is blocked: limit 1, so its second hit is the 429
+    expect((await app.request('/many/r0', {}, from(address))).status).toBe(200)
+    expect((await app.request('/many/r0', {}, from(address))).status).toBe(429)
+    // Probe every other route once: 1,099 more windows in the same prefix (1,100 with r0's)
+    for (let index = 1; index < ROUTES; index++) {
+      expect((await app.request(`/many/r${index}`, {}, from(address))).status).toBe(200)
+    }
+    // The cap is the route count + 1 (1,101), so no window was evicted and r0 is still blocked
+    expect((await app.request('/many/r0', {}, from(address))).status).toBe(429)
+  })
+})
+
 describe('ipBucket', () => {
   it('keys IPv4 as is, IPv4-mapped as IPv4 and IPv6 by its /64', () => {
     expect(ipBucket(undefined)).toBeUndefined()
