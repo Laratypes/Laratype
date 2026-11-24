@@ -111,6 +111,17 @@ describe('route() params', () => {
     expectTypeOf<BigId>().toExtend<RouteKeyed>()
     expectTypeOf(route('users.show', { user: new BigId() })).toEqualTypeOf<string>()
   })
+
+  test('a model instance is accepted with the route key types the model base returns (H14 #163)', () => {
+    // `Model.getRouteKey()` is `string | number | bigint | boolean | Date`: a model instance must satisfy RouteKeyed
+    class DbLikeUser {
+      getRouteKey(): string | number | bigint | boolean | Date {
+        return new Date()
+      }
+    }
+    expectTypeOf<DbLikeUser>().toExtend<RouteKeyed>()
+    expectTypeOf(route('users.show', { user: new DbLikeUser() })).toEqualTypeOf<string>()
+  })
 })
 
 describe('route() query and options', () => {

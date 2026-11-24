@@ -3,16 +3,10 @@ import { buildUrl } from "@laratype/contract";
 import { config } from "@laratype/core";
 import type { ApiRoutes } from "./api/ApiRouter";
 import type { AdHocRouteEntry, MountedRoute, RouteEntry } from "./api/types";
+import type { Register } from "../register";
 
-/**
- * The app's route names, filled once by module augmentation (docs/v1/http.md › Route names and URLs):
- *
- * @example
- * declare module '@laratype/http' {
- *   interface Register { routes: typeof apiRoutes }
- * }
- */
-export interface Register {}
+// The app's `Register` (routes and models) lives in `../register`; re-exported here for every existing import path.
+export type { Register } from "../register";
 
 /** The `Route.api(appApi, (r) => [...])` group the app registered with `Register`. */
 type RegisteredRoutes<R> = R extends { readonly routes: infer T } ? T : never;
@@ -89,16 +83,16 @@ export type RouteArgs<Name extends string, R = Register> = {} extends RouteParam
 
 /**
  * A model a path param accepts (H13 #162): it contributes its route key, the property its class's `routeKeyName`
- * names (or `primaryKey`) at the model layer (database.md › BindableModel). H14
- * [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base; until then, a model
- * instance with it (or any object with it) passes.
+ * names (or `primaryKey`) at the model layer (database.md › BindableModel). `Model.getRouteKey()` (DB1 #145) returns
+ * the route key column's value, so a `Date` or `boolean` key is accepted too and converted by `route()` (H14 #163).
  */
 export interface RouteKeyed {
   /**
-   * The route key value, a string, a number or a bigint (DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)
-   * returns a bigint for a bigint key): it is converted with `String()` before `buildUrl` encodes it.
+   * The route key value: a string, a number, a bigint, a boolean or a Date (a bigint key stays a bigint at the model
+   * layer). A Date is converted with `toISOString()` and the rest with `String()` before `buildUrl` encodes it, so the
+   * text is the form `findByRouteKey()` converts back.
    */
-  getRouteKey(): string | number | bigint;
+  getRouteKey(): string | number | bigint | boolean | Date;
 }
 
 /** One registered route name: the full path it builds, and what a duplicate-name error calls it. */
@@ -210,14 +204,15 @@ const appUrl = (): string => {
 };
 
 /**
- * The path params as `buildUrl` takes them: a `RouteKeyed` value contributes its route key and a bigint is
- * converted with `String()`; any other object is a mistake (a raw object would be sent as `[object Object]`).
+ * The path params as `buildUrl` takes them: a `RouteKeyed` value contributes its route key (a `Date` as ISO 8601, a
+ * boolean as `"true"` / `"false"`, a bigint with `String()`); any other object is a mistake (a raw object would be sent
+ * as `[object Object]`).
  */
 const paramValues = (params: object | undefined): Record<string, string | number> => {
   const values: Record<string, string | number> = Object.create(null);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined || value === null) continue;
-    if (typeof value === "bigint") {
+    if (typeof value === "bigint" || typeof value === "boolean") {
       values[key] = String(value);
       continue;
     }
@@ -229,8 +224,16 @@ const paramValues = (params: object | undefined): Record<string, string | number
     if (typeof getRouteKey !== "function") {
       fail(`route: param "${key}" got an object that is not a model (no getRouteKey())`);
     }
-    const routeKey = getRouteKey.call(value);
-    values[key] = typeof routeKey === "bigint" ? String(routeKey) : (routeKey as string | number);
+    const routeKey: unknown = getRouteKey.call(value);
+    if (routeKey instanceof Date) {
+      values[key] = routeKey.toISOString();
+    } else if (typeof routeKey === "bigint" || typeof routeKey === "boolean") {
+      values[key] = String(routeKey);
+    } else if (typeof routeKey === "string" || typeof routeKey === "number") {
+      values[key] = routeKey;
+    } else {
+      fail(`route: param "${key}" has a getRouteKey() that is not a string, number, bigint, boolean or Date`);
+    }
   }
   return values;
 };

@@ -9,7 +9,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, RequestKernel, ResponseKernel, Route, defineMiddleware } from '../../src/index'
-import type { Ctx } from '../../src/index'
+import type { Binder, Ctx } from '../../src/index'
 import { expandedPathWithoutParam, pathParamNames } from '../../src/routing/api/bindings'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -729,5 +729,38 @@ describe('the 0.5 model binding paths', () => {
     const raw = mount(Route.api(appApi, (r) => [r.contract(posts, NoBindings)]))
     expect(await (await raw.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
     expect(lookups).toEqual([])
+  })
+})
+
+describe('r.bind() snapshot and key normalization (H7 #118 follow-ups, H14 #163)', () => {
+  class SnapshotController extends Controller {
+    index() { return {} }
+    show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params.user as User).id } }
+    latest() { return {} }
+  }
+
+  it('keeps the checked values: a getter that throws on a second read cannot install another binder', async () => {
+    let reads = 0
+    const bindings = Object.defineProperty({}, 'user', {
+      enumerable: true,
+      get: () => {
+        reads += 1
+        if (reads > 1) throw new Error('the bindings map was read twice')
+        return User
+      },
+    }) as Record<string, Binder>
+    const routes = mount(Route.api(appApi, (r) => [r.bind(bindings).contract(posts, SnapshotController)]))
+    expect(reads).toBe(1)
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
+  })
+
+  it('binds a numeric key under the string Hono and the objects use', async () => {
+    const numeric = defineContract()({ show: endpoint.get('/:123').response(anything) })
+    const numericApi = defineApi({ numeric: { contract: numeric, path: '/api/numeric', scopes: [] } })
+    class NumericController extends Controller {
+      show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params['123'] as User).id } }
+    }
+    const routes = mount(Route.api(numericApi, (r) => [r.bind({ 123: User }).contract(numeric, NumericController)]))
+    expect(await (await routes.request('/api/numeric/7')).json()).toEqual({ user: '7' })
   })
 })

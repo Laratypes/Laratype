@@ -26,7 +26,7 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
+import { copyBindingMap, expandedPathWithoutParam, implicitParamNames, manifestModelKeys, nonTrailingOptionalParamNames, pathParamNames, scopedBinderIssue } from "./bindings";
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 import { contractAuth } from "./contractAuth";
@@ -61,7 +61,7 @@ const describeValue = (value: unknown): string => {
   }
 };
 
-/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B>`. */
+/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B, I, Off>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
   constructor(
@@ -69,29 +69,51 @@ class RouteBuilder {
     private readonly entries: readonly TreeEntry[] = [],
     readonly bindings: Bindings = {},
     readonly interceptors: readonly AnyInterceptor[] = [],
+    /** `.withoutImplicitBinding()` (H14 #163): the contracts mounted here bind no registered model. */
+    readonly implicitBinding: boolean = true,
+    /** `.scopeBindings()` (H14 #163): the contracts mounted here resolve a child model through its parent. */
+    readonly scopedBindings: boolean = false,
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
     middleware.forEach(checkMiddleware);
-    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings, this.interceptors);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings, this.interceptors, this.implicitBinding, this.scopedBindings);
   }
 
   /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
   withoutMiddleware(...middleware: MiddlewareItem[]) {
-    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings, this.interceptors);
+    return new RouteBuilder(
+      this.stack.filter((item) => !middleware.includes(item)),
+      this.entries,
+      this.bindings,
+      this.interceptors,
+      this.implicitBinding,
+      this.scopedBindings,
+    );
   }
 
   /** Interceptors around the handlers of what this builder mounts (H11 #138): first registered is outermost. */
   interceptor(...interceptors: AnyInterceptor[]) {
     interceptors.forEach(checkInterceptor);
-    return new RouteBuilder(this.stack, this.entries, this.bindings, [...this.interceptors, ...interceptors]);
+    return new RouteBuilder(this.stack, this.entries, this.bindings, [...this.interceptors, ...interceptors], this.implicitBinding, this.scopedBindings);
   }
 
   /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
   bind(bindings: Record<string, Binder>) {
-    checkBindingMap(bindings);
-    // A spread, not Object.assign: a spread defines own data properties, so no setter (an inherited one included) runs
-    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }), this.interceptors);
+    // The checked snapshot is what the builder keeps: a getter or a Proxy that answers another binder on a second read
+    // cannot store something the check never saw, and a key the check read is never dropped (H7 #118 follow-up)
+    const checked = copyBindingMap(bindings);
+    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...checked }), this.interceptors, this.implicitBinding, this.scopedBindings);
+  }
+
+  /** The contracts mounted from the returned builder bind no registered model (H14 #163): a param stays a string. */
+  withoutImplicitBinding() {
+    return new RouteBuilder(this.stack, this.entries, this.bindings, this.interceptors, false, this.scopedBindings);
+  }
+
+  /** The contracts mounted from the returned builder resolve each child model through its parent (H14 #163). */
+  scopeBindings() {
+    return new RouteBuilder(this.stack, this.entries, this.bindings, this.interceptors, this.implicitBinding, true);
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -108,6 +130,8 @@ class RouteBuilder {
       middleware: this.stack,
       interceptors: this.interceptors,
       bindings: this.bindings,
+      implicitBinding: this.implicitBinding,
+      scopedBindings: this.scopedBindings,
       options: copy,
     });
     return mounted;
@@ -115,6 +139,8 @@ class RouteBuilder {
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
+    // A scope carries no implicit opt-out or scoping: another builder's proof cannot see it (docs/v1/http.md › Model
+    // binding › Scopes), so `.withoutImplicitBinding()` / `.scopeBindings()` apply to the contracts they mount
     return Object.freeze({
       kind: "scope",
       dir,
@@ -285,6 +311,9 @@ const hostname = (c: Context) => {
 const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRouteItem[]): { routes: RouteEntry[]; adHoc: AdHocRouteEntry[] } => {
   if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)");
 
+  // The app manifest's model keys, read once per Route.api: the path params a route binds implicitly (H14 #163)
+  const modelKeys = manifestModelKeys();
+
   const scopeDirs = new Map<string, boolean>();
   for (const { entry } of entries) for (const { scope, dir } of entry.scopes) scopeDirs.set(dir, scope.authorize === true || scopeDirs.get(dir) === true);
 
@@ -327,7 +356,18 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       const itemBindings = item.bindings;
       const bindings = copyBindingMap(itemBindings === undefined ? {} : itemBindings);
       const interceptors = copyInterceptors(`contract "${names.join('", "')}"`, item.interceptors);
-      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, interceptors, bindings, options });
+      const stored = Object.freeze({
+        kind: "contract" as const,
+        contract,
+        controller,
+        middleware: item.middleware,
+        interceptors,
+        bindings,
+        // An item built by hand (typed as MountedContract) may omit them: the builder defaults are on (H14 #163)
+        implicitBinding: item.implicitBinding !== false,
+        scopedBindings: item.scopedBindings === true,
+        options,
+      });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -361,7 +401,9 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     }
     const endpointHooks = endpointPipeline(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
-    checkScopeBindings(name, scopeItems, mounted, route.path);
+    const implicitBindings = mounted.implicitBinding === false ? [] : implicitParamNames(route.path, modelKeys);
+    const scopedBindings = mounted.scopedBindings === true;
+    checkScopeBindings(name, scopeItems, mounted, route.path, implicitBindings);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
@@ -372,6 +414,9 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
       bindings: routeBindings(scopeItems, mounted, route.path),
+      implicitBindings: Object.freeze(implicitBindings),
+      implicitBinding: mounted.implicitBinding !== false,
+      scopedBindings,
       unenforced: unenforcedCaps(route),
       domain: undefined,
     });
@@ -394,13 +439,21 @@ const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract
 /**
  * Rejects a scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
  * `r.contract()` call with the mounting builder's bindings only, so a route whose contract builder does not bind the
- * key would give the handler a model where its types say string. The first conflict in route order is reported.
+ * key would give the handler a model where its types say string. The first conflict in route order is reported. A key
+ * the route binds implicitly is provided by the proof (H14 #163), so it is no conflict.
  */
-const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): void => {
+const checkScopeBindings = (
+  name: string,
+  scopes: readonly MountedScope[],
+  mounted: MountedContract<object>,
+  path: string,
+  implicitBindings: readonly string[],
+): void => {
   const names = pathParamNames(path);
+  const implicit = new Set(implicitBindings);
   for (const scope of scopes) {
     for (const key of Object.keys(scope.bindings ?? {})) {
-      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key)) continue;
+      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key) || implicit.has(key)) continue;
       fail(
         `scope "${scope.dir}" binds \`${key}\`, but contract "${name}" is mounted from a builder that does not bind it: ` +
           `mount the contract from a builder that binds \`${key}\` too (a handler's types see only its own builder's bindings)`,
@@ -410,9 +463,34 @@ const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mount
 };
 
 /**
+ * The mount-time checks of one key's Hono optional-param layout (H7 #118), shared by `r.bind()` and the implicit
+ * bindings (H14 #163): `at` is the `r.bind():` or `model binding:` prefix, and each case gets the fix that works.
+ */
+const checkOptionalLayout = (
+  at: string,
+  key: string,
+  path: string,
+  fixes: { readonly dropped: string; readonly expansion: string },
+): void => {
+  const expansion = expandedPathWithoutParam(path, key);
+  if (expansion === undefined) return;
+  if (pathParamNames(expansion).has(key)) {
+    fail(
+      `${at} \`${key}\` is a param of ${path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
+        `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ${fixes.dropped}`,
+    );
+  }
+  fail(
+    `${at} \`${key}\` is a required param of ${path} that Hono's optional-param expansion leaves out of a registration: ` +
+      `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ${fixes.expansion}`,
+  );
+};
+
+/**
  * Rejects a binding key that no endpoint the binding applies to declares: `routeBindings()` drops it, so a typo (or a
  * path the parser cannot read) would otherwise pass silently. A key only some endpoints of a contract declare stays
- * valid: `routeBindings()` limits it to the routes that have the param.
+ * valid: `routeBindings()` limits it to the routes that have the param. The implicit bindings (H14 #163) and a
+ * `.scopeBindings()` route's model binders get the same fail-closed checks.
  */
 const checkBindingKeys = (
   routes: readonly RouteEntry[],
@@ -440,20 +518,39 @@ const checkBindingKeys = (
     // drop a param whose placeholder is in the registration (a static segment after an optional one): the helper follows
     // the router's param count, and each case gets the fix that works.
     for (const key of Object.keys(route.bindings)) {
-      const expansion = expandedPathWithoutParam(route.path, key);
-      if (expansion === undefined) continue;
-      if (pathParamNames(expansion).has(key)) {
+      checkOptionalLayout("r.bind():", key, route.path, {
+        dropped: "Fix: drop the `?` of the optional params, or move the static segment before them.",
+        expansion: `Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
+      });
+    }
+    // The implicit keys: only the ones no explicit binder already checked, with their own wording and fix (H14 #163)
+    for (const key of route.implicitBindings) {
+      if (Object.hasOwn(route.bindings, key)) continue;
+      if (key === "__proto__") {
         fail(
-          `r.bind(): \`${key}\` is a param of ${route.path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
-            `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ` +
-            `Fix: drop the \`?\` of the optional params, or move the static segment before them.`,
+          "model binding: `__proto__` cannot be an implicit model key: every object reads it as its prototype, and Hono drops a `:__proto__` path param, " +
+            "so the binding would be dropped. Fix: rename the model file.",
         );
       }
-      fail(
-        `r.bind(): \`${key}\` is a required param of ${route.path} that Hono's optional-param expansion leaves out of a registration: ` +
-          `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ` +
-          `Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
-      );
+      const implicitMidPath = misnamed.has(key)
+        ? `model binding: \`${key}\` binds \`:${key}?\` in ${route.path}, where Hono registers it as \`${key}?\`: ` +
+          "it expands only a path that ends with an optional param, so the implicit binding would never run. Fix: make the optional param the last segment, " +
+          "drop the `?`, or mount the contract with .withoutImplicitBinding()."
+        : undefined;
+      if (implicitMidPath !== undefined) fail(implicitMidPath);
+      checkOptionalLayout("model binding:", key, route.path, {
+        dropped:
+          "Fix: drop the `?` of the optional params, move the static segment before them, or mount the contract with .withoutImplicitBinding().",
+        expansion: `Fix: move \`${key}\` before the optional params, drop their \`?\`, or mount the contract with .withoutImplicitBinding().`,
+      });
+    }
+    // A scoped route resolves every child through a model: an explicit resolver cannot be scoped, and a model's lookup
+    // must take the `scope` parameter (its absence cannot be simulated)
+    if (route.scopedBindings) {
+      for (const [key, binder] of Object.entries(route.bindings)) {
+        const issue = scopedBinderIssue(key, binder);
+        if (issue !== undefined) fail(issue);
+      }
     }
     const forContract = contractParams.get(name) ?? new Set<string>();
     for (const key of names) forContract.add(key);
@@ -720,6 +817,8 @@ const routeParams = (
     middleware: [...prepend, ...route.middleware],
     interceptors: [...route.interceptors],
     bindings: route.bindings,
+    implicitBindings: route.implicitBindings,
+    scopedBindings: route.scopedBindings,
     ...(checks === undefined ? {} : { authorization: routeAuthorization(route, checks) }),
   };
 };

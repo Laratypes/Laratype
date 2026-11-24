@@ -18,7 +18,7 @@ import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
 import { interceptorName } from "../interceptor/defineInterceptor";
 import type { AnyInterceptor } from "../interceptor/defineInterceptor";
 import { mountCors } from "../middleware/cors";
-import { resolveBindings } from "../routing/api/bindings";
+import { resolveRouteBindings } from "../routing/api/bindings";
 import type { Bindings } from "../routing/api/proof";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
@@ -86,6 +86,10 @@ type PipeLineType = {
 } | {
   type: 'bindings',
   bindings: Bindings,
+  /** The route's implicit model keys and whether it is scoped (H14 #163). */
+  implicit: readonly string[],
+  scoped: boolean,
+  path: string,
 } | {
   type: 'authorization',
   authorization: NonNullable<RouteParams["authorization"]>,
@@ -314,7 +318,10 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'bindings') {
-              bound = await resolveBindings(currentPipeline.bindings, requestInstance.param());
+              bound = await resolveRouteBindings(
+                { explicit: currentPipeline.bindings, implicit: currentPipeline.implicit, scoped: currentPipeline.scoped, path: currentPipeline.path },
+                requestInstance.param(),
+              );
               return await next(arg);
             }
             if(currentPipelineType === 'request') {
@@ -543,8 +550,14 @@ export default class Request extends AppServiceProvider {
             : { type: 'middleware' as const, handler: m }));
         }
         // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
-        if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
-          pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        if((routeOption.bindings && Object.keys(routeOption.bindings).length) || routeOption.implicitBindings?.length) {
+          pipelines.push({
+            type: 'bindings' as const,
+            bindings: routeOption.bindings ?? {},
+            implicit: routeOption.implicitBindings ?? [],
+            scoped: routeOption.scopedBindings === true,
+            path: routeOption.path,
+          });
         }
         // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403
         // must come before a 422 and neither may leak a resource (H8 #122)

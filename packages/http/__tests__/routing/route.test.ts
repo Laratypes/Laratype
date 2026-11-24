@@ -226,6 +226,37 @@ describe('route()', () => {
       new TypeError('[@laratype/http] route: param "user" got an object that is not a model (no getRouteKey())'),
     )
   })
+
+  it('takes a Date or boolean getRouteKey() (H14 #163, the model base returns both)', () => {
+    class DatedUser {
+      getRouteKey() {
+        return new Date('2024-01-02T03:04:05.000Z')
+      }
+    }
+    class FlaggedUser {
+      getRouteKey() {
+        return true
+      }
+    }
+    mount()
+    // ISO 8601 is the form findByRouteKey() converts back (database.md › BindableModel › Key conversion)
+    expect(route('users.posts.show', { user: new DatedUser(), post: 2 })).toBe(
+      '/api/users/2024-01-02T03%3A04%3A05.000Z/posts/2',
+    )
+    expect(route('users.posts.show', { user: new FlaggedUser(), post: 2 })).toBe('/api/users/true/posts/2')
+  })
+
+  it('refuses a getRouteKey() that is not a route key value', () => {
+    class WeirdUser {
+      getRouteKey(): unknown {
+        return { id: 1 }
+      }
+    }
+    mount()
+    expect(() => route('users.posts.show', { user: new WeirdUser() as never, post: 1 })).toThrow(
+      new TypeError('[@laratype/http] route: param "user" has a getRouteKey() that is not a string, number, bigint, boolean or Date'),
+    )
+  })
 })
 
 describe('buildUrl through a real Hono app', () => {

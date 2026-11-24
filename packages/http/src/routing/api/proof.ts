@@ -3,6 +3,7 @@ import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
 import type Controller from "../../controller/Controller";
+import type { RegisteredModels } from "../../register";
 import type { Matches } from "./equal";
 
 /**
@@ -45,10 +46,13 @@ export type Merge<Base, Extra> = Flat<
  * `.bind()`-resolved params). `Ctx` knows the endpoint's own path params; a folder param (`user` of
  * `users/[user]/posts`) is listed in `Requires`.
  *
+ * The app's registered models (`Register['models']`, H14 #163) replace the string of an endpoint's own path param, so
+ * `Ctx<typeof users.show>` has `params.user: User` without a `Requires` entry or a `r.bind()`.
+ *
  *   async index({ query }: Ctx<typeof posts.index>)
  *   async destroy({ params }: Ctx<typeof posts.destroy, { params: { post: Post } }>)
  */
-export type Ctx<E extends AnyEndpoint, Requires extends object = {}> = Merge<BaseCtx<E>, Requires>;
+export type Ctx<E extends AnyEndpoint, Requires extends object = {}> = Merge<Merge<BaseCtx<E>, ImplicitParams<E>>, Requires>;
 
 /** What a handler returns: the response schema input (the serializer runs afterwards), or nothing without one. */
 export type Result<E extends AnyEndpoint> = T<E>["response"] extends undefined ? void : InferIn<T<E>["response"]>;
@@ -81,13 +85,14 @@ type Resolver = ((value: string) => unknown) & { readonly findByRouteKey?: never
 /**
  * The static side of a model class `r.bind()` takes (docs/v1/database.md › BindableModel), structural and type-only:
  * `@laratype/http` does not import `@laratype/database`. `findByRouteKey` returns `null` / `undefined` on a miss, which
- * is the contract's derived 404; `routeKeyName` defaults to `primaryKey`.
+ * is the contract's derived 404; `routeKeyName` defaults to `primaryKey`. The optional `scope` holds the models bound
+ * for the route's earlier path params, for a `.scopeBindings()` route (H14 #163).
  */
 export interface BindableModelClass<M extends object = object> {
   new (...args: any[]): M;
   readonly primaryKey: string;
   readonly routeKeyName?: string;
-  findByRouteKey(key: string): Promise<M | null | undefined>;
+  findByRouteKey(key: string, scope?: Readonly<Record<string, object>>): Promise<M | null | undefined>;
 }
 
 /** A `.bind()` value: a model class, a callable carrying its statics, or a resolver from the raw param (H7 #118). */
@@ -100,7 +105,7 @@ export type Bindings = Readonly<Record<string, Binder>>;
  * The statics `isModelClass` reads at runtime: a callable that has them (and no construct signature) is a model, not a
  * resolver, so its value is the lookup result. `BindableModelClass` is the constructable form of the same shape.
  */
-type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string): unknown };
+type ModelStatics = { readonly primaryKey: string; findByRouteKey(key: string, scope?: Readonly<Record<string, object>>): unknown };
 
 /** A callable that carries the model statics without a construct signature: a model at runtime (`isModelClass`). */
 type CallableModel = ((value: string) => unknown) & ModelStatics;
@@ -128,6 +133,27 @@ type BoundParams<P, B> = {
 /** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
 
+/**
+ * @internal The app's registered models under the params `P` (docs/v1/http.md › Model binding, H14 #163): the value is
+ * the model **class**, so `Bound` gives its instance exactly as a `.bind({ user: User })` binder does. `Register['models']`
+ * is `{}` before the generated augmentation, and `keyof {}` is `never`, so the map is empty then.
+ */
+type ImplicitKeys<P> = { [K in keyof P & keyof RegisteredModels]: RegisteredModels[K] };
+
+/**
+ * @internal The bindings under an explicit `.bind()` map: a key both sides name keeps the explicit binder (the runtime
+ * resolves the explicit entry last), and a `.withoutImplicitBinding()` builder (`Off`) has none.
+ */
+type WithImplicit<P, B, Off extends boolean> = Off extends true ? B : Omit<ImplicitKeys<P>, keyof B> & B;
+
+/**
+ * @internal What the endpoint's own path params contribute to `Ctx<E>`: a registered model replaces its string. A tree
+ * folder param is not in the endpoint's path, so it stays listed in `Requires`.
+ */
+type ImplicitParams<E extends AnyEndpoint> = keyof RegisteredModels extends never
+  ? {}
+  : { params: BoundParams<PathParams<T<E>["path"]>, ImplicitKeys<PathParams<T<E>["path"]>>> };
+
 type IsOn<V> = [V] extends [undefined | false] ? false : true;
 
 /**
@@ -144,10 +170,17 @@ type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B>
 /**
  * What the route passes to the handler of endpoint `E` under `Path`: `BaseCtx` with every path param of the full
  * path (folder params included), the `auth` capability's user, the middleware extensions `X` and the bound params
- * `B` in place of their strings.
+ * `B` in place of their strings. `Off` is the builder's `.withoutImplicitBinding()`: its routes bind no registered
+ * model.
  */
-export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}, Ctx extends EndpointContext = RootContext> =
-  Merge<Merge<BaseCtx<E, FullParams<E, Path>>, AuthExtension<E, Ctx>>, WithBindings<X, FullParams<E, Path>, B>>;
+export type Provided<
+  E extends AnyEndpoint,
+  Path extends string,
+  X extends object = {},
+  B = {},
+  Ctx extends EndpointContext = RootContext,
+  Off extends boolean = false,
+> = Merge<Merge<BaseCtx<E, FullParams<E, Path>>, AuthExtension<E, Ctx>>, WithBindings<X, FullParams<E, Path>, WithImplicit<FullParams<E, Path>, B, Off>>>;
 
 // ---- the check --------------------------------------------------------------
 
@@ -306,14 +339,14 @@ type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extend
 /** The handler for key `K`: a member of the controller, never one of the base `Controller` (the runtime rejects those). */
 type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : undefined;
 
-type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B, Ctx extends EndpointContext> = UnionToIntersection<
+type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B, Ctx extends EndpointContext, Off extends boolean> = UnionToIntersection<
   {
     [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
       ? HandlerIssues<
           `${N}.${K}`,
           E,
           HandlerOf<I, K>,
-          Provided<E, Path, X, B, Ctx>,
+          Provided<E, Path, X, B, Ctx, Off>,
           { [P in keyof FullParams<E, Path>]: string },
           X,
           IsOn<ResolvedAuth<E, Ctx>>
@@ -394,14 +427,15 @@ type ParamValue<P extends string, K extends string> = K extends keyof PathParams
 type EndpointBoundNames<E extends AnyEndpoint> = UniqueParams<PathParamsInOrder<T<E>["path"]>>;
 
 /**
- * The models the endpoint policy receives: the endpoint's own path params that `r.bind()` binds, in path order. A param
- * the contract does not bind is `undefined` at runtime (the scope hook, not the endpoint policy, reads folder models).
+ * The models the endpoint policy receives: the endpoint's own path params that the route binds (explicitly or from the
+ * app's registered models), in path order. A param the route does not bind is `undefined` at runtime (the scope hook,
+ * not the endpoint policy, reads folder models).
  */
-type EndpointBoundModels<E extends AnyEndpoint, B> = EndpointBoundNames<E> extends infer Names extends readonly string[]
+type EndpointBoundModels<E extends AnyEndpoint, B, Off extends boolean> = EndpointBoundNames<E> extends infer Names extends readonly string[]
   ? {
       [I in keyof Names]: Names[I] extends infer K extends string
-        ? K extends keyof B
-          ? Bound<B[K]> | (undefined extends ParamValue<T<E>["path"], K> ? undefined : never)
+        ? K extends keyof WithImplicit<PathParams<T<E>["path"]>, B, Off>
+          ? Bound<WithImplicit<PathParams<T<E>["path"]>, B, Off>[K]> | (undefined extends ParamValue<T<E>["path"], K> ? undefined : never)
           : undefined
         : never;
     }
@@ -423,13 +457,13 @@ type MethodAccepts<Provided extends readonly unknown[], F> = F extends (user: an
  * The endpoint policy's arguments against the route's bound models (H8 #122): a method that needs a model the route
  * does not bind, or a different model type, is reported. Extra bound models a method ignores are fine.
  */
-type PolicyArgumentIssues<N extends string, C, Ctx extends EndpointContext, P, B> = {
+type PolicyArgumentIssues<N extends string, C, Ctx extends EndpointContext, P, B, Off extends boolean> = {
   [K in Extract<ResolvedAuthorizedKeys<C, Ctx>, AbilityKeys<P>> as C[K] extends infer E extends AnyEndpoint
-    ? MethodAccepts<EndpointBoundModels<E, B>, P[K]> extends true
+    ? MethodAccepts<EndpointBoundModels<E, B, Off>, P[K]> extends true
       ? never
       : `${N}.${K}: the policy's \`${K}\` method does not accept the bound models the route passes (${JoinBoundNames<EndpointBoundNames<E>>})`
     : never]: C[K] extends infer E extends AnyEndpoint
-    ? { route_provides: EndpointBoundModels<E, B>; policy_accepts: MethodRest<P, K> }
+    ? { route_provides: EndpointBoundModels<E, B, Off>; policy_accepts: MethodRest<P, K> }
     : never;
 };
 
@@ -459,7 +493,7 @@ type IsWidePolicy<PC> = [PC] extends [never]
     ? IsObject<InstanceType<PC>>
     : false;
 
-type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = PolicyOf<O> extends infer P
+type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B, Off extends boolean> = PolicyOf<O> extends infer P
   ? [unknown] extends [P]
     ? {}
     : [P] extends [undefined]
@@ -467,10 +501,10 @@ type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = Poli
     : "before" extends MethodKeys<P>
       ? [AbilityKeys<P>] extends [never]
         ? {}
-        : PolicyArgumentIssues<N, C, Ctx, P, B>
+        : PolicyArgumentIssues<N, C, Ctx, P, B, Off>
       : {
           [K in Exclude<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as `${N}.${K}: .authorize() needs a \`${K}\` method or \`before\` on the policy`]: K
-        } & PolicyArgumentIssues<N, C, Ctx, P, B>
+        } & PolicyArgumentIssues<N, C, Ctx, P, B, Off>
   : never;
 
 /**
@@ -478,10 +512,19 @@ type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = Poli
  * runs it with the middleware extensions its builder accumulated (H6 #117).
  *
  * For contract (or tree node) `C` named `N` under `Path`, controller instance `I`, middleware extensions `X`, bindings
- * `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose property
- * names are the diagnosis.
+ * `B`, options `O` and `Off` (the builder's `.withoutImplicitBinding()`): `unknown` when the proof holds (so
+ * `K & unknown` is `K`), otherwise an object whose property names are the diagnosis.
  */
-export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}, Ctx extends EndpointContext = RootContext> =
-  Flat<ControllerIssues<N, C, Path, I, X, B, Ctx> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O, Ctx, B>> extends infer Errs
-    ? (keyof Errs extends never ? unknown : Errs)
-    : never;
+export type VerifyController<
+  N extends string,
+  C,
+  Path extends string,
+  I,
+  X extends object = {},
+  B = {},
+  O = {},
+  Ctx extends EndpointContext = RootContext,
+  Off extends boolean = false,
+> = Flat<ControllerIssues<N, C, Path, I, X, B, Ctx, Off> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O, Ctx, B, Off>> extends infer Errs
+  ? (keyof Errs extends never ? unknown : Errs)
+  : never;
