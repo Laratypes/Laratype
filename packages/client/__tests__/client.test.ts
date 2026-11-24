@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createClient } from '@laratype/client'
 import type { ClientOptions, FetchLike } from '@laratype/client'
-import { defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
+import { ENDPOINT, defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
 import * as z from 'zod'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import users from './fixtures/app/api/users'
@@ -325,6 +325,21 @@ describe('createClient', () => {
       expect(() => createClient(appApi, { baseUrl })).toThrow(
         new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must not contain a backslash`),
       )
+    }
+  })
+
+  it('applies the one origin rule to a path baseUrl, and keeps encoded or representable forms (C11 #293)', () => {
+    for (const baseUrl of ['//evil.com', '//__laratype_base__/api', '//__laratype_other__/api']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(
+        new TypeError(`[@laratype/client] createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`),
+      )
+    }
+    for (const baseUrl of ['JaVaScRiPt:', 'http:/evil.com', 'http:evil.com', 'local\thost:3000/api']) {
+      expect(() => createClient(appApi, { baseUrl })).toThrow(/must not contain whitespace or control characters|must be an absolute URL/)
+    }
+    // URL parsing keeps these on the page's origin: %2F and %5C stay encoded, a lone surrogate becomes U+FFFD
+    for (const baseUrl of ['/%2F%2Fevil.com', '/%5Cevil.com', '/\uD800', `/${'a'.repeat(1_000_000)}`]) {
+      expect(() => createClient(appApi, { baseUrl }), JSON.stringify(baseUrl.slice(0, 40))).not.toThrow()
     }
   })
 
@@ -998,7 +1013,8 @@ describe('createClient(manifest), the separate-repo FE', () => {
     for (const call of [api.t.slashes, api.t.backslash, api.t.tab, api.t.newline, api.t.invalid, api.t.sentinel]) {
       await expect(call()).rejects.toThrow(/which a URL reads as another host/)
     }
-    // the client checks the joined path, parsed against two origins so a path naming either one fails too
+    // the client checks the joined path with the same one origin rule, which catches a path that only becomes another
+    // host once "/" is put before it
     await expect(api.t.joined()).rejects.toThrow(
       new TypeError('[@laratype/client] route path "\t/evil.com/x" would leave the page\'s origin: "/\t/evil.com/x"'),
     )
@@ -1007,6 +1023,129 @@ describe('createClient(manifest), the separate-repo FE', () => {
     // under an absolute baseUrl the origin is fixed, so the same path stays a path on that host
     await (createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as Calls).t.joined()
     expect(new URL(calls[0]!.url).host).toBe('api.example.com')
+  })
+
+  it('applies the one origin rule to every manifest route path, and keeps encoded forms (C11 #293)', async () => {
+    const { fetch, calls } = fakeFetch()
+    const forged = {
+      't.protocol': { method: 'get', path: '//evil.com/x' },
+      't.backslash': { method: 'get', path: '/\\evil.com/x' },
+      't.twobackslashes': { method: 'get', path: '\\\\evil.com/x' },
+      't.scheme': { method: 'get', path: 'JaVaScRiPt:alert(1)' },
+      't.control': { method: 'get', path: '\u0001http://evil.com' },
+      't.tabscheme': { method: 'get', path: 'ja\tva\tscript:x' },
+      't.crscheme': { method: 'get', path: 'java\rscript:x' },
+      't.lfscheme': { method: 'get', path: 'java\nscript:x' },
+      't.joined': { method: 'get', path: '\t/evil.com/x' },
+      't.joinedBackslash': { method: 'get', path: '\t\\evil.com/x' },
+    }
+    type Calls = { t: Record<keyof typeof forged extends `t.${infer K}` ? K : never, () => Promise<unknown>> }
+    const api = createClient(forged, { fetch }) as never as Calls
+    for (const call of Object.values(api.t) as Array<() => Promise<unknown>>) {
+      await expect(call()).rejects.toThrow(/which a URL reads as another host|would leave the page's origin/)
+    }
+    expect(calls).toEqual([])
+
+    // URL parsing keeps these on the origin: %2F and %5C stay encoded, and a lone surrogate is replaced by U+FFFD
+    const allowed = {
+      't.encodedSlashes': { method: 'get', path: '/%2F%2Fevil.com' },
+      't.encodedBackslash': { method: 'get', path: '/%5Cevil.com' },
+      't.surrogate': { method: 'get', path: '/\uD800' },
+      't.big': { method: 'get', path: `/${'a'.repeat(1_000_000)}` },
+    }
+    type Allowed = { t: Record<'encodedSlashes' | 'encodedBackslash' | 'surrogate' | 'big', () => Promise<unknown>> }
+    const ok = createClient(allowed, { fetch }) as never as Allowed
+    await ok.t.encodedSlashes()
+    await ok.t.encodedBackslash()
+    await ok.t.surrogate()
+    await ok.t.big()
+    expect(calls.map((c) => c.url.slice(0, 24))).toEqual(['/%2F%2Fevil.com', '/%5Cevil.com', '/\uD800', `/${'a'.repeat(23)}`])
+    expect(calls.at(-1)!.url.length).toBe(1_000_001)
+  })
+
+  it('refuses a forged endpoint in a raw contract at createClient, before any call (C11 #293)', () => {
+    const forged = Object.defineProperty({ def: { method: 'get', path: '//evil.com', status: 204, throws: [] } }, ENDPOINT, { value: true })
+    const contract = defineContract()({ bad: forged as never })
+    expect(() => createClient(contract)).toThrow(
+      new TypeError('[@laratype/contract] apiPaths: "bad": the path must start with one "/", got "//evil.com"'),
+    )
+  })
+
+  it('bounds the baseUrl split cache, so a client that flips values cannot grow it (C11 #293)', async () => {
+    const { fetch } = fakeFetch()
+    const OriginalURL = globalThis.URL
+    let parses = 0
+    class CountingURL extends OriginalURL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base)
+        parses += 1
+      }
+    }
+    vi.stubGlobal('URL', CountingURL)
+    try {
+      const options: ClientOptions = { fetch, baseUrl: 'https://example.com/0' }
+      const api = createClient(appApi, options)
+      for (let i = 1; i <= 8; i++) {
+        options.baseUrl = `https://example.com/${i}`
+        await api.users.index()
+      }
+      // eight newer values evicted the first one: going back splits it again
+      options.baseUrl = 'https://example.com/0'
+      parses = 0
+      await api.users.index()
+      expect(parses).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('splits baseUrl once per client and string, and again after a live change (C11 #293)', async () => {
+    const { fetch, calls } = fakeFetch()
+    const OriginalURL = globalThis.URL
+    let parses = 0
+    class CountingURL extends OriginalURL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base)
+        parses += 1
+      }
+    }
+    vi.stubGlobal('URL', CountingURL)
+    try {
+      const options: ClientOptions = { fetch, baseUrl: 'https://example.com/api' }
+      const api = createClient(appApi, options)
+      expect(parses).toBe(1)
+      // the eager createClient check filled the cache: repeated calls parse nothing
+      parses = 0
+      await api.users.index()
+      await api.users.index()
+      expect(parses).toBe(0)
+      options.baseUrl = 'https://example.com/v2'
+      parses = 0
+      await api.users.index()
+      await api.users.index()
+      expect(parses).toBe(1)
+      // a string already split is reused, and an invalid live value is not cached over its error
+      options.baseUrl = 'https://example.com/api'
+      parses = 0
+      await api.users.index()
+      expect(parses).toBe(0)
+      options.baseUrl = 'https://user:pass@example.com'
+      await expect(api.users.index()).rejects.toThrow(/must not contain credentials/)
+      options.baseUrl = 'https://example.com/v2'
+      parses = 0
+      await api.users.index()
+      expect(parses).toBe(0)
+      expect(calls.map((c) => c.url)).toEqual([
+        'https://example.com/api/api/users',
+        'https://example.com/api/api/users',
+        'https://example.com/v2/api/users',
+        'https://example.com/v2/api/users',
+        'https://example.com/api/api/users',
+        'https://example.com/v2/api/users',
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('checks the manifest errors at createClient: absent or an array of strings', () => {
