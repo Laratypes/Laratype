@@ -113,7 +113,6 @@ describe('Model.findByRouteKey scoped SQL (H14 #163)', () => {
     // Same metadata, but the registered relation is read as a one-to-many: the side with no join column on this table
     const metadata = dataSource.getMetadata(RtPost)
     const relation = metadata.relations[0]!
-    const original = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(relation), 'isManyToOne')
     Object.defineProperty(relation, 'isManyToOne', { value: false, configurable: true })
     Object.defineProperty(relation, 'isOneToOneOwner', { value: false, configurable: true })
     queries.length = 0
@@ -125,7 +124,6 @@ describe('Model.findByRouteKey scoped SQL (H14 #163)', () => {
     } finally {
       delete (relation as unknown as Record<string, unknown>).isManyToOne
       delete (relation as unknown as Record<string, unknown>).isOneToOneOwner
-      void original
     }
   })
 })
