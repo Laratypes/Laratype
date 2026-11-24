@@ -28,6 +28,8 @@ import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingO
 import { fail } from "./fail";
 import { throttled } from "./throttle";
 import { contractAuth } from "./contractAuth";
+import { contractPolicies } from "./contractPolicies";
+import type { ContractPolicyChecks } from "./contractPolicies";
 import { registerRoutes } from "../routeUrl";
 
 /** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
@@ -467,7 +469,8 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on
-  // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's (running it is A3 #121)
+  // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's; the kernel runs it
+  // for every route whose resolved authorize is true (H8 #122)
   const contractKeys = contractEndpoints(contract as AnyContract);
   if (options?.policy === undefined) {
     const authorized = contractKeys.find(([, e]) => e.def.authorize === true);
@@ -510,16 +513,13 @@ const endpointStack = (options: ContractRouteOptions<object> | undefined, key: s
 };
 
 /**
- * What the router does not enforce yet for a route: its resolved `authorize` (#121) and the verification of its
- * headers schema (query and body are validated, #106; `throttle` is enforced by `mount()`, #229; `auth` since A2 #120).
+ * What the router does not enforce yet for a route: the verification of its headers schema (query and body are
+ * validated, #106; `throttle` is enforced by `mount()`, #229; `auth` since A2 #120, `authorize` since H8 #122).
  * The one place that decides it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
  */
 const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
   const { headers } = route.endpoint.def;
-  return Object.freeze([
-    ...(route.authorize ? (["authorize"] as const) : []),
-    ...(headers ? (["validation"] as const) : []),
-  ]);
+  return Object.freeze(headers ? (["validation"] as const) : []);
 };
 
 /**
@@ -611,8 +611,29 @@ const registrationOrder = <T extends { readonly path: string }>(routes: readonly
   });
 };
 
+/**
+ * The contract policy chain of a route whose resolved `authorize` is true (H8 #122): the scopes outer to inner, the
+ * endpoint policy, the key as the ability and the endpoint's own bound path params in order (the endpoint policy's
+ * arguments; a scope hook gets the whole resolved record). `undefined` for every other route, so nothing runs on a
+ * public or `.authorize(false)` route, an ad-hoc route or a 0.5 route.
+ */
+const routeAuthorization = (route: RouteEntry, checks: ContractPolicyChecks) => {
+  if (!route.authorize) return undefined;
+  return Object.freeze({
+    ability: route.controller[1],
+    scopes: Object.freeze(route.policies.map((mounted) => mounted.policy)),
+    policy: route.policy,
+    models: Object.freeze([...pathParamNames(route.endpoint.def.path)]),
+    checks,
+  });
+};
+
 /** What `RequestKernel` runs for a route: its controller method, or the handler of an ad-hoc route. */
-const routeParams = (route: RouteEntry | AdHocRouteEntry, prepend: readonly MiddlewareItem[] = []): KernelRouteParams => {
+const routeParams = (
+  route: RouteEntry | AdHocRouteEntry,
+  prepend: readonly MiddlewareItem[] = [],
+  checks?: ContractPolicyChecks,
+): KernelRouteParams => {
   if (route.controller === undefined) {
     return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...prepend, ...route.middleware] };
   }
@@ -627,6 +648,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry, prepend: readonly Midd
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...prepend, ...route.middleware],
     bindings: route.bindings,
+    ...(checks === undefined ? {} : { authorization: routeAuthorization(route, checks) }),
   };
 };
 
@@ -667,6 +689,10 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
     // The auth factory @laratype/auth registers on import (A2 #120). Read once: the slot is untrusted (a value that
     // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
     const auth = contractAuth();
+    // The policy checks @laratype/auth registers on import (H8 #122), read once for the same reason. A route whose
+    // resolved authorize is true fails mount() when they are missing: authorize requires auth, so a valid contract
+    // reaches this only with a @laratype/auth that registers both.
+    const policies = contractPolicies();
     // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
     const handlers = registrationOrder<RouteEntry | AdHocRouteEntry>([...this.routes, ...this.adHoc]).map((route) => {
       const prepared = route.controller !== undefined && route.auth !== undefined
@@ -674,7 +700,10 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
           ? [auth(route.auth)]
           : fail(`${route.name}: the contract declares auth, but @laratype/auth is not imported.`)
         : [];
-      const kernel = RequestKernel.handle(routeParams(route, prepared));
+      const checks = route.controller !== undefined && route.authorize
+        ? policies ?? fail(`${route.name}: the contract declares authorize, but @laratype/auth is not imported.`)
+        : undefined;
+      const kernel = RequestKernel.handle(routeParams(route, prepared, checks));
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229). An ad-hoc
       // route has no contract, so it has no throttle either.
       const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel) : kernel;

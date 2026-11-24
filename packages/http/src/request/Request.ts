@@ -9,7 +9,7 @@ import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBi
 import { FormValidation } from "@laratype/validation";
 import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
-import { validate } from "@laratype/contract";
+import { errors, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
@@ -84,6 +84,9 @@ type PipeLineType = {
 } | {
   type: 'bindings',
   bindings: Bindings,
+} | {
+  type: 'authorization',
+  authorization: NonNullable<RouteParams["authorization"]>,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -327,6 +330,30 @@ export default class Request extends AppServiceProvider {
               }
               return await next(arg);
             }
+            else if(currentPipelineType === 'authorization') {
+              const { ability, scopes, policy, models, checks } = currentPipeline.authorization;
+              // The guard's user, never the ctx extension: a route middleware may replace `ctx.user`, but the policies
+              // must run as the principal the auth capability authenticated (A2 #120, H8 #122)
+              const user = ContextApi.getUser();
+              const container = Request.container();
+              for (const scope of scopes) {
+                const answer = await checks.check(container.make(scope), user, ability, bound);
+                // false is a denial. true allows the request and skips the remaining (inner) scopes and the endpoint
+                // policy; null means before fell through and the ability matches no method, so the chain continues
+                if (answer === false) throw errors.forbidden();
+                if (answer === true) return await next(arg);
+              }
+              if (policy !== undefined) {
+                // The endpoint policy's arguments: the endpoint's own bound models, in path order. A binding the request
+                // did not carry (an absent optional param, or a key the contract does not bind) is undefined
+                const args = models.map((key) => bound[key]);
+                await checks.authorize(container.make(policy), user, ability, ...args);
+                return await next(arg);
+              }
+              // No policy decided: a typo in the endpoint key, or a scope with neither before nor the ability, must
+              // never allow by falling through (docs/v1/http.md › Authorization from the contract)
+              throw errors.forbidden();
+            }
             else if(currentPipelineType === "policies") {
               const policyHandler = currentPipeline.handler;
               const modelBindings = ContextApi.getModelBindings();
@@ -482,6 +509,11 @@ export default class Request extends AppServiceProvider {
         // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
         if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
           pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        }
+        // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403
+        // must come before a 422 and neither may leak a resource (H8 #122)
+        if(routeOption.authorization) {
+          pipelines.push({ type: 'authorization' as const, authorization: routeOption.authorization });
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));

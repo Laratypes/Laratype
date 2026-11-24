@@ -1,4 +1,4 @@
-import type { AnyEndpoint, EndpointContext, EndpointTypes, GuardUser, InferIn, InferOut, PathParams, ResolvedAuth, RootContext } from "@laratype/contract";
+import type { AnyEndpoint, EndpointContext, EndpointTypes, GuardUser, InferIn, InferOut, PathParams, ResolvedAuth, ResolvedAuthorize, RootContext } from "@laratype/contract";
 import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
@@ -331,13 +331,105 @@ type BindIssues<N extends string, C, Path extends string, B> = {
   [K in Exclude<keyof B, AllPathParams<C, Path>> & string as `.bind(): \`${K}\` is not a path param of any endpoint in ${N}`]: B[K];
 };
 
-/** Endpoint keys with their own `.authorize()` (or `.authorize(flag)`): each needs a policy method of the same name, or `before`. */
-type AuthorizedKeys<C> = {
+/** Endpoint keys with their own `.authorize()` (or `.authorize(flag)`): each needs the contract's policy. */
+type OwnAuthorizedKeys<C> = {
   [K in EndpointKey<C>]: C[K] extends { readonly __types: { caps: { authorize: infer F } } } ? (true extends F ? K : never) : never;
+}[EndpointKey<C>];
+
+/** Endpoint keys whose `authorize` resolves to true: their own `.authorize()`, or a scope's, unless `.authorize(false)`. */
+type ResolvedAuthorizedKeys<C, Ctx extends EndpointContext> = {
+  [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint ? (ResolvedAuthorize<E, Ctx> extends true ? K : never) : never;
 }[EndpointKey<C>];
 
 /** The method names of a policy instance: a property that is not a function doesn't count. */
 type MethodKeys<P> = { [K in keyof P]-?: P[K] extends (...args: any) => any ? K : never }[keyof P];
+
+/** The parameters of a policy method after the user: `update(user, post)` gives `[post: Post]`, `viewAny(user)` gives `[]`. */
+type MethodRest<P, K> = K extends keyof P ? (P[K] extends (user: any, ...args: infer A) => any ? A : never) : never;
+
+/** The param name of one path segment, or `""` for a static, wildcard or empty segment (the runtime's `pathParamNames`). */
+type SegmentParam<S extends string> = S extends `:${infer Rest}`
+  ? Rest extends `${infer N}?`
+    ? N
+    : Rest extends `${infer N}{${string}}${string}`
+      ? N
+      : Rest extends `${infer N}{${string}`
+        ? N
+        : Rest
+  : "";
+
+type SegmentParams<S extends string> = SegmentParam<S> extends infer N extends string ? (N extends "" ? [] : [N]) : [];
+
+/** The param names of a path, in path order: the endpoint's own models are passed in this order (H8 #122). */
+type PathParamsInOrder<P extends string> = P extends `${infer Head}/${infer Tail}`
+  ? Head extends `${string}{${string}`
+    ? Head extends `${string}}${string}`
+      ? [...SegmentParams<Head>, ...PathParamsInOrder<Tail>]
+      : PathParamsInOrder<`${Head}\u0000${Tail}`>
+    : [...SegmentParams<Head>, ...PathParamsInOrder<Tail>]
+  : SegmentParams<P>;
+
+/** The names without repetitions, as Hono's params object has one key per name. */
+type UniqueParams<T extends readonly string[], Seen extends string = never> = T extends readonly [
+  infer H extends string,
+  ...infer R extends readonly string[],
+]
+  ? H extends Seen
+    ? UniqueParams<R, Seen>
+    : [H, ...UniqueParams<R, Seen | H>]
+  : [];
+
+/** The type of one path param: an optional one (`:post?`) may be absent. */
+type ParamValue<P extends string, K extends string> = K extends keyof PathParams<P> ? PathParams<P>[K] : string;
+
+/** The endpoint's own path param names, in path order: the keys the endpoint policy's arguments come from. */
+type EndpointBoundNames<E extends AnyEndpoint> = UniqueParams<PathParamsInOrder<T<E>["path"]>>;
+
+/**
+ * The models the endpoint policy receives: the endpoint's own path params that `r.bind()` binds, in path order. A param
+ * the contract does not bind is `undefined` at runtime (the scope hook, not the endpoint policy, reads folder models).
+ */
+type EndpointBoundModels<E extends AnyEndpoint, B> = EndpointBoundNames<E> extends infer Names extends readonly string[]
+  ? {
+      [I in keyof Names]: Names[I] extends infer K extends string
+        ? K extends keyof B
+          ? Bound<B[K]> | (undefined extends ParamValue<T<E>["path"], K> ? undefined : never)
+          : undefined
+        : never;
+    }
+  : never;
+
+/** The names of a bound-model tuple in a diagnostic: `(post, comment)`, or `(none)`. */
+type JoinBoundNames<T extends readonly string[]> = T extends readonly [infer H extends string, ...infer R extends readonly string[]]
+  ? R extends readonly [] ? H : `${H}, ${JoinBoundNames<R>}`
+  : "none";
+
+/**
+ * Whether the method accepts the bound tuple: each declared parameter must accept the model at its position, and a
+ * method that declares fewer parameters stays valid (JavaScript ignores the extra models). A rest parameter accepts
+ * every tuple.
+ */
+type MethodAccepts<Provided extends readonly unknown[], Declared extends readonly unknown[]> = number extends Declared["length"]
+  ? true
+  : Declared extends readonly [infer D, ...infer DR]
+    ? Provided extends readonly [infer V, ...infer VR]
+      ? [V] extends [D] ? MethodAccepts<VR, DR> : false
+      : false
+    : true;
+
+/**
+ * The endpoint policy's arguments against the route's bound models (H8 #122): a method that needs a model the route
+ * does not bind, or a different model type, is reported. Extra bound models a method ignores are fine.
+ */
+type PolicyArgumentIssues<N extends string, C, Ctx extends EndpointContext, P, B> = {
+  [K in Extract<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as C[K] extends infer E extends AnyEndpoint
+    ? MethodAccepts<EndpointBoundModels<E, B>, Required<MethodRest<P, K>>> extends true
+      ? never
+      : `${N}.${K}: the policy's \`${K}\` method does not accept the bound models the route passes (${JoinBoundNames<EndpointBoundNames<E>>})`
+    : never]: C[K] extends infer E extends AnyEndpoint
+    ? { route_provides: EndpointBoundModels<E, B>; policy_accepts: MethodRest<P, K> }
+    : never;
+};
 
 /** Exactly `object`: the instance of a class known only as a `PolicyClass` (an empty class gives `{}`). */
 type IsObject<X> = (<V>() => V extends X ? 1 : 2) extends (<V>() => V extends object ? 1 : 2) ? true : false;
@@ -365,14 +457,16 @@ type IsWidePolicy<PC> = [PC] extends [never]
     ? IsObject<InstanceType<PC>>
     : false;
 
-type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
+type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = PolicyOf<O> extends infer P
   ? [unknown] extends [P]
     ? {}
     : [P] extends [undefined]
-    ? { [K in AuthorizedKeys<C> as `${N}.${K}: endpoint has .authorize() but r.contract() has no { policy }`]: K }
+    ? { [K in OwnAuthorizedKeys<C> as `${N}.${K}: endpoint has .authorize() but r.contract() has no { policy }`]: K }
     : "before" extends MethodKeys<P>
       ? {}
-      : { [K in Exclude<AuthorizedKeys<C>, MethodKeys<P>> as `${N}.${K}: .authorize() needs a \`${K}\` method or \`before\` on the policy`]: K }
+      : {
+          [K in Exclude<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as `${N}.${K}: .authorize() needs a \`${K}\` method or \`before\` on the policy`]: K
+        } & PolicyArgumentIssues<N, C, Ctx, P, B>
   : never;
 
 /**
@@ -384,6 +478,6 @@ type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
  * names are the diagnosis.
  */
 export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}, Ctx extends EndpointContext = RootContext> =
-  Flat<ControllerIssues<N, C, Path, I, X, B, Ctx> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O>> extends infer Errs
+  Flat<ControllerIssues<N, C, Path, I, X, B, Ctx> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O, Ctx, B>> extends infer Errs
     ? (keyof Errs extends never ? unknown : Errs)
     : never;
