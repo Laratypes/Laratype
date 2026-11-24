@@ -21,7 +21,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7) |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
-| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; B30 [#410](https://github.com/Laratypes/Laratype/issues/410) re-read the body cache, form conversion and form classifier, and refused a multi-valued `Content-Type` and a form media type name outside the leading media type, at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3); interceptors proposed: PR <leader fills> @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
+| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; B30 [#410](https://github.com/Laratypes/Laratype/issues/410) re-read the body cache, form conversion and form classifier, and refused a multi-valued `Content-Type` and a form media type name outside the leading media type, at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3); interceptors proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
 | [Default body limit](#default-body-limit) | proposed: PR [#381](https://github.com/Laratypes/Laratype/pull/381) @ [554d82f](https://github.com/Laratypes/Laratype/commit/554d82f) (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)); B30 [#410](https://github.com/Laratypes/Laratype/issues/410) took the form cap from the form classifier and refused a multi-valued `Content-Type` and a form media type name outside the leading media type before it at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)) |
 | [The 0.5 response](#the-05-response) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); H45 [#342](https://github.com/Laratypes/Laratype/issues/342) proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575); string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336), breaking) |
@@ -33,7 +33,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Request.ip()](#requestip) | proposed: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d (H30 [#299](https://github.com/Laratypes/Laratype/issues/299)) |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2 (H17); H30 text: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
-| [Interceptors](#interceptors) | proposed: PR <leader fills> @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
+| [Interceptors](#interceptors) | proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [Route names and URLs](#route-names-and-urls) | proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [CORS](#cors) | proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)) |
@@ -475,7 +475,7 @@ Tests: [`packages/http/__tests__/request/containerResolution.test.ts`](../../pac
 ## Request pipeline
 
 ### Status
-Parsing, validation and the handler ctx: proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H43 [#340](https://github.com/Laratypes/Laratype/issues/340), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors proposed: PR <leader fills> @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
+Parsing, validation and the handler ctx: proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H43 [#340](https://github.com/Laratypes/Laratype/issues/340), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
 
 ### Public API
 No new export. The parsing and validation steps run inside `RequestKernel.handle`, and the handler ctx is `Ctx<E>`: the signatures, permalinked at the SHA in Status, are in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422) and [Controller typing](#controller-typing-ctx-and-controllerof).
@@ -1307,7 +1307,7 @@ Tests: [`packages/http/__tests__/resource/defineResource.test.ts`](../../package
 ## Interceptors
 
 ### Status
-proposed: PR <leader fills> @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). Explicit
+proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). Explicit
 `r.interceptor()` registration on the `Route.api` builder and in `endpoints` callbacks; values only, no DI classes;
 `withoutInterceptor` is not in this task. The `cache(ttl)` interceptor is the Cache package's
 ([services.md › Cache](./services.md#cache), [#166](https://github.com/Laratypes/Laratype/issues/166)).
@@ -1429,6 +1429,11 @@ const trim = defineInterceptor<typeof posts.show>(async (ctx, next) => {     // 
   mount-time check for it. A cast (`as any`) can bypass it, and the dev response check is the runtime backstop. A generic
   interceptor mounted at a scope is applied to every contract under the folder at runtime; its type is not part of another
   builder's proof (the same limitation as H6 scope middleware).
+- **A cache short-circuit skips the handler's checks.** When an interceptor returns without calling `next()`, every
+  check made inside the handler is skipped, and the same value is replayed to every request that passes the route's
+  auth and policies. Key the cache per user (or principal) when the value depends on the user, keep authorization in
+  policies and middleware rather than in the handler, and never cache a `ResponseSupport` value that sets cookies: its
+  headers, `Set-Cookie` included, are replayed too.
 - **Values only.** No interceptor classes or container DI; a `cache(ttl)` factory from
   [@laratype/cache](./services.md#cache) (#166) returns a generic `defineInterceptor()` value.
 
@@ -1470,6 +1475,7 @@ const log = defineInterceptor((ctx, next) => {
   })
 })
 
+// a public, user-independent value: key per user when the value depends on the user (Invariants › cache short-circuit)
 const cache = new Map<string, unknown>()
 const cached = defineInterceptor(async <R>(ctx: Ctx<AnyEndpoint>, next: () => Promise<R>): Promise<R> => {
   const post = (ctx.params as Record<string, string | undefined>).post
