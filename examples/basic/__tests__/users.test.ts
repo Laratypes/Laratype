@@ -1,23 +1,39 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { UserDto } from "../app/api/users";
+import { swapMemoryAuth, type MemoryAuth } from "./support/auth";
 import { bootExample, type BootedExample } from "./support/boot";
 
-// E1 #111: the v1 users slice through the example's Hono app, in process. The app boots with every provider of
-// app/config/providers.ts (no stub), and the router serves the contract from app/api/users.ts.
+// E1 #111 + E3 #135: the v1 users slice through the example's Hono app, in process. Every /api/users endpoint is
+// behind the contract's auth capability; the token is a real JWT verified by the real TokenGuard against an in-memory
+// provider row (support/auth.ts), so the suite needs no MySQL.
 
 let example: BootedExample;
+let memory: MemoryAuth;
+let auth: Record<string, string>;
 
 beforeAll(async () => {
   example = await bootExample();
+  memory = swapMemoryAuth(example.container);
+  auth = { authorization: `Bearer ${await memory.issue("web", memory.user(1))}` };
 });
 
 afterAll(async () => {
+  memory.restore();
   await example.stop();
 });
 
+const requestJson = (path: string, init: RequestInit = {}) =>
+  example.requestJson(path, { ...init, headers: { ...auth, ...init.headers } });
+
 describe("GET /api/users", () => {
-  it("answers 200 with the list", async () => {
+  it("answers 401 without a token", async () => {
     const { response, body } = await example.requestJson("/api/users");
+    expect(response.status).toBe(401);
+    expect(body).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+  });
+
+  it("answers 200 with the list", async () => {
+    const { response, body } = await requestJson("/api/users");
     expect(response.status).toBe(200);
     expect(body).toEqual({ data: expect.any(Array) });
   });
@@ -37,10 +53,9 @@ describe("GET /api/users", () => {
     expect(paths("PATCH")).not.toContain("/api/users/:activeUser");
     expect(paths("DELETE")).not.toContain("/api/users/:id");
 
-    // And the v1 controller answers it: the created record comes back as is. The 0.5 view at /:user, now removed, was
-    // registered after this v1 route, so Hono matched the v1 one first.
-    const created = (await example.store({ name: "Ada Byron", email: "ada.byron@example.com" })).body as { id: number };
-    const { response, body } = await example.requestJson(`/api/users/${created.id}`);
+    // And the v1 controller answers it: the created record comes back as is.
+    const created = (await example.store({ name: "Ada Byron", email: "ada.byron@example.com" }, auth)).body as { id: number };
+    const { response, body } = await requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
   });
@@ -54,16 +69,22 @@ describe("PATCH and DELETE /api/users/:id", () => {
       (route) => route.path.startsWith("/api/users") && (route.method === "PATCH" || route.method === "DELETE"),
     )).toEqual([]);
 
-    const created = (await example.store({ name: "No Update", email: "no.update@example.com" })).body as { id: number };
+    const created = (await example.store({ name: "No Update", email: "no.update@example.com" }, auth)).body as { id: number };
     for (const method of ["PATCH", "DELETE"]) {
-      expect((await example.app.request(`/api/users/${created.id}`, { method })).status, method).toBe(404);
+      expect((await example.app.request(`/api/users/${created.id}`, { method, headers: auth })).status, method).toBe(404);
     }
   });
 });
 
 describe("POST /api/users", () => {
-  it("answers 201 with the stored user", async () => {
+  it("answers 401 without a token", async () => {
     const { response, body } = await example.store({ name: "Ada", email: "ada@example.com" });
+    expect(response.status).toBe(401);
+    expect(body).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+  });
+
+  it("answers 201 with the stored user", async () => {
+    const { response, body } = await example.store({ name: "Ada", email: "ada@example.com" }, auth);
     expect(response.status).toBe(201);
     expect(body).toEqual({ id: expect.any(Number), name: "Ada", email: "ada@example.com" });
 
@@ -72,7 +93,7 @@ describe("POST /api/users", () => {
   });
 
   it("answers 422 with the catalog validation body for an invalid body", async () => {
-    const { response, body } = await example.store({ name: "", email: "not-an-email" });
+    const { response, body } = await example.store({ name: "", email: "not-an-email" }, auth);
     expect(response.status).toBe(422);
     expect(body).toEqual({
       code: "VALIDATION_ERROR",
@@ -86,15 +107,21 @@ describe("POST /api/users", () => {
 });
 
 describe("GET /api/users/:id", () => {
+  it("answers 401 without a token", async () => {
+    const { response, body } = await example.requestJson("/api/users/1");
+    expect(response.status).toBe(401);
+    expect(body).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+  });
+
   it("answers 200 with the user", async () => {
-    const created = (await example.store({ name: "Grace", email: "grace@example.com" })).body as { id: number };
-    const { response, body } = await example.requestJson(`/api/users/${created.id}`);
+    const created = (await example.store({ name: "Grace", email: "grace@example.com" }, auth)).body as { id: number };
+    const { response, body } = await requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
     expect(body).toEqual(created);
   });
 
   it("answers 404 with the catalog NOT_FOUND body for an unknown id", async () => {
-    const { response, body } = await example.requestJson("/api/users/999999");
+    const { response, body } = await requestJson("/api/users/999999");
     expect(response.status).toBe(404);
     expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
   });
@@ -102,12 +129,12 @@ describe("GET /api/users/:id", () => {
   it("answers 404 for ids Number() reads as the stored one: 0x<hex>, <id>e0 and 0<id>", async () => {
     // `0x<hex>`, `<id>e0` and `0<id>` all read back as the same number under Number(), so a loose parse would answer
     // 200. The stored user is this test's own: another test's fixture is skipped when `vitest -t` runs this one alone.
-    const created = (await example.store({ name: "Malformed Id", email: "malformed.id@example.com" })).body as { id: number };
-    const { response } = await example.requestJson(`/api/users/${created.id}`);
+    const created = (await example.store({ name: "Malformed Id", email: "malformed.id@example.com" }, auth)).body as { id: number };
+    const { response } = await requestJson(`/api/users/${created.id}`);
     expect(response.status).toBe(200);
 
     for (const malformed of [`0x${created.id.toString(16)}`, `${created.id}e0`, `0${created.id}`]) {
-      const { response, body } = await example.requestJson(`/api/users/${malformed}`);
+      const { response, body } = await requestJson(`/api/users/${malformed}`);
       expect(response.status, malformed).toBe(404);
       expect(body).toEqual({ code: "NOT_FOUND", message: "Not Found." });
     }
