@@ -1140,7 +1140,7 @@ export default defineContract<Prefix>()({
   update: endpoint.patch('/:post').response(PostDto),
 })
 
-// app/src/providers/RouteServiceProvider.ts
+// app/providers/RouteServiceProvider.ts
 export const routes = Route.api(appApi, (r) => [
   r.bind({ user: User }).scope('users/[user]', { policy: UserScopePolicy }),
   r.bind({ user: User, post: Post }).contract(posts, PostController, { policy: PostPolicy }),
