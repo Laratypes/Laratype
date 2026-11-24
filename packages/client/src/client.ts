@@ -1,6 +1,33 @@
-import { API_NODE, apiPaths, buildUrl, isApiNode, isApiRoot, isBodylessStatus, isContract, isEndpoint, isEndpointPath, isFailureStatus, joinPath, routeErrors } from "@laratype/contract";
+import {
+  API_NODE,
+  apiPaths,
+  buildUrl,
+  isAbsoluteUrl,
+  isApiNode,
+  isApiRoot,
+  isBodylessStatus,
+  isContract,
+  isEndpoint,
+  isEndpointPath,
+  isFailureStatus,
+  joinPath,
+  leavesOrigin,
+  routeErrors,
+} from "@laratype/contract";
 import type { API_ROOT, AnyApiNode, AnyContract, Api, ApiPath, ApiShape, Method, StandardSchemaV1, UrlQuery } from "@laratype/contract";
-import type { Client, ClientOf, ClientOptions, ClientRequest, FetchLike, HeaderValues, Manifest, ManifestClientOptions, PathClient, PathClientOptions, ProvidedHeaders } from "./types";
+import type {
+  Client,
+  ClientOf,
+  ClientOptions,
+  ClientRequest,
+  FetchLike,
+  HeaderValues,
+  Manifest,
+  ManifestClientOptions,
+  PathClient,
+  PathClientOptions,
+  ProvidedHeaders,
+} from "./types";
 import { checkResponseBody } from "./validate";
 import type { ResponseCheckFailure } from "./validate";
 
@@ -193,19 +220,6 @@ const kindOf = (value: unknown): string => {
 const SENTINEL = "http://__laratype_base__";
 
 /**
- * A relative path keeps any origin it is parsed against; one URL parsing reads as another host (or can't parse) does not.
- * Two bases, so a `"//__laratype_base__/x"` that names the sentinel itself fails too, with two schemes, so does a
- * scheme-relative `"http:/evil.com"`.
- */
-const keepsOrigin = (path: string): boolean => {
-  try {
-    return [SENTINEL, "https://__laratype_other__"].every((base) => new URL(path, base).origin === base);
-  } catch {
-    return false;
-  }
-};
-
-/**
  * `"https://host/api"` → `["https://host", "/api"]`; a path (`"/api"`) or `""` has no origin. Anything else, such as
  * `"localhost:3000/api"`, is refused, and so is a query or a hash.
  */
@@ -220,7 +234,7 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
   // decided on the raw string: a path starts with "/", an absolute URL is written with "://". So "localhost:3000/api"
   // is neither, and "http://__laratype_base__/api" is absolute, not mistaken for a path by its origin
   const absolute = !baseUrl.startsWith("/");
-  if (absolute && !/^[a-z][a-z\d+.-]*:\/\//i.test(baseUrl)) {
+  if (absolute && !isAbsoluteUrl(baseUrl)) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   let url: URL;
@@ -230,7 +244,7 @@ const splitBaseUrl = (baseUrl: string): [origin: string, path: string] => {
     return fail(`createClient: baseUrl "${baseUrl}" is not a valid URL`);
   }
   // a path must keep the origin: "//host/api" is protocol-relative, another host
-  if (!absolute && !keepsOrigin(baseUrl)) {
+  if (!absolute && leavesOrigin(baseUrl)) {
     fail(`createClient: baseUrl "${baseUrl}" must be an absolute URL (https://…) or a path starting with /`);
   }
   if (/[?#]/.test(baseUrl)) fail(`createClient: baseUrl "${baseUrl}" must not have a query or a hash`);
@@ -277,87 +291,109 @@ const bodyTaken = (response: Response): boolean => response.bodyUsed || !!respon
  * The options are read from `options` when each call starts, so changing one (a refreshed token) applies to the next
  * call, and one call never mixes old and new options.
  */
-const createSend = (options: ClientOptions): Send => async (method, path, input = {}) => {
-  const {
-    baseUrl,
-    fetch: injected,
-    headers: defaults,
-    credentials,
-    redirect = "manual",
-    onRequest,
-    onResponse,
-  } = options;
-  const [origin, basePath] = splitBaseUrl(baseUrl ?? "");
-  const built = buildUrl(path, { params: input.params, query: input.query });
-  const q = built.indexOf("?");
-  const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
-  // without an origin, "//evil.com" (or "/\evil.com", "/\t/evil.com", as URL parsing reads them) is another host: a route
-  // path a manifest or a forged endpoint holds can't be trusted, so it is parsed like a path baseUrl
-  if (!origin && !keepsOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
-  const url = origin + pathname + (q < 0 ? "" : built.slice(q));
-  assertNoGetBody(method, input.body !== undefined, path);
-  const body = input.body === undefined ? undefined : JSON.stringify(input.body);
-  let fetchFn: FetchLike;
-  if (injected) {
-    // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
-    fetchFn = injected;
-  } else {
-    const globalFetch = globalThis.fetch;
-    if (typeof globalFetch !== "function") fail("no fetch available: pass options.fetch");
-    // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
-    if (!origin && !resolvesInPage(url)) {
-      fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
+const SPLIT_CACHE_SIZE = 8;
+
+/**
+ * A per-client `splitBaseUrl` memo. `options.baseUrl` is read at each call and may change, so the key is the string; the
+ * cache lives on the client (a hand-made option cannot grow a global map) and is bounded (a client that flips through
+ * many values cannot either). An invalid value throws before it is cached, so it throws again next time.
+ */
+type BaseUrlSplit = (baseUrl: string) => readonly [string, string];
+const createBaseUrlSplit = (): BaseUrlSplit => {
+  const splits = new Map<string, readonly [string, string]>();
+  return (baseUrl) => {
+    const cached = splits.get(baseUrl);
+    if (cached) return cached;
+    const value = Object.freeze(splitBaseUrl(baseUrl)) as readonly [string, string];
+    if (splits.size >= SPLIT_CACHE_SIZE) splits.delete(splits.keys().next().value!);
+    splits.set(baseUrl, value);
+    return value;
+  };
+};
+
+const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlSplit()): Send => {
+  return async (method, path, input = {}) => {
+    const {
+      baseUrl,
+      fetch: injected,
+      headers: defaults,
+      credentials,
+      redirect = "manual",
+      onRequest,
+      onResponse,
+    } = options;
+    const [origin, basePath] = split(baseUrl ?? "");
+    const built = buildUrl(path, { params: input.params, query: input.query });
+    const q = built.indexOf("?");
+    const pathname = joinPath(basePath, q < 0 ? built : built.slice(0, q));
+    // without an origin, "//evil.com" (or "/\evil.com", "/\t/evil.com", as URL parsing reads them) is another host: a route
+    // path a manifest or a forged endpoint holds can't be trusted, so the same origin rule checks the joined path
+    if (!origin && leavesOrigin(pathname)) fail(`route path "${path}" would leave the page's origin: "${pathname}"`);
+    const url = origin + pathname + (q < 0 ? "" : built.slice(q));
+    assertNoGetBody(method, input.body !== undefined, path);
+    const body = input.body === undefined ? undefined : JSON.stringify(input.body);
+    let fetchFn: FetchLike;
+    if (injected) {
+      // an injected fetch may resolve relative URLs itself (an SSR wrapper, a test fake), so it isn't guarded
+      fetchFn = injected;
+    } else {
+      const globalFetch = globalThis.fetch;
+      if (typeof globalFetch !== "function") fail("no fetch available: pass options.fetch");
+      // a relative URL ("" or "/api" baseUrl) needs a page to resolve against; fetch resolves it itself
+      if (!origin && !resolvesInPage(url)) {
+        fail(`relative URL "${url}" with the global fetch outside a browser: set options.baseUrl to an absolute URL, or pass options.fetch`);
+      }
+      fetchFn = globalFetch;
     }
-    fetchFn = globalFetch;
-  }
-  // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
-  const { signal } = input;
-  throwIfAborted(signal);
-  let headers: Headers;
-  if (typeof defaults === "function") {
-    headers = new Headers(await defaults());
+    // after the checks above, so a request that is never sent costs no headers call (a token refresh, say)
+    const { signal } = input;
     throwIfAborted(signal);
-  } else {
-    headers = new Headers(defaults);
-  }
-  for (const [key, value] of Object.entries(input.headers ?? {})) {
-    if (value !== undefined) headers.set(key, value);
-  }
-  const init: ClientRequest["init"] = { method: method.toUpperCase(), headers, redirect };
-  if (credentials !== undefined) init.credentials = credentials;
-  if (body !== undefined) {
-    init.body = body;
-    if (!headers.has("content-type")) headers.set("content-type", "application/json");
-  }
-  if (signal) init.signal = signal;
-  const request: ClientRequest = Object.freeze({ url, init });
-  if (onRequest) {
-    await onRequest(request);
-    // onRequest may have set a body or changed the method (fetch's default is GET)
-    assertNoGetBody(init.method ?? "GET", init.body != null, path);
-    throwIfAborted(init.signal);
-  }
-  // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
-  const pending = fetchFn(url, init);
-  let response: Response;
-  try {
-    response = await pending;
-  } catch (error) {
-    throw new FetchFailed(error);
-  }
-  if (onResponse) {
-    // an injected fetch may hand over a used body; only a body this hook used is its fault
-    const readable = !bodyTaken(response);
-    try {
-      await onResponse(response, request);
-    } catch (error) {
-      // the call rejects and nobody reads the body: release it
-      cancelBody(response);
-      throw error;
+    let headers: Headers;
+    if (typeof defaults === "function") {
+      headers = new Headers(await defaults());
+      throwIfAborted(signal);
+    } else {
+      headers = new Headers(defaults);
     }
-    if (readable && bodyTaken(response)) fail("onResponse read the response body: read a response.clone() instead");
-  }
-  return response;
+    for (const [key, value] of Object.entries(input.headers ?? {})) {
+      if (value !== undefined) headers.set(key, value);
+    }
+    const init: ClientRequest["init"] = { method: method.toUpperCase(), headers, redirect };
+    if (credentials !== undefined) init.credentials = credentials;
+    if (body !== undefined) {
+      init.body = body;
+      if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    }
+    if (signal) init.signal = signal;
+    const request: ClientRequest = Object.freeze({ url, init });
+    if (onRequest) {
+      await onRequest(request);
+      // onRequest may have set a body or changed the method (fetch's default is GET)
+      assertNoGetBody(init.method ?? "GET", init.body != null, path);
+      throwIfAborted(init.signal);
+    }
+    // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
+    const pending = fetchFn(url, init);
+    let response: Response;
+    try {
+      response = await pending;
+    } catch (error) {
+      throw new FetchFailed(error);
+    }
+    if (onResponse) {
+      // an injected fetch may hand over a used body; only a body this hook used is its fault
+      const readable = !bodyTaken(response);
+      try {
+        await onResponse(response, request);
+      } catch (error) {
+        // the call rejects and nobody reads the body: release it
+        cancelBody(response);
+        throw error;
+      }
+      if (readable && bodyTaken(response)) fail("onResponse read the response body: read a response.clone() instead");
+    }
+    return response;
+  };
 };
 
 const unexpected = (status: number, error: unknown, response: Response | undefined, text?: string): Result =>
@@ -559,8 +595,9 @@ const manifestRoute = (key: string, value: unknown): RouteSpec => {
   if (typeof method !== "string" || !METHODS.includes(method as Method)) {
     fail(`${where}: the method must be one of ${METHODS.join(", ")}, got ${preview(method)}`);
   }
-  // one rule, the contract's own: one leading "/" (not "//" or "/\"), no control characters
-  if (!isEndpointPath(path)) fail(`${where}: the path must start with one "/" and must not contain control characters, got ${preview(path)}`);
+  // one rule, the contract's own: one leading "/" (not "//" or "/\"), no control characters, and never a path the
+  // shared origin rule (C11) reads as another host, the same rule the call-time check runs on the joined pathname
+  if (!isEndpointPath(path) || leavesOrigin(path)) fail(`${where}: the path must start with one "/" and must not contain control characters, got ${preview(path)}`);
   if (status !== undefined) {
     if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
       fail(`${where}: the status must be an integer from 100 to 599, got ${preview(status)}`);
@@ -651,8 +688,9 @@ export function createClient<A extends ApiRootShape, const Hd extends HeadersIni
   options?: ClientOptions<Hd>,
 ): ClientOf<A, ProvidedHeaders<Hd>>;
 export function createClient(api: object, options: ClientOptions = {}): object {
-  splitBaseUrl(options.baseUrl ?? "");
-  const send = createSend(options);
+  const split = createBaseUrlSplit();
+  split(options.baseUrl ?? "");
+  const send = createSend(options, split);
   // before the manifest: an endpoint's own fields ({ def }) would pass for a one-route manifest
   if (isEndpoint(api)) return fail("createClient: got a single endpoint; pass its contract, an API node or the appApi");
   if (isContract(api) || isApiNode(api) || isApiRoot(api)) return buildTree(pathsOf(api), send, false, options);
@@ -691,13 +729,14 @@ export function createPathClient<A extends ApiShape<A>, Hd extends HeadersInit>(
   options: PathClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): PathClient<A, ProvidedHeaders<Hd>>;
 export function createPathClient(options: ClientOptions = {}): object {
-  splitBaseUrl(options.baseUrl ?? "");
+  const split = createBaseUrlSplit();
+  split(options.baseUrl ?? "");
   if (options.validateResponses) {
     fail(
       "createPathClient: validateResponses needs the contract's response schemas; a path-style call has no contract at runtime (use createClient with the appApi, an API node or a contract)",
     );
   }
-  const send = createSend(options);
+  const send = createSend(options, split);
   const client: Record<string, unknown> = Object.create(null);
   for (const method of METHODS) {
     client[method] = (path: string, input?: RequestInput) =>

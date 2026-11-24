@@ -61,6 +61,31 @@ describe('buildUrl', () => {
     expect(buildUrl('/:a?//evil.com/x' as string, { params: { a: 't' } })).toBe('/t//evil.com/x')
   })
 
+  it('applies the one origin rule to every form either former check refused, and keeps encoded forms', () => {
+    const leaves = [
+      '//evil.com',
+      '/\\evil.com',
+      '\\\\evil.com',
+      'JaVaScRiPt:alert(1)',
+      '\u0001http://evil.com',
+      'ja\tva\tscript:alert(1)',
+      'java\nscript:alert(1)',
+      'java\rscript:alert(1)',
+      'http:/evil.com',
+      'http:evil.com',
+      'localhost:3000/api',
+    ]
+    for (const path of leaves) {
+      expect(() => buildUrl(path), JSON.stringify(path)).toThrow(/which a URL reads as another host/)
+    }
+    // URL parsing keeps these on the origin: encoding stays literal, a lone surrogate is replaced, dots resolve in the path
+    for (const path of ['/%2F%2Fevil.com', '/%5Cevil.com', '/\uD800', '/\uDC00', '/..//evil.com']) {
+      expect(buildUrl(path), JSON.stringify(path)).toBe(path)
+    }
+    const big = `/${'a'.repeat(1_000_000)}`
+    expect(buildUrl(big)).toBe(big)
+  })
+
   it('keeps a ":" that does not start a segment', () => {
     expect(buildUrl('/time/12:30')).toBe('/time/12:30')
   })
