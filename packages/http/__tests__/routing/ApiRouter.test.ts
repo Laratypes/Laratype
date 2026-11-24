@@ -14,7 +14,7 @@ import type { ApiRoutes, ContractPolicyChecks } from '../../src/index'
 // contractAuth and contractPolicies.
 const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next())
 if (!contractAuth()) registerContractAuth(permissiveAuth)
-const permissivePolicies: ContractPolicyChecks = { check: async () => true, authorize: async () => {} }
+const permissivePolicies: ContractPolicyChecks = { check: async () => ({ by: 'ability', answer: true }), authorize: async () => {} }
 if (!contractPolicies()) registerContractPolicies(permissivePolicies)
 
 // A small tree, as `sauf types:generate` emits it for:

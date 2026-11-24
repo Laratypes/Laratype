@@ -15,7 +15,7 @@ import type { ContractPolicyChecks, MiddlewareClass } from '../../src/index'
 // tests exercise the handler and the exception filter, so permissive stand-ins (no user, every policy allows) are enough.
 const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next())
 if (!contractAuth()) registerContractAuth(permissiveAuth)
-const permissivePolicies: ContractPolicyChecks = { check: async () => true, authorize: async () => {} }
+const permissivePolicies: ContractPolicyChecks = { check: async () => ({ by: 'ability', answer: true }), authorize: async () => {} }
 if (!contractPolicies()) registerContractPolicies(permissivePolicies)
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
