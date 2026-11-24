@@ -46,12 +46,12 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.6",
     "@types/node": "^20.11.24",
-    "pkg-pr-new": "0.0.88",
+    "pkg-pr-new": "0.0.93",
     "publint": "^0.3.25",
-    "rollup": "^4.34.8",
-    "rollup-plugin-dts": "^6.1.1",
+    "rollup": "^4.68.2",
+    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^5.4.2",
     "vitest": "^3.2.4"
   },
