@@ -28,6 +28,10 @@ const userSchema = new EntitySchema({
     id: { type: Number, primary: true },
     name: { type: String },
   },
+  relations: {
+    // A real one-to-many: the non-owning side, refused as a scoped relation
+    posts: { type: 'one-to-many', target: 'RtPost', inverseSide: 'user' },
+  },
 })
 
 const postSchema = new EntitySchema({
@@ -109,21 +113,13 @@ describe('Model.findByRouteKey scoped SQL (H14 #163)', () => {
     expect(formatted).not.toContain("= 7' OR '1'='1'")
   })
 
-  it('a relation that is not many-to-one is refused before any query', async () => {
-    // Same metadata, but the registered relation is read as a one-to-many: the side with no join column on this table
-    const metadata = dataSource.getMetadata(RtPost)
-    const relation = metadata.relations[0]!
-    Object.defineProperty(relation, 'isManyToOne', { value: false, configurable: true })
-    Object.defineProperty(relation, 'isOneToOneOwner', { value: false, configurable: true })
+  it('refuses a real one-to-many relation before any query', async () => {
+    // RtUser.posts is a one-to-many: its join column is on the post table, so it cannot filter the user's table
     queries.length = 0
-    try {
-      await expect(RtPost.findByRouteKey('hello', { user: Object.assign(new RtUser(), { id: 7 }) })).rejects.toThrow(
-        'is not a many-to-one or an owning one-to-one relation',
-      )
-      expect(queries).toHaveLength(0)
-    } finally {
-      delete (relation as unknown as Record<string, unknown>).isManyToOne
-      delete (relation as unknown as Record<string, unknown>).isOneToOneOwner
-    }
+    const post = Object.assign(new RtPost(), { id: 9, slug: 'hello' })
+    await expect(RtUser.findByRouteKey('7', { post })).rejects.toThrow(
+      '[@laratype/database] RtUser relation "posts" is not a many-to-one or an owning one-to-one relation: .scopeBindings() needs the side that holds the join column',
+    )
+    expect(queries).toHaveLength(0)
   })
 })

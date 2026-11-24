@@ -281,6 +281,56 @@ describe('Model.findByRouteKey scope (H14 #163)', () => {
     )
   })
 
+  it('ignores an earlier parent with no single usable relation (transitive)', async () => {
+    const User = parentModel()
+    class Post {
+      declare id: number
+    }
+    // Two relations to the earlier user: it is optional, so the scope skips it rather than choosing one
+    const author = { ...userRelation(User), propertyName: 'author' }
+    const editor = { ...userRelation(User), propertyName: 'editor' }
+    const { Post: Comment, calls } = postModel({ targetName: 'Comment', relations: [author, editor, postRelation(Post)] })
+    await Comment.findByRouteKey('c1', {
+      user: Object.assign(new User(), { id: 7 }),
+      post: Object.assign(new Post(), { id: 9 }),
+    })
+    const where = calls[0]!.where
+    expect(where.userId).toBeUndefined()
+    expect(rawOf(where.postId).objectLiteralParameters).toEqual({ scope0: 9 })
+  })
+
+  it('counts only relations that can hold a join column for the ambiguity check', async () => {
+    class Node {
+      declare id: number
+    }
+    // A self-referencing tree: `parent` is many-to-one, `children` one-to-many. Only `parent` can scope the lookup.
+    const parent = postRelation(Node)
+    const children: FakeRelation = { propertyName: 'children', inverseEntityMetadata: { target: Node }, isOneToMany: true, joinColumns: [] }
+    const { Post: Comment, calls } = postModel({ targetName: 'Node', relations: [parent, children] })
+    await Comment.findByRouteKey('c1', { post: Object.assign(new Node(), { id: 9 }) })
+    expect(rawOf(calls[0]!.where.postId).objectLiteralParameters).toEqual({ scope0: 9 })
+  })
+
+  it('refuses two parents that filter the same join column', async () => {
+    const User = parentModel()
+    class Admin {
+      declare id: number
+    }
+    const admin: FakeRelation = {
+      propertyName: 'admin',
+      inverseEntityMetadata: { target: Admin },
+      isManyToOne: true,
+      joinColumns: [{ propertyName: 'userId', referencedColumn: { propertyName: 'id' } }],
+    }
+    const { Post } = postModel({ relations: [userRelation(User), admin] })
+    await expect(
+      Post.findByRouteKey('hello', {
+        user: Object.assign(new User(), { id: 7 }),
+        admin: Object.assign(new Admin(), { id: 8 }),
+      }),
+    ).rejects.toThrow('[@laratype/database] Post: two scoped parents filter the join column "userId": .scopeBindings() cannot filter it for both')
+  })
+
   it('refuses a model with no relation to the parent, and a relation with no join column', async () => {
     const User = parentModel()
     const unrelated = postModel()
