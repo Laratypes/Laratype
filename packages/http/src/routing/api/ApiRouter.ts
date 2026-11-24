@@ -7,6 +7,8 @@ import RequestKernel from "../../request/Request";
 import type { KernelRouteParams, RouteParams } from "../../contracts/Route";
 import { isTypedMiddleware } from "../../middleware/defineMiddleware";
 import type { MiddlewareItem } from "../../middleware/defineMiddleware";
+import { isInterceptor } from "../../interceptor/defineInterceptor";
+import type { AnyInterceptor } from "../../interceptor/defineInterceptor";
 import type {
   AdHocMethod,
   AdHocRouteEntry,
@@ -37,6 +39,21 @@ const checkMiddleware = (middleware: unknown): void => {
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 
+/** A `defineInterceptor()` value; anything else would fail when the request reaches the step (H11 #138). */
+const checkInterceptor = (interceptor: unknown): void => {
+  if (isInterceptor(interceptor)) return;
+  fail(`r.interceptor(): ${describeValue(interceptor)} is not an interceptor (a defineInterceptor(...) value)`);
+};
+
+/** A value for a message without trusting its `toString` (a null-prototype object or a revoked Proxy would throw). */
+const describeValue = (value: unknown): string => {
+  try {
+    return String(value);
+  } catch {
+    return typeof value;
+  }
+};
+
 /** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
@@ -44,23 +61,30 @@ class RouteBuilder {
     readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
     readonly bindings: Bindings = {},
+    readonly interceptors: readonly AnyInterceptor[] = [],
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
     middleware.forEach(checkMiddleware);
-    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings, this.interceptors);
   }
 
   /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
   withoutMiddleware(...middleware: MiddlewareItem[]) {
-    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings);
+    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings, this.interceptors);
+  }
+
+  /** Interceptors around the handlers of what this builder mounts (H11 #138): first registered is outermost. */
+  interceptor(...interceptors: AnyInterceptor[]) {
+    interceptors.forEach(checkInterceptor);
+    return new RouteBuilder(this.stack, this.entries, this.bindings, [...this.interceptors, ...interceptors]);
   }
 
   /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
   bind(bindings: Record<string, Binder>) {
     checkBindingMap(bindings);
     // A spread, not Object.assign: a spread defines own data properties, so no setter (an inherited one included) runs
-    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
+    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }), this.interceptors);
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -70,13 +94,28 @@ class RouteBuilder {
     const { copy, issue } = copyOptions(options);
     const names = mountedEntries(this.entries, contract).map((e) => e.name);
     if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
-    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, bindings: this.bindings, options: copy });
+    const mounted = Object.freeze({
+      kind: "contract" as const,
+      contract,
+      controller,
+      middleware: this.stack,
+      interceptors: this.interceptors,
+      bindings: this.bindings,
+      options: copy,
+    });
     return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
-    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack, bindings: this.bindings });
+    return Object.freeze({
+      kind: "scope",
+      dir,
+      policy: options.policy,
+      middleware: this.stack,
+      interceptors: this.interceptors,
+      bindings: this.bindings,
+    });
   }
 
   get(path: string, handler: MountedRoute["handler"]) { return this.route("get", path, handler); }
@@ -89,6 +128,10 @@ class RouteBuilder {
   private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"], routeName?: string): MountedRoute {
     if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}('${String(path)}'): the path must start with "/"`);
     if (typeof handler !== "function") fail(`r.${method}('${path}') needs a handler function`);
+    // An interceptor wraps a contract route's handler and its response type; an ad-hoc route has neither (H11 #138)
+    if (this.interceptors.length) {
+      fail(`r.${method}('${path}'): interceptors need a contract route (there is no endpoint response type to check)`);
+    }
     const route = {
       kind: "route" as const,
       method,
@@ -158,6 +201,21 @@ const copyOptions = (options: unknown): { copy: ContractRouteOptions<object> | u
   // Enumerable, so `{ ...options }` keeps the issue; no string key, so every option check sees the same keys
   Object.defineProperty(copy, PLAIN_ISSUE, { value: issue, enumerable: true });
   return { copy: Object.freeze(copy) as ContractRouteOptions<object>, issue };
+};
+
+/**
+ * A frozen copy of a mounted item's interceptors (H11 #138), checked as `r.interceptor()` checks its arguments: a
+ * hand-built item (or a value mutated after `r.contract()`) cannot install something the request would crash on. An
+ * omitted list is empty, as for `bindings`.
+ */
+const copyInterceptors = (at: string, value: unknown): readonly AnyInterceptor[] => {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) fail(`${at}: interceptors must be an array of defineInterceptor(...) values`);
+  const list = value as readonly unknown[];
+  for (const interceptor of list) {
+    if (!isInterceptor(interceptor)) fail(`${at}: ${describeValue(interceptor)} is not an interceptor (a defineInterceptor(...) value)`);
+  }
+  return Object.freeze([...list]) as readonly AnyInterceptor[];
 };
 
 /** The tree entries a mounted contract names: by its tree node (one), or by the contract value (every entry holding it). */
@@ -236,7 +294,8 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       // the check never saw. Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
       const scopeBindings = item.bindings;
       const bindings = copyBindingMap(scopeBindings === undefined ? {} : scopeBindings);
-      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, bindings }));
+      const interceptors = copyInterceptors(`scope "${item.dir}"`, item.interceptors);
+      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, interceptors, bindings }));
     } else if (item?.kind === "contract") {
       const contract = item.contract;
       const matched = mountedEntries(entries, contract);
@@ -260,7 +319,8 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       // a binder the check never saw. An omitted `bindings` is the empty map; a null one is refused
       const itemBindings = item.bindings;
       const bindings = copyBindingMap(itemBindings === undefined ? {} : itemBindings);
-      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, bindings, options });
+      const interceptors = copyInterceptors(`contract "${names.join('", "')}"`, item.interceptors);
+      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, interceptors, bindings, options });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -292,14 +352,16 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
           `declare .response(schema, ${decorated}) on the endpoint, or drop the decorator`,
       );
     }
-    const endpointMiddleware = endpointStack(mounted.options, key, route.name);
+    const endpoint = endpointStack(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
       // One builder can mount a scope and a contract: each middleware runs once, at its first position
-      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointMiddleware])]),
+      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpoint.middleware])]),
+      // Same rule for interceptors: scope (outer to inner), contract, then endpoint; first position wins
+      interceptors: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.interceptors), ...mounted.interceptors, ...endpoint.interceptors])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
       bindings: routeBindings(scopeItems, mounted, route.path),
@@ -497,15 +559,20 @@ const isCallback = (value: unknown) => {
   return rest.startsWith("(");
 };
 
-/** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
-const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareItem[] => {
+/** The middleware and interceptors of one endpoint's `endpoints` callback, run on a fresh builder. */
+const endpointStack = (
+  options: ContractRouteOptions<object> | undefined,
+  key: string,
+  name: string,
+): { middleware: readonly MiddlewareItem[]; interceptors: readonly AnyInterceptor[] } => {
+  const empty = { middleware: [] as const, interceptors: [] as const };
   const endpoints = options?.endpoints as Record<string, (r: RouteBuilder) => unknown> | undefined;
   // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
-  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
+  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return empty;
   const callback = endpoints[key]!;
   const built = callback(new RouteBuilder());
   if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
-  return (built as RouteBuilder).stack;
+  return { middleware: (built as RouteBuilder).stack, interceptors: (built as RouteBuilder).interceptors };
 };
 
 /**
@@ -626,6 +693,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     errors: route.errors,
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...route.middleware],
+    interceptors: [...route.interceptors],
     bindings: route.bindings,
   };
 };
