@@ -405,17 +405,11 @@ type JoinBoundNames<T extends readonly string[]> = T extends readonly [infer H e
   : "none";
 
 /**
- * Whether the method accepts the bound tuple: each declared parameter must accept the model at its position, and a
- * method that declares fewer parameters stays valid (JavaScript ignores the extra models). A rest parameter accepts
- * every tuple.
+ * Whether the method accepts the bound tuple: it must be callable with the user and those models. A method that
+ * declares fewer parameters stays valid (JavaScript ignores the extra models), an optional parameter accepts a missing
+ * model, and a rest parameter accepts every tuple.
  */
-type MethodAccepts<Provided extends readonly unknown[], Declared extends readonly unknown[]> = number extends Declared["length"]
-  ? true
-  : Declared extends readonly [infer D, ...infer DR]
-    ? Provided extends readonly [infer V, ...infer VR]
-      ? [V] extends [D] ? MethodAccepts<VR, DR> : false
-      : false
-    : true;
+type MethodAccepts<Provided extends readonly unknown[], F> = F extends (user: any, ...args: [...Provided]) => any ? true : false;
 
 /**
  * The endpoint policy's arguments against the route's bound models (H8 #122): a method that needs a model the route
@@ -423,7 +417,7 @@ type MethodAccepts<Provided extends readonly unknown[], Declared extends readonl
  */
 type PolicyArgumentIssues<N extends string, C, Ctx extends EndpointContext, P, B> = {
   [K in Extract<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as C[K] extends infer E extends AnyEndpoint
-    ? MethodAccepts<EndpointBoundModels<E, B>, Required<MethodRest<P, K>>> extends true
+    ? MethodAccepts<EndpointBoundModels<E, B>, P[K]> extends true
       ? never
       : `${N}.${K}: the policy's \`${K}\` method does not accept the bound models the route passes (${JoinBoundNames<EndpointBoundNames<E>>})`
     : never]: C[K] extends infer E extends AnyEndpoint

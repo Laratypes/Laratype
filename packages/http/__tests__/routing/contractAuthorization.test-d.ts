@@ -30,6 +30,14 @@ class WrongPolicy {
   update(_user: User, _params: { post: PostModel }) { return true }
   remove() { return true }
 }
+class OptionalPolicy {
+  update(_user: User, _post?: PostModel) { return true }
+  remove() { return true }
+}
+class RequiredPolicy {
+  update(_user: User, _post: PostModel) { return true }
+  remove() { return true }
+}
 
 const root = defineScope()({ auth: true, authorize: true })
 const posts = defineContract<ContractPrefix<'/api/users/:user/posts', [typeof root]>>()({
@@ -92,5 +100,16 @@ describe('the resolved-authorize policy check', () => {
     )
     // A method with fewer parameters ignores the extra bound model: PostPolicy.remove(user) has none and passes
     expectTypeOf<RouteProof<typeof appApi, typeof posts, PostController, { policy: typeof PostPolicy }, {}, typeof bound>>().toEqualTypeOf<unknown>()
+  })
+
+  test('an optional model parameter accepts a missing model, a required one does not', () => {
+    // With the binding: both accept the PostModel
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, PostController, { policy: typeof OptionalPolicy }, {}, typeof bound>>().toEqualTypeOf<unknown>()
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, PostController, { policy: typeof RequiredPolicy }, {}, typeof bound>>().toEqualTypeOf<unknown>()
+    // Without it, the route passes undefined: the optional method accepts, the required one is diagnosed
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, PostController, { policy: typeof OptionalPolicy }, {}, {}>>().toEqualTypeOf<unknown>()
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, PostController, { policy: typeof RequiredPolicy }, {}, {}>>().toHaveProperty(
+      "users.posts.update: the policy's `update` method does not accept the bound models the route passes (post)",
+    )
   })
 })

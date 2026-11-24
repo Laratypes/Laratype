@@ -57,6 +57,9 @@ class PostPolicy {
   before() { return null; }
   update(_user: unknown, _post: BoundPost) { return true; }
 }
+class OptionalPostPolicy {
+  show(_user: unknown, _post?: BoundPost) { return true; }
+}
 
 const root = defineScope()({ auth: true, authorize: true });
 const userScope = defineScope<ContractPrefix<"/api/users/:user", [typeof root]>>()({ authorize: true });
@@ -252,6 +255,31 @@ describe("the contract policy chain", () => {
     expect(calls).toEqual([]);
     expect((await app.request("/api/users/7/posts/open")).status).toBe(200);
     expect(calls).toEqual([]);
+  });
+
+  it("passes undefined for an endpoint model the route does not bind", async () => {
+    const optional = defineContract()({ show: endpoint.get("/:post?").response(anything) });
+    const optionalApi = defineApi({ optional: { contract: optional, path: "/api/optionals", scopes: [{ scope: root, dir: "" }] } });
+    class OptionalController extends Controller {
+      show() { return { ok: true }; }
+    }
+    const routes = Route.api(optionalApi, (r) => [
+      r.bind({}).scope("", { policy: RootPolicy }),
+      r.bind({}).contract(optional, OptionalController, { policy: OptionalPostPolicy }),
+    ]);
+    const container = new Container({ deps: depsRegistry });
+    const app = new Hono();
+    container.instance(HTTP_APP, app);
+    new RequestKernel(container).boot();
+    new ResponseKernel(container).boot();
+    routes.mount(app);
+    scopeAnswers = [null];
+    const response = await app.request("/api/optionals");
+    expect(response.status).toBe(200);
+    expect(calls.map((call) => [call.level, (call.policy as object).constructor.name, call.args])).toEqual([
+      ["check", "RootPolicy", [{}]],
+      ["authorize", "OptionalPostPolicy", [undefined]],
+    ]);
   });
 
   it("a binding miss is a 404 before the policies, and no policy runs", async () => {
