@@ -18,10 +18,14 @@ declare module "@laratype/contract" {
 
 /**
  * The guard a contract endpoint declares: `true` for the default guard of `app/config/auth.ts`, or a registered name.
- * `auth()` with no argument uses the default guard too.
+ * `auth()` with no argument uses the default guard too. A guard name is an argument, not a type argument alone: the
+ * middleware runs the guard it is given, so `auth<"admin">()` is rejected rather than running the default guard while
+ * typing `ctx.user` as the admin guard's user.
  */
-export const auth = <G extends true | GuardName = true>(guard?: G): TypedMiddleware<{ user: GuardUser<G> }> =>
-  defineMiddleware<{ user: GuardUser<G> }>(async (request, next) => {
+export function auth(): TypedMiddleware<{ user: GuardUser<true> }>;
+export function auth<G extends true | GuardName>(guard: G): TypedMiddleware<{ user: GuardUser<G> }>;
+export function auth<G extends true | GuardName = true>(guard?: G): TypedMiddleware<{ user: GuardUser<G> }> {
+  return defineMiddleware<{ user: GuardUser<G> }>(async (request, next) => {
     // The contract passes its resolved auth (`true` or a guard name) to the factory; an app-written auth() passes
     // nothing, which also means the default guard.
     const name = guard === undefined || guard === true ? undefined : (guard as GuardName);
@@ -35,6 +39,7 @@ export const auth = <G extends true | GuardName = true>(guard?: G): TypedMiddlew
     setAuthenticatedUser(user, tokenGuard.name);
     return next({ user });
   });
+}
 
 /**
  * The marker `@laratype/http` reads on the registered factory (A2 #120). It lets a reloaded module, or a second copy
