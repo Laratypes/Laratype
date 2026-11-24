@@ -1044,7 +1044,7 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
 ## Authorization from the contract
 
 ### Status
-`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged and recorded on the routes (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The compile check is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b); running policies, in the order below, is planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3). Until then `authorize` is not enforced.
+`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged and recorded on the routes (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The compile check is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b); running policies, in the order below, is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) ([auth.md › Policies and gates](./auth.md#policies-and-gates) leaves the call there too). Until then `authorize` is not enforced.
 
 ### Design (non-binding)
 - **Declared in the contract:** `authorize: true` on a [folder scope](./contract.md#folder-scopes) or `.authorize()` on an endpoint adds a 403 ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
@@ -1054,12 +1054,12 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
   - a scope with `authorize` and no mounted policy is a compile error in `Route.api`, with a runtime check too;
   - `authorize` without `auth` at the same or an outer level, including `.public()` under a scope with `authorize`, is a compile error ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Order:** scope policies run once per request, outer to inner, then the endpoint's policy. Bound models are resolved once and reused.
-- **Scope hook:** a scope policy's `before(user, params)` receives the signed-in user and the scope's bound params (the resolved models).
+- **Scope hook:** a scope policy's `before(user, ability, params)` receives the signed-in user, the endpoint's key as the ability and the scope's bound params (the resolved models).
 - **`Gate.policy`:** `Gate.policy(Model, Policy)` stays for imperative checks such as `user.can('update', post)` in services ([auth.md › Policies and gates](./auth.md#policies-and-gates)).
 - **Replaces:** the route-level `.can()` ([Policies on routes](#policies-on-routes-can)) and `FormRequest.authorize()` ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 
 ### Open questions
-- The arguments of an endpoint's policy method → [#121](https://github.com/Laratypes/Laratype/issues/121)
+- The arguments of an endpoint's policy method → [#105](https://github.com/Laratypes/Laratype/issues/105)
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105) · [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
