@@ -40,6 +40,8 @@ const CASES = [
   { scenario: 'controllers', endpoints: 1000, entry: 'controllers.ts', globals: true },
   { scenario: 'routes', endpoints: 50, entry: 'routes.ts', globals: true },
   { scenario: 'routes', endpoints: 500, entry: 'routes.ts', globals: true },
+  // H14 #163: the same 500-endpoint route proof with 10 registered models (an implicit `Register['models']` map)
+  { scenario: 'routes-models', endpoints: 500, entry: 'routes.ts', globals: true, models: true },
 ]
 
 /** Mirrors tsconfig.app.json (paths, strict, decorators); keep the two in sync. */
@@ -116,7 +118,7 @@ const tail = (output) => output.split(/\r?\n/).filter(Boolean).slice(-30).join('
  */
 const writeCase = (testCase, runRoot) => {
   const dir = path.join(runRoot, `${testCase.scenario}-${testCase.endpoints}`)
-  const { contractCount, files } = generateFixture(testCase.endpoints)
+  const { contractCount, files } = generateFixture(testCase.endpoints, { models: testCase.models === true })
   for (const [relative, content] of files) {
     const target = path.join(dir, relative)
     mkdirSync(path.dirname(target), { recursive: true })

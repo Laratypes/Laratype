@@ -50,6 +50,39 @@ const TEMPLATES = [
 /** The contract's URL prefix: one folder param, so every endpoint carries it in its params and errors. */
 const prefixOf = (/** @type {number} */ i) => `/api/teams/:team/resource${i}`
 
+/**
+ * The `Register['models']` case (H14 #163, `routes` @ 500 with 10 models): the first two keys are the fixture's own
+ * path params (`:team` of every path, `:id` of show/update/destroy/archive/restore), so the route proof and the
+ * handler ctx instantiate the implicit map; the other eight are registered but unused, as a real app's models are.
+ */
+const MODEL_KEYS = ['team', 'id', 'model2', 'model3', 'model4', 'model5', 'model6', 'model7', 'model8', 'model9']
+
+/** @param {string} key @param {number} index */
+const modelFile = (key, index) => `// A registered model (H14 #163): the class is the static side, its instance the bound param.
+export default class Model${index} {
+  static readonly primaryKey = 'id'
+  static async findByRouteKey(key: string, _scope?: Readonly<Record<string, object>>): Promise<Model${index} | null> {
+    return key === '' ? null : new Model${index}()
+  }
+
+  declare readonly id: number
+  declare readonly label: string
+}
+`
+
+/** The generated `Register['models']` map: `.laratype/types/models.d.ts` in an app (H14 #163). */
+const MODELS_FILE = `// The generated models.d.ts of an app: one key per model file, the class as the value (H14 #163).
+${MODEL_KEYS.map((_, index) => `import type Model${index} from './models/model-${index}'`).join('\n')}
+
+declare module '@laratype/http' {
+  interface Register {
+    models: {
+${MODEL_KEYS.map((key, index) => `      ${key}: typeof Model${index}`).join('\n')}
+    }
+  }
+}
+`
+
 const ERRORS_FILE = `import { defineError } from '@laratype/contract'
 
 export const ResourceMissing = defineError(404, 'RESOURCE_MISSING', (id: number | string) => ({ message: \`Resource \${id} not found.\`, id }))
@@ -233,8 +266,9 @@ const apiFile = (indices, exportName) => {
 /**
  * All files of the fixture, as `path -> content`.
  * @param {number} endpoints
+ * @param {{ models?: boolean }} [options] `models`: register 10 models, so the implicit-binding types are measured
  */
-export function generateFixture(endpoints) {
+export function generateFixture(endpoints, options = {}) {
   if (!Number.isInteger(endpoints) || endpoints < TEMPLATES.length) {
     throw new Error(`bench-types: endpoints must be an integer >= ${TEMPLATES.length}, got ${endpoints}`)
   }
@@ -267,6 +301,8 @@ export function generateFixture(endpoints) {
   files.set(
     'controllers.ts',
     [
+      // The registered models join the program the way `.laratype/types/models.d.ts` does in an app (H14 #163)
+      ...(options.models ? ["import type {} from './models'"] : []),
       ...groups.map((_, group) => `export { appApi${group} } from './app-api-${group}'`),
       ...Array.from({ length: contractCount }, (_, i) => `export { Resource${i}Controller } from './controllers/resource-${i}'`),
     ].join('\n') + '\n',
@@ -274,6 +310,7 @@ export function generateFixture(endpoints) {
 
   const routeLines = [
     "import { Route } from '@laratype/http'",
+    ...(options.models ? ["import type {} from './models'"] : []),
     ...groups.map((_, group) => `import { appApi${group} } from './app-api-${group}'`),
     ...allIndices.map((i) => `import { resource${i} } from './contracts/resource-${i}'`),
     ...allIndices.map((i) => `import { Resource${i}Controller } from './controllers/resource-${i}'`),
@@ -294,6 +331,11 @@ export function generateFixture(endpoints) {
   }
   routeLines.push(']', '')
   files.set('routes.ts', routeLines.join('\n'))
+
+  if (options.models) {
+    MODEL_KEYS.forEach((key, index) => files.set(`models/model-${index}.ts`, modelFile(key, index)))
+    files.set('models.ts', MODELS_FILE)
+  }
 
   files.set('client.ts', clientFile(contractCount, perContract))
 
