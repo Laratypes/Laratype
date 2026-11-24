@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@laratype/client": packageSource("client"),
+      "@laratype/client-query": packageSource("client-query"),
       "@laratype/contract": packageSource("contract"),
     },
   },
