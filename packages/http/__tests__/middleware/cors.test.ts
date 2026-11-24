@@ -10,7 +10,7 @@ import { z } from "zod";
 import { Container, depsRegistry, setConfigs } from "@laratype/core";
 import { HTTP_APP, UnauthorizedException } from "@laratype/support";
 import { defineApi, defineContract, endpoint, errors } from "@laratype/contract";
-import { Controller, RequestKernel, Response as ResponseSupport, ResponseKernel, Route } from "../../src/index";
+import { Controller, mountConnInfo, RequestKernel, Response as ResponseSupport, ResponseKernel, Route } from "../../src/index";
 
 const APP = "http://app.test";
 const EVIL = "http://evil.test";
@@ -53,6 +53,9 @@ const corsConfig = (overrides: Record<string, unknown> = {}): Record<string, unk
 /** The config store `setConfigs` fills; deleted after each test so the next boot reads its own configs. */
 const store = globalThis as { __laratype_configs?: unknown };
 
+/** The getter the serving adapter registers: this test's request env carries the client address. */
+const addressFromEnv = (c: Context) => ({ remote: { address: (c.env as { address?: string }).address } });
+
 /**
  * An app booted like `sauf dev`: the config store is filled (what `ConfigLoadServiceProvider` does), then the kernels,
  * then the routes. Configs come first, so `RequestKernel.boot()` mounts CORS before the provider mounts its routes.
@@ -62,6 +65,7 @@ const bootApp = (configs: Record<string, unknown> = { cors: corsConfig() }, load
   else setConfigs(configs);
   const container = new Container({ deps: depsRegistry });
   const app = new Hono();
+  mountConnInfo(app, addressFromEnv);
   container.instance(HTTP_APP, app);
   new RequestKernel(container).boot();
   new ResponseKernel(container).boot();
@@ -228,8 +232,8 @@ describe("CORS headers on error responses", () => {
 
   it("the 429 of the contract's throttle keeps them (#319)", async () => {
     const app = bootApp();
-    // The Bun adapter's env: `request.ip()` reads `server.requestIP()`
-    const client = (address: string) => ({ requestIP: () => ({ address }) });
+    // The env of a request from `address`, read by the registered getter
+    const client = (address: string) => ({ address });
     const first = await app.request("/api/posts/limited", { headers: { Origin: APP } }, client("203.0.113.20"));
     expect(first.status).toBe(200);
     const limited = await app.request("/api/posts/limited", { headers: { Origin: APP } }, client("203.0.113.20"));

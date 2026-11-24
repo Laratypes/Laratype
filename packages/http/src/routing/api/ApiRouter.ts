@@ -22,13 +22,12 @@ import type {
   ScopeRouteOptions,
   UnenforcedCap,
 } from "./types";
+import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
+import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
+import { fail } from "./fail";
 import { throttled } from "./throttle";
 import { registerRoutes } from "../routeUrl";
-
-const fail = (message: string): never => {
-  throw new Error(`[@laratype/http] Route.api: ${message}`);
-};
 
 /** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
 const checkMiddleware = (middleware: unknown): void => {
@@ -38,22 +37,30 @@ const checkMiddleware = (middleware: unknown): void => {
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 
-/** Runtime `r`; its types come from `ApiRouteBuilder<A, M>`. */
+/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
   constructor(
     readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
+    readonly bindings: Bindings = {},
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
     middleware.forEach(checkMiddleware);
-    return new RouteBuilder([...this.stack, ...middleware], this.entries);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings);
   }
 
   /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
   withoutMiddleware(...middleware: MiddlewareItem[]) {
-    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries);
+    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings);
+  }
+
+  /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
+  bind(bindings: Record<string, Binder>) {
+    checkBindingMap(bindings);
+    // A spread, not Object.assign: a spread defines own data properties, so no setter (an inherited one included) runs
+    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -63,13 +70,13 @@ class RouteBuilder {
     const { copy, issue } = copyOptions(options);
     const names = mountedEntries(this.entries, contract).map((e) => e.name);
     if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
-    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, options: copy });
+    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, bindings: this.bindings, options: copy });
     return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
-    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack });
+    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack, bindings: this.bindings });
   }
 
   get(path: string, handler: MountedRoute["handler"]) { return this.route("get", path, handler); }
@@ -224,9 +231,15 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     if (item?.kind === "scope") {
       if (!scopeDirs.has(item.dir)) fail(`"${item.dir}" is not a scope folder of the API tree (folders: ${[...scopeDirs.keys()].map((d) => `"${d}"`).join(", ") || "none"})`);
       if (scopes.has(item.dir)) fail(`scope "${item.dir}" is mounted twice`);
-      scopes.set(item.dir, item);
+      // An item built without r.bind() (untyped callers) keeps its own bindings: check them here, as r.bind() does, and
+      // store a copy of the one snapshot checked, so a mutation (or a getter) after this point cannot install a binder
+      // the check never saw. Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
+      const scopeBindings = item.bindings;
+      const bindings = copyBindingMap(scopeBindings === undefined ? {} : scopeBindings);
+      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, bindings }));
     } else if (item?.kind === "contract") {
-      const matched = mountedEntries(entries, item.contract);
+      const contract = item.contract;
+      const matched = mountedEntries(entries, contract);
       const names = matched.map((e) => e.name);
       if (names.length === 0) fail("a mounted contract is not in the API tree");
       const controller = item.controller;
@@ -242,7 +255,12 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       checkOptions(names, matched[0]!.entry.contract, options);
       const twice = names.filter((name) => contracts.has(name));
       if (twice.length) fail(`contract "${twice.join('", "')}" is mounted twice`);
-      const stored = pinned !== undefined ? item : Object.freeze({ kind: "contract" as const, contract: item.contract, controller, middleware: item.middleware, options });
+      // As for a scope item: an item built without r.bind() carries its own bindings, which r.bind() would have
+      // checked. The one read snapshot is copied and frozen, so a mutation (or a getter) after this point cannot install
+      // a binder the check never saw. An omitted `bindings` is the empty map; a null one is refused
+      const itemBindings = item.bindings;
+      const bindings = copyBindingMap(itemBindings === undefined ? {} : itemBindings);
+      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, bindings, options });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -276,6 +294,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     }
     const endpointMiddleware = endpointStack(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
+    checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
@@ -283,12 +302,111 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointMiddleware])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
+      bindings: routeBindings(scopeItems, mounted, route.path),
       unenforced: unenforcedCaps(route),
       domain: undefined,
     });
   });
+  checkBindingKeys(routes, byName, contracts, scopes);
   checkAdHocPaths(routes, adHoc);
   return { routes, adHoc };
+};
+
+/**
+ * The bindings of one route: its scopes' (outer to inner), then its contract's, a later key winning. Restricted to the
+ * params of the route's full path: a contract may bind a key only some of its endpoints declare.
+ */
+const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): Bindings => {
+  const names = pathParamNames(path);
+  const entries = [...scopes.flatMap((scope) => Object.entries(scope.bindings ?? {})), ...Object.entries(mounted.bindings ?? {})];
+  return Object.freeze(Object.fromEntries(entries.filter(([key]) => names.has(key))));
+};
+
+/**
+ * Rejects a scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
+ * `r.contract()` call with the mounting builder's bindings only, so a route whose contract builder does not bind the
+ * key would give the handler a model where its types say string. The first conflict in route order is reported.
+ */
+const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): void => {
+  const names = pathParamNames(path);
+  for (const scope of scopes) {
+    for (const key of Object.keys(scope.bindings ?? {})) {
+      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key)) continue;
+      fail(
+        `scope "${scope.dir}" binds \`${key}\`, but contract "${name}" is mounted from a builder that does not bind it: ` +
+          `mount the contract from a builder that binds \`${key}\` too (a handler's types see only its own builder's bindings)`,
+      );
+    }
+  }
+};
+
+/**
+ * Rejects a binding key that no endpoint the binding applies to declares: `routeBindings()` drops it, so a typo (or a
+ * path the parser cannot read) would otherwise pass silently. A key only some endpoints of a contract declare stays
+ * valid: `routeBindings()` limits it to the routes that have the param.
+ */
+const checkBindingKeys = (
+  routes: readonly RouteEntry[],
+  byName: ReadonlyMap<string, ApiEntry>,
+  contracts: ReadonlyMap<string, MountedContract<object>>,
+  scopes: ReadonlyMap<string, MountedScope>,
+): void => {
+  const contractParams = new Map<string, Set<string>>();
+  const scopeParams = new Map<string, Set<string>>();
+  for (const route of routes) {
+    const name = route.name.slice(0, route.name.lastIndexOf("."));
+    const names = pathParamNames(route.path);
+    // A `:post?` per Hono's registration: checkOptionalParameter expands only a path that ends with `?`, so any other
+    // path registers the `?` in the param name and a binding on it would read an absent optional param and never run
+    const misnamed = nonTrailingOptionalParamNames(route.path);
+    const midPath = Object.keys(route.bindings).find((key) => misnamed.has(key));
+    if (midPath !== undefined) {
+      fail(
+        `r.bind(): \`${midPath}\` binds \`:${midPath}?\` in ${route.path}, where Hono registers it as \`${midPath}?\`: ` +
+          `it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the \`?\`.`,
+      );
+    }
+    // A path Hono expands is registered as every prefix ending at an optional segment: a required binding the expansion
+    // leaves out is missing from a shorter registration, where it would resolve `undefined`. Hono's RegExpRouter can also
+    // drop a param whose placeholder is in the registration (a static segment after an optional one): the helper follows
+    // the router's param count, and each case gets the fix that works.
+    for (const key of Object.keys(route.bindings)) {
+      const expansion = expandedPathWithoutParam(route.path, key);
+      if (expansion === undefined) continue;
+      if (pathParamNames(expansion).has(key)) {
+        fail(
+          `r.bind(): \`${key}\` is a param of ${route.path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
+            `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ` +
+            `Fix: drop the \`?\` of the optional params, or move the static segment before them.`,
+        );
+      }
+      fail(
+        `r.bind(): \`${key}\` is a required param of ${route.path} that Hono's optional-param expansion leaves out of a registration: ` +
+          `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ` +
+          `Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
+      );
+    }
+    const forContract = contractParams.get(name) ?? new Set<string>();
+    for (const key of names) forContract.add(key);
+    contractParams.set(name, forContract);
+    // The scopes this route's entry is under, outer to inner: a scope binding may name any of their params
+    for (const { dir } of byName.get(name)?.scopes ?? []) {
+      if (!scopes.has(dir)) continue;
+      const forScope = scopeParams.get(dir) ?? new Set<string>();
+      for (const key of names) forScope.add(key);
+      scopeParams.set(dir, forScope);
+    }
+  }
+  for (const [name, mounted] of contracts) {
+    for (const key of Object.keys(mounted.bindings ?? {})) {
+      if (!contractParams.get(name)?.has(key)) fail(`r.bind(): \`${key}\` is not a path param of any endpoint in ${name}`);
+    }
+  }
+  for (const [dir, mounted] of scopes) {
+    for (const key of Object.keys(mounted.bindings ?? {})) {
+      if (!scopeParams.get(dir)?.has(key)) fail(`r.bind(): \`${key}\` is not a path param of any endpoint under scope "${dir}"`);
+    }
+  }
 };
 
 /**
@@ -508,6 +626,7 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     errors: route.errors,
     controller: route.controller as unknown as RouteParams["controller"],
     middleware: [...route.middleware],
+    bindings: route.bindings,
   };
 };
 

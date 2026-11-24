@@ -4,7 +4,7 @@ import * as z from 'zod'
 import { createClient, ResponseValidationError } from '@laratype/client'
 import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, Manifest, ManifestClientOptions, ManifestError, ManifestRoute, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
-import type { ApiTypes, StandardIssue } from '@laratype/contract'
+import type { ApiTypes, Jsonify, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
 import posts from './fixtures/app/api/users/[user]/posts'
@@ -193,6 +193,16 @@ describe('wire type of the response (Jsonify)', () => {
     }>
     expectTypeOf<Wire>().toEqualTypeOf<{ a: string; b?: string; c?: number; f?: string; g: Record<string, boolean> }>()
   })
+
+  // H32 #312: the server sends `null` when JSON has no text for the handler's value (an optional schema's `undefined`)
+  test('a top-level undefined is null, as the server sends it', () => {
+    type Shape<Response> = {
+      method: 'get'; path: '/'; params: {}; query: undefined; body: undefined; headers: undefined
+      response: Response; status: 200; errors: never
+    }
+    expectTypeOf<ResponseData<Shape<string | undefined>>>().toEqualTypeOf<string | null>()
+    expectTypeOf<ResponseData<Shape<{ a: 1 } | undefined>>>().toEqualTypeOf<{ a: 1 } | null>()
+  })
 })
 
 describe('JSON-safe request input (#255)', () => {
@@ -219,6 +229,17 @@ describe('JSON-safe request input (#255)', () => {
   test('body: an object whose toJSON returns a value JSON cannot carry is never, since JSON.stringify throws', () => {
     type Body = CallInput<Shape<{ at: { toJSON(): bigint } }>>['body']
     expectTypeOf<Body>().toEqualTypeOf<{ at: never }>()
+  })
+
+  // H32 #312: the client's NotJson is the contract's `undefined | symbol | ((...args: any[]) => unknown)`. The aliases
+  // are private to their packages, so the pin is behavioural: a property of one of those types is not on the wire
+  // (`Jsonify`), and is no body field either (`JsonInput`): a symbol or a function is `never`, an undefined property
+  // stays optional and JSON.stringify drops it, on both sides
+  test("the client NotJson is the contract's", () => {
+    expectTypeOf<Jsonify<{ a: undefined; b: symbol; c: () => void }>>().toEqualTypeOf<{}>()
+    expectTypeOf<Jsonify<[undefined, symbol, () => void]>>().toEqualTypeOf<[null, null, null]>()
+    type Body = CallInput<Shape<{ a: undefined; b: symbol; c: () => void }>>['body']
+    expectTypeOf<Body>().toEqualTypeOf<{ a: undefined; b: never; c: never }>()
   })
 
   test('query: a Date is passed as itself or its ISO string, as buildUrl sends it; the rest is the schema input', () => {

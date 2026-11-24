@@ -3,11 +3,13 @@
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import type { Context, Next } from 'hono'
+import type { GetConnInfo } from 'hono/conninfo'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import { Controller, mountConnInfo, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import { MemoryThrottleStore, durationMs, ipBucket, throttled } from '../../src/routing/api/throttle'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -36,10 +38,14 @@ class UserController extends Controller {
 
 const routes = () => Route.api(appApi, (r) => [r.contract(posts, PostController), r.contract(users, UserController)])
 
+/** The getter the serving adapter registers: this test's request env carries the client address. */
+const addressFromEnv = (c: Context) => ({ remote: { address: (c.env as { address?: string }).address } })
+
 /** An app booted like `sauf dev`: ResponseKernel's resolveException answers thrown errors. */
-const bootApp = () => {
+const boot = (mount: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
+  mount(app)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
@@ -47,20 +53,38 @@ const bootApp = () => {
   return app
 }
 
-/** The Bun adapter's env: `request.ip()` reads `server.requestIP()`. */
-const from = (address: string) => ({ requestIP: () => ({ address }) })
+/** The app `sauf dev` boots: the adapter's getter reads the client address from the request's env. */
+const bootApp = () => boot((app) => mountConnInfo(app, addressFromEnv))
+
+/** The same app with another getter: a throwing one, or one that finds no address. */
+const bootAppWith = (getConnInfo: GetConnInfo) => boot((app) => mountConnInfo(app, getConnInfo))
+
+/** An app like a Bun or custom entry that never calls `mountConnInfo`: no getConnInfo is registered. */
+const bootAppWithoutConnInfo = () => boot(() => {})
+
+/** The env of a request from `address`, read by the registered getter, as a Bun-style adapter's would be. */
+const from = (address: string) => ({ address })
 
 let app: Hono
+
+/** The warnings are remembered per process: start each test as a fresh process would. */
+const forgetWarned = () => {
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoConnInfoWarned')]
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoAddressWarned')]
+}
 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.spyOn(console, 'log').mockImplementation(() => {})
+  forgetWarned()
   app = bootApp()
 })
 
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 // Each test uses its own addresses: the memory store is one per process
@@ -111,12 +135,75 @@ describe('rate limit from the contract', () => {
     expect((await app.request('/api/posts/1', {}, from('::ffff:198.51.100.7'))).status).toBe(429)
   })
 
-  it('a request with no client address is not limited (no shared "" bucket), with one warning', async () => {
-    delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoAddressWarned')]
+  it('a registered getter that finds no address warns once per process, across routes, and leaves the request unthrottled', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    for (let i = 0; i < 5; i++) expect((await app.request('/api/posts/1')).status).toBe(200)
+    // The mounted getter finds no address: a unix socket behind nginx, not a missing adapter
+    for (let i = 0; i < 5; i++) expect((await app.request('/api/posts')).status).toBe(200)
+    expect((await app.request('/api/posts/1')).status).toBe(200)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('a request has no client address'))
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('the registered getConnInfo found no client address')
+    expect(message).toContain('a unix socket or named pipe, or a getter for another runtime')
+    expect(message).toContain('the limit needs the trusted-proxy setting (#320)')
+    expect(message).toContain('first: posts.index')
+  })
+
+  it('a registered getter that throws counts the same way', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const throwing = bootAppWith(() => { throw new Error('no socket') })
+    for (let i = 0; i < 5; i++) expect((await throwing.request('/api/posts/1')).status).toBe(200)
+    expect((await throwing.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('the registered getConnInfo found no client address')
+    expect(message).toContain('first: posts.show')
+  })
+
+  it('a throttled route with no registered getConnInfo warns only the missing-source warning, once per process', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    for (let i = 0; i < 5; i++) expect((await bare.request('/api/posts')).status).toBe(200)
+    expect((await bare.request('/api/posts/1')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [message] = warn.mock.calls[0]!
+    expect(message).toContain('no getConnInfo is registered, so .throttle() routes serve requests without a limit')
+    expect(message).toContain('mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo)')
+    expect(message).toContain('first: posts.index')
+    expect(message).not.toContain('found no client address')
+  })
+
+  it('the missing-source and no-address warnings are remembered separately', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    expect((await bare.request('/api/posts')).status).toBe(200)
+    // A registered getter that finds no address is a different cause, so it warns too
+    expect((await app.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(2)
+    const messages = warn.mock.calls.map(([message]) => message)
+    expect(messages[0]).toContain('no getConnInfo is registered')
+    expect(messages[1]).toContain('found no client address')
+  })
+
+  it('a registered getter with an address does not warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (let i = 0; i < 3; i++) expect((await app.request('/api/posts', {}, from('203.0.113.20'))).status).toBe(200)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns in production, where the rate limit runs the same', async () => {
+    vi.stubGlobal('__PROD__', true)
+    vi.stubEnv('NODE_ENV', 'production')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bare = bootAppWithoutConnInfo()
+    for (let i = 0; i < 2; i++) expect((await bare.request('/api/posts')).status).toBe(200)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('mountConnInfo(app, getConnInfo'))
+  })
+
+  it('clients behind a SIIT translator (::ffff:0:a.b.c.d) get their own counter', async () => {
+    for (let i = 0; i < 3; i++) await app.request('/api/posts', {}, from('::ffff:0:198.51.100.1'))
+    expect((await app.request('/api/posts', {}, from('::ffff:0:198.51.100.1'))).status).toBe(429)
+    expect((await app.request('/api/posts', {}, from('::ffff:0:198.51.100.2'))).status).toBe(200)
   })
 
   it('never reads X-Forwarded-For', async () => {
@@ -126,6 +213,7 @@ describe('rate limit from the contract', () => {
 
   it('answers 429 without the response kernel too (Hono error handler)', async () => {
     const bare = new Hono()
+    mountConnInfo(bare, addressFromEnv)
     routes().mount(bare)
     await bare.request('/api/posts/1', {}, from('203.0.113.9'))
     const limited = await bare.request('/api/posts/1', {}, from('203.0.113.9'))
@@ -136,6 +224,7 @@ describe('rate limit from the contract', () => {
 
   it('a .domain() route counts only requests for its host', async () => {
     const onHost = new Hono()
+    mountConnInfo(onHost, addressFromEnv)
     routes().domain('api.example.test').mount(onHost)
     onHost.get('/api/posts/:id', (c) => c.text('fallback'))
     expect((await onHost.request('http://other.test/api/posts/1', {}, from('203.0.113.10'))).status).toBe(200)
@@ -146,6 +235,7 @@ describe('rate limit from the contract', () => {
 
   it('same-named routes of two domains count separately', async () => {
     const both = new Hono()
+    mountConnInfo(both, addressFromEnv)
     routes().domain('a.example.test').mount(both)
     routes().domain('b.example.test').mount(both)
     expect((await both.request('http://a.example.test/api/posts/1', {}, from('203.0.113.11'))).status).toBe(200)
@@ -163,6 +253,7 @@ describe('rate limit from the contract', () => {
 
 describe('ipBucket', () => {
   it('keys IPv4 as is, IPv4-mapped as IPv4 and IPv6 by its /64', () => {
+    expect(ipBucket(undefined)).toBeUndefined()
     expect(ipBucket('')).toBeUndefined()
     expect(ipBucket('203.0.113.1')).toBe('203.0.113.1')
     expect(ipBucket('::ffff:203.0.113.1')).toBe('203.0.113.1')
@@ -174,6 +265,20 @@ describe('ipBucket', () => {
     expect(ipBucket('::1')).toBe('0:0:0:0::/64')
     expect(ipBucket('64:ff9b::203.0.113.1')).toBe('203.0.113.1')
     expect(ipBucket('64:ff9b:1::203.0.113.1')).toBe('64:ff9b:1:0::/64')
+  })
+
+  it('keys the IPv4 address a SIIT or IPv4-compatible form carries, keeping :: and ::1', () => {
+    expect(ipBucket('::ffff:0:203.0.113.1')).toBe('203.0.113.1')
+    expect(ipBucket('0:0:0:0:ffff:0:cb00:7101')).toBe('203.0.113.1')
+    expect(ipBucket('::203.0.113.1')).toBe('203.0.113.1')
+    // Two clients behind such a translator never share one bucket
+    expect(ipBucket('::ffff:0:1.2.3.4')).not.toBe(ipBucket('::ffff:0:5.6.7.8'))
+    expect(ipBucket('::1.2.3.4')).not.toBe(ipBucket('::5.6.7.8'))
+    // :: and ::1 embed 0.0.0.0 and 0.0.0.1: they keep their own /64, never an IPv4 client's bucket
+    expect(ipBucket('::')).toBe('0:0:0:0::/64')
+    expect(ipBucket('::0.0.0.1')).toBe('0:0:0:0::/64')
+    expect(ipBucket('::1')).not.toBe(ipBucket('0.0.0.1'))
+    expect(ipBucket('::0.0.0.2')).toBe('0.0.0.2')
   })
 })
 
@@ -262,6 +367,18 @@ describe('MemoryThrottleStore', () => {
 })
 
 describe('throttled', () => {
+  /** A context with the capture a registered getter that found no address leaves on it. */
+  const addresslessContext = ({ signal = { aborted: false }, env = {} }: { signal?: unknown, env?: unknown } = {}) => ({
+    get: () => ({ registered: true, address: undefined }),
+    req: { raw: { signal } },
+    env,
+  }) as unknown as Context
+
+  const next = (async () => {}) as Next
+
+  const connectionRoute = { name: 'posts.store', method: 'post', path: '/posts', domain: undefined }
+  const connectionLimit = { limit: 1, per: 60 }
+
   it('rejects a window that never ends at mount', () => {
     const route = { name: 'posts.index', method: 'get', path: '/posts', domain: undefined }
     const handle = async () => new Response()
@@ -270,5 +387,53 @@ describe('throttled', () => {
     )
     expect(() => throttled(route, { limit: 1, per: 0.5 }, handle)).toThrow(/from 1 second/)
     expect(() => throttled(route, { limit: 1, per: 60 }, handle)).not.toThrow()
+  })
+
+  it('fails closed without running the handler when the client is gone and no address was read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+
+    const aborted = addresslessContext({ signal: { aborted: true } })
+    expect(((await middleware(aborted, next)) as Response).status).toBe(204)
+    const destroyed = addresslessContext({ env: { incoming: { socket: { destroyed: true } } } })
+    expect(((await middleware(destroyed, next)) as Response).status).toBe(204)
+
+    expect(handle).not.toHaveBeenCalled()
+    // A reset connection is not a deployment fact: the warning waits for a live request with no address
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('treats a connection it cannot read as live: the warning, then the handler', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+    const envs: unknown[] = [
+      null, undefined, 'env', 42, [], { incoming: 42 }, { incoming: { socket: 'socket' } }, { incoming: { socket: { destroyed: 'yes' } } },
+      { get incoming() { throw new Error('no env') } },
+    ]
+    for (const env of envs) expect(((await middleware(addresslessContext({ env }), next)) as Response).status).toBe(200)
+    // A raw request whose signal read throws is live too
+    const throwingSignal = {
+      get: () => ({ registered: true, address: undefined }),
+      req: { raw: { get signal() { throw new Error('no request') } } },
+      env: {},
+    } as unknown as Context
+    expect(((await middleware(throwingSignal, next)) as Response).status).toBe(200)
+    expect(handle).toHaveBeenCalledTimes(envs.length + 1)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('still counts a captured address when the client has gone', async () => {
+    const handle = vi.fn(async () => new Response('ran'))
+    const middleware = throttled(connectionRoute, connectionLimit, handle, new MemoryThrottleStore())
+    const captured = {
+      get: () => ({ registered: true, address: '127.0.0.1' }),
+      req: { raw: { signal: { aborted: true } } },
+      env: {},
+    } as unknown as Context
+    expect(((await middleware(captured, next)) as Response).status).toBe(200)
+    await expect(middleware(captured, next)).rejects.toMatchObject({ status: 429 })
+    expect(handle).toHaveBeenCalledTimes(1)
   })
 })

@@ -1034,6 +1034,44 @@ describe('createClient(manifest), the separate-repo FE', () => {
     expect(await api({ code: 'NOT_FOUND' }, 302).a.b()).toMatchObject({ ok: false, unexpected: true, status: 302 })
   })
 
+  it('rejects a call to a wildcard route before fetch, naming the path', async () => {
+    // a wildcard adds no typed params, so the call compiles: buildUrl is what refuses it
+    const forged = { 'files.all': { method: 'get', path: '/files/*' } }
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(forged, { fetch, baseUrl: 'https://api.example.com' }) as never as {
+      files: { all: () => Promise<unknown> }
+    }
+    await expect(api.files.all()).rejects.toThrow(
+      new TypeError('[@laratype/contract] buildUrl: path "/files/*" has a "*" segment, which buildUrl cannot fill'),
+    )
+    expect(calls).toEqual([])
+  })
+
+  it('refuses a route path that would leave the page\'s origin at createClient, whatever the baseUrl', () => {
+    const forged = {
+      't.slashes': { method: 'get', path: '//evil.com/x' },
+      't.backslash': { method: 'get', path: '/\\evil.com/x' },
+      't.tab': { method: 'get', path: '/\t/evil.com/x' },
+      't.newline': { method: 'get', path: '/\n\\evil.com' },
+      't.invalid': { method: 'get', path: '//[bad' },
+      't.sentinel': { method: 'get', path: '//__laratype_base__/x' },
+      // no leading "/": buildUrl's "\t/evil.com/x" is a path, but "/" + it is not
+      't.joined': { method: 'get', path: '\t/evil.com/x' },
+      't.joinedSentinel': { method: 'get', path: '\t/__laratype_other__/x' },
+    }
+    const { fetch, calls } = fakeFetch()
+    // every one is now refused at createClient, naming its key: the manifest path is the endpoint path rule
+    for (const [name, route] of Object.entries(forged)) {
+      const refusal = new TypeError(
+        `[@laratype/client] createClient: ${JSON.stringify(name)}: the path must start with one "/" and must not contain control characters, got ${JSON.stringify(route.path)}`,
+      )
+      expect(() => createClient({ [name]: route } as never, { fetch })).toThrow(refusal)
+      // an absolute baseUrl does not relax it: the path is refused before any host is chosen
+      expect(() => createClient({ [name]: route } as never, { fetch, baseUrl: 'https://api.example.com' })).toThrow(refusal)
+    }
+    expect(calls).toEqual([])
+  })
+
   it('validates the route method, path, status and body flag at createClient, naming the key', () => {
     const route = { method: 'get', path: '/x' }
     const message = (text: string) => new TypeError(`[@laratype/client] createClient: "a.b": ${text}`)
