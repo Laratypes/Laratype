@@ -1,4 +1,4 @@
-import type { API_ROOT, ApiEndpoint, ApiRouteName, EndpointTypes, NodeContext, PathParams } from "@laratype/contract";
+import type { API_ROOT, ApiEndpoint, ApiRouteName, EndpointTypes, NodeContext, PathParams, UrlQuery } from "@laratype/contract";
 import { buildUrl } from "@laratype/contract";
 import { config } from "@laratype/core";
 import type { ApiRoutes } from "./api/ApiRouter";
@@ -250,8 +250,10 @@ export const buildRouteUrl = (
   if (registry.size === 0) fail("route: no routes are registered (call Route.api(appApi, ...) first)");
   const entry = registry.get(name);
   if (entry === undefined) fail(`route: unknown route name ${JSON.stringify(truncateName(name))}`);
-  // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams
-  const path = buildUrl(entry.path, { params: paramValues(params), query: options?.query });
+  // buildUrl is the one encoder: params with encodeURIComponent, query with URLSearchParams. route()'s query is typed
+  // from the endpoint's query schema, which can be wider than a query string carries; buildUrl refuses a value that
+  // is not flat (`UrlQuery`), so the cast keeps that check at runtime, where the value is.
+  const path = buildUrl(entry.path, { params: paramValues(params), query: options?.query as UrlQuery | undefined });
   // The path is appended to the config's origin and base path, the root "/" included: joinPath drops a bare "/", which
   // made a query alone decide the pathname ("https://app.test/sub" with no query, "https://app.test/sub/?page=2" with
   // one). `buildUrl` always returns a path that starts with "/".
