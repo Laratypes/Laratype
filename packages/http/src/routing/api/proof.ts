@@ -344,6 +344,9 @@ type ResolvedAuthorizedKeys<C, Ctx extends EndpointContext> = {
 /** The method names of a policy instance: a property that is not a function doesn't count. */
 type MethodKeys<P> = { [K in keyof P]-?: P[K] extends (...args: any) => any ? K : never }[keyof P];
 
+/** The method names that can be abilities: `before` is the hook, never an ability. */
+type AbilityKeys<P> = Exclude<MethodKeys<P>, "before">;
+
 /** The parameters of a policy method after the user: `update(user, post)` gives `[post: Post]`, `viewAny(user)` gives `[]`. */
 type MethodRest<P, K> = K extends keyof P ? (P[K] extends (user: any, ...args: infer A) => any ? A : never) : never;
 
@@ -416,7 +419,7 @@ type MethodAccepts<Provided extends readonly unknown[], F> = F extends (user: an
  * does not bind, or a different model type, is reported. Extra bound models a method ignores are fine.
  */
 type PolicyArgumentIssues<N extends string, C, Ctx extends EndpointContext, P, B> = {
-  [K in Extract<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as C[K] extends infer E extends AnyEndpoint
+  [K in Extract<ResolvedAuthorizedKeys<C, Ctx>, AbilityKeys<P>> as C[K] extends infer E extends AnyEndpoint
     ? MethodAccepts<EndpointBoundModels<E, B>, P[K]> extends true
       ? never
       : `${N}.${K}: the policy's \`${K}\` method does not accept the bound models the route passes (${JoinBoundNames<EndpointBoundNames<E>>})`
@@ -457,7 +460,9 @@ type PolicyIssues<N extends string, C, O, Ctx extends EndpointContext, B> = Poli
     : [P] extends [undefined]
     ? { [K in OwnAuthorizedKeys<C> as `${N}.${K}: endpoint has .authorize() but r.contract() has no { policy }`]: K }
     : "before" extends MethodKeys<P>
-      ? PolicyArgumentIssues<N, C, Ctx, P, B>
+      ? [AbilityKeys<P>] extends [never]
+        ? {}
+        : PolicyArgumentIssues<N, C, Ctx, P, B>
       : {
           [K in Exclude<ResolvedAuthorizedKeys<C, Ctx>, MethodKeys<P>> as `${N}.${K}: .authorize() needs a \`${K}\` method or \`before\` on the policy`]: K
         } & PolicyArgumentIssues<N, C, Ctx, P, B>
