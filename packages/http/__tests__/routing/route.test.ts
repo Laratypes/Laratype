@@ -259,6 +259,18 @@ describe('route()', () => {
     )
   })
 
+  it('refuses a getRouteKey() that is an invalid Date, never a RangeError', () => {
+    class InvalidDateUser {
+      getRouteKey() {
+        return new Date(Number.NaN)
+      }
+    }
+    mount()
+    expect(() => route('users.posts.show', { user: new InvalidDateUser(), post: 1 })).toThrow(
+      new TypeError('[@laratype/http] route: param "user" has a getRouteKey() that returns an invalid Date'),
+    )
+  })
+
   it('a real Model instance builds the URL of its route key (issue #163 added task)', () => {
     // DB1's getRouteKey() returns `string | number | bigint | boolean | Date`; route() converts it
     class DbUser extends Model {

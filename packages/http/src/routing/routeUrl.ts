@@ -226,6 +226,10 @@ const paramValues = (params: object | undefined): Record<string, string | number
     }
     const routeKey: unknown = getRouteKey.call(value);
     if (routeKey instanceof Date) {
+      // `toISOString()` throws a RangeError on an Invalid Date: answer the route() diagnostic instead
+      if (Number.isNaN(routeKey.getTime())) {
+        fail(`route: param "${key}" has a getRouteKey() that returns an invalid Date`);
+      }
       values[key] = routeKey.toISOString();
     } else if (typeof routeKey === "bigint" || typeof routeKey === "boolean") {
       values[key] = String(routeKey);
