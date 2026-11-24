@@ -1143,7 +1143,7 @@ export default defineContract<Prefix>()({
 // app/src/providers/RouteServiceProvider.ts
 export const routes = Route.api(appApi, (r) => [
   r.bind({ user: User }).scope('users/[user]', { policy: UserScopePolicy }),
-  r.bind({ post: Post }).contract(posts, PostController, { policy: PostPolicy }),
+  r.bind({ user: User, post: Post }).contract(posts, PostController, { policy: PostPolicy }),
 ])
 
 // The scope hook gets the resolved record; the endpoint policy gets the endpoint's own model, in path order

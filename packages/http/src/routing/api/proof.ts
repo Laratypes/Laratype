@@ -336,9 +336,17 @@ type OwnAuthorizedKeys<C> = {
   [K in EndpointKey<C>]: C[K] extends { readonly __types: { caps: { authorize: infer F } } } ? (true extends F ? K : never) : never;
 }[EndpointKey<C>];
 
-/** Endpoint keys whose `authorize` resolves to true: their own `.authorize()`, or a scope's, unless `.authorize(false)`. */
+/** Endpoint keys whose `authorize` may resolve true: an own `.authorize(true)` or boolean flag, an own `.authorize(false)` never, otherwise the inherited scope `authorize`. */
 type ResolvedAuthorizedKeys<C, Ctx extends EndpointContext> = {
-  [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint ? (ResolvedAuthorize<E, Ctx> extends true ? K : never) : never;
+  [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
+    ? E["__types"]["caps"]["authorize"] extends false
+      ? never
+      : true extends E["__types"]["caps"]["authorize"]
+        ? K
+        : ResolvedAuthorize<E, Ctx> extends true
+          ? K
+          : never
+    : never;
 }[EndpointKey<C>];
 
 /** The method names of a policy instance: a property that is not a function doesn't count. */

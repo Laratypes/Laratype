@@ -351,6 +351,47 @@ describe("the contract policy chain", () => {
     ]);
   });
 
+  // H8 #416 (CodeRabbit): the endpoint policy's arguments read own keys only. A path param named `constructor`,
+  // `toString` or `hasOwnProperty` passes undefined when it is not bound, never an Object.prototype member.
+  it("passes undefined for an unbound endpoint param named after an Object.prototype member", async () => {
+    const inherited = defineContract()({
+      show: endpoint.get("/:constructor/:toString/:hasOwnProperty").response(anything),
+    });
+    const inheritedApi = defineApi({ inherited: { contract: inherited, path: "/api/inherited", scopes: [{ scope: root, dir: "" }] } });
+    class InheritedController extends Controller {
+      show() { return { ok: true }; }
+    }
+    class InheritedPolicy {
+      show(_user: unknown, _constructor: unknown, _toString: unknown, _hasOwnProperty: unknown) { return true; }
+    }
+    const mountInherited = (withBindings: boolean) => {
+      const routes = Route.api(inheritedApi, (r) => [
+        r.bind({}).scope("", { policy: RootPolicy }),
+        withBindings
+          ? r.bind({ constructor: BoundPost, toString: BoundPost, hasOwnProperty: BoundPost }).contract(inherited, InheritedController, { policy: InheritedPolicy })
+          : r.bind({}).contract(inherited, InheritedController, { policy: InheritedPolicy }),
+      ]);
+      const container = new Container({ deps: depsRegistry });
+      const app = new Hono();
+      container.instance(HTTP_APP, app);
+      new RequestKernel(container).boot();
+      new ResponseKernel(container).boot();
+      routes.mount(app);
+      return app;
+    };
+
+    const unbound = await mountInherited(false).request("/api/inherited/1/2/3");
+    expect(unbound.status).toBe(200);
+    expect(calls.at(-1)!.level).toBe("authorize");
+    expect(calls.at(-1)!.args).toEqual([undefined, undefined, undefined]);
+
+    calls.length = 0;
+    const bound = await mountInherited(true).request("/api/inherited/4/5/6");
+    expect(bound.status).toBe(200);
+    expect(calls.at(-1)!.level).toBe("authorize");
+    expect(calls.at(-1)!.args.map((arg) => (arg as BoundPost).id)).toEqual(["4", "5", "6"]);
+  });
+
   it("a binding miss is a 404 before the policies, and no policy runs", async () => {
     // The documented order: model binding (404) before policies (403). The policy would deny, but never runs
     scopeAnswers = [{ by: "before", answer: false }];

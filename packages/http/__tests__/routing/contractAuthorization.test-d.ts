@@ -140,4 +140,48 @@ describe('the resolved-authorize policy check', () => {
       r.bind(bound).contract(regexPosts, RegexController, { policy: WrongRegexPolicy }),
     ])
   })
+
+  test('an authorize flag typed boolean is checked, .authorize(false) is not', () => {
+    const authOnly = defineScope()({ auth: true })
+    const flag = true as boolean
+    const flagged = defineContract<ContractPrefix<'/api/flagged', [typeof authOnly]>>()({
+      update: endpoint.patch('/:post').authorize(flag).response(anything),
+    })
+    const flaggedApi = defineApi({
+      flagged: { contract: flagged, path: '/api/flagged', scopes: [{ scope: authOnly, dir: '' }] },
+    })
+    class FlaggedController extends Controller {
+      update() { return { ok: true } }
+    }
+    class NoFlaggedMethod {}
+    class FlaggedPolicy {
+      update() { return true }
+    }
+    expectTypeOf<RouteProof<typeof flaggedApi, typeof flagged, FlaggedController, { policy: typeof NoFlaggedMethod }, {}, typeof bound>>().toHaveProperty(
+      'flagged.update: .authorize() needs a `update` method or `before` on the policy',
+    )
+    Route.api(flaggedApi, (r) => [
+      r.bind(bound).contract(flagged, FlaggedController, { policy: FlaggedPolicy }),
+    ])
+    Route.api(flaggedApi, (r) => [
+      // @ts-expect-error flagged.update: .authorize() needs a `update` method or `before` on the policy
+      r.bind(bound).contract(flagged, FlaggedController, { policy: NoFlaggedMethod }),
+    ])
+
+    // .authorize(false) opts out even under a scope with authorize: no policy method is required
+    const optedOut = defineContract<ContractPrefix<'/api/opted-out', [typeof root]>>()({
+      index: endpoint.get('/').authorize(false).response(anything),
+    })
+    const optedOutApi = defineApi({
+      optedOut: { contract: optedOut, path: '/api/opted-out', scopes: [{ scope: root, dir: '' }] },
+    })
+    class OptedOutController extends Controller {
+      index() { return { ok: true } }
+    }
+    Route.api(optedOutApi, (r) => [
+      r.bind({}).scope('', { policy: BeforePolicy }),
+      r.bind({}).contract(optedOut, OptedOutController),
+    ])
+    expectTypeOf<RouteProof<typeof optedOutApi, typeof optedOut, OptedOutController, {}, {}, {}>>().toEqualTypeOf<unknown>()
+  })
 })
