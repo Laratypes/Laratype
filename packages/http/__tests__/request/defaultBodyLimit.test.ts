@@ -288,6 +288,27 @@ describe("a body an earlier middleware already read (H44 #341)", () => {
     mount(app, "0.5");
     await expect413(await app.request("/users", json({ d: "a".repeat(2_048) })));
   });
+
+  it("measures a form body a middleware parsed with parseBody(), not one it read with formData()", async () => {
+    quiet();
+    const body = form(`name=${"a".repeat(2_048)}`);
+    // 4.13.17's parseBody() reads through c.req.arrayBuffer(), so the cache holds the bytes next to its FormData
+    const parsed = bootApp({ bodyLimit: { form: 1_024 } });
+    parsed.use(async (c, next) => {
+      await c.req.parseBody();
+      await next();
+    });
+    mount(parsed, "0.5");
+    await expect413(await parsed.request("/users", body));
+    // c.req.formData() caches only its promise, not the bytes it spent: the default cannot measure this body
+    const formData = bootApp({ bodyLimit: { form: 1_024 } });
+    formData.use(async (c, next) => {
+      await c.req.formData();
+      await next();
+    });
+    mount(formData, "0.5");
+    expect((await formData.request("/users", body)).status).toBe(201);
+  });
 });
 
 describe("multipart raw bytes (H44 #341)", () => {
