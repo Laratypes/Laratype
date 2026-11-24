@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { Container, Facade, token } from '@laratype/core'
+import { appContainer, Container, Facade, peekAppContainer, token } from '@laratype/core'
 
 abstract class Greeter {
   abstract greet(name: string): string
@@ -65,6 +65,15 @@ describe('Container.swap types', () => {
       c.swap(SERVER, { port: '1' })
       // @ts-expect-error the value must be an instance of the class
       c.swap(Greeter, { other: 1 })
+    })
+  })
+})
+
+describe('app container lookup types', () => {
+  it('appContainer() returns a Container, peekAppContainer() may return undefined', () => {
+    typeOnly(() => {
+      expectTypeOf(appContainer()).toEqualTypeOf<Container>()
+      expectTypeOf(peekAppContainer()).toEqualTypeOf<Container | undefined>()
     })
   })
 })

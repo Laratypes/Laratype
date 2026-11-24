@@ -88,6 +88,7 @@ describe('fallback container', () => {
     }
     app.get('/probe', RequestKernel.handle({ method: 'get', path: '/probe', controller: [Probe, 'index'] }))
     expect((await app.request('/probe')).status).toBe(200)
-    expect(warn).not.toHaveBeenCalled()
+    // The boot may bind registries in the shared core fallback, which warns once (D11 #318); http's own warning must not fire
+    expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[@laratype/http]'))).toHaveLength(0)
   })
 })
