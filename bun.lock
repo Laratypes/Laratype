@@ -245,11 +245,13 @@
         "@types/figlet": "^1.7.0",
       },
       "peerDependencies": {
+        "@laratype/contract": "workspace:*",
         "@laratype/database": "workspace:*",
         "laratype": "workspace:*",
         "typescript": ">=5",
       },
       "optionalPeers": [
+        "@laratype/contract",
         "@laratype/database",
         "laratype",
         "typescript",
@@ -322,7 +324,7 @@
     "postcss": "8.5.6",
   },
   "catalog": {
-    "hono": "^4.8.0",
+    "hono": "^4.13.17",
     "vite": "^7.1.9",
     "zod": "^4.6.6",
   },
@@ -915,7 +917,7 @@
 
     "highlight.js": ["highlight.js@10.7.3", "", {}, "sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A=="],
 
-    "hono": ["hono@4.9.6", "", {}, "sha512-doVjXhSFvYZ7y0dNokjwwSahcrAfdz+/BCLvAMa/vHLzjj8+CFyV5xteThGUsKdkaasgN+gF2mUxao+SGLpUeA=="],
+    "hono": ["hono@4.13.17", "", {}, "sha512-vZIcbkvjOR5hHRWERbGkr8fGfF0GGM1ooYkuH448iO3b2AdVEr3AXZSw4Z3Kn+1L5z0CVoVeyV29VGYmFh05kQ=="],
 
     "iconv-lite": ["iconv-lite@0.7.0", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-cf6L2Ds3h57VVmkZe+Pn+5APsT7FpqJtEhhieDCvrE2MK5Qk9MyffgQyuxQTm6BChfeZNtcOLHp9IcWRVcIcBQ=="],
 

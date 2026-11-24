@@ -76,11 +76,15 @@
     "resources"
   ],
   "peerDependencies": {
+    "@laratype/contract": "workspace:*",
     "@laratype/database": "workspace:*",
     "laratype": "workspace:*",
     "typescript": ">=5"
   },
   "peerDependenciesMeta": {
+    "@laratype/contract": {
+      "optional": true
+    },
     "@laratype/database": {
       "optional": true
     },

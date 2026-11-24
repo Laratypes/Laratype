@@ -11,7 +11,7 @@ export type {
   Scope,
   Token,
 } from './container'
-export { Facade } from './facade'
+export { appContainer, Facade, peekAppContainer } from './facade'
 export type { FacadeClass } from './facade'
 export { Manager } from './manager'
 export type { DriverMap } from './manager'

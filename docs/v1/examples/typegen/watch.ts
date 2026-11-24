@@ -1,4 +1,4 @@
-// docs/v1/typegen.md › Watch mode in sauf dev (G2 #142, proposed).
+// docs/v1/typegen.md › Watch mode in sauf dev (G2 #142, merged @ 8ad92ae9).
 // A sketch of the wiring in packages/sauf/src/commands/dev.ts, not app code.
 import { ContractTypeWatchHost, contractTreePlugin } from 'sauf/src/typegen'
 import type { WatchEvents } from 'sauf/src/typegen'

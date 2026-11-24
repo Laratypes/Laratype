@@ -126,6 +126,31 @@ export const connInfoSource = (ctx: Context | undefined): ConnInfoSource => {
 /** The address `ip()` answers: `connInfoSource(ctx).address`, `undefined` for every reason it can be unknown. */
 export const clientIp = (ctx: Context | undefined): string | undefined => connInfoSource(ctx).address
 
+/**
+ * `pick` with an own `__proto__` key kept as data. es-toolkit's `pick` assigns each own key to the new object
+ * (`result[key] = value`), so an own `__proto__` in the source sets the result's prototype instead of becoming a key.
+ * The source is client input here, so the key is handled the way the rest of the package handles it: an own data
+ * property, never a prototype (B30 #410). Every other key keeps `pick`'s behaviour.
+ */
+const pickData = (source: Record<string, any>, keys: string[]): Record<string, any> => {
+  // `only()` is typed `string[]`; a non-array at runtime (JS callers) is no keys, not an array-like `pick` would walk
+  if (!Array.isArray(keys)) return {}
+  const picked = pick(source, keys) as Record<string, any>
+  if(!keys.includes("__proto__") || !Object.hasOwn(source, "__proto__")) {
+    return picked
+  }
+  // `picked` has no own `__proto__` key: the value became its prototype (or was ignored, for a primitive). A copy
+  // with define semantics gives the key back without the swapped prototype.
+  const result = { ...picked }
+  Object.defineProperty(result, "__proto__", {
+    value: source.__proto__,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  })
+  return result
+}
+
 export default class Request implements RequestInterface {
 
   protected requestCtx: HonoRequest
@@ -155,7 +180,7 @@ export default class Request implements RequestInterface {
     const input = this.requestCtx.input;
     if(!isNil(keys)) {
       if(keys instanceof Array) {
-        return pick(input, keys);
+        return pickData(input, keys);
       }
       return input[keys as never]
     }
@@ -217,7 +242,7 @@ export default class Request implements RequestInterface {
   }
 
   only(keys: string[]): Record<string, any> {
-    return pick(this.all(), keys)
+    return pickData(this.all(), keys)
   }
 
   path(): string {
