@@ -171,7 +171,7 @@ interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends
   - a handler typed for a different endpoint (told by `ctx.endpoint`: two endpoints with identical types can't be told apart);
   - a base `Controller` member (`exposed`) is not a handler, as at runtime. The types also reject an own override of it in a subclass, and an `exposed()` method of a plain class (not a `Controller` subclass), though the runtime accepts both;
   - a middleware extension that names `query`, `body` or `endpoint` of a contract route: the route keeps them, so the proof refuses the key ([Typed middleware](#typed-middleware) › Invariants);
-  - an endpoint with its own `.authorize()` needs the `policy` of `r.contract()`, with a method named after the endpoint or a `before` method (a property that is not a function doesn't count). A specific policy class that may be `undefined` is no policy; a policy typed `any` or only as `PolicyClass` (options typed `ContractRouteOptions<C>`) is not checked. For `.authorize(flag)` with a `boolean` flag, the types want a policy whatever the flag (stricter on purpose), while `Route.api`'s mount check, which wants a policy class as it does for a scope with `authorize`, fires only when the flag is `true` at runtime. Running the policy is [#121](https://github.com/Laratypes/Laratype/issues/121).
+  - an endpoint with its own `.authorize()` needs the `policy` of `r.contract()`, with a method named after the endpoint or a `before` method (a property that is not a function doesn't count). A specific policy class that may be `undefined` is no policy; a policy typed `any` or only as `PolicyClass` (options typed `ContractRouteOptions<C>`) is not checked. For `.authorize(flag)` with a `boolean` flag, the types want a policy whatever the flag (stricter on purpose), while `Route.api`'s mount check, which wants a policy class as it does for a scope with `authorize`, fires only when the flag is `true` at runtime. The policy runs for a route whose resolved `authorize` is true (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)).
 - **Handlers:** any callable property passes the type check (so `action()` can come later), but the runtime still requires class methods ([Router v2](#router-v2)).
 - **Options:** `r.contract(c, Ctrl, { policy, endpoints: {...} })`, merged at runtime (H2a [#105](https://github.com/Laratypes/Laratype/issues/105), see [Router v2](#router-v2)).
   - `policy` covers the endpoints with `authorize` ([Authorization from the contract](#authorization-from-the-contract)). It runs for every route whose resolved `authorize` is true (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)). The compile check that an `.authorize()` endpoint has one is merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)) and now covers a scope-inherited `authorize` too.
@@ -305,9 +305,9 @@ const UNENFORCED_NOTICE: "headers schema validation is not enforced yet";
 const CONTRACT_AUTH: unique symbol;                  // Symbol.for('laratype.http.contractAuth')
 function registerContractAuth(factory: (guard: true | string) => AnyTypedMiddleware): void;   // A2 #120, proposed: PR #414 @ 52a21000
 function contractAuth(): ((guard: true | string) => AnyTypedMiddleware) | undefined;   // only a function value; A2 #120, proposed: PR #414 @ 52a21000
-// H8 #122: the contract policy slot, filled by @laratype/auth on import; the two A3 checks, reused as is
+// H8 #122: the contract policy slot, filled by @laratype/auth on import; A3's policyRouteCheck (tagged) and policyAuthorize
 interface ContractPolicyChecks {
-  // policyCheck tagged with the half that answered: before (a true is the scope bypass) or the ability method
+  // policyRouteCheck tagged with the half that answered: before (a true is the scope bypass) or the ability method
   check(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<{ by: "before" | "ability"; answer: boolean } | null>;
   authorize(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<void>;         // policyAuthorize
 }
@@ -1095,7 +1095,7 @@ class PostPolicy {
 
 // @laratype/http: the slot @laratype/auth fills on import (internal; the public API is the two functions)
 interface ContractPolicyChecks {
-  // A3's policyCheck tagged with the half that answered: before (a true is the bypass) or the ability method
+  // A3's policyRouteCheck tagged with the half that answered: before (a true is the bypass) or the ability method
   check(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<{ by: "before" | "ability"; answer: boolean } | null>;
   authorize(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<void>;         // policyAuthorize
 }
@@ -1103,7 +1103,7 @@ export function registerContractPolicies(checks: ContractPolicyChecks): void;
 export function contractPolicies(): ContractPolicyChecks | undefined;   // undefined unless the slot holds both functions
 ```
 
-`@laratype/auth` registers `check: policyCheck` and `authorize: policyAuthorize` on import, so the route chain reuses A3's checks as is; no new export is added to `@laratype/auth`. `RouteEntry.policies` (scopes, outer to inner) and `RouteEntry.policy` (the contract's) keep their shape and are now run.
+`@laratype/auth` registers `check: policyRouteCheck` and `authorize: policyAuthorize` on import, so the route chain reuses A3's checks (its internal `policyRouteCheck` tags the answer with the half that answered); no new export is added to `@laratype/auth`. `RouteEntry.policies` (scopes, outer to inner) and `RouteEntry.policy` (the contract's) keep their shape and are now run.
 
 ### Invariants
 - **Declared in the contract, run by the framework.** A route whose resolved `authorize` is true (its own `.authorize()`, or a scope's `authorize` unless `.authorize(false)`) runs its scope policies and its endpoint policy. `auth` must be on at the same or an outer level; A2's guard answers the 401 before the policy chain, so a policy never runs without a signed-in user.
@@ -1159,7 +1159,7 @@ class PostPolicy {
 await Auth.user()!.can('update', post)
 ```
 
-Tests: [`packages/http/__tests__/routing/contractAuthorization.test.ts`](../../packages/http/__tests__/routing/contractAuthorization.test.ts) (the chain with stand-in checks: order, 403, 404 before 403, 403 before 422, resolved-once, `before` allow/deny/fall-through, the mount errors, `.authorize(false)` and ad-hoc routes), [`packages/auth/__tests__/contractAuthorization.test.ts`](../../packages/auth/__tests__/contractAuthorization.test.ts) (the real `policyCheck`/`policyAuthorize` and guard: 401 before 403, the hook and method arguments, a guest, a typo'd key, the module reload), [`packages/http/__tests__/routing/contractPolicies.test.ts`](../../packages/http/__tests__/routing/contractPolicies.test.ts) (the slot) and [`packages/http/__tests__/routing/contractAuthorization.test-d.ts`](../../packages/http/__tests__/routing/contractAuthorization.test-d.ts) (the type checks).
+Tests: [`packages/http/__tests__/routing/contractAuthorization.test.ts`](../../packages/http/__tests__/routing/contractAuthorization.test.ts) (the chain with stand-in checks: order, 403, 404 before 403, 403 before 422, resolved-once, `before` allow/deny/fall-through, the mount errors, `.authorize(false)` and ad-hoc routes), [`packages/auth/__tests__/contractAuthorization.test.ts`](../../packages/auth/__tests__/contractAuthorization.test.ts) (the real `policyRouteCheck`/`policyAuthorize` and guard: 401 before 403, the hook and method arguments, a guest, a typo'd key, the module reload), [`packages/http/__tests__/routing/contractPolicies.test.ts`](../../packages/http/__tests__/routing/contractPolicies.test.ts) (the slot) and [`packages/http/__tests__/routing/contractAuthorization.test-d.ts`](../../packages/http/__tests__/routing/contractAuthorization.test-d.ts) (the type checks).
 
 ### Non-goals
 - No `ctx` argument for a policy: the endpoint policy gets its bound models (the same shape as `Gate`), the scope hook the record.

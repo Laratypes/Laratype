@@ -242,7 +242,7 @@ export class ForbiddenException extends Exception {}              // 403, { code
 
 Every public generic policy type except `HasPolicy` has a default, so its bare name compiles and means any policy (`.claude/rules/types.md` › Generics): `PolicyAbility` is `string`, `PolicySubject`, `SubjectParam` and `CheckPolicy` are `unknown`, `PolicyArgs` and `SubjectArgs` are `any[]`, and `ModelPolicy` is `AnyPolicy` (the model-shaped defaults use `HasPolicy<AnyPolicy>`). `HasPolicy` keeps its required type argument: a bare `extends HasPolicy` would brand the model with `AnyPolicy`, making `SubjectAbility` every string and switching `CheckPolicy` off, so an ability typo (`"udpate"`) would type-check. A real policy keeps its own names and parameters.
 
-`policyCheck`, `policyAllows` and `policyAuthorize` are exported for the route integration and for custom checks. `@laratype/auth` registers `check: policyCheck` and `authorize: policyAuthorize` with `@laratype/http` on import (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)), so the route chain reuses them as is; no policy semantics live in http and no new export is added.
+`policyCheck`, `policyAllows` and `policyAuthorize` are exported for custom checks. `@laratype/auth` registers `check: policyRouteCheck` (the internal variant tagged with the half that answered) and `authorize: policyAuthorize` with `@laratype/http` on import (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)), so the route chain reuses A3's semantics; no policy semantics live in http and no new export is added.
 
 A policy is any class with ability methods and an optional `before`; the 0.5 `Policy` base class is not required:
 
