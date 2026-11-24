@@ -6,8 +6,9 @@ import type { ContentfulStatusCode, StatusCode } from "hono/utils/http-status";
 import type { KernelRouteParams } from "../contracts";
 import { isContractError, isFailureStatus } from "@laratype/contract";
 import { ControllerMethodHttpStatusCode } from "../request/Request";
-import { BODY_HEADERS } from "./bodyHeaders";
+import { BODY_HEADERS, REDIRECT_HEADERS, isBodyHeader, isRedirectHeader } from "./bodyHeaders";
 import { isBodylessResponse } from "./bodyless";
+import { quietLog } from "./undeclaredError";
 
 /** The type a returned string is sent as (H41 #336): HTML needs an explicit `Response` content type. */
 const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
@@ -61,12 +62,12 @@ const asHttpError = (err: unknown): { status: StatusCode; response: globalThis.R
 export const DROPPED_ERROR_HEADERS = [
   "Set-Cookie", "ETag", "Last-Modified", "Expires", "Age", "Surrogate-Key", "Cache-Tag", "CDN-Cache-Control",
   "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "X-Accel-Expires", "Vercel-CDN-Cache-Control",
-  "Netlify-CDN-Cache-Control", "Edge-Control", "X-Accel-Redirect", "X-Sendfile", "X-Lighttpd-Send-File",
-  "X-LiteSpeed-Location",
+  "Netlify-CDN-Cache-Control", "Edge-Control", "X-Accel-Redirect", "X-Sendfile", "X-Sendfile-Temporary", "X-Sendfile2",
+  "X-Reproxy-URL", "X-Lighttpd-Send-File", "X-LiteSpeed-Location",
 ];
 
-/** The context's header store loses the body headers too: an error re-serializes its own body (#272) */
-const CONTEXT_ERROR_HEADERS = [...BODY_HEADERS, ...DROPPED_ERROR_HEADERS];
+/** The context's header store loses the body and redirect headers too: an error re-serializes its own body (#272) */
+const CONTEXT_ERROR_HEADERS = [...BODY_HEADERS, ...REDIRECT_HEADERS, ...DROPPED_ERROR_HEADERS];
 
 /** The month names of an IMF-fixdate, indexed as `Date` does */
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -148,6 +149,42 @@ const scrubErrorHeaders = (headers: Headers, names: readonly string[] = DROPPED_
   headers.set("Cache-Control", "no-store");
 };
 
+/** A status the platform can send: an integer from 200 to 599, the fetch `Response` range. Not a 1xx, a string, a bigint */
+const isHttpStatus = (value: unknown): value is StatusCode =>
+  typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 599;
+
+/** The statuses a redirect sends (RFC 9110 §15.4) */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/** A status value as a diagnostic names it, without calling app code (a `toString` can throw) */
+const describeValue = (value: unknown): string =>
+  typeof value === "string" ? JSON.stringify(value)
+    : typeof value === "number" || typeof value === "bigint" ? String(value)
+      : value === null ? "null" : typeof value;
+
+/**
+ * A status a 0.5 `Response` cannot send: a server bug, refused instead of answered as 200 with the handler's body
+ * (H32 #312). The throw is the filter's unknown error: the generic 500, logged, with the handler's body, cookie and
+ * cache headers dropped
+ */
+const refuseStatus = (value: unknown): never => {
+  throw new TypeError(`[@laratype/http] the response status ${describeValue(value)} cannot be sent: use an integer from 200 to 599`);
+};
+
+/** A redirect status a 0.5 `Response` cannot send: `ctx.redirect()` would answer 200 on it (H32 #312) */
+const refuseRedirectStatus = (value: unknown): never => {
+  throw new TypeError(`[@laratype/http] the redirect status ${describeValue(value)} cannot be sent: use 301, 302, 303, 307 or 308`);
+};
+
+/**
+ * The status a responsible `Exception` sends: its own when it is one the platform can send, else 500. A string, a
+ * bigint, `NaN`, `Infinity`, a negative number, 99 or 600 used to answer 200 with the generic body (H32 #312)
+ */
+const exceptionStatus = (exception: Exception): StatusCode => {
+  const status = exception.getHttpCode();
+  return isHttpStatus(status) ? status : 500;
+};
+
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
 const KEPT_5XX_HEADERS = new Set(["retry-after", "www-authenticate"]);
 
@@ -222,12 +259,21 @@ export default class Response extends AppServiceProvider {
   protected static guessHttpStatusCode(response: ResponseSupport, routeOption?: KernelRouteParams): ContentfulStatusCode & 204 {
     let contentFullStatusCode = response.getHttpStatus();
 
-    if(!contentFullStatusCode && routeOption?.controller) {
+    // A handler's explicit status is app data: 0, a string, a bigint, NaN, Infinity, a negative number or 1e9 must not
+    // answer 200 with the handler's body (H32 #312). `null` means unset, like `undefined` (0.5 code passes it to set
+    // headers only). The decorator and the method-name guess are refused the same way
+    if(contentFullStatusCode != null && !isHttpStatus(contentFullStatusCode)) {
+      refuseStatus(contentFullStatusCode);
+    }
+
+    if(contentFullStatusCode == null && routeOption?.controller) {
       const [controllerClass, controllerMethodName] = routeOption.controller;
-      
+
       const statusCodeFromMetadata = Reflect.getMetadata(MetaDataKey.CONTROLLER_STATUS_CODE, controllerClass.prototype, controllerMethodName)
-      
-      if(statusCodeFromMetadata) {
+
+      // Present metadata is the decorator's value, even 0 or NaN (refused below): only absent metadata falls back to
+      // the method-name guess (H32 #312)
+      if(statusCodeFromMetadata != null) {
         contentFullStatusCode = statusCodeFromMetadata;
       }
       else {
@@ -239,7 +285,7 @@ export default class Response extends AppServiceProvider {
     // Default to 200
     contentFullStatusCode ??= 200;
 
-    return contentFullStatusCode as ContentfulStatusCode & 204;
+    return (isHttpStatus(contentFullStatusCode) ? contentFullStatusCode : refuseStatus(contentFullStatusCode)) as ContentfulStatusCode & 204;
   }
 
   public static resolveResponse(ctx: Context, response?: any, routeOption?: KernelRouteParams) {
@@ -251,12 +297,28 @@ export default class Response extends AppServiceProvider {
 
     const redirectUrl = responseObj.getRedirectUrl()
     if(redirectUrl) {
-      return ctx.redirect(redirectUrl, responseObj.getRedirectStatusCode());
+      const redirectStatusCode = responseObj.getRedirectStatusCode();
+      // A redirect status the platform cannot send answers 200: refuse it, never redirect on a broken status (H32 #312)
+      if(!REDIRECT_STATUSES.has(redirectStatusCode)) {
+        refuseRedirectStatus(redirectStatusCode);
+      }
+      const redirectHeaders = responseObj.getHeaders()
+      const setRedirectHeader = this.setHeaders(ctx)
+
+      for (const key in redirectHeaders) {
+        // A redirect sends no body (RFC 9110 §15.4), so the body headers describe a body it does not have, and the
+        // redirect sets its own Location. The handler's other headers (Set-Cookie, cache, custom) stay (H32 #312)
+        if(!Object.hasOwn(redirectHeaders, key) || isBodyHeader(key) || isRedirectHeader(key)) continue;
+        setRedirectHeader(key, redirectHeaders[key])
+      }
+      return ctx.redirect(redirectUrl, redirectStatusCode);
     }
     const headers = responseObj.getHeaders()
     const setHeader = this.setHeaders(ctx)
-    
+
     for (const key in headers) {
+      // Own keys only: a header object's prototype is not a set of headers
+      if(!Object.hasOwn(headers, key)) continue;
       setHeader(key, headers[key])
     }
 
@@ -270,15 +332,29 @@ export default class Response extends AppServiceProvider {
 
     const contentFullStatusCode = this.guessHttpStatusCode(responseObj, routeOption);
 
-    // 204, 205 and 304 never carry a body
+    // A handler-returned 5xx is an error response: the same header scrub a thrown error gets (#272, H32 #312). The
+    // context store is scrubbed before the body is built, since Hono merges it into the response this handler returns;
+    // a cookie or cache header it kept (a Set-Cookie that expires) reaches the answer through that merge
+    if(contentFullStatusCode >= 500) {
+      scrubErrorHeaders(ctx.res.headers, CONTEXT_ERROR_HEADERS);
+    }
+    // The status and body are the handler's: the scrub is about headers only
+    const respond = (answer: globalThis.Response) => {
+      if(contentFullStatusCode >= 500) scrubErrorHeaders(answer.headers);
+      return answer;
+    };
+
+    // 204, 205 and 304 never carry a body, so no Content-Type either (H32 #312)
     if(isBodylessResponse(contentFullStatusCode)) {
-      return ctx.body(null, contentFullStatusCode as 204);
+      const answer = ctx.body(null, contentFullStatusCode as 204);
+      answer.headers.delete("Content-Type");
+      return respond(answer);
     }
 
     if(isJson) {
       // JSON is not to be read as another type (H45 #342)
       setHeader("X-Content-Type-Options", "nosniff")
-      return ctx.json(ResponseSerialization.jsonSerialize(content), contentFullStatusCode)
+      return respond(ctx.json(ResponseSerialization.jsonSerialize(content), contentFullStatusCode))
     }
 
     // A returned string is text, never an HTML body (H41 #336): a reflected `<script>` must not run. HTML needs an
@@ -287,10 +363,11 @@ export default class Response extends AppServiceProvider {
     if(typeof content === "string") {
       const type = explicitContentType(headers)?.trim()
       setHeader("X-Content-Type-Options", "nosniff")
-      return ctx.text(content, contentFullStatusCode, { "Content-Type": type || TEXT_CONTENT_TYPE })
+      return respond(ctx.text(content, contentFullStatusCode, { "Content-Type": type || TEXT_CONTENT_TYPE }))
     }
 
-    return ctx.html(ResponseSerialization.htmlSerialize(content), contentFullStatusCode)
+    const answer = ctx.html(ResponseSerialization.htmlSerialize(content), contentFullStatusCode)
+    return answer instanceof Promise ? answer.then(respond) : respond(answer)
 
   }
 
@@ -344,20 +421,21 @@ export default class Response extends AppServiceProvider {
       }
       catch (failure) {
         // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
-        console.error(err, failure);
+        quietLog(err, failure);
         return answer(c.json({ message: "Server Error" }, 500));
       }
     }
 
     const responsible = isException(err) && err.canResponsible() ? err : undefined;
     const httpError = responsible ? undefined : asHttpError(err);
-    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500
-    const status = responsible ? responsible.getHttpCode() : httpError ? httpError.status : 500;
+    // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500. An
+    // Exception's status is app data: only an integer 200-599 is sent, else the generic 500 (H32 #312)
+    const status = responsible ? exceptionStatus(responsible) : httpError ? httpError.status : 500;
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor's own log of reportable Exceptions is separate, tracked in #273
     if ((err as { reportable?: unknown }).reportable || status >= 500) {
-      console.error(err);
+      quietLog(err);
     }
     // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
     // no route or controller status overrides, with the generic body of docs/v1/http.md › Exceptions
@@ -374,8 +452,12 @@ export default class Response extends AppServiceProvider {
         cancelBody(httpError.response.body);
       }
       const response = Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
-      for (const [name, value] of kept) response.headers.append(name, value);
-      return answer(response);
+      // The generic body is JSON, so this is a Response; the type also covers `ctx.html`'s promise
+      const withKept = (built: globalThis.Response) => {
+        for (const [name, value] of kept) built.headers.append(name, value);
+        return built;
+      };
+      return answer(response instanceof Promise ? response.then(withKept) : withKept(response));
     }
     if (httpError) {
       // Through the context, as Hono's own error handler does, so headers set by middleware (CORS, Vary) stay. The
@@ -396,7 +478,17 @@ export default class Response extends AppServiceProvider {
       return answer(c.newResponse(httpError.response.body, { status: httpError.status, headers }));
     }
     //TODO: Response exception with HTML
-    return answer(Response.resolveResponse(c, new ResponseSupport(responsible!.toJson(), status)));
+    // A responsible Exception's body is app code: a toJson() that throws, or a body JSON cannot hold, keeps the
+    // exception's own status with the generic body instead of losing it to the filter's own failure (H32 #312). The
+    // failure is logged with the error: that is a server bug, not a client one
+    try {
+      const body = responsible!.toJson();
+      return answer(Response.resolveResponse(c, new ResponseSupport(body, status as StatusCode)));
+    }
+    catch (failure) {
+      quietLog(err, failure);
+      return answer(Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode)));
+    }
   }
 
   /**

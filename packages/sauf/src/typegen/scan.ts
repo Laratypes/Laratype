@@ -41,6 +41,10 @@ export interface ContractTree {
   readonly folders: readonly ScannedFolder[];
 }
 
+/**
+ * A scan, config or output-path error. Every name it echoes (folder, file, stem, route) is `JSON.stringify`-quoted, so
+ * a control character or ANSI escape never reaches the terminal raw.
+ */
 export class ScanError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     // No prefix: `sauf types:generate` prints `[sauf types:generate] `, the dev scan `[laratype:api] `
@@ -87,10 +91,10 @@ interface Segment {
 const folderSegment = (folder: string, dir: string): Segment => {
   if (folder.startsWith("[")) {
     const param = PARAM.exec(folder);
-    if (!param) throw new ScanError(`${dir}: "${folder}" is not a valid param folder: use [name]; optional and rest param folders are not supported`);
+    if (!param) throw new ScanError(`${JSON.stringify(dir)}: ${JSON.stringify(folder)} is not a valid param folder: use [name]; optional and rest param folders are not supported`);
     return { name: undefined, url: `/:${param[1]}` };
   }
-  if (!SEGMENT.test(folder)) throw new ScanError(`${dir}: folder name "${folder}" may only use letters, digits, "_" and "-"`);
+  if (!SEGMENT.test(folder)) throw new ScanError(`${JSON.stringify(dir)}: folder name ${JSON.stringify(folder)} may only use letters, digits, "_" and "-"`);
   return { name: folder, url: `/${folder}` };
 };
 
@@ -98,7 +102,7 @@ const join2 = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 /** Builds the tree from root-relative file paths (any order). Throws a ScanError on an invalid tree. */
 export function scanFiles(files: readonly string[], base: string): ContractTree {
-  checkBase(base, `base "${base}"`);
+  checkBase(base, `base ${JSON.stringify(base)}`);
   const treeFiles = files.map((f) => f.replace(/\\/g, "/")).filter(isTreeFile).sort();
   const scopeDirs = new Set(treeFiles.filter((f) => f === SCOPE_FILE || f.endsWith(`/${SCOPE_FILE}`)).map((f) => f.slice(0, -SCOPE_FILE.length - 1)));
 
@@ -131,11 +135,11 @@ export function scanFiles(files: readonly string[], base: string): ContractTree 
     let names = info.names;
     let path = info.url;
     if (stem !== "index") {
-      if (!SEGMENT.test(stem)) throw new ScanError(`${file}: file name "${stem}" may only use letters, digits, "_" and "-" (use a [x] folder for params)`);
+      if (!SEGMENT.test(stem)) throw new ScanError(`${JSON.stringify(file)}: file name ${JSON.stringify(stem)} may only use letters, digits, "_" and "-" (use a [x] folder for params)`);
       names = [...names, stem];
       path += `/${stem}`;
     }
-    if (names.length === 0) throw new ScanError(`${file}: a contract needs a name; put it in a named folder (the root index.ts has none)`);
+    if (names.length === 0) throw new ScanError(`${JSON.stringify(file)}: a contract needs a name; put it in a named folder (the root index.ts has none)`);
     const name = names.join(".");
     const contract: ScannedContract = { name, file, dir, path: path || "/", scopes: info.scopes };
     const other = byName.get(name);
@@ -143,8 +147,8 @@ export function scanFiles(files: readonly string[], base: string): ContractTree 
       const same = other.path === contract.path;
       throw new ScanError(
         same
-          ? `${other.file} and ${file} are the same contract (${path}): keep one`
-          : `${other.file} and ${file} have the same name "${name}" ([x] folders are dropped from names)`,
+          ? `${JSON.stringify(other.file)} and ${JSON.stringify(file)} are the same contract (${JSON.stringify(path)}): keep one`
+          : `${JSON.stringify(other.file)} and ${JSON.stringify(file)} have the same name ${JSON.stringify(name)} ([x] folders are dropped from names)`,
       );
     }
     byName.set(name, contract);

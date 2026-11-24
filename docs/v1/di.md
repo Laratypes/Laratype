@@ -1,7 +1,7 @@
 ---
 area: di
 packages: ["@laratype/core", "sauf", "@laratype/support", "laratype", "@laratype/log", "@laratype/auth"]
-issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158, 269]
+issues: [96, 97, 98, 99, 100, 101, 102, 103, 112, 113, 114, 115, 116, 153, 158, 269, 298]
 verified-against: Laratype@d9e8df2
 last-verified: 2026-10-12
 ---
@@ -18,16 +18,16 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 |---|---|
 | [Tokens](#tokens) | merged @ cfa85c3 |
 | [Container](#container) | merged @ cfa85c3 |
-| [Dependency metadata](#dependency-metadata) | merged @ cfa85c3 |
-| [Deps registry](#deps-registry) | merged @ 36ba917 |
+| [Dependency metadata](#dependency-metadata) | merged @ cfa85c3; `DepsLookup.hasOwn?` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
+| [Deps registry](#deps-registry) | merged @ 36ba917; `depsRegistry: Required<DepsLookup>` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
 | [DI transform](#di-transform) | merged @ 8dc389b; tests merged @ d9e8df2; abstract-class flag merged (#101) |
 | [ServiceProvider v2 and kernel boot](#serviceprovider-v2-and-kernel-boot) | merged @ 468c2ec |
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
-| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
+| [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336); D10 (`requiredBy`, production/third-party wording, zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
-| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c |
+| [Container-backed registries and facades](#container-backed-registries-and-facades) | registries proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7); facades merged @ a6fb351; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; dummy-hash key hardening and the one-class-per-format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
@@ -120,13 +120,13 @@ export class Container {
 - **Self-binding:** `bind(Cls)` / `singleton(Cls)` without a concrete binds the class to itself. Tokens and abstract classes cannot self-bind (type error, plus a runtime `DiError` for tokens).
 - **`has()`** counts explicit bindings only (searching up the chain). Autowirable classes don't count ([#112](https://github.com/Laratypes/Laratype/issues/112)).
 - **Cycles:** the keys being resolved are tracked across the whole container tree, factories included. A cycle throws, and the container recovers for later resolutions.
-- **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only zero-arg classes can be built.
-- **Inherited metadata stops at a longer constructor:** when the entry that applies to a class was declared on an ancestor and the class declares more params than the entry has slots (`cls.length > entry.slots.length`), the class counts as having no metadata and `make()` throws `Cannot autowire`. That is a subclass with its own constructor that no transform has seen (`sauf build` runs none yet, B2 [#126](https://github.com/Laratypes/Laratype/issues/126)), for example an app controller extending a framework class that carries its own `[]` entry. A subclass without its own constructor (`cls.length === 0`) keeps inheriting.
+- **Constructor params** come from the `DepsLookup` (see [Dependency metadata](#dependency-metadata)). A slot listed in `meta.optional` resolves to `undefined` when it is unresolved, or when its thunk returns `undefined`, so a JS default applies. Without metadata, only classes with no constructor params can be built; a rest-only constructor counts as no params, and a class whose params all have defaults is detected from its source and fails closed ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
+- **Inherited metadata stops at a longer constructor:** when the entry that applies to a class was declared on an ancestor and the class declares more params than the entry has slots (`cls.length > entry.slots.length`), the class counts as having no metadata and `make()` throws `Cannot autowire`. That is a subclass with its own constructor that no transform has seen (`sauf build` runs none yet, B2 [#126](https://github.com/Laratypes/Laratype/issues/126)), for example an app controller extending a framework class that carries its own `[]` entry. A subclass without its own constructor (`cls.length === 0`) keeps inheriting. An inherited entry with no slots also fails closed for a subclass whose params all have defaults, which `cls.length` cannot see; an inherited entry with slots still applies positionally to such a subclass (known limit, [Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `optional` only covers an unresolved slot or a thunk returning `undefined`. If the thunk returns a key that fails to resolve (for example an unbound token), `make()` still throws.
 - Abstract classes are guarded at the type level only in D1. The runtime guard is decided ([#112](https://github.com/Laratypes/Laratype/issues/112)): the [DI transform](#di-transform) flags every `abstract` class, and resolving a flagged class without a binding throws `No binding for abstract class <C>.` instead of autowiring it. The flag is read from the class itself only (`isAbstract()`), never inherited. The flag ([#101](https://github.com/Laratypes/Laratype/issues/101)) and the error ([#100](https://github.com/Laratypes/Laratype/issues/100)) are merged.
 
 ### Diagnostics
-`DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`):
+`DiError` messages (exact text; `<C>` is the class name or `<anonymous class>`, tokens print as `InjectionToken(<name>)`). A name stays on one line: control and format characters (`\p{Cc}` and `\p{Cf}`, the bidi controls included) are escaped as `\uXXXX`, backslashes as `\\`, a class whose `name` cannot be read prints `<anonymous class>`, and a non-class key that cannot be stringified prints `<unprintable key>`. `DiError` names escape every `\p{Cf}`:
 - `No binding for <key>.`
 - `No binding for abstract class <C>.`
 - `Cannot bind <key> to itself: only a class can be self-bound.`
@@ -160,24 +160,28 @@ Type-only (`container.types.test.ts`): binding an unrelated class, a factory wit
 ## Dependency metadata
 
 ### Status
-merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)).
+merged @ cfa85c3 (D1 [#96](https://github.com/Laratypes/Laratype/issues/96)). `DepsLookup.hasOwn?` proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 (D10 [#298](https://github.com/Laratypes/Laratype/issues/298)).
 
 ### Public API
-[`deps.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/deps.ts#L1-L36)
+[`deps.ts` @ cfa85c3](https://github.com/Laratypes/Laratype/blob/cfa85c316eba81eb077a48a6a1994a7c36e00c7c/packages/core/src/deps.ts#L1-L36) · [`hasOwn?` @ 612c5ee7](https://github.com/Laratypes/Laratype/blob/612c5ee73be0dee1f8b1a367f966915b0d1bcea1/packages/core/src/deps.ts#L37-L37)
 
 ```ts
 export interface UnresolvedSlot { unresolved: string; index: number }
 export type DepSlot = (() => unknown) | UnresolvedSlot;   // lazy thunk to the key, or a marker for a type with no runtime value
 export interface DepsMeta { params: string[]; optional?: number[]; abstract?: true }  // abstract: see isAbstract()
 export interface DepsEntry { slots: DepSlot[]; meta?: DepsMeta }
-export interface DepsLookup { get(cls: Function): DepsEntry | undefined }   // a Map/WeakMap satisfies it
+export interface DepsLookup {
+  get(cls: Function): DepsEntry | undefined;              // a Map/WeakMap satisfies this part
+  hasOwn?(cls: Function): boolean;                        // whether get(cls) is cls's own entry, not an ancestor's
+}
 export const noDeps: DepsLookup;                          // default: no metadata
 ```
 
 ### Invariants
 - There is one slot per constructor param and slots are never skipped, so `slots[i]` is param `i`. A trailing rest param gets no slot.
 - Thunks are evaluated only at resolve time. That is why circular module imports work without `forwardRef`.
-- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the nearest ancestor's while `cls` declares no more params than that entry has slots (`cls.length <= entry.slots.length`; a subclass without its own constructor has `cls.length === 0`). A class with its own constructor and more params than the inherited entry has slots has no applicable entry, so the container throws `Cannot autowire` instead of building it with the ancestor's arguments ([Container](#container)).
+- `DepsLookup.get(cls)` returns the entry that applies to `cls`: its own entry, or the nearest ancestor's while `cls` declares no more params than that entry has slots (`cls.length <= entry.slots.length`; a subclass without its own constructor has `cls.length === 0`). A class with its own constructor and more params than the inherited entry has slots has no applicable entry, so the container throws `Cannot autowire` instead of building it with the ancestor's arguments ([Container](#container)). A constructor whose params all have defaults also has `cls.length === 0`, so an entry with slots cannot see its params; the container's source check covers the 0-slot case ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
+- `DepsLookup.hasOwn?(cls)` is the optional ownership signal for that source check: `false` says `get(cls)` returned an inherited entry, so the zero-length-constructor check applies; `true` says it is the class's own entry, and an omitted method makes every entry the lookup returns authoritative. `depsRegistry.hasOwn(cls)` is `getDeps(cls)?.owner === cls`; a `Map`/`WeakMap` lookup without the method is not second-guessed.
 - `new Container()` without `deps` uses `noDeps`. Production code passes `{ deps: depsRegistry }` (see [Deps registry](#deps-registry)).
 
 ### Diagnostics
@@ -200,17 +204,17 @@ See [Container](#container): unresolved slots and thunks that return `undefined`
 ## Deps registry
 
 ### Status
-merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)).
+merged @ 36ba917 (D2 [#97](https://github.com/Laratypes/Laratype/issues/97)). `depsRegistry: Required<DepsLookup>` (the required `hasOwn`) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 (D10 [#298](https://github.com/Laratypes/Laratype/issues/298)).
 
 ### Public API
-[`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64)
+[`registry.ts` @ 36ba917](https://github.com/Laratypes/Laratype/blob/36ba91736f5364f5f13c5cb662f70f8006329228/packages/core/src/registry.ts#L1-L64) · [`depsRegistry` @ 612c5ee7](https://github.com/Laratypes/Laratype/blob/612c5ee73be0dee1f8b1a367f966915b0d1bcea1/packages/core/src/registry.ts#L83-L83)
 
 ```ts
 export function __laratype_deps<T extends Function>(cls: T, slots: DepSlot[] | null, meta?: DepsMeta): T;  // returns cls unchanged
 export function hasOwnDeps(cls: Function): boolean;
 export function isAbstract(cls: Function): boolean;  // own flag only, never inherited
 export function getDeps(cls: Function): { owner: Function; entry: DepsEntry } | undefined;
-export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry })
+export const depsRegistry: Required<DepsLookup>;  // hasOwn is present; new Container({ deps: depsRegistry })
 ```
 
 ### Invariants
@@ -226,6 +230,7 @@ export const depsRegistry: DepsLookup;     // new Container({ deps: depsRegistry
   So a class with its own constructor uses only its own params, and a class without one inherits the nearest ancestor's. An entry found on an ancestor is returned only while `cls.length <= entry.slots.length`; with a longer constructor `getDeps` returns `undefined`, the [fail-closed rule](#container).
 - In the `design:paramtypes` fallback, `undefined`, `Object`, `String`, `Number`, `Boolean`, `Symbol`, `BigInt`, `Function`, `Array` and `Promise` become `{ unresolved }` slots (interfaces erase to `Object`). That entry has `meta.params = []`.
 - `virtual:laratype/di` (the transform's helper import) maps to `@laratype/core` through the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
+- `depsRegistry` is typed `Required<DepsLookup>`, so `depsRegistry.hasOwn(cls)` compiles without optional chaining.
 - `reflect-metadata` is a devDependency of `@laratype/core` (tests only). The package never imports it.
 
 ### Diagnostics
@@ -478,7 +483,7 @@ None of its own. The transform never throws on user code, and resolve-time failu
 ## Resolution errors with fix hints
 
 ### Status
-merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5.
+merged ([#100](https://github.com/Laratypes/Laratype/issues/100)). The `Cannot autowire` hint (D9 [#270](https://github.com/Laratypes/Laratype/issues/270)) is merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336). D10 [#298](https://github.com/Laratypes/Laratype/issues/298) (`requiredBy`, the production and third-party wordings and zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7.
 
 ### Public API
 None of its own: the messages of the `DiError`s that `Container.make()` throws. The table is `errors` in [`container.ts`](../../packages/core/src/container.ts).
@@ -487,6 +492,9 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - Each message starts with the base sentence listed in the Diagnostics of [Container](#container) or [Decorators](#decorators-inject-and-injectable), unchanged, so a match on the base sentence keeps working. The hint follows it.
 - A param is named as `<C> constructor param #<i>`, plus `` `<name>` `` when `meta.params` has a name.
 - `No binding for …` adds `Required by <param>.` when a constructor param asked for the key (the nearest requester in a nested graph). This covers the key from a transform thunk and the token from an `@Inject` record. A key passed to `make()` directly has no `Required by` part.
+- `Cannot autowire …` adds `Required by <param>.` the same way, when a constructor param asked for the class, directly or through a binding.
+- **Hint environment:** the dev hint keeps the plugin fix for app code but names the factory binding first, because the plugin only compiles files under the Vite root and cannot help a class outside the app (a third-party class). The production hint names only the factory: `sauf build` does not run the laratype:di plugin yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126), B4 [#128](https://github.com/Laratypes/Laratype/issues/128)). Production is `__PROD__` when it is set, else `NODE_ENV=production`: the same check as the fallback-container warning and scope bubbling, read without importing http.
+- **Zero-length constructors:** a class whose params all have defaults has `cls.length === 0`, so the length alone cannot tell it from `constructor()`. When its constructor is the class's first member, `build()` reads the source, counts the non-rest params and throws `Cannot autowire` with that count instead of calling `new cls()`; with a constructor that is not first, it falls back to `cls.length`. The reader skips JS whitespace (NBSP, `\v`, `\f`, U+2028/U+2029 and the BOM included), comments, strings, regex literals in operator position (`=`, `(`, `,`, `[`, a keyword such as `return` or `throw`, ...) and a balanced heritage expression before the class body, so a default like `/,/`, `/[(]/` or `/a\/b/` counts once, `4 / 2` stays a division, and `extends mixin({ constructor() {} })` does not mistake the object's constructor for the class body; when it cannot parse the list, a non-empty one reports one param rather than failing open. This makes a class that used to be built with its defaults fail closed (`constructor(port = 5432)`), so a default meant as the value needs a factory binding. A rest-only constructor counts as no params (the transform treats a first rest param as no own constructor), and a class with a field before its constructor, a quoted `'constructor'(...)` key, or a source that cannot be read (a Proxy, a native class), is still built with `new cls()`: a known limit. A heritage class expression is read through its first top-level `{`: `class A extends class { constructor(x = 1) {} } {}` counts the inner constructor and throws `takes 1 param(s)`, while `class B extends class { m() {} } { constructor(p = 1) { super() } }` finds no leading constructor and is built with its defaults (known limit). A line comment immediately before a regex, and a regex whose pattern ends in `*/`, can make the count inexact (the list still fails closed). An `await` parameter name in a non-async constructor (`constructor(await = 1, b = await / 2)`) is read as the keyword, so the list reports one param (pre-existing limit). An `of` used as a parameter or variable before `/` in a constructor default (`of / 2`, `f(of / 2)`) is read as the for-of keyword, so the message's param count can be low (the container still refuses the class, known limit). An inherited entry with no slots also fails closed this way; an inherited entry with slots still applies positionally to an all-default constructor (known limit). A custom `DepsLookup`'s entry is authoritative unless its `hasOwn?(cls)` reports it inherited ([Dependency metadata](#dependency-metadata)).
 - **Abstract classes:** a class flagged by the [DI transform](#di-transform) (`isAbstract(cls)`) with no binding throws instead of autowiring. The check reads the class's own flag, so a concrete subclass of an abstract class autowires normally, with the deps it inherits. A binding for the abstract class (`container.bind(Port, SmtpPort)`) resolves as usual.
 
 ### Diagnostics
@@ -496,11 +504,14 @@ None of its own: the messages of the `DiError`s that `Container.make()` throws. 
 - `Cannot resolve <P>: type \`<TypeText>\` has no runtime value. Fix: add @Inject(token) to the parameter, or import the class as a value (not \`import type\`).`
 - `Cannot resolve <P>: its type resolved to undefined at runtime. It is probably an interface/type imported without \`import type\`, or a circular import evaluated too early. Fix: use \`import type\` + @Inject(token), or import the class as a value.`
 - `Conflicting metadata for <P>: transform says <A>, @Inject says <B>. Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).`
-- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider \`register()\` of the app container.` Every `make()` gets it, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)).
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`.`
+- `Cannot autowire <C>: its constructor takes <n> param(s) but no dependency metadata was found. [Required by <P>.] Fix: bind it with a factory in a service provider \`register()\` of the app container; a production \`sauf build\` does not run the laratype:di plugin yet, so it cannot add the metadata.` The first form is dev; the second is production (`__PROD__` true, or `NODE_ENV=production` when `__PROD__` is unset).
+
+Every `make()` gets one of the two forms, for named and anonymous classes ([#270](https://github.com/Laratypes/Laratype/issues/270)). `<C>` is the class name or `<anonymous class>`, escaped onto one line as above. A class whose constructor is its first member reports the non-rest count read from its source; otherwise it reports `cls.length`, so an all-default constructor is built with `new cls()` and a partly defaulted one undercounts (known limit).
 
 `Cannot bind …`, `Circular dependency: …` and the `@Inject()` placement error keep their base text.
 
-Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
+Snapshot tests: [`packages/core/__tests__/errors.test.ts`](../../packages/core/__tests__/errors.test.ts) covers the D9 messages, D10's `requiredBy`, both hint forms, hostile class names and the zero-length constructors.
 
 ### Example
 See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.test.ts).
@@ -604,7 +615,7 @@ Eager graph validation at boot, used by the `sauf build` verify step (B5 [#129](
 ### Status
 - Registries: proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7).
 - Facades: merged @ a6fb351 (D8 [#115](https://github.com/Laratypes/Laratype/issues/115)). A4 [#151](https://github.com/Laratypes/Laratype/issues/151) then moved the `Auth` accessor onto the guards: it is `AuthService`, and `AuthManager` is the guard manager bound in the app container ([auth.md › Guards in the container](./auth.md#guards-in-the-container)).
-- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e. `makeAsync()` and `checkAsync()` (scrypt off the event loop): proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b. `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash), so every login that reaches a password check costs at least one derivation. The login builds the dummy hash once per `Hasher` class (the cache key is the class, so a transient `bind(Hasher, CustomHasher)` shares one build; another class builds its own, at that class's algorithm and cost). A custom Hasher whose cost depends on per-instance or runtime configuration should expose a distinct class per configuration: a change that keeps the class keeps the old dummy until the process restarts. A Hasher with no class of its own (an object literal or a null-prototype object) is keyed by its instance. That padding is best effort: a password that is not a string, fields with no lookup value left, a lookup value that is not a string, a boolean or a finite number, or a rejected dummy build pay no derivation ([auth.md › Guards in the container](./auth.md#guards-in-the-container)): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c.
+- `Hasher` (`@laratype/support`): `make()` moves to salted scrypt and gains `check()`, `needsRehash()` and `isHashed()`: proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e. `makeAsync()` and `checkAsync()` (scrypt off the event loop): proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b. `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash), so every login that reaches a password check costs at least one derivation. The login builds the dummy hash once per `Hasher` class (the cache key is the class, so a transient `bind(Hasher, CustomHasher)` shares one build; another class builds its own, at that class's algorithm and cost). The key is the class alone: two instances of one class that use different formats or costs share the first instance's dummy, so a format check that rejects the other format before deriving skips the padding. Expose one class per format and cost; a change that keeps the class keeps the old dummy until the process restarts. A Hasher with no class of its own (an object literal, a null-prototype object, or one whose `constructor` read throws) is keyed by its instance, so two object-literal Hashers never share a dummy; a transient factory that returns a new object-literal Hasher on each resolve therefore builds a new dummy on every request. The same holds for a Hasher class whose `constructor` read throws when it is bound transient: each request builds a new dummy, so an unknown user costs two derivations (the dummy `make` and its `check`) against one for a known user, a timing difference that can reveal accounts. Bind such a Hasher, or a literal factory, as a singleton. That padding is best effort: a password that is not a string, fields with no lookup value left, a lookup value that is not a string, a boolean or a finite number, or a rejected dummy build pay no derivation ([auth.md › Guards in the container](./auth.md#guards-in-the-container)): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c. The dummy-hash key hardening (a throwing `constructor` read falls back to the instance key): proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc.
 
 ### Design (non-binding)
 - **D7:** `RouteRegistry`, `ModelBindingRegistry` and `DataSource` replace the 0.5 registries. `RouteRegistry` holds the route entries `RouteAppServiceProvider.boot()` binds. `ModelBindingRegistry` holds the 0.5 `Route.model` / `Route.bind` entries, the camelCase param → model name map and the app's model classes by name; `AppServiceProvider` binds it and `DatabaseServiceProvider` fills the models and the map when it loads the manifest's models. `DataSource` is the initialized TypeORM connection `DatabaseServiceProvider.boot()` binds; the 0.5 `DS` proxy reads it from the facade application (deprecated import). `RouteRegistry.current()` resolves the registry from the facade application, and `ModelBindingRegistry.current()` from the current request's container first; either binds an empty one there when it is missing (a bare Hono app, or a command booted without route providers and a database). `Route.model()` / `Route.bind()` throw when the container they would write has no `HTTP_APP` binding.

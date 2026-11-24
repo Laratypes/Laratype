@@ -43,7 +43,9 @@ export class Translator {
     if (app.has(Translator)) return app.make(Translator);
     const cached = fallbackTranslators.get(app);
     if (cached !== undefined) return cached;
-    const translator = app.make(Translator);
+    // Built directly: the fallback Translator has an all-default constructor, so it must not depend on autowire
+    // (a build that emits the constructor before the fields would make make(Translator) fail closed).
+    const translator = new Translator();
     fallbackTranslators.set(app, translator);
     return translator;
   }

@@ -30,6 +30,11 @@ export interface DepsEntry {
  */
 export interface DepsLookup {
   get(cls: Function): DepsEntry | undefined
+  /**
+   * Whether `get(cls)` returned an entry declared on `cls` itself, not an ancestor's. Omit it when every entry the
+   * lookup returns is authoritative: the container then never treats one as inherited.
+   */
+  hasOwn?(cls: Function): boolean
 }
 
 /** Default lookup: no metadata, so only zero-arg classes can be autowired. */

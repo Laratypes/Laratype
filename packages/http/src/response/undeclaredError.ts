@@ -88,7 +88,7 @@ const undeclaredLine = (error: unknown, route: UndeclaredRoute): string | undefi
  * so can Node's formatting of the error (a `util.inspect.custom` that throws). The route's error is what the caller
  * rethrows; a lost diagnostic is the lesser loss.
  */
-const quietLog = (...values: unknown[]): void => {
+export const quietLog = (...values: unknown[]): void => {
   try {
     console.error(...values);
   }

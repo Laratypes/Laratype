@@ -164,3 +164,17 @@ describe('abstract flag (DOC10 Q9)', () => {
     expect(new Container({ deps: depsRegistry }).make(Leaf).a).toBeInstanceOf(A)
   })
 })
+
+describe('depsRegistry.hasOwn', () => {
+  it('says whether the entry is the class own, inherited or absent', () => {
+    class Base {
+      constructor(public a: A) {}
+    }
+    __laratype_deps(Base, [() => A], { params: ['a'] })
+    class Sub extends Base {}
+
+    expect(depsRegistry.hasOwn?.(Base)).toBe(true)
+    expect(depsRegistry.hasOwn?.(Sub)).toBe(false)
+    expect(depsRegistry.hasOwn?.(class {})).toBe(false)
+  })
+})
