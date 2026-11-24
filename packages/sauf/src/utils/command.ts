@@ -9,6 +9,7 @@ import {
   overridesProviders,
   parseSignature,
   type ParsedSignature,
+  assertArgumentOrder,
 } from '@laratype/console'
 import Transpile from './transplie'
 import { resolveSync } from '@laratype/support'
@@ -42,9 +43,18 @@ export const assertCommandNameFree = (name: string, registered: ReadonlyMap<stri
  */
 const filtersProviders = (command: CommandClass): boolean => overridesProviders(command)
 
+/** `<names...>` -> `names...`: a 0.5 argument name without its `<>`/`[]` wrapper. */
+const bareArgumentName = (name: string) => name.replace(/^<|^\[/, '').replace(/>$|\]$/, '')
+
 /** `--class <class>` / `<names...>` -> `class` / `names`, so a signature never registers the same one twice. */
 const legacyArgumentName = (name: string) =>
-  name.replace(/^<|^\[/, '').replace(/>$|\]$/, '').replace(/\.\.\.$/, '').replace(/\?$/, '')
+  bareArgumentName(name).replace(/\.\.\.$/, '').replace(/\?$/, '')
+
+/**
+ * Commander's `Argument` marks a name variadic only when the bracket-stripped name ends with `...`, so
+ * `<release...notes>` is not variadic; matching that rule keeps the order check from rejecting what it registers.
+ */
+const legacyVariadic = (name: string) => bareArgumentName(name).endsWith('...')
 
 /** The camelCase key of a legacy `static.options` flags string (`'-p, --port <port>'` -> `port`). */
 const legacyOptionKey = (flags: string): string | undefined => {
@@ -82,10 +92,29 @@ export default class Command {
     this.transpiler = transpiler
     this.signature = command.signature
     this.parsed = parseSignature(command.signature)
+    this.__assertArgumentOrder()
     this.description = isClosureCommand(command)
       ? this.parsed.description
       : command.description || this.parsed.description
     this.__initCommander()
+  }
+
+  /**
+   * The 0.5 `static.arguments` and the signature's arguments, merged and de-duplicated in registration order. A
+   * variadic argument must stay last: Commander would reject the order without naming the command's signature.
+   */
+  protected __assertArgumentOrder() {
+    const legacy = this.commandInstance?.arguments ?? []
+    const legacyNames = new Set(legacy.map((argument) => legacyArgumentName(argument.name)))
+    assertArgumentOrder(this.signature, [
+      ...legacy.map((argument) => ({
+        name: legacyArgumentName(argument.name),
+        variadic: legacyVariadic(argument.name),
+      })),
+      ...this.parsed.arguments
+        .filter((argument) => !legacyNames.has(argument.name))
+        .map((argument) => ({ name: argument.name, variadic: argument.kind === 'rest' })),
+    ])
   }
 
   protected __initCommander() {

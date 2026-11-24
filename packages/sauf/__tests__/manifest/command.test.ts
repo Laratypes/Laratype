@@ -18,6 +18,13 @@ const write = (file: string, content: string) => {
   writeFileSync(join(project, file), content);
 };
 
+/** The exact diagnostic of a make:command name another command file already uses. */
+const collisionMessage = (target: string, existing: string, name: string) =>
+  [
+    `Cannot create ${target}: ${existing} already uses the command name ${JSON.stringify(name)},`,
+    "and the manifest reads both. Fix: rename or remove one.",
+  ].join(" ");
+
 /** Runs `sauf <args>` in the project; resolves with the exit code and the output, without colors. */
 const sauf = (...args: string[]) => new Promise<{ code: number | null; output: string }>((resolve) => {
   const child = spawn(process.execPath, [saufBin, ...args], {
@@ -104,12 +111,140 @@ describe("app commands", () => {
     expect(stub).toContain('static readonly signature = "clean:cache" as const');
   }, 120_000);
 
-  it("make:command rejects a bad name before writing any stub", async () => {
-    const { code, output } = await sauf("make:command", "ValidCommand", "Bad.Name");
+  it("make:command refuses a name the 0.5 layout already uses", async () => {
+    const target = "app/console/commands/SendMail.ts";
+    const existing = "app/src/console/commands/SendMail.ts";
+    const { code, output } = await sauf("make:command", "SendMail");
     expect(code, output).not.toBe(0);
-    expect(output).toContain('make:command: "Bad.Name" does not give a valid signature');
+    expect(output).toContain(collisionMessage(target, existing, "SendMail"));
+    expect(existsSync(join(project, target))).toBe(false);
+  }, 120_000);
+
+  it("make:command refuses a .mts file of the same name in the v1 folder", async () => {
+    const existing = "app/console/commands/Draft.mts";
+    write(existing, "export default class Draft {}\n");
+    try {
+      const { code, output } = await sauf("make:command", "Draft");
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(collisionMessage("app/console/commands/Draft.ts", existing, "Draft"));
+      expect(existsSync(join(project, "app/console/commands/Draft.ts"))).toBe(false);
+    } finally {
+      rmSync(join(project, existing), { force: true });
+    }
+  }, 120_000);
+
+  it("make:command refuses a .mts file next to the destination .ts", async () => {
+    const files = ["app/console/commands/Clash.ts", "app/console/commands/Clash.mts"];
+    for (const file of files) write(file, "export default class Clash {}\n");
+    try {
+      const { code, output } = await sauf("make:command", "Clash");
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(collisionMessage(files[0], files[1], "Clash"));
+    } finally {
+      for (const file of files) rmSync(join(project, file), { force: true });
+    }
+  }, 120_000);
+
+  it("make:command refuses a collision before writing any stub, even after a valid name", async () => {
+    // The collision is checked in the first pass, so the valid name before it is not written either
+    const valid = "app/console/commands/PendingCommand.ts";
+    const target = "app/console/commands/SendMail.ts";
+    const existing = "app/src/console/commands/SendMail.ts";
+    const { code, output } = await sauf("make:command", "PendingCommand", "SendMail");
+    expect(code, output).not.toBe(0);
+    expect(output).toContain(collisionMessage(target, existing, "SendMail"));
+    expect(existsSync(join(project, valid))).toBe(false);
+    expect(existsSync(join(project, target))).toBe(false);
+  }, 120_000);
+
+  it("make:command leaves an existing destination untouched with [SKIPPED]", async () => {
+    const destination = "app/console/commands/ExistingCommand.ts";
+    const content = "export default class ExistingCommand {}\n";
+    write(destination, content);
+    try {
+      const { code, output } = await sauf("make:command", "ExistingCommand");
+      expect(code, output).toBe(0);
+      expect(output).toContain(`[SKIPPED] The file ./${destination} already exists.`);
+      expect(readFileSync(join(project, destination), "utf8")).toBe(content);
+    } finally {
+      rmSync(join(project, destination), { force: true });
+    }
+  }, 120_000);
+
+  it("make:command rejects a bad signature before writing any stub", async () => {
+    // `_` is a valid identifier but its derived signature is empty, which registration rejects
+    const { code, output } = await sauf("make:command", "ValidCommand", "_");
+    expect(code, output).not.toBe(0);
+    expect(output).toContain('make:command: "_" does not give a valid signature');
     expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
-    expect(existsSync(join(project, "app/console/commands/Bad.Name.ts"))).toBe(false);
+  }, 120_000);
+
+  it("make:command applies the segment and identifier rules before writing any stub", async () => {
+    const cases = [
+      {
+        name: "Clean:Cache",
+        // On Windows/NTFS the old destination would be an alternate data stream on `Clean`
+        files: ["app/console/commands/Clean:Cache.ts", "app/console/commands/Clean"],
+        message: [
+          'Invalid command name "Clean:Cache": use letters, digits, "_" and "-",',
+          "in folders under app/console/commands.",
+        ].join(" "),
+      },
+      {
+        name: "Clean Cache",
+        files: ["app/console/commands/Clean Cache.ts"],
+        message: [
+          'Invalid command name "Clean Cache": use letters, digits, "_" and "-",',
+          "in folders under app/console/commands.",
+        ].join(" "),
+      },
+      {
+        name: "Clean-Cache",
+        files: ["app/console/commands/Clean-Cache.ts"],
+        message: [
+          'Invalid command name "Clean-Cache": the last segment names the exported class or function,',
+          'so use a valid identifier (letters, digits and "_", not starting with a digit),',
+          "under app/console/commands.",
+        ].join(" "),
+      },
+    ];
+    for (const { name, files, message } of cases) {
+      // The valid name is first, so the whole list must be checked before the first write
+      const { code, output } = await sauf("make:command", "ValidCommand", name);
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(message);
+      for (const file of files) expect(existsSync(join(project, file)), file).toBe(false);
+      expect(existsSync(join(project, "app/console/commands/ValidCommand.ts"))).toBe(false);
+    }
+  }, 120_000);
+
+  it("make:command checks the whole argument before it flattens the name", async () => {
+    // `../Demo` and `a/../Demo` used to reach `getFileName()` before `generatorPath()`, and `..\Demo` too on Windows,
+    // so the path segment was never checked (docs/v1/cli.md › Invariants)
+    const message = (name: string) => [
+      `Invalid command name ${JSON.stringify(name)}: use letters, digits, "_" and "-",`,
+      "in folders under app/console/commands.",
+    ].join(" ");
+    const destination = "app/console/commands/Demo.ts";
+    for (const name of ["../Demo", "a/../Demo", "..\\Demo"]) {
+      // The valid name is first, so the whole list must be checked before the first write
+      const { code, output } = await sauf("make:command", "ValidCommand", name);
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(message(name));
+      expect(existsSync(join(project, destination)), name).toBe(false);
+      expect(existsSync(join(project, "app/console/commands/ValidCommand.ts")), name).toBe(false);
+    }
+
+    // A valid sub-path still works, flattened to its file name
+    try {
+      const { code, output } = await sauf("make:command", "admin/Demo");
+      expect(code, output).toBe(0);
+      const stub = readFileSync(join(project, destination), "utf-8");
+      expect(stub).toContain('static readonly signature = "demo" as const');
+      expect(existsSync(join(project, "app/console/commands/admin/Demo.ts"))).toBe(false);
+    } finally {
+      rmSync(join(project, destination), { force: true });
+    }
   }, 120_000);
 
   it("names both sources when a command reuses a framework command name", async () => {

@@ -4,7 +4,7 @@ import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
-import { HTTP_APP, NotFoundException } from '@laratype/support'
+import { Exception, HTTP_APP, NotFoundException } from '@laratype/support'
 import { defineApi, defineContract, defineError, endpoint, errors } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
 
@@ -190,6 +190,118 @@ describe('Exceptions by brand', () => {
     }
     Object.defineProperty(ForeignNotFound.prototype, Symbol.for('laratype.exception'), { value: true })
     await expectBody(await throwing(() => new ForeignNotFound('No such post.')), 404, { code: 'NOT_FOUND', message: 'No such post.' })
+  })
+})
+
+// X3 #392, H32 #312: the status of a responsible Exception is app data. A value the platform cannot send must answer
+// the generic 500, never a 200 that says nothing went wrong
+describe('an Exception status the platform cannot send', () => {
+  class WeirdStatus extends Exception {
+    constructor(private readonly sent: unknown) {
+      super({ code: 'WEIRD', message: 'secret detail', responsible: true, reportable: false })
+    }
+    override getHttpCode() { return this.sent as never }
+  }
+
+  it.each([
+    ['a numeric string', '503'],
+    ['a bigint', 503n],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['-Infinity', -Infinity],
+    ['a negative number', -1],
+    ['1e9', 1e9],
+    ['99', 99],
+    ['600', 600],
+    ['a fractional number', 1.5],
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', { length: 1e9 }],
+  ])('%s answers the generic 500, never 200', async (_, status) => {
+    quiet()
+    const failure = new WeirdStatus(status)
+    const response = await throwing(() => failure)
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(logged).toHaveBeenCalledWith(failure)
+  })
+
+  it('a valid integer status still sends its body', async () => {
+    quiet()
+    await expectBody(await throwing(() => new WeirdStatus(418)), 418, { code: 'WEIRD', message: 'secret detail' })
+    expect(logged).not.toHaveBeenCalled()
+  })
+})
+
+// X3 #392, H32 #312: a toJson() that throws, or a body JSON cannot hold, keeps the exception's own status with the
+// generic body: the filter's own failure must not replace the answer with a 500 that loses the status
+describe('an Exception body that cannot be built', () => {
+  class BrokenBody extends Exception {
+    constructor(private readonly sent: number = 409) {
+      super({ code: 'BROKEN', message: 'secret detail', responsible: true, reportable: false })
+    }
+    override getHttpCode() { return this.sent as never }
+    override toJson(): any { throw new TypeError('broken body') }
+  }
+
+  class UnserializableBody extends Exception {
+    constructor() {
+      super({ code: 'BROKEN', message: 'secret detail', responsible: true, reportable: false, httpCode: 409 })
+    }
+    override toJson(): any { return { detail: 'secret detail', size: 1n } }
+  }
+
+  it('a toJson() that throws keeps the original 4xx status and the generic body, logged', async () => {
+    quiet()
+    const failure = new BrokenBody()
+    const response = await throwing(() => failure)
+    await expectBody(response, 409, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(logged).toHaveBeenCalledWith(failure, expect.any(TypeError))
+  })
+
+  it('a console that throws while the toJson failure is logged still keeps the original status and the generic body', async () => {
+    quiet()
+    // a broken console adapter (or a util.inspect.custom that throws) must not turn the answer into the adapter's raw 500
+    logged.mockImplementation(() => { throw new Error('console broke') })
+    const response = await throwing(() => new BrokenBody())
+    await expectBody(response, 409, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(logged).toHaveBeenCalled()
+  })
+
+  it('a body JSON cannot hold keeps the original 4xx status too', async () => {
+    quiet()
+    const response = await throwing(() => new UnserializableBody())
+    await expectBody(response, 409, GENERIC)
+  })
+
+  it('a 5xx body is not built at all: the generic body goes out', async () => {
+    quiet()
+    const failure = new BrokenBody(503)
+    const toJson = vi.spyOn(failure, 'toJson')
+    await expectBody(await throwing(() => failure), 503, GENERIC)
+    // skipped, not a thrown toJson() caught into the same generic 503: the spy proves the body was never serialized
+    expect(toJson).not.toHaveBeenCalled()
+  })
+})
+
+// H20 #267, H4 #107, H32 #312: the endpoint's declared 2xx never overrides a thrown error's own status
+describe('a declared 201 or 202 endpoint', () => {
+  const Conflict = defineError(409, 'CONFLICT', () => ({ message: 'Taken.' }))
+  const created = defineContract()({ store: endpoint.post('/').response(anything, 201).throws(Conflict) })
+  const accepted = defineContract()({ store: endpoint.post('/').status(202).throws(Conflict) })
+
+  it.each([
+    ['201', created, '/api/created'],
+    ['202', accepted, '/api/accepted'],
+  ] as const)('keeps the thrown error status over the declared %s', async (_, contract, path) => {
+    quiet()
+    class Conflicts extends Controller { store() { throw Conflict() } }
+    const { app, boot } = bootApp()
+    Route.api(defineApi({ conflicts: { contract, path, scopes: [], dirs: [] } }), (r) => [r.contract(contract, Conflicts)]).mount(app)
+    boot()
+    await expectBody(await app.request(path, { method: 'POST' }), 409, { code: 'CONFLICT', message: 'Taken.' })
   })
 })
 

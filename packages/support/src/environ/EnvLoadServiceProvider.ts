@@ -1,6 +1,6 @@
 import { ENV_CONFIG_NAME } from "@laratype/core";
 import type { EnvDefinition } from "@laratype/core";
-import { loadDefault, manifestEntry } from "../manifest/AppManifest";
+import { loadDefault, manifestEntry, peekAppManifest } from "../manifest/AppManifest";
 import { ServiceProvider } from "../ServiceProvider";
 import { validateEnv } from "./validateEnv";
 import { getProjectPath } from "../path-resolver/pathResolver";
@@ -50,6 +50,9 @@ export default class EnvLoadServiceProvider extends ServiceProvider {
   /** Loads the env file, then validates `process.env` with `app/config/env.ts` (`defineEnv`) when the app has one. */
   public async boot() {
     loadEnv();
+    // `.env` needs no manifest: a script or a test can boot this provider without `sauf`. Only the env file entry, and
+    // so the validation, comes from the manifest; a manifest with a scan error still fails the boot (manifestEntry).
+    if (peekAppManifest() === undefined) return;
     const entry = manifestEntry('configs', ENV_CONFIG_NAME);
     if (entry) await validateEnv(await loadDefault<EnvDefinition>(entry), process.env);
   }

@@ -61,7 +61,10 @@ export interface RequestInterface {
 
   bearerToken(): string
 
-  ip(): string
+  /**
+   * The client address of the socket the serving adapter reports, or undefined when it registered none.
+   */
+  ip(): string | undefined
 
   method(): string
 }

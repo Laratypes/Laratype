@@ -2,7 +2,7 @@ import { Command as Commander } from "commander";
 import { describe, expect, it } from "vitest";
 import { command, isClosureCommand } from "../src/command/closure";
 import { CommandSignatureError } from "../src/command/CommandSignatureError";
-import { optionKey, parseSignature } from "../src/command/signature";
+import { assertArgumentOrder, optionKey, parseSignature } from "../src/command/signature";
 
 /** The key a real commander `Command` stores after parsing `--name`: its `opts()` key. */
 const commanderOptionKey = (name: string): string => {
@@ -32,13 +32,19 @@ describe("parseSignature", () => {
   });
 
   it("reads every argument form: required, optional, default and rest", () => {
-    const parsed = parseSignature("deploy {env=production} {tags*} {force?} {user}");
+    const parsed = parseSignature("deploy {env=production} {force?} {user} {tags*}");
     expect(parsed.arguments).toEqual([
       { name: "env", kind: "default", default: "production" },
-      { name: "tags", kind: "rest" },
       { name: "force", kind: "optional" },
       { name: "user", kind: "required" },
+      { name: "tags", kind: "rest" },
     ]);
+  });
+
+  it("accepts an option after a variadic argument", () => {
+    const parsed = parseSignature("deploy {tags*} {--dry-run}");
+    expect(parsed.arguments).toEqual([{ name: "tags", kind: "rest" }]);
+    expect(parsed.options).toEqual([{ name: "dry-run", key: "dryRun", kind: "flag" }]);
   });
 
   it("reads every option form, with the camelCase key commander stores", () => {
@@ -68,6 +74,21 @@ describe("parseSignature", () => {
     expect(optionKey("a-b-c")).toBe("aBC");
   });
 
+  it("rejects a variadic argument that is not last in a merged argument list", () => {
+    expect(() =>
+      assertArgumentOrder("deploy {tags*}", [
+        { name: "tags", variadic: true },
+        { name: "user", variadic: false },
+      ]),
+    ).toThrow('Invalid command signature "deploy {tags*}": "tags" is variadic, so it must be the last argument');
+    expect(() =>
+      assertArgumentOrder("deploy {tags*}", [
+        { name: "user", variadic: false },
+        { name: "tags", variadic: true },
+      ]),
+    ).not.toThrow();
+  });
+
   it("rejects a malformed signature with the signature in the message", () => {
     const cases: Array<[string, string]> = [
       ["", "the signature is empty"],
@@ -81,6 +102,8 @@ describe("parseSignature", () => {
       ["send:mail {--no-cache=}", '"--no-cache" uses negation'],
       ["send:mail {-q}", "uses a short option"],
       ["send:mail {1user}", '"1user" is not a valid argument name'],
+      ["deploy {tags*} {user}", '"tags" is variadic, so it must be the last argument'],
+      ["deploy {tags*} {force?}", '"tags" is variadic, so it must be the last argument'],
       ["send:mail {user} {user}", '"user" is declared twice'],
       ["send:mail {--dry-run} {--dry-run}", '"dryRun" is declared twice'],
       ["send:mail {--dry-run} {--dryRun}", '"dryRun" is declared twice'],

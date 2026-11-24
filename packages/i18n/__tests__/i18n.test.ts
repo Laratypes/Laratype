@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { Facade, setConfigs } from "@laratype/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Container, Facade, setConfigs } from "@laratype/core";
 import { Lang, Translator, __, getLocale, locales, setLocale, trans } from "../src";
-import type { LangCatalog } from "../src";
+import type { LangCatalog, TranslatorOptions } from "../src";
 
 const catalog: LangCatalog = {
   en: {
@@ -113,6 +113,29 @@ describe("trans() / __()", () => {
     expect(getLocale()).toBe("vi");
     Lang.fake(new Translator(catalog, { locale: "en" }));
     expect(getLocale()).toBe("en");
+  });
+
+  it("builds the fallback translator with new, not container autowire", () => {
+    // The fallback path constructs the translator itself, so it does not depend on the container reading the source.
+    const make = vi.spyOn(Container.prototype, "make");
+    try {
+      expect(trans("messages.missing")).toBe("messages.missing");
+      expect(make).not.toHaveBeenCalledWith(Translator);
+    } finally {
+      make.mockRestore();
+    }
+  });
+
+  it("a bound constructor-first Translator copy serves trans()", () => {
+    class ConstructorFirstTranslator extends Translator {
+      constructor(catalog: LangCatalog = {}, options: TranslatorOptions = {}) {
+        super(catalog, options);
+      }
+    }
+    // The hazard: a constructor-first class with only default params is not autowirable.
+    expect(() => new Container().make(ConstructorFirstTranslator)).toThrow(/Cannot autowire ConstructorFirstTranslator/);
+    Lang.fake(new ConstructorFirstTranslator(catalog, { locale: "en" }));
+    expect(trans("messages.greeting", { name: "Ada" })).toBe("Hello Ada");
   });
 
   it("the Lang facade shares the fallback translator with the helpers", () => {

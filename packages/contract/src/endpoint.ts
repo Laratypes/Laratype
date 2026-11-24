@@ -3,7 +3,7 @@ import type { AuthOption, ThrottleOptions } from "./capabilities";
 import type { AnyErrorDef } from "./errors";
 import type { PathParams } from "./path";
 import type { StandardSchemaV1 } from "./standard-schema";
-import { NO_GET_BODY, checkPath, fail } from "./internal";
+import { NO_GET_BODY, checkPath, fail, isEndpointPath } from "./internal";
 import type { Digit, ToNumber } from "./internal";
 
 export type Method = "get" | "post" | "put" | "patch" | "delete";
@@ -38,6 +38,9 @@ export type BodyStatus = Exclude<SuccessStatus, 204 | 205>;
 /** A success status that never has a body: 204 No Content and 205 Reset Content. Shared with `@laratype/client`. */
 export const isBodylessStatus = (status: number): boolean => status === 204 || status === 205;
 
+/** An error status, 400 to 599: the one rule, shared with `@laratype/http`'s exception filter (H29 #295). */
+export { isFailureStatus } from "./internal";
+
 /**
  * `.response(schema)` without a status keeps one set by `.status(n)` (one that can carry a body), else 200. A wide
  * `number` status can't say which, so it stays `number`, as the runtime may keep any of them.
@@ -70,6 +73,18 @@ export const ENDPOINT: unique symbol = Symbol.for("laratype.endpoint");
 // Copy before freezing: the constructor is public, so a caller's def and throws array stay mutable
 const freeze = (def: EndpointDef): EndpointDef =>
   Object.freeze({ ...def, throws: Object.freeze([...def.throws]) });
+
+/**
+ * Builds an endpoint from a def the builder has already checked, with the same own shape as `new Endpoint`:
+ * `def` enumerable, the brand not. It skips the constructor, so `checkPath` runs once per endpoint (in `make()`)
+ * instead of once per immutable builder step.
+ */
+const build = <E>(def: EndpointDef): E => {
+  const endpoint = Object.create(Endpoint.prototype) as { def: EndpointDef };
+  endpoint.def = freeze(def);
+  Object.defineProperty(endpoint, ENDPOINT, { value: true });
+  return endpoint as E;
+};
 
 /**
  * The `this` of `.body()`: a GET endpoint gets this message instead, a type error. Distributing over `M` gives `true`
@@ -106,26 +121,32 @@ export class Endpoint<
   readonly def: EndpointDef;
 
   constructor(def: EndpointDef) {
-    // also run by every builder call: the constructor is public, and a JS caller or a cast skips the types
-    checkPath(def.path, "endpoint");
-    if (def.method === "get" && def.body) fail(`endpoint: ${NO_GET_BODY}`);
-    this.def = freeze(def);
+    // The builder checks the path once in make() and the GET-body rule in body()/the route walker. The constructor is
+    // public, so a def built by hand gets one labelled throw instead of a raw failure; the walker re-checks a forged one.
+    // Own fields only, and the copy is what gets stored: a non-enumerable or inherited path never becomes the def's path.
+    const label = 'endpoint: the def must have a path starting with one "/", without control characters, and a throws list';
+    if (typeof def !== "object" || def === null || !Object.hasOwn(def, "path") || !Object.hasOwn(def, "throws") || !Array.isArray(def.throws)) {
+      fail(label);
+    }
+    const copy = freeze(def);
+    if (!isEndpointPath(copy.path)) fail(label);
+    this.def = copy;
     Object.defineProperty(this, ENDPOINT, { value: true });
   }
 
   query<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, S, B, H, R, St, E, C> {
-    return new Endpoint({ ...this.def, query: schema });
+    return build({ ...this.def, query: schema });
   }
 
   /** A request body. Not on a GET endpoint: `fetch` refuses one, so the call could never be sent. */
   body<S extends StandardSchemaV1>(this: BodyThis<M, Endpoint<M, P, Q, B, H, R, St, E, C>>, schema: S): Endpoint<M, P, Q, S, H, R, St, E, C> {
     const self = this as Endpoint<M, P, Q, B, H, R, St, E, C>;
     if (self.def.method === "get") fail(`body(): ${NO_GET_BODY}`);
-    return new Endpoint({ ...self.def, body: schema });
+    return build({ ...self.def, body: schema });
   }
 
   headers<S extends StandardSchemaV1>(schema: S): Endpoint<M, P, Q, B, S, R, St, E, C> {
-    return new Endpoint({ ...this.def, headers: schema });
+    return build({ ...this.def, headers: schema });
   }
 
   /**
@@ -139,7 +160,7 @@ export class Endpoint<
   ): Endpoint<M, P, Q, B, H, S, NoInfer<Code extends BodyStatus ? Code : KeptStatus<R, St>>, E, C> {
     const kept = !this.def.response && !isBodylessStatus(this.def.status) ? this.def.status : 200;
     if (status !== undefined && isBodylessStatus(status)) fail(`response(): a ${status} has no body; use .status(${status})`);
-    return new Endpoint({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });
+    return build({ ...this.def, response: schema, status: status === undefined ? kept : checkSuccess(status, "response()") });
   }
 
   /**
@@ -148,35 +169,35 @@ export class Endpoint<
    */
   status<const Code extends SuccessStatus>(this: Endpoint<M, P, Q, B, H, undefined, St, E, C>, status: Code): Endpoint<M, P, Q, B, H, undefined, Code, E, C> {
     if (this.def.response) fail("status(): the endpoint has a response schema; use .response(schema, status)");
-    return new Endpoint({ ...this.def, status: checkSuccess(status, "status()") });
+    return build({ ...this.def, status: checkSuccess(status, "status()") });
   }
 
   /** Domain errors this endpoint may throw, added to the ones inherited from its contract and scopes. */
   throws<const Es extends readonly AnyErrorDef[]>(...errs: Es): Endpoint<M, P, Q, B, H, R, St, E | Es[number], C> {
-    return new Endpoint({ ...this.def, throws: [...this.def.throws, ...checkThrows(errs, "throws()")] });
+    return build({ ...this.def, throws: [...this.def.throws, ...checkThrows(errs, "throws()")] });
   }
 
   /** Requires a signed-in user for this endpoint: `true` is the default guard, a string a named guard. */
   auth<const A extends AuthOption = true>(guard?: A): Endpoint<M, P, Q, B, H, R, St, E, { auth: A; authorize: C["authorize"]; throttle: C["throttle"] }> {
-    return new Endpoint({ ...this.def, auth: checkAuth(guard ?? true, "auth()") });
+    return build({ ...this.def, auth: checkAuth(guard ?? true, "auth()") });
   }
 
   /** Opts out of an inherited `auth`: no guard runs and the 401 goes away. */
   public(): Endpoint<M, P, Q, B, H, R, St, E, { auth: false; authorize: C["authorize"]; throttle: C["throttle"] }> {
-    return new Endpoint({ ...this.def, auth: false });
+    return build({ ...this.def, auth: false });
   }
 
   /** `.authorize()` adds a policy check (403); `.authorize(false)` skips every inherited one. */
   authorize<const F extends boolean = true>(enabled?: F): Endpoint<M, P, Q, B, H, R, St, E, { auth: C["auth"]; authorize: F; throttle: C["throttle"] }> {
     if (enabled !== undefined && typeof enabled !== "boolean") fail("authorize(): expected a boolean");
-    return new Endpoint({ ...this.def, authorize: enabled ?? true });
+    return build({ ...this.def, authorize: enabled ?? true });
   }
 
   /** `.throttle({ limit, per })` rate-limits this endpoint (429); `.throttle(false)` opts out of an inherited limit. */
   throttle<const T extends ThrottleOptions | false>(
     options: T,
   ): Endpoint<M, P, Q, B, H, R, St, E, { auth: C["auth"]; authorize: C["authorize"]; throttle: T extends false ? false : true }> {
-    return new Endpoint({ ...this.def, throttle: options === false ? false : checkThrottle(options, "throttle()") });
+    return build({ ...this.def, throttle: options === false ? false : checkThrottle(options, "throttle()") });
   }
 }
 
@@ -186,7 +207,7 @@ export class Endpoint<
  */
 const make = <M extends Method>(method: M) =>
   <P extends `/${string}`>(path: P): Endpoint<M, P> =>
-    new Endpoint<M, P>({ method, path: checkPath(path, `endpoint.${method}()`), status: 204, throws: [] });
+    build<Endpoint<M, P>>({ method, path: checkPath(path, `endpoint.${method}()`), status: 204, throws: [] });
 
 export const endpoint = {
   get: make("get"),

@@ -449,7 +449,26 @@ describe('Test request facade methods', () => {
       const request = new HonoRequest(rawRequest);
       const requestInstance = RequestKernel.transformRequest(request, routeMock);
 
-      expect(requestInstance.headers()).toStrictEqual(Object.fromEntries(Object.entries(headers).map((el) => [el[0].toLowerCase(), el[1]])));
+      // Hono 4.13.17 builds the header map with `Object.create(null)`, so the facade keeps Hono's null-prototype
+      // object (docs/v1/http.md does not promise a plain one) and the test compares its entries
+      expect(Object.entries(requestInstance.headers()).sort()).toEqual(
+        Object.entries(Object.fromEntries(Object.entries(headers).map((el) => [el[0].toLowerCase(), el[1]]))).sort(),
+      );
+    });
+
+    it('keeps a __proto__ header as an own key, not the prototype', () => {
+      const headers = new Headers();
+      headers.set('__proto__', 'polluted');
+      const rawRequest = new Request(getUrl(routeMock.path), { headers });
+      const requestInstance = RequestKernel.transformRequest(new HonoRequest(rawRequest), routeMock);
+
+      // Hono 4.13.17 assigns the header to a null-prototype object: it is an own data key, so the facade reads it and
+      // the Object.prototype has no `polluted` member
+      expect(Object.getPrototypeOf(requestInstance.headers())).toBeNull();
+      expect(Object.hasOwn(requestInstance.headers(), '__proto__')).toBe(true);
+      expect(requestInstance.hasHeader('__proto__')).toBe(true);
+      expect(requestInstance.header('__proto__')).toBe('polluted');
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     });
   });
 
@@ -563,7 +582,22 @@ describe('Test request facade methods', () => {
     it('Get all queries', async () => {
       await RequestKernel.processData(request);
       const requestInstance = RequestKernel.transformRequest(request, routeMock);
-      expect(requestInstance.query()).toStrictEqual(testData);
+      // Hono 4.13.17 builds the query map with `Object.create(null)`: the facade keeps it (docs/v1/http.md does not
+      // promise a plain object) and the test compares its entries
+      expect(Object.entries(requestInstance.query()).sort()).toEqual(Object.entries(testData).sort());
+    });
+
+    it('keeps a __proto__ query parameter as an own key, not the prototype', async () => {
+      const rawRequest = new Request(`${getUrl(routeMock.path)}?__proto__=polluted&a=1`, { method: 'GET' });
+      const requestInstance = RequestKernel.transformRequest(new HonoRequest(rawRequest), routeMock);
+
+      // 4.9.6 dropped it (`results = {}` hit Object.prototype's accessor); 4.13.17's null-prototype map keeps it as an
+      // own data key, and the facade reads it without the Object.prototype gaining anything
+      expect(Object.getPrototypeOf(requestInstance.query())).toBeNull();
+      expect(Object.hasOwn(requestInstance.query(), '__proto__')).toBe(true);
+      expect(requestInstance.query('__proto__')).toBe('polluted');
+      expect(requestInstance.query('a')).toBe('1');
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     });
     
     it('Get query with specify key', async () => {

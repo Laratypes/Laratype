@@ -13,7 +13,7 @@ export const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ 
 
 // app/api/users.ts → /api/users. A root-level folder has no Prefix to import.
 export const users = defineContract()({
-  index: endpoint.get('/').query(z.object({ page: z.coerce.number().default(1) })).response(z.array(UserDto)), // 401, 422
+  index: endpoint.get('/').query(z.object({ page: z.coerce.number<number>().default(1) })).response(z.array(UserDto)), // 401, 422
   show: endpoint.get('/:user').response(UserDto),                                                              // 401, 404
   store: endpoint.post('/').body(z.object({ name: z.string().min(1), email: z.string().email() })).response(UserDto, 201).throws(EmailTaken), // 401, 422, EMAIL_TAKEN
   stats: endpoint.get('/stats').public(),                                                                       // none

@@ -1,8 +1,9 @@
 import type { Ability, Policy } from "@laratype/auth";
-import type { AnyEndpoint } from "@laratype/contract";
+import type { AnyEndpoint, AnyErrorDef } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
+import type { Bindings } from "../routing/api/proof"
 import type { MiddlewareClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
@@ -44,12 +45,19 @@ export type RouteParams = {
   modelBinding?: false,
   /** The endpoint of a `Route.api` route, exposed to the handler as the read-only `ctx.endpoint` (#105). */
   endpoint?: AnyEndpoint,
+  /**
+   * @internal The errors the route's contract declares, derived ones included: `apiRoutes()`'s `errors` for the route,
+   * which the dev and test undeclared-error check reads (docs/v1/http.md › Undeclared-error check, X3 #157).
+   */
+  errors?: readonly AnyErrorDef[],
   request?: typeof Request,
   can?: PolicyFactory[],
   /** Any class the container can construct: `app.make()` injects its constructor params (H2 #105). */
   controller: [Newable<object>, string]
   /** 0.5 `Middleware` classes, or the `defineMiddleware()` values of a `Route.api` route (H6 #117). */
   middleware?: Array<MiddlewareItem>,
+  /** The `r.bind()` bindings of a `Route.api` route, resolved once per request before policies (H7 #118). */
+  bindings?: Bindings,
   withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,

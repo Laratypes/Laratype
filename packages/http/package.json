@@ -28,7 +28,6 @@
     "./*": "./*"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.6",
     "@laratype/contract": "workspace:*",
     "@laratype/core": "workspace:*",
     "@laratype/support": "workspace:*",
@@ -45,7 +44,7 @@
   ],
   "peerDependencies": {
     "hono": "^4.8.0",
-    "zod": "^3.25.0",
+    "zod": "^4.6.6",
     "@laratype/auth": "workspace:*"
   },
   "peerDependenciesMeta": {

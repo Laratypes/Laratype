@@ -3,9 +3,11 @@ import LaratypeDevCommand from "./dev";
 import LaratypeBuildCommand from "./build";
 import { RouteListCommand } from "./route";
 import { TypesGenerateCommand } from "./types";
+import { OpenApiGenerateCommand } from "./openapi";
 import {
   MakeModelCommand,
   MakeCommandCommand,
+  MakeContractCommand,
   MakeControllerCommand,
   MakeMiddlewareCommand,
   MakePolicyCommand,
@@ -23,7 +25,9 @@ export default [
   SeedDatabaseCommand,
   RouteListCommand,
   TypesGenerateCommand,
+  OpenApiGenerateCommand,
   MakeCommandCommand,
+  MakeContractCommand,
   MakeControllerCommand,
   MakeFactoryCommand,
   MakeGateCommand,

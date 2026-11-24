@@ -1,4 +1,5 @@
 export { default as Request } from "./supports/Request"
+export { mountConnInfo } from "./supports/Request"
 export { default as Response } from "./supports/Response"
 export { default as Route } from "./supports/Route"
 export { default as RequestKernel } from "./request/Request"
@@ -10,10 +11,15 @@ export type { MissingValue, Resource, ResourceOutput, ResourcePage } from "./res
 export { default as Controller } from "./controller/Controller"
 export { default as Middleware } from "./middleware/Middleware"
 export { defineMiddleware, isTypedMiddleware } from "./middleware/defineMiddleware"
+export type { CorsConfig } from "./middleware/cors"
 export type {
   AnyTypedMiddleware, MiddlewareItem, TypedMiddleware, TypedMiddlewareHandler
 } from "./middleware/defineMiddleware"
 export * from "./routing/Route"
+export { route } from "./routing/routeUrl"
+export type {
+  Register, RouteArgs, RouteKeyed, RouteName, RouteParamsOf, RouteParamValue, RouteQueryOf, RouteUrlOptions
+} from "./routing/routeUrl"
 export type { ApiRoutes } from "./routing/api/ApiRouter"
 export { registerContractAuth, contractAuth } from "./routing/api/contractAuth"
 export type { ContractAuthFactory } from "./routing/api/contractAuth"

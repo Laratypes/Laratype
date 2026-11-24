@@ -108,8 +108,9 @@ const truncatedForm = (part: string) => half({ method: "POST", headers: multipar
 describe("a body read earlier by middleware (H43 #340)", () => {
   it("a flat parseBody() from middleware does not stop the pipeline reading dot keys", async () => {
     quiet();
-    // Hono caches the flat object, so `parseBody({ dot: true })` returns it unchanged: the pipeline has to rebuild the
-    // object from the cached FormData with its own options, or a nested body schema answers 422
+    // 4.9.6 cached the flat object, so `parseBody({ dot: true })` returned it unchanged; 4.13.17 caches the FormData and
+    // converts it per call. Either way the pipeline rebuilds the object from the cached FormData with its own options,
+    // or a nested body schema answers 422
     const { app, validated } = mount([
       async (c, next) => {
         await c.req.parseBody();
@@ -137,8 +138,8 @@ describe("a body read earlier by middleware (H43 #340)", () => {
 
   it("a parseBody() from middleware on a JSON route does not cost the JSON body", async () => {
     quiet();
-    // `parseBody()` on a JSON request answers `{}` without reading the stream, and Hono caches that plain object: a
-    // `request.text()` on it fails with a TypeError. The pipeline reads the still-unread raw body instead
+    // `parseBody()` on a JSON request answers `{}` without reading the stream: 4.13.17 leaves no cache entry, 4.9.6
+    // cached that plain object (whose `.then` a later reader would call). The pipeline reads the still-unread raw body
     const { app, validated } = mount([
       async (c, next) => {
         await c.req.parseBody();
@@ -279,6 +280,70 @@ describe("a body that cannot be read (H43 #340)", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it("a form body over the dot-segment limit is the malformed-form 400", async () => {
+    const errors = quiet();
+    // Hono 4.13.17 refuses a dot key of more than 33 segments (`key.split(".", 34)`): the pipeline mirrors it, and the
+    // client's body is the malformed-form 400, not a logged 500 or a body of millions of nested objects
+    const { app } = mount([]);
+    const key = Array.from({ length: 34 }, (_, index) => `k${index}`).join(".");
+    const response = await app.request("/users", urlencoded(`${key}=x`));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a form body over the created-group limit is the malformed-form 400", async () => {
+    const errors = quiet();
+    // 10,000 groups are allowed; the 10,001st object is Hono's `MAX_NESTED_OBJECTS` limit
+    const { app } = mount([]);
+    const fields = Array.from({ length: 10_001 }, (_, index) => `g${index}.x=1`).join("&");
+    const response = await app.request("/users", urlencoded(fields));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a cached FormData over the dot-segment limit is the malformed-form 400 too", async () => {
+    const errors = quiet();
+    // The cached-FormData branch takes the conversion path without bytes: its nesting error is the same 400
+    const { app } = mount([
+      async (c, next) => {
+        await c.req.formData();
+        await next();
+      },
+    ]);
+    const key = Array.from({ length: 34 }, (_, index) => `k${index}`).join(".");
+    const body = `--x\r\nContent-Disposition: form-data; name="${key}"\r\n\r\nv\r\n--x--\r\n`;
+    const response = await app.request("/users", { method: "POST", headers: multipartHeaders, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: "Malformed form data in request body." });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("a mixed-case multipart body read by c.req.text() is the same clear 500", async () => {
+    const errors = quiet();
+    // The lowercased media type is what the text-read check uses: a `Multipart/Form-Data` body is multipart, not a
+    // urlencoded body rebuilt from its text
+    const { app } = mount([
+      async (c, next) => {
+        await c.req.text();
+        await next();
+      },
+    ]);
+    const response = await app.request("/users", {
+      method: "POST",
+      headers: { "Content-Type": "Multipart/Form-Data; boundary=x" },
+      body: "--x\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nada\r\n--x--\r\n",
+    });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ message: "Server Error" });
+    expect(errors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "a middleware read the multipart body with c.req.text(), so its file parts cannot be rebuilt",
+      }),
+    );
+  });
+
   it("a truncated JSON body is a 400 even when the signal never aborted", async () => {
     const errors = quiet();
     // The stream errors without a socket close (or the adapter never aborts the signal): the client's half body is
@@ -320,8 +385,9 @@ describe("a body that cannot be read (H43 #340)", () => {
 
   it("a bodyLimit over a body a middleware parsed keeps its 413", async () => {
     quiet();
-    // The form parse sees the stream bodyLimit errored, and its rejected promise keeps that `BodyLimitError`: it has to
-    // reach bodyLimit's handler, not become a 400
+    // 4.13.17's bodyLimit buffers the body itself and answers its 413 before the middleware runs; on 4.9.6 it errors the
+    // stream, and the parse's rejected promise keeps its `BodyLimitError`, which has to reach bodyLimit's handler. The
+    // hand-seeded case below covers that cached-error path, which the peer range still allows
     const parseQuietly = async (c: Parameters<MiddlewareHandler>[0], next: () => Promise<void>) => {
       try {
         await c.req.parseBody();
@@ -444,7 +510,7 @@ describe("a cached body on a contract route (H43 #340)", () => {
 });
 
 // Round 3 of #345: a later read has to find a cache Hono can serve, and a failed read has to stay a 400 or a 500 with
-// its documented meaning. One test per regression, each read off Hono 4.9.6's `#cachedBody` (honoBodyCache.test.ts).
+// its documented meaning. One test per regression, each read off Hono's `#cachedBody` (honoBodyCache.test.ts).
 describe("a body the pipeline read, then read again (H43 #345)", () => {
   const formBodies: [string, () => RequestInit, MiddlewareHandler[]?][] = [
     [
@@ -458,7 +524,7 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
     ],
     ["urlencoded body", () => urlencoded("name=ada&user.age=36")],
     // A form parse the app-level middleware did first: the pipeline has to keep a promise-first cache when it takes the
-    // FormData over, or every later reader would chain `.then` on a plain value (Hono 4.9.6)
+    // FormData over, or every later reader would chain `.then` on a plain value (4.9.6 and 4.13.17 alike)
     [
       "multipart body read earlier by c.req.parseBody()",
       () => {
@@ -573,8 +639,9 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
 
   it.each(jsonReaders)("a JSON body still reads with %s after a middleware parseBody()", async (_reader, read) => {
     quiet();
-    // `parseBody()` on a JSON request caches a plain `{}` as the cache's first entry, and Hono chains every other
-    // reader from that first entry: without replacing it, the later read throws synchronously
+    // A 4.9.6 `parseBody()` on a JSON request cached a plain `{}` as the cache's first entry, and Hono chains every other
+    // reader from that first entry: the pipeline clears it. 4.13.17 leaves no entry and the stream is still there, so
+    // either shape reads back as the JSON text
     let readBack: unknown;
     const { app, validated } = mount(
       [],
@@ -649,7 +716,7 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
 
   it("an empty body stream behind a swallowed parseBody() is still no body", async () => {
     quiet();
-    // @hono/node-server sends `Content-Length: 0` with no bytes: the middleware's `formData()` rejects and the stream
+    // The node adapter sends `Content-Length: 0` with no bytes: the middleware's `formData()` rejects and the stream
     // is spent (`raw.bodyUsed`), so the declared length is all that is left to say the body was blank
     let validated: unknown;
     class EmptyRequest extends LaratypeRequest {
@@ -754,8 +821,6 @@ describe("toDotFields (H43 #345 round 5)", () => {
     const request = new HonoRequest(new Request("http://localhost/users", { method: "POST", body: formOf() }));
     const hono = await request.parseBody({ dot: true });
     const fields = toDotFields(formOf());
-    // `toEqual`, not `toStrictEqual`: the own `__proto__` key makes vitest's strict comparison report a difference
-    // between two structurally identical null-prototype objects; the prototype checks below cover what it would add
     expect(fields).toEqual(hono);
     // A `__proto__`, `constructor` or `prototype` segment is an own key of a null-prototype object: no prototype of
     // Object.prototype is reachable, so the submitted value reaches no prototype
@@ -764,6 +829,9 @@ describe("toDotFields (H43 #345 round 5)", () => {
     expect(Object.prototype).not.toHaveProperty("x");
     expect(Object.prototype).not.toHaveProperty("y");
     expect(Object.prototype).not.toHaveProperty("z");
-    expect(fields["__proto__"]).toEqual({ x: "polluted" });
+    // 4.13.17 refuses a key with a leading `__proto__.` segment: neither conversion has that key, so the submitted value
+    // is not reachable through it at all (4.9.6 kept it as a nested own object)
+    expect(Object.hasOwn(fields, "__proto__")).toBe(false);
+    expect(Object.hasOwn(hono, "__proto__")).toBe(false);
   });
 });
