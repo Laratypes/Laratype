@@ -8,8 +8,13 @@ import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP, UnauthorizedException } from '@laratype/support'
 import { defineApi, defineContract, defineError, defineScope, endpoint, errors } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, JsonResource, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import { Controller, JsonResource, Middleware, RequestKernel, ResponseKernel, Route, contractAuth, defineMiddleware, registerContractAuth } from '../../src/index'
 import type { MiddlewareClass } from '../../src/index'
+
+// A2 #120: mounting a route with a resolved auth needs @laratype/auth's registered factory. These tests exercise the
+// handler and the exception filter, so a permissive stand-in (no user, always next) is enough.
+const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next())
+if (!contractAuth()) registerContractAuth(permissiveAuth)
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
