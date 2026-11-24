@@ -47,10 +47,13 @@ jobs:
           fetch-depth: 0
 
       # The ref checks need no dependency install, so they run right after checkout and before setup-bun (which runs
-      # `bun install`, with lifecycle scripts) while `id-token: write` is live. A push must be a tag; the tag must be
-      # `v` + the committed version and its commit an ancestor of origin/master. A manual dispatch must be
-      # refs/heads/master at its current tip. Context values arrive as env, never interpolated into the script.
+      # `bun install`, with lifecycle scripts) while `id-token: write` is live. Both paths check the ref first: a push
+      # must be a tag starting with `v` whose commit is an ancestor of origin/master, a dispatch must be
+      # refs/heads/master at its current tip. Only after that is the version read from the commit object with
+      # JSON.parse (never `require`, which resolves a symlink and can execute a `.js` target), shape-checked,
+      # compared with the tag and written to the step output. Context values arrive as env, never interpolated.
       - name: Check the release ref
+        id: release_ref
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -61,13 +64,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          version=$(node -p "require('./packages/laratype/package.json').version")
-
           if [ "$EVENT_NAME" = "push" ]; then
             test "$REF_TYPE" = "tag" || {
               echo "::error::unexpected push ref $REF in the release workflow"; exit 1; }
-            test "$REF_NAME" = "v$version" || {
-              echo "::error::tag $REF_NAME does not match the tree version $version"; exit 1; }
+            case "$REF_NAME" in
+              v*) ;;
+              *) echo "::error::tag $REF_NAME does not start with v"; exit 1 ;;
+            esac
             git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
             git merge-base --is-ancestor "$SHA" refs/remotes/origin/master || {
               echo "::error::tag $REF_NAME is not an ancestor of origin/master"; exit 1; }
@@ -78,6 +81,17 @@ jobs:
             test "$SHA" = "$(git rev-parse refs/remotes/origin/master)" || {
               echo "::error::manual publish must run from the tip of origin/master"; exit 1; }
           fi
+
+          # The commit object, not the worktree: a symlinked package.json is the target path text, so JSON.parse
+          # fails closed instead of running the target. The semver shape is enforced here, before GITHUB_OUTPUT.
+          version=$(git show "$SHA:packages/laratype/package.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=JSON.parse(s).version;if(typeof v!=="string"||!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(v))process.exit(1);process.stdout.write(v)})')
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            test "$REF_NAME" = "v$version" || {
+              echo "::error::tag $REF_NAME does not match the tree version $version"; exit 1; }
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Setup bun
         uses: ./.github/setup-bun
@@ -95,18 +109,19 @@ jobs:
           npm --version
 
       # `check --publish` validates the fixed versions, the alpha channel, pre.json and the private-package rule;
-      # dist-tag derives alpha/latest from the version, never chosen by hand. The ref checks already ran above.
+      # dist-tag derives alpha/latest from the version, never chosen by hand. The version is the ref step's output
+      # (read from the commit object); there is no second read and no `require`.
       - name: Resolve release
         id: release
         shell: bash
+        env:
+          VERSION: ${{ steps.release_ref.outputs.version }}
         run: |
           set -euo pipefail
 
-          version=$(node -p "require('./packages/laratype/package.json').version")
-          node scripts/release/cli.js check --version "$version" --publish
-          dist_tag=$(node scripts/release/cli.js dist-tag "$version")
+          node scripts/release/cli.js check --version "$VERSION" --publish
+          dist_tag=$(node scripts/release/cli.js dist-tag "$VERSION")
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
 
       - name: Build
@@ -121,7 +136,7 @@ jobs:
       - name: Publish
         shell: bash
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          VERSION: ${{ steps.release_ref.outputs.version }}
           DIST_TAG: ${{ steps.release.outputs.dist_tag }}
         run: |
           set -euo pipefail
