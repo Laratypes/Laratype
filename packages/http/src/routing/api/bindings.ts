@@ -208,7 +208,12 @@ const NO_MODELS: ReadonlySet<string> = new Set();
 export const manifestModelKeys = (): ReadonlySet<string> => {
   const manifest = peekAppManifest();
   if (manifest === undefined || manifest.error !== undefined) return NO_MODELS;
-  return new Set(manifest.models.map((entry) => camelize(entry.name)));
+  // A hand-edited or hostile manifest is read defensively: a non-array list, or an entry without a name, names no model
+  if (!Array.isArray(manifest.models)) return NO_MODELS;
+  const keys = manifest.models
+    .filter((entry): entry is { readonly name: string } => typeof (entry as { name?: unknown } | null)?.name === "string" && entry.name !== "")
+    .map((entry) => camelize(entry.name));
+  return keys.length ? new Set(keys) : NO_MODELS;
 };
 
 /** The path params of `path` that `models` registers, in path order and without repetitions: a route's implicit keys. */

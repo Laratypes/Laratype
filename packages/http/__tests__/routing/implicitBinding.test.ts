@@ -238,6 +238,16 @@ describe('implicit binding (H14 #163)', () => {
     expect(lookups).toEqual([])
   })
 
+  it('reads a hand-edited manifest defensively: a non-array list or an entry with no name binds nothing', async () => {
+    setAppManifest({ ...manifest(), models: 'User' } as unknown as AppManifest)
+    const notAList = mountUsers((r) => [r.contract(usersContract, ShowController)])
+    expect(await (await notAList.app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
+    setAppManifest({ ...manifest(), models: [{ path: 'app/models/User.ts' }] } as unknown as AppManifest)
+    const unnamed = mountUsers((r) => [r.contract(usersContract, ShowController)])
+    expect(await (await unnamed.app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
+    expect(lookups).toEqual([])
+  })
+
   it('a doubled .withoutImplicitBinding() and .scopeBindings() keep their flag, and .bind() still binds on an opted-out builder', async () => {
     const optedOut = mountUsers((r) => [r.withoutImplicitBinding().withoutImplicitBinding().contract(usersContract, ShowController)])
     expect(await (await optedOut.app.request('/api/users/7')).json()).toEqual({ user: 'string:7' })
