@@ -13,51 +13,75 @@ export interface ThrottleHit {
 }
 
 /**
- * Where the rate limit keeps its counters: one fixed window per key. The cache (#166) implements it later; until then
- * every route uses one `MemoryThrottleStore` per process.
+ * Where the rate limit keeps its counters: one fixed window per key. `mount()` gives each mount its own
+ * `MemoryThrottleStore`; the cache (#166) implements it later.
  */
 export interface ThrottleStore {
-  /** Counts one hit on `key`, starting a window of `windowMs` when there is none or the last one ended. */
-  hit(key: string, windowMs: number): ThrottleHit | Promise<ThrottleHit>;
+  /**
+   * Counts one hit on `key`, starting a window of `windowMs` when there is none or the last one ended. `clientPrefix`
+   * is the IPv4 address or IPv6 /48 the store may use to bound one client's share.
+   */
+  hit(key: string, windowMs: number, clientPrefix: string): ThrottleHit | Promise<ThrottleHit>;
 }
 
 /** How often the memory store drops ended windows, so keys seen once don't stay forever. */
 const SWEEP_MS = 60_000;
 
-/** The most windows the memory store keeps: past it the oldest are dropped, so many clients can't exhaust the heap. */
+/** The most windows the memory store keeps: past it the window that ends first is dropped, so clients can't exhaust the heap. */
 const MAX_WINDOWS = 100_000;
+
+/**
+ * The floor of the per-client-prefix cap: one client has one window per throttled route, so `mount()` raises the cap to
+ * the mount's throttled-route count plus one; a small mount keeps this floor. A client with an IPv6 /48 can rotate
+ * 65,536 /64 buckets, so rotation is still bounded by the cap.
+ */
+export const MIN_WINDOWS_PER_PREFIX = 1_024;
 
 interface Window {
   hits: number;
   resetAt: number;
   windowMs: number;
+  prefix: string;
 }
 
 /**
- * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. A full store
- * drops the window that ends first: an ended one if there is one, else the live one nearest its end, whose client
- * starts a new window early.
+ * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Capacity is
+ * counted per client prefix (an IPv4 address, or an IPv6 /48), so the /64s of one /48 share one budget: a prefix at its
+ * cap drops its own window that ends first, which can be another /64 of the same /48 (a co-tenant on a cloud range).
+ * An eviction fails open for the evicted client only (its limit restarts early): the counters stay per /64 bucket, so a
+ * co-tenant never adds hits to another /64's window and cannot cause its 429, and another prefix is untouched below the
+ * global cap. A full store drops the window that ends first (an ended one if there is one, else the live one nearest its
+ * end), whichever prefix it is. Fair eviction at both levels is tracked in #418.
  */
 export class MemoryThrottleStore implements ThrottleStore {
   private readonly windows = new Map<string, Window>();
   // The keys of each window length in start order: within one length, the window started first ends first
   private readonly byLength = new Map<number, Set<string>>();
+  // The keys of each client prefix, so a prefix at its cap evicts inside itself: no scan of the whole store for one client
+  private readonly byPrefix = new Map<string, Set<string>>();
   private nextSweep = 0;
 
-  constructor(private readonly maxWindows = MAX_WINDOWS) {}
+  constructor(private readonly maxWindows = MAX_WINDOWS, private readonly maxWindowsPerPrefix = MIN_WINDOWS_PER_PREFIX) {}
 
-  hit(key: string, windowMs: number): ThrottleHit {
+  hit(key: string, windowMs: number, clientPrefix: string): ThrottleHit {
     const now = Date.now();
     if (now >= this.nextSweep) this.sweep(now);
     let window = this.windows.get(key);
     if (window === undefined || window.resetAt <= now) {
       if (window !== undefined) this.drop(key, window);
+      let prefixWindows = this.byPrefix.get(clientPrefix);
+      if (prefixWindows === undefined) this.byPrefix.set(clientPrefix, (prefixWindows = new Set()));
+      if (prefixWindows.size >= this.maxWindowsPerPrefix) this.evictPrefix(prefixWindows);
       if (this.windows.size >= this.maxWindows) this.evict();
-      window = { hits: 0, resetAt: now + windowMs, windowMs };
+      // Either eviction may have dropped this prefix's last window, taking its set with it: take it again for the new key
+      prefixWindows = this.byPrefix.get(clientPrefix);
+      if (prefixWindows === undefined) this.byPrefix.set(clientPrefix, (prefixWindows = new Set()));
+      window = { hits: 0, resetAt: now + windowMs, windowMs, prefix: clientPrefix };
       this.windows.set(key, window);
       let keys = this.byLength.get(windowMs);
       if (keys === undefined) this.byLength.set(windowMs, (keys = new Set()));
       keys.add(key);
+      prefixWindows.add(key);
     }
     window.hits++;
     return { hits: window.hits, resetAt: window.resetAt };
@@ -74,11 +98,29 @@ export class MemoryThrottleStore implements ThrottleStore {
     if (first !== undefined) this.drop(...first);
   }
 
+  /**
+   * Drops the window of one prefix that ends first: a scan of at most `maxWindowsPerPrefix` keys, and only when that
+   * prefix is full. The prefix is shared by the /64s of one /48, so this can drop another /64's window (a co-tenant on a
+   * cloud range); an eviction fails open for the evicted client only (its limit restarts early), never adds a hit to
+   * another /64's counter, and never touches another prefix below the global cap. Fair eviction at both levels: #418.
+   */
+  private evictPrefix(keys: Set<string>) {
+    let first: [string, Window] | undefined;
+    for (const key of keys) {
+      const window = this.windows.get(key)!;
+      if (first === undefined || window.resetAt < first[1].resetAt) first = [key, window];
+    }
+    if (first !== undefined) this.drop(...first);
+  }
+
   private drop(key: string, window: Window) {
     this.windows.delete(key);
     const keys = this.byLength.get(window.windowMs)!;
     keys.delete(key);
     if (keys.size === 0) this.byLength.delete(window.windowMs);
+    const prefixWindows = this.byPrefix.get(window.prefix)!;
+    prefixWindows.delete(key);
+    if (prefixWindows.size === 0) this.byPrefix.delete(window.prefix);
   }
 
   private sweep(now: number) {
@@ -86,8 +128,6 @@ export class MemoryThrottleStore implements ThrottleStore {
     this.nextSweep = now + SWEEP_MS;
   }
 }
-
-const memoryStore = new MemoryThrottleStore();
 
 const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const;
 
@@ -117,6 +157,17 @@ export const ipBucket = (ip: string | undefined): string | undefined => {
     return ipv4FromHextets(groups[6]!, groups[7]!);
   }
   return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`;
+};
+
+/**
+ * The capacity unit of one client: the IPv4 address, or the /48 of an IPv6 /64 bucket. A client can rotate 65,536 /64
+ * addresses inside its /48, and each throttled route adds one window per bucket, so capacity is counted per /48 to keep
+ * one client from filling the store and evicting another client's windows.
+ */
+export const clientPrefix = (bucket: string): string => {
+  const suffix = "::/64";
+  if (!bucket.endsWith(suffix)) return bucket;
+  return `${bucket.slice(0, -suffix.length).split(":").slice(0, 3).join(":")}::/48`;
 };
 
 /**
@@ -196,7 +247,7 @@ export interface ThrottledRoute {
  * hits per client, and the hit past `limit` in a window of `per` answers 429. Requests with no client address are
  * not limited.
  */
-export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore = memoryStore): RouteHandler => {
+export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handle: RouteHandler, store: ThrottleStore): RouteHandler => {
   const windowMs = durationMs(options.per);
   // The contract's range (checkThrottle): a shorter window never limits, a longer one never ends
   if (!(windowMs >= 1000 && windowMs <= Number.MAX_SAFE_INTEGER)) {
@@ -218,7 +269,7 @@ export const throttled = (route: ThrottledRoute, options: ThrottleOptions, handl
       else warnNoConnInfo(route.name);
       return handle(c, next);
     }
-    const { hits, resetAt } = await store.hit(`${scope} ${bucket}`, windowMs);
+    const { hits, resetAt } = await store.hit(`${scope} ${bucket}`, windowMs, clientPrefix(bucket));
     if (hits > options.limit) throw tooManyRequests(resetAt);
     return handle(c, next);
   };

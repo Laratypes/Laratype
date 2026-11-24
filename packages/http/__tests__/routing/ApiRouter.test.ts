@@ -2,6 +2,7 @@
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { Facade } from '@laratype/core'
 import { ModelBindingRegistry } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
@@ -422,6 +423,14 @@ describe('Route.api runtime checks', () => {
   it('a contract that is not in the tree', () => {
     const other = defineContract()({ index: endpoint.get('/') })
     expect(api((r) => [r.contract(other, UserController)])).toThrow('a mounted contract is not in the API tree')
+  })
+
+  it('refuses a Hono cors() as route middleware: no route-level CORS runs before the 429 (#319)', () => {
+    // A Hono MiddlewareHandler has no prototype and no typed-middleware brand: it is not a MiddlewareItem, so a route
+    // cannot mount a CORS middleware of its own (the app-wide app/config/cors.ts is the supported path)
+    expect(api((r) => [r.middleware(cors({ origin: '*' })).contract(users, UserController)])).toThrow(
+      /is not middleware \(a 0\.5 Middleware class or defineMiddleware\(\.\.\.\)\)/,
+    )
   })
 
   it('a scope with authorize and no policy', () => {
