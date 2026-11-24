@@ -545,8 +545,16 @@ const checkBindingKeys = (
       });
     }
     // A scoped route resolves every child through a model: an explicit resolver cannot be scoped, and a model's lookup
-    // must take the `scope` parameter (its absence cannot be simulated)
+    // must take the `scope` parameter (its absence cannot be simulated). A digit-only key is refused too: the scope is
+    // built as an object, where integer-like keys sort first, so such a key would break the path order.
     if (route.scopedBindings) {
+      for (const key of new Set([...Object.keys(route.bindings), ...route.implicitBindings])) {
+        if (/^\d+$/.test(key)) {
+          fail(
+            `route "${route.name}": .scopeBindings() cannot bind the numeric param "${key}" (a numeric key breaks the path order of the scope)`,
+          );
+        }
+      }
       for (const [key, binder] of Object.entries(route.bindings)) {
         const issue = scopedBinderIssue(key, binder);
         if (issue !== undefined) fail(issue);
