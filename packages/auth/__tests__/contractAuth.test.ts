@@ -76,6 +76,27 @@ const contract = defineContract()(
 );
 const api = defineApi({ users: { contract, path: "/api/users", scopes: [] } });
 
+/** The lookups of the bound model of `boundContract`: the guard must answer before any of them runs. */
+const boundLookups: string[] = [];
+class BoundUser {
+  static readonly primaryKey = "id";
+  static async findByRouteKey(key: string): Promise<BoundUser | null> {
+    boundLookups.push(key);
+    return key === "missing" ? null : new BoundUser(key);
+  }
+  constructor(readonly id: string) {}
+}
+
+/** A guarded contract with a path param, to pair A2's guard with H7's `r.bind()` (the order and the `user` key). */
+const boundContract = defineContract()({ show: endpoint.get("/:user").auth().response(anything) });
+const boundApi = defineApi({ bound: { contract: boundContract, path: "/api/bound", scopes: [] } });
+
+class BoundController extends Controller {
+  show(ctx: { user: User; params: { user: BoundUser } }) {
+    return { current: ctx.user.email, param: ctx.params.user.id };
+  }
+}
+
 const appOf = (routes: (r: ApiRouteBuilder<typeof api>) => unknown, mount?: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry });
   const app = new Hono();
@@ -85,6 +106,17 @@ const appOf = (routes: (r: ApiRouteBuilder<typeof api>) => unknown, mount?: (app
   new ResponseKernel(container).boot();
   Route.api(api, routes as never).mount(app);
   mount?.(app);
+  return app;
+};
+
+const boundApp = () => {
+  const container = new Container({ deps: depsRegistry });
+  const app = new Hono();
+  container.instance(HTTP_APP, app);
+  container.instance(AuthManager, manager as unknown as AuthManager);
+  new RequestKernel(container).boot();
+  new ResponseKernel(container).boot();
+  Route.api(boundApi, (r) => [r.bind({ user: BoundUser }).contract(boundContract, BoundController)]).mount(app);
   return app;
 };
 
@@ -122,6 +154,7 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   calls.length = 0;
+  boundLookups.length = 0;
   registered.web = false;
   registered.api = false;
   registered.admin = false;
@@ -301,6 +334,48 @@ describe("Route.api order", () => {
     expect(res.status).toBe(401);
     registered.web = user;
     expect((await denied.request("/api/users/me")).status).toBe(403);
+  });
+
+  it("the 401 comes before a 404 from a binding miss, and the model lookup does not run", async () => {
+    const app = boundApp();
+    const unauthorized = await app.request("/api/bound/missing");
+    expect(unauthorized.status).toBe(401);
+    expect(await unauthorized.json()).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+    // The binding step runs after the guard: an unauthenticated request must not learn whether the row exists
+    expect(boundLookups).toEqual([]);
+
+    registered.web = user;
+    const missing = await app.request("/api/bound/missing");
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ code: "NOT_FOUND", message: "Not Found." });
+    expect(boundLookups).toEqual(["missing"]);
+
+    const found = await app.request("/api/bound/7");
+    expect(found.status).toBe(200);
+    expect(await found.json()).toEqual({ current: "ada@example.test", param: "7" });
+    expect(boundLookups).toEqual(["missing", "7"]);
+  });
+
+  it("a bind key named `user` lands in ctx.params, next to the guard's ctx.user", async () => {
+    registered.web = user;
+    const res = await boundApp().request("/api/bound/7");
+    expect(res.status).toBe(200);
+    // Both are provided and distinct: the guard's user is the ctx key, the bound model is the params key
+    expect(await res.json()).toEqual({ current: "ada@example.test", param: "7" });
+    expect(boundLookups).toEqual(["7"]);
+  });
+
+  it("refuses a `__proto__` bind key on an auth route: H7's refusal runs before the guard", () => {
+    expect(() =>
+      Route.api(boundApi, (r) => {
+        // The untyped builder, as H7's own refusal tests: the key is refused at runtime, before any proof
+        const bound = r.bind({ ["__proto__"]: BoundUser } as never) as unknown as typeof r;
+        return [bound.contract(boundContract, BoundController)];
+      }),
+    ).toThrow(
+      "[@laratype/http] Route.api: r.bind(): `__proto__` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. " +
+        "Fix: name the path param something else.",
+    );
   });
 });
 
