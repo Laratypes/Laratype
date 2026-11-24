@@ -50,9 +50,21 @@ class ScopedPost {
     lookups.push(`post:${key}`)
     if (scope === undefined || !Object.isFrozen(scope)) return null
     const user = scope.user as User | undefined
-    return user?.id === '7' && key === 'hello' ? new ScopedPost(key) : null
+    return user?.id === '7' && key !== 'missing' ? new ScopedPost(key) : null
   }
   constructor(readonly slug: string) {}
+}
+
+/** A third-level child that relates only to its immediate parent (the post), as a normal comment does. */
+class ScopedComment {
+  static readonly primaryKey = 'id'
+  static async findByRouteKey(key: string, scope?: Readonly<Record<string, object>>): Promise<ScopedComment | null> {
+    lookups.push(`comment:${key}`)
+    const post = scope?.post as ScopedPost | undefined
+    // Only a comment of the post the route resolved: the user is transitive here
+    return post?.slug === 'hello' && key !== 'missing' ? new ScopedComment(key) : null
+  }
+  constructor(readonly id: string) {}
 }
 
 class ToStringModel {
@@ -85,6 +97,16 @@ class NestedController extends Controller {
   index() { return {} }
   show(ctx: { params: Record<string, unknown> }) {
     return { user: (ctx.params.user as User).id, post: (ctx.params.post as ScopedPost).slug }
+  }
+}
+
+class CommentsController extends Controller {
+  show(ctx: { params: Record<string, unknown> }) {
+    return {
+      user: (ctx.params.user as User).id,
+      post: (ctx.params.post as ScopedPost).slug,
+      comment: (ctx.params.comment as ScopedComment).id,
+    }
   }
 }
 
@@ -129,6 +151,26 @@ const nestedApi = defineApi({
     scopes: [{ scope: rootScope, dir: '' }, { scope: userScope, dir: 'users/[user]' }],
   },
 })
+
+// Three levels: /api/users/:user/posts/:post/comments/:comment is scoped by `{ user, post }`
+const postScope = defineScope<ContractPrefix<'/api/users/:user/posts/:post', [typeof rootScope, typeof userScope]>>()({})
+const commentsContract = defineContract()({ show: endpoint.get('/:comment').response(anything) })
+const commentsApi = defineApi({
+  'users.posts.comments': {
+    contract: commentsContract,
+    path: '/api/users/:user/posts/:post/comments',
+    scopes: [
+      { scope: rootScope, dir: '' },
+      { scope: userScope, dir: 'users/[user]' },
+      { scope: postScope, dir: 'users/[user]/posts/[post]' },
+    ],
+  },
+})
+
+const mountComments = (
+  build: Build,
+  models: Record<string, unknown> = { user: User, post: ScopedPost, comment: ScopedComment },
+) => mount(Route.api(commentsApi, build), models)
 
 type Build = (r: any) => any[]
 
@@ -295,6 +337,26 @@ describe('.scopeBindings() (H14 #163)', () => {
     expect(other.status).toBe(404)
     expect(await other.json()).toEqual({ code: 'NOT_FOUND', message: 'Not Found.' })
     expect(lookups).toEqual(['user:7', 'post:hello', 'user:8', 'post:hello'])
+  })
+
+  it('a three-level route scopes the comment by its immediate parent (the post)', async () => {
+    setAppManifest(manifest('User', 'Post', 'Comment'))
+    const { app } = mountComments((r) => [r.scopeBindings().contract(commentsContract, CommentsController)])
+    expect(await (await app.request('/api/users/7/posts/hello/comments/c1')).json()).toEqual({
+      user: '7',
+      post: 'hello',
+      comment: 'c1',
+    })
+    expect(lookups).toEqual(['user:7', 'post:hello', 'comment:c1'])
+  })
+
+  it('a comment of another post is the 404', async () => {
+    setAppManifest(manifest('User', 'Post', 'Comment'))
+    const { app } = mountComments((r) => [r.scopeBindings().contract(commentsContract, CommentsController)])
+    const other = await app.request('/api/users/7/posts/other/comments/c1')
+    expect(other.status).toBe(404)
+    expect(await other.json()).toEqual({ code: 'NOT_FOUND', message: 'Not Found.' })
+    expect(lookups).toEqual(['user:7', 'post:other', 'comment:c1'])
   })
 
   it('resolves in path order even when the bindings map declares the child first', async () => {
