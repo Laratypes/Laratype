@@ -168,7 +168,7 @@ describe('the resolved-authorize policy check', () => {
       r.bind(bound).contract(flagged, FlaggedController, { policy: NoFlaggedMethod }),
     ])
 
-    // .authorize(false) opts out even under a scope with authorize: no policy method is required
+    // .authorize(false) opts out even under a scope with authorize: a policy without an `index` method is enough
     const optedOut = defineContract<ContractPrefix<'/api/opted-out', [typeof root]>>()({
       index: endpoint.get('/').authorize(false).response(anything),
     })
@@ -178,10 +178,14 @@ describe('the resolved-authorize policy check', () => {
     class OptedOutController extends Controller {
       index() { return { ok: true } }
     }
+    // A checked policy (not an empty class, which the proof treats as unknown) with no `index` and no `before`
+    class UnrelatedPolicy {
+      update() { return true }
+    }
     Route.api(optedOutApi, (r) => [
       r.bind({}).scope('', { policy: BeforePolicy }),
-      r.bind({}).contract(optedOut, OptedOutController),
+      r.bind({}).contract(optedOut, OptedOutController, { policy: UnrelatedPolicy }),
     ])
-    expectTypeOf<RouteProof<typeof optedOutApi, typeof optedOut, OptedOutController, {}, {}, {}>>().toEqualTypeOf<unknown>()
+    expectTypeOf<RouteProof<typeof optedOutApi, typeof optedOut, OptedOutController, { policy: typeof UnrelatedPolicy }, {}, {}>>().toEqualTypeOf<unknown>()
   })
 })
