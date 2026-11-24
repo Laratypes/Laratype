@@ -1,4 +1,5 @@
-import type User from "../src/models/User";
+import type User from "../models/User";
+import type Admin from "../models/Admin";
 
 // The app's auth types (A1 #119, docs/v1/auth.md › Typed Register). A `.d.ts` of its own, not app/config/auth.ts:
 // the augmentation describes the app's public auth surface, and every file of the example's program sees it.
@@ -8,7 +9,7 @@ declare module "@laratype/auth" {
     guards: {
       web: true;
       api: true;
-      admin: true;
+      admin: { user: Admin };
     };
   }
 }
