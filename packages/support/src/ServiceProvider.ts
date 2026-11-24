@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { Facade, token } from "@laratype/core";
+import { Facade, peekAppContainer, token } from "@laratype/core";
 import type { Container } from "@laratype/core";
 import ModelBindingRegistry from "./registries/ModelBindingRegistry";
 import RouteRegistry from "./registries/RouteRegistry";
@@ -100,7 +100,7 @@ export async function bootProviders(app: Container, Providers: Array<typeof Serv
       }
     }
     // A bare boot's failed container must not stay the facade application: the next boot would keep it and write there
-    if(ownsFacadeApplication && Facade.getFacadeApplication() === app) Facade.setFacadeApplication(undefined);
+    if(ownsFacadeApplication && peekAppContainer() === app) Facade.setFacadeApplication(undefined);
     throw error;
   }
   return providers.map(provider => provider.down.bind(provider)).reverse();
