@@ -167,6 +167,9 @@ const commentsApi = defineApi({
   },
 })
 
+const numericContract = defineContract()({ show: endpoint.get('/:1').response(anything) })
+const numericApi = defineApi({ numeric: { contract: numericContract, path: '/api/numeric', scopes: [] } })
+
 const mountComments = (
   build: Build,
   models: Record<string, unknown> = { user: User, post: ScopedPost, comment: ScopedComment },
@@ -422,6 +425,27 @@ describe('implicit key mount checks (H14 #163)', () => {
 
 describe('.scopeBindings() mount checks (H14 #163)', () => {
   const scoped = (bind: Parameters<typeof Route.api>[1]) => expect(() => Route.api(nestedApi, bind)).toThrow(/scopeBindings/)
+
+  it('refuses a numeric explicit binding key on a scoped route', () => {
+    expect(() =>
+      Route.api(numericApi, (r) => [r.scopeBindings().bind({ '1': ScopedPost }).contract(numericContract, ShowController)]),
+    ).toThrow(
+      '[@laratype/http] Route.api: route "numeric.show": .scopeBindings() cannot bind the numeric param "1" (a numeric key breaks the path order of the scope)',
+    )
+  })
+
+  it('refuses a numeric implicit binding key on a scoped route', () => {
+    setAppManifest(manifest('1'))
+    expect(() => Route.api(numericApi, (r) => [r.scopeBindings().contract(numericContract, ShowController)])).toThrow(
+      '[@laratype/http] Route.api: route "numeric.show": .scopeBindings() cannot bind the numeric param "1" (a numeric key breaks the path order of the scope)',
+    )
+  })
+
+  it('allows a numeric key on an unscoped route', () => {
+    expect(() =>
+      Route.api(numericApi, (r) => [r.bind({ '1': ScopedPost }).contract(numericContract, ShowController)]),
+    ).not.toThrow()
+  })
 
   it('refuses a resolver on a scoped route', () => {
     scoped((r) => [r.scopeBindings().bind({ post: () => new ScopedPost('x') }).contract(nestedContract, NestedController)])
