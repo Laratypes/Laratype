@@ -237,6 +237,9 @@ const errors = {
   scopeRelationKind: (model: string, relation: string): string =>
     `[@laratype/database] ${model} relation ${formatValue(relation)} is not a many-to-one or an owning one-to-one`
     + " relation: .scopeBindings() needs the side that holds the join column",
+  scopeDuplicate: (model: string, property: string): string =>
+    `[@laratype/database] ${model}: two scoped parents filter the join column ${formatValue(property)}:`
+    + " .scopeBindings() cannot filter it for both",
   scopeNotLoaded: (model: string, parent: string, name: string): string =>
     `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance has not`
     + " loaded: select it before .scopeBindings()",
@@ -391,48 +394,59 @@ interface ScopeCondition {
 /**
  * The conditions a `.scopeBindings()` lookup adds (docs/v1/http.md › Model binding › Scoped bindings, H14 #163): one
  * per parent model in `scope`, from the relation whose target is the parent's class and its owning join column. The
- * child MUST relate to its immediate parent (the last entry, path order); an earlier parent adds a condition only when
- * the child has a relation to it too, and is skipped otherwise (each level was already scoped by its own parent).
- * More than one relation to a parent, a relation that is not many-to-one or an owning one-to-one, a relation with no
- * join column and a parent property that is not loaded are configuration errors (a lookup that silently ignored the
- * parent would read another parent's row, and one that picked a relation would choose a tenant for the app). A parent
- * key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar,
- * so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is refused).
+ * child must relate to its immediate parent (the last entry, path order); an earlier parent adds a condition only when
+ * exactly one usable relation exists, and is skipped otherwise (each level was already scoped by its own parent).
+ * For the immediate parent, more than one usable relation, a relation that is not many-to-one or an owning one-to-one,
+ * a relation with no join column and a parent property that is not loaded are configuration errors (a lookup that
+ * silently ignored the parent would read another parent's row, and one that picked a relation would choose a tenant for
+ * the app). A parent key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value
+ * must be scalar, so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is
+ * refused).
  */
 const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: Readonly<Record<string, object>>): ScopeCondition[] | undefined => {
   const conditions: ScopeCondition[] = [];
+  const properties = new Set<string>();
   const entries = Object.entries(scope);
+  const immediate = entries.length - 1;
   for (const [index, [key, parent]] of entries.entries()) {
     if (parent === null || typeof parent !== "object") {
       throw new ModelError(errors.scopeNotModel(metadata.targetName, key, parent));
     }
     const target = (parent as { constructor?: unknown }).constructor;
     const parentName = targetName(target);
-    const matches = (metadata.relations ?? []).filter((entry) => {
+    const matching = (metadata.relations ?? []).filter((entry) => {
       // Match the parent's own class, or a scope value that is an instance of the relation's target (a subclass)
       const relationTarget: unknown = entry.inverseEntityMetadata?.target;
       return relationTarget === target || (typeof relationTarget === "function" && parent instanceof relationTarget);
     });
-    if (matches.length > 1) {
-      throw new ModelError(errors.scopeAmbiguous(metadata.targetName, parentName, matches.map((match) => match.propertyName)));
-    }
-    const relation = matches[0];
-    if (relation === undefined) {
-      // The immediate parent is what makes the lookup safe; an earlier one is transitive and optional
-      if (index === entries.length - 1) {
-        throw new ModelError(errors.scopeNoRelation(metadata.targetName, parentName));
+    // Only the side that holds the join column can filter this table: a one-to-many, a many-to-many or a non-owning
+    // one-to-one names the parent's table instead. The immediate parent is required; an earlier one is transitive.
+    const usable = matching.filter((entry) => entry.isManyToOne === true || entry.isOneToOneOwner === true);
+    if (matching.length === 0 || usable.length === 0) {
+      if (index === immediate) {
+        throw new ModelError(
+          matching.length === 0
+            ? errors.scopeNoRelation(metadata.targetName, parentName)
+            : errors.scopeRelationKind(metadata.targetName, matching[0]!.propertyName),
+        );
       }
       continue;
     }
-    // Only the side that holds the join column can filter this table: a one-to-many, a many-to-many or a non-owning
-    // one-to-one names the parent's table instead
-    if (relation.isManyToOne !== true && relation.isOneToOneOwner !== true) {
-      throw new ModelError(errors.scopeRelationKind(metadata.targetName, relation.propertyName));
+    if (usable.length > 1) {
+      // The scope cannot choose one: using the first would let the app's relation order pick the tenant
+      if (index === immediate) {
+        throw new ModelError(errors.scopeAmbiguous(metadata.targetName, parentName, usable.map((entry) => entry.propertyName)));
+      }
+      continue;
     }
+    const relation = usable[0]!;
     const join = relation.joinColumns?.[0];
     const referenced = join?.referencedColumn;
     if (join === undefined || referenced === undefined) {
       throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
+    }
+    if (properties.has(join.propertyName)) {
+      throw new ModelError(errors.scopeDuplicate(metadata.targetName, join.propertyName));
     }
     let value: unknown;
     try {
@@ -461,6 +475,7 @@ const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: R
     if (!isScalarValue(bound)) {
       throw new ModelError(errors.scopeNotScalar(parentName, referenced.propertyName, bound));
     }
+    properties.add(join.propertyName);
     conditions.push({ property: join.propertyName, value: bound });
   }
   return conditions;
