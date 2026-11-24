@@ -4,13 +4,15 @@ import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
+import { cors } from 'hono/cors'
 import type { GetConnInfo } from 'hono/conninfo'
 import { Container, depsRegistry } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
-import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
+import { defineApi, defineContract, defineScope, endpoint, errors } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, mountConnInfo, RequestKernel, ResponseKernel, Route } from '../../src/index'
-import { MemoryThrottleStore, durationMs, ipBucket, throttled } from '../../src/routing/api/throttle'
+import { Controller, defineMiddleware, mountConnInfo, registerContractAuth, RequestKernel, ResponseKernel, Route } from '../../src/index'
+import type { ApiRoutes } from '../../src/index'
+import { MemoryThrottleStore, clientPrefix, durationMs, ipBucket, throttled } from '../../src/routing/api/throttle'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -41,17 +43,20 @@ const routes = () => Route.api(appApi, (r) => [r.contract(posts, PostController)
 /** The getter the serving adapter registers: this test's request env carries the client address. */
 const addressFromEnv = (c: Context) => ({ remote: { address: (c.env as { address?: string }).address } })
 
-/** An app booted like `sauf dev`: ResponseKernel's resolveException answers thrown errors. */
-const boot = (mount: (app: Hono) => void) => {
+/** An app booted like `sauf dev` around `apiRoutes`: ResponseKernel's resolveException answers thrown errors. */
+const bootRoutes = (apiRoutes: ApiRoutes, mount: (app: Hono) => void = (app) => mountConnInfo(app, addressFromEnv)) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   mount(app)
   container.instance(HTTP_APP, app)
   new RequestKernel(container).boot()
   new ResponseKernel(container).boot()
-  routes().mount(app)
+  apiRoutes.mount(app)
   return app
 }
+
+/** An app booted like `sauf dev`: ResponseKernel's resolveException answers thrown errors. */
+const boot = (mount: (app: Hono) => void) => bootRoutes(routes(), mount)
 
 /** The app `sauf dev` boots: the adapter's getter reads the client address from the request's env. */
 const bootApp = () => boot((app) => mountConnInfo(app, addressFromEnv))
@@ -73,10 +78,16 @@ const forgetWarned = () => {
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.throttleNoAddressWarned')]
 }
 
+/** The contract auth slot @laratype/auth fills: a stand-in factory is removed after its test. */
+const forgetContractAuth = () => {
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.contractAuth')]
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.spyOn(console, 'log').mockImplementation(() => {})
   forgetWarned()
+  forgetContractAuth()
   app = bootApp()
 })
 
@@ -85,9 +96,10 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
+  forgetContractAuth()
 })
 
-// Each test uses its own addresses: the memory store is one per process
+// Each test uses its own addresses: each mount() has its own store (#319)
 describe('rate limit from the contract', () => {
   it('answers 429 with the catalog body and Retry-After once the limit is hit', async () => {
     for (let i = 0; i < 3; i++) expect((await app.request('/api/posts', {}, from('203.0.113.1'))).status).toBe(200)
@@ -222,6 +234,31 @@ describe('rate limit from the contract', () => {
     expect(await limited.json()).toEqual({ code: 'TOO_MANY_REQUESTS', message: 'Too Many Requests.' })
   })
 
+  it('answers 429 with the app CORS headers without the response kernel (Hono\'s own cors()) (#319)', async () => {
+    const bare = new Hono()
+    mountConnInfo(bare, addressFromEnv)
+    // Mounted after the capture, as RequestKernel.boot() mounts the app-wide CORS before the routes
+    bare.use('*', cors({ origin: 'http://app.test' }))
+    routes().mount(bare)
+    const headers = { Origin: 'http://app.test' }
+    await bare.request('/api/posts/1', { headers }, from('203.0.113.43'))
+    const limited = await bare.request('/api/posts/1', { headers }, from('203.0.113.43'))
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('Access-Control-Allow-Origin')).toBe('http://app.test')
+    expect(limited.headers.get('Retry-After')).toBe('10')
+  })
+
+  it('each mount has its own counters: two apps do not share a window (#319)', async () => {
+    const other = bootApp()
+    const address = '203.0.113.42'
+    expect((await app.request('/api/posts/1', {}, from(address))).status).toBe(200)
+    expect((await app.request('/api/posts/1', {}, from(address))).status).toBe(429)
+    // The second app never saw this client: its first request is not limited by the first app's window
+    expect((await other.request('/api/posts/1', {}, from(address))).status).toBe(200)
+    // And the second app's window did not replace the first app's: it still answers 429
+    expect((await app.request('/api/posts/1', {}, from(address))).status).toBe(429)
+  })
+
   it('a .domain() route counts only requests for its host', async () => {
     const onHost = new Hono()
     mountConnInfo(onHost, addressFromEnv)
@@ -248,6 +285,49 @@ describe('rate limit from the contract', () => {
     expect(entries.map((e) => [e.name, e.unenforced])).toEqual([
       ['posts.index', []], ['posts.show', []], ['posts.open', []], ['users.index', []],
     ])
+  })
+})
+
+// #319 item 2: the limit stays at mount(), before the contract auth guard (A2 #120) and the body read
+describe('the limit runs before the contract auth guard (#319)', () => {
+  const guarded = defineContract()({
+    index: endpoint.get('/').response(anything).throttle({ limit: 1, per: 60 }),
+  }, { auth: true })
+  const guardedApi = defineApi({ guarded: { contract: guarded, path: '/guarded', scopes: [] } })
+  class GuardedController extends Controller {
+    index() { return { ok: true } }
+  }
+  const guardedRoutes = () => Route.api(guardedApi, (r) => [r.contract(guarded, GuardedController)])
+
+  /** The stand-in factory @laratype/auth fills: a 401 without a bearer token, else the `x-user` id. */
+  const registerGuard = (onCall: () => void) => registerContractAuth(() => defineMiddleware<{ user: { id: string } }>(
+    (request, next) => {
+      onCall()
+      if (!request.header('authorization')) throw errors.unauthorized()
+      return next({ user: { id: request.header('x-user') ?? '' } })
+    },
+  ))
+
+  it('answers 429 before the guard runs, and 429 rather than 401 once over the limit', async () => {
+    let calls = 0
+    registerGuard(() => { calls++ })
+    const app = bootRoutes(guardedRoutes())
+    const signedIn = { authorization: 'Bearer a', 'x-user': 'a' }
+    expect((await app.request('/guarded', { headers: signedIn }, from('203.0.113.40'))).status).toBe(200)
+    expect(calls).toBe(1)
+    // Over the limit: the guard does not run again, so a flood costs no token check
+    expect((await app.request('/guarded', { headers: signedIn }, from('203.0.113.40'))).status).toBe(429)
+    expect(calls).toBe(1)
+    // No credentials at all: still the 429, not the guard's 401, because the limit comes first
+    expect((await app.request('/guarded', {}, from('203.0.113.40'))).status).toBe(429)
+    expect(calls).toBe(1)
+  })
+
+  it('keys by the address: two users on one address share one budget', async () => {
+    registerGuard(() => {})
+    const app = bootRoutes(guardedRoutes())
+    expect((await app.request('/guarded', { headers: { authorization: 'Bearer a', 'x-user': 'a' } }, from('203.0.113.41'))).status).toBe(200)
+    expect((await app.request('/guarded', { headers: { authorization: 'Bearer b', 'x-user': 'b' } }, from('203.0.113.41'))).status).toBe(429)
   })
 })
 
@@ -294,75 +374,114 @@ describe('durationMs', () => {
 })
 
 describe('MemoryThrottleStore', () => {
+  const windowsOf = (store: MemoryThrottleStore) => (store as unknown as { windows: Map<string, unknown> }).windows
+
   it('counts hits in fixed windows and drops ended windows', () => {
     const store = new MemoryThrottleStore()
     const start = Date.now()
-    expect(store.hit('a', 1000)).toEqual({ hits: 1, resetAt: start + 1000 })
-    expect(store.hit('a', 1000)).toEqual({ hits: 2, resetAt: start + 1000 })
+    expect(store.hit('a', 1000, 'p')).toEqual({ hits: 1, resetAt: start + 1000 })
+    expect(store.hit('a', 1000, 'p')).toEqual({ hits: 2, resetAt: start + 1000 })
     vi.advanceTimersByTime(1000)
-    expect(store.hit('a', 1000)).toEqual({ hits: 1, resetAt: start + 2000 })
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    store.hit('b', 1000)
+    expect(store.hit('a', 1000, 'p')).toEqual({ hits: 1, resetAt: start + 2000 })
+    const windows = windowsOf(store)
+    store.hit('b', 1000, 'p')
     expect(windows.size).toBe(2)
     vi.advanceTimersByTime(60_000)
-    store.hit('c', 1000)
+    store.hit('c', 1000, 'p')
     expect([...windows.keys()]).toEqual(['c'])
   })
 
   it('when full, drops the ended windows before a live one', () => {
     const store = new MemoryThrottleStore(2)
-    store.hit('a', 1000)
-    store.hit('b', 10_000)
+    store.hit('a', 1000, 'p')
+    store.hit('b', 10_000, 'p')
     vi.advanceTimersByTime(1000)
-    store.hit('c', 10_000)
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    expect([...windows.keys()]).toEqual(['b', 'c'])
+    store.hit('c', 10_000, 'p')
+    expect([...windowsOf(store).keys()]).toEqual(['b', 'c'])
   })
 
   it('when full, drops a newer ended window before an older live one', () => {
     const store = new MemoryThrottleStore(2)
-    store.hit('a', 60_000)
-    store.hit('b', 1000)
+    store.hit('a', 60_000, 'p')
+    store.hit('b', 1000, 'p')
     vi.advanceTimersByTime(1000)
-    store.hit('c', 60_000)
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    expect([...windows.keys()]).toEqual(['a', 'c'])
+    store.hit('c', 60_000, 'p')
+    expect([...windowsOf(store).keys()]).toEqual(['a', 'c'])
   })
 
   it('a full store drops a window that ended between two evictions before a live one, with no full sweep', () => {
     const store = new MemoryThrottleStore(3)
-    store.hit('x', 60_000)
-    store.hit('a', 60_000)
-    store.hit('b', 1000)
+    store.hit('x', 60_000, 'p')
+    store.hit('a', 60_000, 'p')
+    store.hit('b', 1000, 'p')
     const sweep = vi.spyOn(store as unknown as { sweep(now: number): void }, 'sweep')
     vi.advanceTimersByTime(500)
-    store.hit('c', 60_000)
+    store.hit('c', 60_000, 'p')
     vi.advanceTimersByTime(500)
-    store.hit('d', 60_000)
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    expect([...windows.keys()].sort()).toEqual(['a', 'c', 'd'])
+    store.hit('d', 60_000, 'p')
+    expect([...windowsOf(store).keys()].sort()).toEqual(['a', 'c', 'd'])
     expect(sweep).not.toHaveBeenCalled()
   })
 
   it('a full store of live windows drops the one nearest its end', () => {
     const store = new MemoryThrottleStore(2)
-    store.hit('long', 60_000)
+    store.hit('long', 60_000, 'p')
     vi.advanceTimersByTime(100)
-    store.hit('short', 1000)
-    store.hit('new', 60_000)
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    expect([...windows.keys()]).toEqual(['long', 'new'])
+    store.hit('short', 1000, 'p')
+    store.hit('new', 60_000, 'p')
+    expect([...windowsOf(store).keys()]).toEqual(['long', 'new'])
   })
 
   it('keeps at most maxWindows, dropping the window started first', () => {
     const store = new MemoryThrottleStore(2)
-    store.hit('a', 10_000)
-    store.hit('b', 10_000)
-    store.hit('a', 10_000)
-    store.hit('c', 10_000)
-    const windows = (store as unknown as { windows: Map<string, unknown> }).windows
-    expect([...windows.keys()]).toEqual(['b', 'c'])
-    expect(store.hit('a', 10_000).hits).toBe(1)
+    store.hit('a', 10_000, 'p')
+    store.hit('b', 10_000, 'p')
+    store.hit('a', 10_000, 'p')
+    store.hit('c', 10_000, 'p')
+    expect([...windowsOf(store).keys()]).toEqual(['b', 'c'])
+    expect(store.hit('a', 10_000, 'p').hits).toBe(1)
+  })
+
+  it('caps a client prefix, evicting its own window that ends first (#319)', () => {
+    const store = new MemoryThrottleStore(10, 2)
+    store.hit('a1', 10_000, 'a')
+    vi.advanceTimersByTime(100)
+    store.hit('a2', 10_000, 'a')
+    store.hit('b1', 10_000, 'b')
+    vi.advanceTimersByTime(100)
+    // `a` is at its cap: the third window drops a1 (the one that ends first), never b1
+    store.hit('a3', 10_000, 'a')
+    expect([...windowsOf(store).keys()].sort()).toEqual(['a2', 'a3', 'b1'])
+  })
+
+  it("a full prefix leaves another prefix's window alone (#319)", () => {
+    const store = new MemoryThrottleStore(10, 2)
+    store.hit('b1', 60_000, 'b')
+    store.hit('b1', 60_000, 'b')
+    store.hit('a1', 10_000, 'a')
+    store.hit('a2', 10_000, 'a')
+    store.hit('a3', 10_000, 'a')
+    // b1 kept its two hits: an evicted window would answer 1
+    expect(store.hit('b1', 60_000, 'b').hits).toBe(3)
+  })
+
+  it('the global cap still bounds many prefixes (#319)', () => {
+    const store = new MemoryThrottleStore(2, 10)
+    store.hit('k1', 10_000, 'p1')
+    store.hit('k2', 10_000, 'p2')
+    store.hit('k3', 10_000, 'p3')
+    expect([...windowsOf(store).keys()]).toEqual(['k2', 'k3'])
+  })
+})
+
+describe('clientPrefix', () => {
+  it('is the IPv4 address, or the /48 of an IPv6 /64 bucket (#319)', () => {
+    expect(clientPrefix('203.0.113.5')).toBe('203.0.113.5')
+    expect(clientPrefix('2001:db8:1:2::/64')).toBe('2001:db8:1::/48')
+    expect(clientPrefix('0:0:0:0::/64')).toBe('0:0:0::/48')
+    // Every bucket ipBucket produces is one of the two forms
+    expect(clientPrefix(ipBucket('::1')!)).toBe('0:0:0::/48')
+    expect(clientPrefix(ipBucket('::ffff:203.0.113.5')!)).toBe('203.0.113.5')
   })
 })
 
@@ -376,17 +495,55 @@ describe('throttled', () => {
 
   const next = (async () => {}) as Next
 
+  /** A context whose registered getter captured `address`. */
+  const addressContext = (address: string) => ({
+    get: () => ({ registered: true, address }),
+    req: { raw: { signal: { aborted: false } } },
+    env: {},
+  }) as unknown as Context
+
   const connectionRoute = { name: 'posts.store', method: 'post', path: '/posts', domain: undefined }
   const connectionLimit = { limit: 1, per: 60 }
 
   it('rejects a window that never ends at mount', () => {
     const route = { name: 'posts.index', method: 'get', path: '/posts', domain: undefined }
     const handle = async () => new Response()
-    expect(() => throttled(route, { limit: 1, per: 1e300 }, handle)).toThrow(
+    const store = new MemoryThrottleStore()
+    expect(() => throttled(route, { limit: 1, per: 1e300 }, handle, store)).toThrow(
       '[@laratype/http] Route.api: posts.index: throttle per must be from 1 second to 9007199254740991 ms, got 1e+300',
     )
-    expect(() => throttled(route, { limit: 1, per: 0.5 }, handle)).toThrow(/from 1 second/)
-    expect(() => throttled(route, { limit: 1, per: 60 }, handle)).not.toThrow()
+    expect(() => throttled(route, { limit: 1, per: 0.5 }, handle, store)).toThrow(/from 1 second/)
+    expect(() => throttled(route, { limit: 1, per: 60 }, handle, store)).not.toThrow()
+  })
+
+  it('passes the client prefix of the bucket to the store (#319)', async () => {
+    const seen: Array<[string, number, string]> = []
+    const store = {
+      hit: (key: string, windowMs: number, prefix: string) => {
+        seen.push([key, windowMs, prefix])
+        return { hits: 1, resetAt: Date.now() + windowMs }
+      },
+    }
+    const middleware = throttled(connectionRoute, connectionLimit, async () => new Response('ok'), store)
+    expect(((await middleware(addressContext('2001:db8:1:2::a'), next)) as Response).status).toBe(200)
+    expect(((await middleware(addressContext('203.0.113.7'), next)) as Response).status).toBe(200)
+    expect(seen).toEqual([
+      [expect.stringContaining('2001:db8:1:2::/64'), 60_000, '2001:db8:1::/48'],
+      [expect.stringContaining('203.0.113.7'), 60_000, '203.0.113.7'],
+    ])
+  })
+
+  it("a /48 rotating /64s cannot reset another client's window at the prefix cap (#319)", async () => {
+    const store = new MemoryThrottleStore(8, 1)
+    const middleware = throttled(connectionRoute, connectionLimit, async () => new Response('ok'), store)
+    const client = addressContext('203.0.113.44')
+    expect(((await middleware(client, next)) as Response).status).toBe(200)
+    await expect(middleware(client, next)).rejects.toMatchObject({ status: 429 })
+    // The attacker rotates three /64s of one /48: each new bucket evicts its own prefix's window, not the client's
+    for (const ip of ['2001:db8:9:1::1', '2001:db8:9:2::1', '2001:db8:9:3::1']) {
+      expect(((await middleware(addressContext(ip), next)) as Response).status).toBe(200)
+    }
+    await expect(middleware(client, next)).rejects.toMatchObject({ status: 429 })
   })
 
   it('fails closed without running the handler when the client is gone and no address was read', async () => {

@@ -28,7 +28,7 @@ import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
 import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
 import { fail } from "./fail";
-import { throttled } from "./throttle";
+import { MemoryThrottleStore, throttled } from "./throttle";
 import { contractAuth } from "./contractAuth";
 import { registerRoutes } from "../routeUrl";
 
@@ -739,6 +739,9 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
     // The auth factory @laratype/auth registers on import (A2 #120). Read once: the slot is untrusted (a value that
     // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
     const auth = contractAuth();
+    // The counters of this mount, one store per mount (#319): two apps, or two test mounts, never share a window. The
+    // cache (#166) replaces the store later; injection is deferred to it (docs/v1/http.md › Rate limiting › Store)
+    const throttleStore = new MemoryThrottleStore();
     // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
     const handlers = registrationOrder<RouteEntry | AdHocRouteEntry>([...this.routes, ...this.adHoc]).map((route) => {
       const prepared = route.controller !== undefined && route.auth !== undefined
@@ -749,7 +752,7 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
       const kernel = RequestKernel.handle(routeParams(route, prepared));
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229). An ad-hoc
       // route has no contract, so it has no throttle either.
-      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel) : kernel;
+      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel, throttleStore) : kernel;
       const domain = route.domain;
       return [route, domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next())] as const;
     });
