@@ -1,5 +1,5 @@
 import type { ErrorBag } from "./validate";
-import { fail, isFailureStatus } from "./internal";
+import { fail, isFailureStatus, isPlainObject } from "./internal";
 import type { Digit, ToNumber } from "./internal";
 
 /** An error status: `400` to `599`, so a declared error is always classified as a failure. */
@@ -114,12 +114,15 @@ const checkBody = (code: string, body: unknown): void => {
   }
   // a plain object only: Map, Set, Date or a class instance would not spread into { code, ...body } as written.
   // Any realm's Object.prototype is itself the root (its prototype is null), so an iframe's or a vm's object passes.
-  const proto: object | null = Object.getPrototypeOf(body);
-  // a realm's Object.prototype is the root of its chain and has its own hasOwnProperty; a bare null-prototype
-  // object used as a prototype is not one
-  const plain = proto === null || (Object.getPrototypeOf(proto) === null && Object.prototype.hasOwnProperty.call(proto, "hasOwnProperty"));
-  if (!plain) {
-    fail(`${code}: the body must be a plain object, got ${(proto as { constructor?: { name?: string } } | null)?.constructor?.name || "an object with a custom prototype"} (the error is sent as { code, ...body })`);
+  if (!isPlainObject(body)) {
+    let kind = "an object with a custom prototype";
+    try {
+      const proto = Object.getPrototypeOf(body) as { constructor?: { name?: string } } | null;
+      kind = proto?.constructor?.name || kind;
+    } catch {
+      // a throwing getPrototypeOf keeps the generic name
+    }
+    fail(`${code}: the body must be a plain object, got ${kind} (the error is sent as { code, ...body })`);
   }
   if (Object.prototype.hasOwnProperty.call(body, "code")) fail(`${code}: the body must not have its own "code" key (the error is sent as { code, ...body })`);
 };

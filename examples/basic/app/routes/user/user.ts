@@ -16,7 +16,7 @@ const authRoutes: RouteOptions = {
       path: "/register",
       method: "post",
       request: CreateUserRequest,
-      controller: controller(UserController, 'destroy')
+      controller: controller(UserController, 'store')
     },
     {
       path: "/login",

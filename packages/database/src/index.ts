@@ -1,5 +1,6 @@
 export { default as DatabaseServiceProvider } from "./providers/EloquentServiceProvider"
 export { default as Model, type ModelClass, type PrimaryKeyValue } from "./eloquent/Model"
+export type { BindableModel } from "./eloquent/BindableModel"
 export { default as ModelQueryBuilder } from "./eloquent/ModelQueryBuilder"
 export type {
   ColumnKey,

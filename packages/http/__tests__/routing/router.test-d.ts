@@ -49,14 +49,14 @@ describe('Route.api', () => {
       r.contract(posts, PostController),
       r.contract(health, HealthController),
     ])
-    expectTypeOf(routes).toEqualTypeOf<ApiRoutes>()
-    expectTypeOf(routes.domain('api.example.test')).toEqualTypeOf<ApiRoutes>()
+    expectTypeOf(routes).toExtend<ApiRoutes>()
+    expectTypeOf(routes.domain('api.example.test')).toEqualTypeOf<typeof routes>()
   })
 
   test('r.contract() and r.scope() return typed items', () => {
     Route.api(appApi, (r) => {
-      expectTypeOf(r.contract(users, UserController)).toEqualTypeOf<MountedContract<typeof users>>()
-      expectTypeOf(r.scope('users/[user]', { policy: UserScopePolicy })).toEqualTypeOf<MountedScope<'users/[user]'>>()
+      expectTypeOf(r.contract(users, UserController)).toEqualTypeOf<MountedContract<typeof users, {}>>()
+      expectTypeOf(r.scope('users/[user]', { policy: UserScopePolicy })).toEqualTypeOf<MountedScope<'users/[user]', {}>>()
       return [] as never
     })
   })

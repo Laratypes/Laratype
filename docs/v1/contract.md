@@ -22,11 +22,11 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [defineContract](#definecontract) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); path and GET-body re-checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84 |
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; root brand, `isApiRoot`/`isApiNode` and entry `scopes: [{ scope, dir }]` proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
-| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); planned → #142 |
+| [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); watch proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9 ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
 | [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
-| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; `route()` planned → #162 |
+| [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); regex params, wildcard segments, flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ b16f92d1 ([#253](https://github.com/Laratypes/Laratype/issues/253)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
 | [Type test suite in CI](#type-test-suite-in-ci) | planned → #94 |
 
 Package-level invariants:
@@ -507,7 +507,7 @@ Type-level, as the `error` property of the offending key: `defineApi: invalid tr
 ## API type projection
 
 ### Status
-merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify` proposed: PR [#304](https://github.com/Laratypes/Laratype/pull/304) @ 74c8922 (H4 [#107](https://github.com/Laratypes/Laratype/issues/107)).
+merged @ e2eac4b (C5 [#93](https://github.com/Laratypes/Laratype/issues/93)). Nested trees, full paths and the derived error union are merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `Jsonify`: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)).
 
 ### Public API
 [`packages/contract/src/api-types.ts`](../../packages/contract/src/api-types.ts)
@@ -532,7 +532,7 @@ export interface EndpointShape { method: string; path: string; params: object; q
 export type ApiShape<A> = { [K in keyof A]: A[K] extends { method: string } ? EndpointShape : ApiShape<A[K]> };
 ```
 
-[`json.ts` @ 74c8922](https://github.com/Laratypes/Laratype/blob/74c8922b63486edad9017b99a5591278b01b8427/packages/contract/src/json.ts#L1-L39) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107))
+[`json.ts` @ 23875e4e](https://github.com/Laratypes/Laratype/blob/23875e4e/packages/contract/src/json.ts#L1-L55) (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312))
 
 ```ts
 import type { Prettify } from "./path";
@@ -547,24 +547,24 @@ type JsonKey<T, K extends keyof T> = K extends symbol ? never : [Exclude<T[K], u
 
 /**
  * An object's wire type. `JSON.stringify` drops a property whose value is `undefined`, so a property that may be
- * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire.
+ * `undefined` (`x?: X` or `x: X | undefined`) is optional on the wire, without a `null`: only a top-level `undefined`
+ * has no JSON text and is sent as `null` (`Jsonify`).
  */
 type JsonObject<T> = Prettify<
-  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: Jsonify<T[K]> } & {
-    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: Jsonify<T[K]>;
+  { -readonly [K in keyof T as undefined extends T[K] ? never : JsonKey<T, K>]: JsonValue<T[K]> } & {
+    -readonly [K in keyof T as undefined extends T[K] ? JsonKey<T, K> : never]?: JsonValue<Exclude<T[K], undefined>>;
   }
 >;
 
 /**
- * The wire type of a value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through `toJSON`),
- * `undefined` / functions / symbols are removed from unions and their properties dropped, a property that may be
- * `undefined` is optional, `bigint` → `never`, `Map` / `Set` → `{}`. The server serializes a response schema's output
- * with `JSON.stringify`, so the frontend reads it as `Jsonify<InferOut<schema>>`.
+ * The wire type of one JSON value after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through
+ * `toJSON`), `undefined` / functions / symbols are removed from unions and their properties dropped, `bigint` → `never`,
+ * `Map` / `Set` → `{}`. A top-level `undefined` is `Jsonify`'s `null`, not this type.
  */
-export type Jsonify<T> = unknown extends T
+type JsonValue<T> = unknown extends T
   ? T
   : T extends { toJSON(...args: any[]): infer J }
-    ? Jsonify<J>
+    ? JsonValue<J>
     : T extends string | number | boolean | null
       ? T
       : T extends NotJson | bigint
@@ -574,6 +574,22 @@ export type Jsonify<T> = unknown extends T
           : T extends readonly unknown[]
             ? { -readonly [K in keyof T]: JsonItem<T[K]> }
             : JsonObject<T>;
+
+/**
+ * The wire type of a response body after `JSON.stringify` + `JSON.parse` (#107, #110): `Date` → `string` (through
+ * `toJSON`), `undefined` / functions / symbols are removed from unions, a property that may be `undefined` is optional
+ * and dropped, `bigint` → `never`, `Map` / `Set` → `{}`. A top-level value JSON has no text for (`undefined`, the
+ * server's `null` for it, and a root `toJSON()` that returns `undefined`) is `null`, so `Jsonify<string | undefined>` is
+ * `string | null` (H32 #312). The server serializes a response schema's output with `JSON.stringify`, so the frontend
+ * reads it as `Jsonify<InferOut<schema>>`.
+ */
+export type Jsonify<T> = unknown extends T
+  ? T
+  : T extends { toJSON(...args: any[]): infer J }
+    ? Jsonify<J>
+    : undefined extends T
+      ? JsonValue<T> | null
+      : JsonValue<T>;
 ```
 
 ### Invariants
@@ -582,7 +598,7 @@ export type Jsonify<T> = unknown extends T
 - `errors` is the [derived error union](#capabilities-and-derived-errors). Two errors can share a status, so clients narrow by `code`.
 - `ApiShape<A>` is used as a **self-constraint** (`<A extends ApiShape<A>>`). It accepts both `ApiTypes<typeof appApi>` and a generated `interface`. A member with a `method` is an endpoint; any other member is a nested group. An index-signature constraint would reject interfaces; there is a type test showing this.
 - `EndpointTypes<E>` without a context is the endpoint on its own: its relative path and only its own capabilities.
-- `Jsonify<T>` is the wire type of `T` after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
+- `Jsonify<T>` is the wire type of a response body after `JSON.stringify` + `JSON.parse`, what the server sends for a response schema's output ([http.md › Response from the contract](./http.md#response-from-the-contract)): `Date` → `string` (through `toJSON`), `undefined`, functions and symbols are removed from unions and a property of only those types is dropped, a property that may be `undefined` is optional, an array item of those types is `null`, `bigint` → `never`, `Map` / `Set` → `{}`, `unknown` stays `unknown`. A **top-level** `undefined` is `null`, since the server sends `null` when JSON has no text for the handler's value, and so is a root `toJSON()` that returns `undefined`, so `Jsonify<string | undefined>` is `string | null` (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); a property that may be `undefined` is dropped by `JSON.stringify` instead, and stays optional without a `null`. Types only, browser-safe. `@laratype/client` types `data` and the error bodies with it ([client.md › createClient](./client.md#createclient)). Type tests: `packages/contract/__tests__/json.test-d.ts`.
 
 ### Diagnostics
 Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and so does an error member without `code`.
@@ -604,7 +620,7 @@ Type-only: a type that isn't an API shape fails the `ApiShape` constraint, and s
 ## Contract folder tree
 
 ### Status
-The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The root config key and the server's dev scan are merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1). The watch is planned → [#142](https://github.com/Laratypes/Laratype/issues/142) (G2).
+The contract side is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `ContractPrefix`, `defineContract<Prefix>()` and the `defineApi` tree. The scan and the generated files are merged ([#133](https://github.com/Laratypes/Laratype/issues/133), `sauf types:generate`). The root config key and the server's dev scan are merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1). The dev type watch is proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9 (G2 [#142](https://github.com/Laratypes/Laratype/issues/142)).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -661,9 +677,8 @@ export type ScopePrefix = ContractPrefix<'/api/users/:user', [typeof import('../
 ```
 
 ### Design (non-binding)
-The parts that G2 and H1 will build:
-- **Watch:** `sauf dev` rescans the tree on file add, rename and delete, and regenerates the files above ([#142](https://github.com/Laratypes/Laratype/issues/142)).
-- **Rescan:** in dev the server rescans the tree on change ([#142](https://github.com/Laratypes/Laratype/issues/142)). In production nothing scans: the build compiles the generated `index.gen.ts` ([build.md › Plugin chain](./build.md#plugin-chain), merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
+- **Watch (proposed: PR [#397](https://github.com/Laratypes/Laratype/pull/397) @ 23b5baa9, G2 [#142](https://github.com/Laratypes/Laratype/issues/142)):** `sauf dev` watches the tree with Vite's own watcher, with or without `--hmr`, debounces a burst into one generation, and regenerates `$types.d.ts` and `index.gen.ts` only when their content changed ([typegen.md › Watch mode in sauf dev](./typegen.md#watch-mode-in-sauf-dev)). A content edit needs no regeneration: the generated files import the contract.
+- **Rescan:** in dev the server rescans the tree on the same events ([#142](https://github.com/Laratypes/Laratype/issues/142)); reloading the running server's routes without a restart is a follow-up. In production nothing scans: the build compiles the generated `index.gen.ts` ([build.md › Plugin chain](./build.md#plugin-chain), merged [#125](https://github.com/Laratypes/Laratype/issues/125)).
 - **Cost:** hybrid mode is no longer build-free. Types for a new or renamed folder appear once `sauf dev` or `sauf types:generate` has run.
 
 ### Open questions
@@ -898,44 +913,67 @@ Type-only (`types/errors.types.ts`): a string status, a missing code, a non-func
 ## URL builder
 
 ### Status
-`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the server `route()` helper planned → [#162](https://github.com/Laratypes/Laratype/issues/162) (H13).
+`buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); its other-host check (C9 [#257](https://github.com/Laratypes/Laratype/issues/257)) proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; regex params that hold `/`, the wildcard refusal, the flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ b16f92d1 (C8 [#253](https://github.com/Laratypes/Laratype/issues/253)); the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162), H13), which builds every path and query with `buildUrl` ([http.md › Route names and URLs](./http.md#route-names-and-urls)).
 
 ### Public API
 [`packages/contract/src/url.ts`](../../packages/contract/src/url.ts)
 
 ```ts
-export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional)
-export type UrlInput<P extends string> = { params: UrlParams<P> /* optional when P has no required param */; query?: object };
-export function buildUrl<P extends string>(path: P, input?: UrlInput<P>): string;   // input required when P has a required param
+export type UrlQueryValue;   // string | number | bigint | boolean | Date | null | undefined
+export type UrlQuery;        // { readonly [key: string]: UrlQueryValue | readonly UrlQueryValue[] }: the wide flat query shape
+export type UrlParams<P extends string>;   // each key of PathParams<P>: string | number (optional keys stay optional); a "*" segment gives { error: "…" }
+export type UrlInput<P extends string, Q = UrlQuery> = { params: UrlParams<P> /* optional only when P has no required param and no "*" segment */; query?: Q };   // Q: a flat named shape (an interface included); UrlQuery when the keys are not known
+export function buildUrl<P extends string, Q = UrlQuery>(path: P, input?: UrlInput<P, Q>): string;   // input required when P has a required param or a "*" segment
 
 buildUrl('/api/users/:user/posts', { params: { user: 1 }, query: { page: 2 } })   // "/api/users/1/posts?page=2"
+buildUrl('/files/:file{.+}', { params: { file: 'a/b' } })                         // "/files/a%2Fb"
+buildUrl('/files/:file{.+/.+}/raw', { params: { file: 'a/b' } })                  // "/files/a/b/raw"
 ```
 
 ### Invariants
 - **Takes a full path, not an endpoint.** #162 sketched `buildUrl(endpoint, { params, query })`, but an endpoint only knows its path relative to its contract. The folder prefix (`/api/users/:user/posts`) lives on the API entry, so callers pass the full path (`ApiRoute.path`, or the client's joined path).
-- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces). Values are `string | number` and are encoded with `encodeURIComponent`. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment, and `*`, stay as they are.
-- **No dot segments:** a param value of exactly `.` or `..` throws, required or optional. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` in a value is encoded (`..%2Fx`).
+- **Params** follow the [path param syntax](#path-params): `:name`, `:name?` and `:name{regex}` (a pattern may hold `/` and nested braces; a `}` before a `/` is refused, see below). A value is a `string` or a finite `number`, encoded with `encodeURIComponent`; any other type, `NaN` or an infinite number throws. A missing required param (`undefined`, `null` or `""`) is a type error and throws at runtime. An absent optional param drops its whole segment (`/users/:user/posts/:post?` → `/users/u/posts`). A `:` that does not start a segment stays as it is. Only own properties are read: a param named `__proto__` or `constructor` never reads the object's prototype.
+- **Encoded by default: `/` is `%2F`.** A param value is `encodeURIComponent`d whole, so it can never add a path segment: `:file{.+}`, `:file{[^.]+}` and `:file{.*}` match the encoded value (a `.` matches `%`, and a class or a `*` can allow it), and `buildUrl('/files/:f{.+}', { params: { f: 'admin/all' } })` is `/files/admin%2Fall`, which reaches the `:f` route with `f = "admin/all"` (Hono decodes the param) instead of a static `DELETE /files/admin/all` sibling registered before it.
+- **Multi-segment params, only when the pattern needs a literal `/`.** `buildUrl` matches the param's pattern against `encodeURIComponent(value)` with the static path that follows the param, the way Hono does: anchored, with no flags, in the form of the router that compiles it — the RegExp form (`^(?:pattern)/next$`, a group over the whole route) when Hono 4.9.6's RegExp router compiles the pattern, otherwise the trie form (`^pattern$`, or `^pattern(?=/next)`). A value without `/` is sent encoded and is never checked for a router disagreement: the trie router reading a prefix of it is Hono's matching, not a URL choice. When the pattern rejects the encoded value, the value is split on `/`, each segment is `encodeURIComponent`d and the segments joined with `/`: the `:file{.+/.+}` case, where a literal `/` is needed and `%2F` would 404. The split is sent only when the pattern accepts it. Because a split that is sent turns the value into path segments, `buildUrl` then compares the two forms on the encoded value and on the split; when they read either differently (the RegExp form groups a top-level `|`, the trie form takes the matched text as the param), it throws `Hono's two routers read differently for this value`: no URL is right in every app, because another route decides the router. `:file{a|.+/.+}` with `admin/all` throws; with `a` (no `/`) it builds `/files/a`; with `x/y` (both forms read the split whole) it builds `/files/x/y`; a split the pattern rejects keeps the encoded value and 404s. The split's empty and dot segments are refused only when the split is sent: an empty segment, or a segment that is exactly `.` or `..`, throws because it would add a segment or be resolved as a dot segment.
+- **A pattern Hono cannot parse throws.** Hono reads a param pattern up to the first `}` inside it, then splits the route on `/`: a pattern with a `}` before a `/` (`:f{a{2}/x}`, a quantifier before a slash) is cut at that `/`, and neither of Hono's routers matches the route. `buildUrl` throws (`has a pattern with "}" before "/", which Hono cannot route`) instead of building a URL that 404s. A quantifier with no `/` after it (`:f{a{2}}`) and a `/` before the inner `}` (`:f{a/b{2}}`) are fine. The type does not detect this class: `UrlParams` refuses only a `*` segment; the refusal is at runtime.
+- **Keep route patterns linear.** `buildUrl`, and the server `route()` and `redirect().route()` built on it, run the route's own param pattern against a value that contains `/`: the encoded form, then the split when the encoded form is rejected. A catastrophic (exponential) pattern therefore costs there about what Hono's own match costs. Keep route patterns linear, as for routing.
+- **Residual of a multi-segment param.** Its value's segments become path segments, so a value can spell out another route of the same method that the pattern also reaches: `buildUrl('/files/:f{.+/.+}', { params: { f: 'admin/all' } })` is `/files/admin/all`, the same path as a static sibling. Patterns that only match with the following static segment (e.g. `:file{.+/.+(?=/raw)}/raw`) are split too, so a value can spell out a sibling route, and the trie router can prefer a deeper sibling even when the target is registered first; validate untrusted input before it reaches a multi-segment param.
+- **No wildcards.** A `*` segment is a Hono wildcard, and `buildUrl` has no value to fill it: a path with one is a type error (`UrlParams<P>` is then `{ error }`) and throws at runtime, naming the path. Only a segment that is exactly `*` is refused: a `*` inside a regex pattern stays in the pattern, and a longer segment such as `a*b` is left as it is (Hono reads that one as a glob).
+- **No dot segments:** a param value of exactly `.` or `..` throws, required or optional; so does a `.` or `..` segment of a multi-segment value whose split is sent. `encodeURIComponent` keeps dots, and URL parsing (`fetch`, `new URL`) resolves a dot segment, so `/api/users/..` would reach `/api`. Dots inside a value (`a..b`, `...`) are kept, and `/` is `%2F` unless the pattern needs a literal one (`..%2Fx`).
+- **No unpaired surrogate.** A param value with an unpaired UTF-16 surrogate cannot be encoded (`encodeURIComponent` throws `URIError`); `buildUrl` throws a `TypeError` naming the param and the path, never the value. A query value with one is replaced with U+FFFD by `URLSearchParams`, as any non-USV string is.
 - **No other host:** a result that URL parsing reads as another host throws: read the way URL parsing reads it (leading spaces and controls and every tab, LF and CR dropped, `\` as `/`), it must not start with `//` or a `scheme:` (`//x`, `/\x`, `/<tab>/x` and a scheme-relative `http:/x` throw). String work only: `buildUrl` doesn't use `URL`. Endpoint paths start with one `/`, but an absent optional first param drops its segment, so `/:a?//x` would build `//x`, the host `x` (#257).
-- **Query** goes through `URLSearchParams`. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A nested object, a function or a symbol throws. An empty query adds no `?`.
+- **Query is flat** (`UrlQuery`): a string, number, bigint, boolean, `Date`, `null`/`undefined`, or an array of them. The query itself must be a plain object of keys: a `null` prototype or any realm's `Object.prototype` (an iframe's or a vm's object passes), so an array, a `Map`, a `URLSearchParams`, a `Date` or a class instance is refused at runtime (naming its constructor), while an array value repeats its key. The type cannot express plainness, so a `Map`, a `Date` or a class instance is refused at runtime only. The check is per key of the query's own type, so a named `interface` is accepted (an interface gets no implicit index signature); `UrlQuery` is the wide shape for code that does not know the keys. A nested object is a type error (there is no `a[b]=1` serialization) and throws at runtime, naming the key only. `undefined` and `null` are skipped, an array repeats its key (`tag=a&tag=b`), a `Date` is sent as ISO 8601, other primitives with `String()`. A function or a symbol throws. Keys are own enumerable keys: a prototype key is never sent, and an own `__proto__` key is an ordinary key. An empty query adds no `?`.
+- The path, `params` and `query` must be a string, an object and a plain object: a non-string path (which a `{ length: 1e9 }` object could fake), a primitive `params`, and a primitive or non-plain `query` throw, naming only the type or the constructor. `null` and `undefined` `params`/`query` mean none.
 - Pure and browser-safe (no `node:*`). `@laratype/client` uses it for every call.
 
 ### Diagnostics
 Runtime `TypeError`s, prefixed `[@laratype/contract] `:
+- `buildUrl: path must be a string, got <typeof>`
+- `buildUrl: path "<path>" has a "*" segment, which buildUrl cannot fill`
+- `buildUrl: params must be an object, got <typeof>`
+- `buildUrl: query must be a plain object of keys, got <Array | Map | URLSearchParams | Date | Class | an object | typeof>`
 - `buildUrl: missing param "<name>" for "<path>"`
+- `buildUrl: param "<name>" for "<path>" must be a string or a number, got <typeof>`
+- `buildUrl: param "<name>" for "<path>" must be a finite number, got <NaN | Infinity | -Infinity>`
 - `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)` (or `".."`)
+- `buildUrl: param "<name>" for "<path>" has an empty segment` (a segment of a multi-segment value whose split the pattern accepts)
+- `buildUrl: param "<name>" for "<path>" has a "." or ".." segment (a dot segment)` (the same condition; never the value)
+- `buildUrl: param "<name>" for "<path>" has a pattern with "}" before "/", which Hono cannot route`
+- `buildUrl: param "<name>" for "<path>" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`
+- `buildUrl: param "<name>" for "<path>" has an unpaired surrogate`
 - `buildUrl: "<path>" builds "<result>", which a URL reads as another host`
 - `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`
 
-Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, or a param value that is not a string or number.
+Type-level (`packages/contract/__tests__/url.test-d.ts`): a missing input or required param, an unknown param, a param value that is not a string or number, a path with a `*` segment (the nested-brace path whose split makes a `*` segment included), an array query, and a nested or non-flat query value; a flat named query (an interface or a type alias, an optional field, an array field) is accepted. A pattern with a `}` before a `/` is refused at runtime only: the type does not detect it (`UrlParams` keeps the path's params), and a `Map`, `Date` or class instance as the query is refused at runtime only.
 
 ### Example
 [`examples/client/create-client.ts`](./examples/client/create-client.ts)
 
 ### Design (non-binding)
-The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162)) will build on `buildUrl`. Nothing of it exists in code yet.
+The server `route()` helper ([#162](https://github.com/Laratypes/Laratype/issues/162), H13) builds on `buildUrl`, and lives in `@laratype/http`; [http.md › Route names and URLs](./http.md#route-names-and-urls) has its API and diagnostics.
 
 - **Names:** the folder tree plus the endpoint key, for example `route('users.posts.update', { user, post })` ([Contract folder tree](#contract-folder-tree)).
-- **Params:** typed from the path, including the params of parent `[x]` folders. Bound params accept a Model (its route key).
+- **Params:** typed from the path, including the params of parent `[x]` folders. A param accepts a Model through `getRouteKey()`.
 - **Ad-hoc routes** keep explicit names ([http.md › Ad-hoc routes](./http.md#ad-hoc-routes)).
 
 ### Acceptance

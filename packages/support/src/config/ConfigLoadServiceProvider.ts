@@ -15,8 +15,19 @@ export default class ConfigLoadServiceProvider extends ServiceProvider {
     const configs: Record<string, unknown> = Object.create(null);
     configs.config = await loadDefault(main);
     Config.setConfigs(configs.config as ConfigContract.AppConfig);
-    for (const entry of entries) {
-      if (entry !== main) configs[entry.name] = await loadDefault(entry);
+    // The others load together, once config.ts has filled 0.5's Config. Each result settles on its own, so a failure is
+    // the first one in file order, not the first to settle: a plain Promise.all would report whichever lost the race.
+    const others = entries.filter((entry) => entry !== main);
+    const loaded = await Promise.all(others.map(async (entry) => {
+      try {
+        return { ok: true as const, value: await loadDefault(entry) };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    }));
+    for (const [index, result] of loaded.entries()) {
+      if (!result.ok) throw result.error;
+      configs[others[index].name] = result.value;
     }
     setConfigs(Object.freeze(configs));
   }

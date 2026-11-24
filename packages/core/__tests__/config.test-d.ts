@@ -30,11 +30,19 @@ class Model {
   email = ''
 }
 
+/** The keys `config()` never reads, whatever the config declares (K4 #314). */
+interface Reserved {
+  readonly constructor: string
+  readonly prototype: string
+  readonly '__proto__': string
+  readonly ok: string
+}
+
 // The app's registration: what `declare module` in app code looks like (Q16). It applies to the whole `types`
 // program, so this is the only type test that registers configs.
 declare module '@laratype/core' {
   interface Register {
-    config: { database: typeof database; mail: Mail }
+    config: { database: typeof database; mail: Mail; reserved: Reserved }
   }
 }
 
@@ -83,6 +91,24 @@ describe('config() (K1 #152)', () => {
     config('database.connections.pgsql')
     // @ts-expect-error a path, not keys
     config(['database', 'default'])
+  })
+
+  test('a reserved key is never a path nor a value (K4 #314)', () => {
+    expectTypeOf(config('reserved.ok')).toEqualTypeOf<string>()
+    // @ts-expect-error constructor never names a value
+    config('reserved.constructor')
+    // @ts-expect-error prototype never names a value
+    config('reserved.prototype')
+    // @ts-expect-error __proto__ never names a value
+    config('reserved.__proto__')
+    expectTypeOf<ConfigPath<Reserved>>().toEqualTypeOf<'ok'>()
+    expectTypeOf<ConfigValue<'constructor', Reserved>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'prototype', Reserved>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'__proto__', Reserved>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'reserved.constructor'>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'constructor.ok', Reserved>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'constructor', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'constructor', unknown>>().toEqualTypeOf<undefined>()
   })
 
   test('without a registration, any path gives unknown', () => {

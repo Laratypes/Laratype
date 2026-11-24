@@ -36,7 +36,7 @@ export class DiError extends Error {
 
 interface Binding {
   scope: Scope
-  create: (container: Container) => unknown
+  create: (container: Container, requiredBy?: string) => unknown
   resolved?: { value: unknown }
   /** A singleton found to depend on a request-scoped key: cached per request scope from then on. */
   bubbled?: true
@@ -69,12 +69,286 @@ interface TreeState {
 const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('Symbol.asyncDispose')
 const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.for('Symbol.dispose')
 
-const keyName = (key: unknown): string =>
-  typeof key === 'function' ? key.name || '<anonymous class>' : String(key)
+/** A name on one line: control and format characters, line separators and backslashes are escaped. */
+const escapeName = (name: string): string =>
+  name.replace(/[\p{Cc}\p{Cf}\u2028\u2029\\]/gu, (char) => {
+    if (char === '\\') return '\\\\'
+    const code = char.codePointAt(0)!
+    // A supplementary format character escapes as its UTF-16 surrogate pair, so the second unit is not dropped.
+    if (code > 0xffff) {
+      const offset = code - 0x10000
+      return `\\u${(0xd800 + (offset >> 10)).toString(16)}\\u${(0xdc00 + (offset & 0x3ff)).toString(16)}`
+    }
+    return `\\u${code.toString(16).padStart(4, '0')}`
+  })
+
+/** `<C>` for a message: a class name (one line, `<anonymous class>` when unreadable), else `String(key)`. */
+const keyName = (key: unknown): string => {
+  if (typeof key !== 'function') {
+    try {
+      return escapeName(String(key))
+    } catch {
+      return '<unprintable key>'
+    }
+  }
+  try {
+    const name = key.name
+    return name ? escapeName(typeof name === 'string' ? name : String(name)) : '<anonymous class>'
+  } catch {
+    return '<anonymous class>'
+  }
+}
 
 /** `<C> constructor param #<i>`, plus the param name in backticks when the metadata has one. */
 const paramLabel = (cls: Function, index: number, name: string | undefined): string =>
   `${keyName(cls)} constructor param #${index}` + (name ? ` \`${name}\`` : '')
+
+/** JavaScript whitespace: space, tab, NBSP, \v, \f, the BOM and U+2028/U+2029 included. */
+const isWhitespace = (char: string): boolean => /\s/.test(char)
+
+const isLineTerminator = (char: string): boolean => char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
+
+/** Keywords after which a `/` starts a regex literal rather than a division. */
+const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
+  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'throw', 'typeof', 'void', 'yield',
+])
+
+/** Whether the `/` at `index` is in operator position, so it starts a regex literal, not a division. */
+const startsRegex = (source: string, index: number): boolean => {
+  let previous = index - 1
+  while (previous >= 0) {
+    const char = source[previous]!
+    if (isWhitespace(char)) {
+      previous--
+      continue
+    }
+    if (char === '/' && source[previous - 1] === '*') {
+      const open = source.lastIndexOf('/*', previous - 2)
+      if (open < 0) return true
+      previous = open - 1
+      continue
+    }
+    break
+  }
+  if (previous < 0) return true
+  const char = source[previous]!
+  // `a++ / b` and `a-- / b`: a postfix operator is followed by a division, not a regex.
+  if ((char === '+' || char === '-') && source[previous - 1] === char) return false
+  if ('=([{,;:!&|?*>+-/%^~<'.includes(char)) return true
+  if (!/[A-Za-z_$]/.test(char)) return false
+  let wordStart = previous
+  while (wordStart > 0 && /[A-Za-z0-9_$]/.test(source[wordStart - 1]!)) wordStart--
+  // `obj.return / 2`: a property name, not the keyword.
+  if (wordStart > 0 && source[wordStart - 1] === '.') return false
+  return REGEX_KEYWORDS.has(source.slice(wordStart, previous + 1))
+}
+
+/** Index after a slash: a regex literal when it is in operator position, else a one-char division. */
+const skipSlash = (source: string, index: number): number | undefined =>
+  startsRegex(source, index) ? skipRegex(source, index) : index + 1
+
+/** Index after the regex literal at `index`, or `undefined` when it does not close on this line. */
+const skipRegex = (source: string, index: number): number | undefined => {
+  index++
+  let inClass = false
+  while (index < source.length) {
+    const char = source[index]!
+    if (char === '\\') {
+      index += 2
+    } else if (isLineTerminator(char)) {
+      return undefined
+    } else if (char === '[') {
+      inClass = true
+      index++
+    } else if (char === ']') {
+      inClass = false
+      index++
+    } else if (char === '/' && !inClass) {
+      index++
+      while (index < source.length && /[A-Za-z]/.test(source[index]!)) index++
+      return index
+    } else {
+      index++
+    }
+  }
+  return undefined
+}
+
+/** Skip whitespace and comments from `index`; returns the next code index. */
+const skipTrivia = (source: string, index: number): number => {
+  while (index < source.length) {
+    const char = source[index]
+    if (isWhitespace(char!)) {
+      index++
+    } else if (char === '/' && source[index + 1] === '/') {
+      index += 2
+      while (index < source.length && !isLineTerminator(source[index]!)) index++
+    } else if (char === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      index = end < 0 ? source.length : end + 2
+    } else {
+      return index
+    }
+  }
+  return index
+}
+
+/** Index after the string or template literal at `index`; `${…}` expressions are scanned too. */
+const skipQuoted = (source: string, index: number): number => {
+  const quote = source[index]
+  index++
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '\\') {
+      index += 2
+    } else if (char === quote) {
+      return index + 1
+    } else if (quote === '`' && char === '$' && source[index + 1] === '{') {
+      index = skipBalanced(source, index + 1, '{', '}')
+    } else {
+      index++
+    }
+  }
+  return index
+}
+
+/** Index after the `close` that matches the `open` at `index`, skipping strings and comments. */
+const skipBalanced = (source: string, index: number, open: string, close: string): number => {
+  let depth = 0
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else if (char === '/') {
+      const next = skipSlash(source, index)
+      if (next === undefined) return source.length
+      index = next
+    } else {
+      if (char === open) depth++
+      else if (char === close && --depth === 0) return index + 1
+      index++
+    }
+  }
+  return index
+}
+
+/** The raw top-level params between `start` (just after `(`) and `end` (the matching `)`). */
+const splitParams = (source: string, start: number, end: number): string[] => {
+  const params: string[] = []
+  let from = start
+  let depth = 0
+  let index = start
+  while (index < end) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else if (char === '/') {
+      const next = skipSlash(source, index)
+      if (next === undefined) break
+      index = next
+    } else {
+      if (char === '(' || char === '[' || char === '{') depth++
+      else if (char === ')' || char === ']' || char === '}') depth--
+      else if (char === ',' && depth === 0) {
+        params.push(source.slice(from, index))
+        from = index + 1
+      }
+      index++
+    }
+  }
+  params.push(source.slice(from, end))
+  return params
+}
+
+/** Remove comments from a param, so a comment-only slot does not count. */
+const stripComments = (param: string): string =>
+  param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
+
+/** Index of the class body's `{`, skipping a heritage expression and its brackets, strings and comments. */
+const classBodyStart = (source: string): number | undefined => {
+  let index = skipTrivia(source, 0)
+  if (!source.startsWith('class', index)) return undefined
+  index += 'class'.length
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '"' || char === "'" || char === '`') {
+      index = skipQuoted(source, index)
+    } else if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
+      index = skipTrivia(source, index)
+    } else if (char === '(') {
+      index = skipBalanced(source, index, '(', ')')
+    } else if (char === '[') {
+      index = skipBalanced(source, index, '[', ']')
+    } else if (char === '{') {
+      return index
+    } else {
+      index++
+    }
+  }
+  return undefined
+}
+
+/**
+ * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a
+ * readable class, has no own constructor, or puts a field before it (a known limit). `0` means no params, or a
+ * rest-only constructor, which the DI transform treats as no own constructor.
+ */
+const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
+  let source: string
+  try {
+    source = Function.prototype.toString.call(cls)
+  } catch {
+    return undefined
+  }
+  const body = classBodyStart(source)
+  if (body === undefined) return undefined
+  let index = skipTrivia(source, body + 1)
+  if (!source.startsWith('constructor', index)) return undefined
+  index = skipTrivia(source, index + 'constructor'.length)
+  if (source[index] !== '(') return undefined
+  const close = skipBalanced(source, index, '(', ')')
+  if (source[close - 1] !== ')') {
+    // The scan could not parse the list (an ambiguous regex-like literal or an unbalanced source): do not fail open
+    // when there is something between the parentheses.
+    const rest = stripComments(source.slice(index + 1, Math.min(close, source.length))).trim()
+    return rest === '' ? undefined : 1
+  }
+  const params = splitParams(source, index + 1, close - 1)
+    .map((param) => stripComments(param).trim())
+    .filter((param) => param !== '')
+  return params.filter((param) => !param.startsWith('...')).length
+}
+
+/** Per-class cache, `null` for a source that cannot be read: HMR makes a new class object, so it re-reads there. */
+const LEADING_PARAM_COUNTS = new WeakMap<Function, number | null>()
+
+const leadingConstructorParamCount = (cls: Function): number | undefined => {
+  if (LEADING_PARAM_COUNTS.has(cls)) return LEADING_PARAM_COUNTS.get(cls) ?? undefined
+  const count = readLeadingConstructorParamCount(cls) ?? null
+  LEADING_PARAM_COUNTS.set(cls, count)
+  return count ?? undefined
+}
+
+// Same check as the fallback container warning of @laratype/http.
+const isProduction = (): boolean => {
+  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
+  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
+}
+
+/**
+ * `Cannot autowire` hints (di.md › Resolution errors with fix hints). Production `sauf build` runs no laratype:di
+ * transform yet (B2 #126, B4 #128), so only a factory binding can add the class. In dev both fixes exist, and the
+ * factory comes first because the plugin only reaches app code under the Vite root: a class outside the app (a
+ * third-party class) can only be bound.
+ */
+const NO_METADATA_DEV_HINT = ' Fix: bind it with a factory in a service provider `register()` of the app container'
+  + ' (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under `sauf dev`.'
+const NO_METADATA_PRODUCTION_HINT = ' Fix: bind it with a factory in a service provider `register()` of the app container;'
+  + ' a production `sauf build` does not run the laratype:di plugin yet, so it cannot add the metadata.'
 
 /** `DiError` messages with fix hints (D5a). The first sentence of each is the D1 base message. */
 const errors = {
@@ -93,9 +367,10 @@ const errors = {
     `Cannot resolve ${param}: its type resolved to undefined at runtime.`
     + ' It is probably an interface/type imported without `import type`, or a circular import evaluated too early.'
     + ' Fix: use `import type` + @Inject(token), or import the class as a value.',
-  noMetadata: (cls: Function): string =>
-    `Cannot autowire ${keyName(cls)}: its constructor takes ${cls.length} param(s) but no dependency metadata was found.`
-    + ' Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.',
+  noMetadata: (cls: Function, requiredBy?: string, paramCount = cls.length): string =>
+    `Cannot autowire ${keyName(cls)}: its constructor takes ${paramCount} param(s) but no dependency metadata was found.`
+    + (requiredBy ? ` Required by ${requiredBy}.` : '')
+    + (isProduction() ? NO_METADATA_PRODUCTION_HINT : NO_METADATA_DEV_HINT),
   conflict: (param: string, fromTransform: unknown, fromInject: unknown): string =>
     `Conflicting metadata for ${param}: transform says ${keyName(fromTransform)}, @Inject says ${keyName(fromInject)}.`
     + ' Fix: use @Inject from @laratype/core directly (aliases/wrappers are invisible to the build transform).',
@@ -113,12 +388,6 @@ const bubbleWarning = (key: unknown, requestDep: unknown): string =>
 
 /** Keys already warned about, per process: a second copy of `@laratype/core` shares the set. */
 const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
-
-// Same check as the fallback container warning of @laratype/http.
-const isProduction = (): boolean => {
-  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
-  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
-}
 
 const warnBubbled = (key: unknown, requestDep: unknown): void => {
   if (isProduction()) return
@@ -277,9 +546,10 @@ export class Container {
     if (typeof target !== 'function') {
       throw new DiError(`Cannot bind ${keyName(token)} to itself: only a class can be self-bound.`)
     }
+    // A factory keeps its one-argument signature; only a class target needs the requester for a no-metadata error.
     const create = isFactory(target as Concrete<unknown>)
-      ? (target as Factory<unknown>)
-      : (container: Container) => container.build(target as Newable)
+      ? (container: Container) => (target as Factory<unknown>)(container)
+      : (container: Container, requiredBy?: string) => container.build(target as Newable, requiredBy)
     this.bindings.set(token, { scope, create })
     return this
   }
@@ -292,11 +562,11 @@ export class Container {
       if (binding.resolved) return binding.resolved.value
       if (binding.scope === 'request') {
         // Built by the request scope, so its own bindings (per-request values) apply.
-        return this.fromRequestScope(key, binding, requiredBy, (scope) => scope.withCycleCheck(key, () => binding.create(scope)))
+        return this.fromRequestScope(key, binding, requiredBy, (scope) => scope.withCycleCheck(key, () => binding.create(scope, requiredBy)))
       }
       if (binding.scope === 'singleton') {
         // Built by its owner so a child's overrides never leak into a shared instance.
-        const build = () => owner.withCycleCheck(key, () => binding.create(owner))
+        const build = () => owner.withCycleCheck(key, () => binding.create(owner, requiredBy))
         if (binding.bubbled) return this.fromRequestScope(key, binding, requiredBy, build)
         const { value, requestDep } = this.buildSingleton(build)
         if (requestDep === undefined) {
@@ -306,20 +576,20 @@ export class Container {
         binding.bubbled = true
         return this.bubble(key, binding, value, requestDep)
       }
-      return this.withCycleCheck(key, () => binding.create(this))
+      return this.withCycleCheck(key, () => binding.create(this, requiredBy))
     }
     if (typeof key === 'function') {
       // The transform's own-class flag: a concrete subclass of an abstract class still autowires.
       if (isAbstract(key)) throw new DiError(errors.noBindingAbstract(key, requiredBy))
       const scope = injectableScope(key)
       if (scope === 'request') {
-        return this.fromRequestScope(key, key, requiredBy, (requestScope) => requestScope.withCycleCheck(key, () => requestScope.build(key as Newable)))
+        return this.fromRequestScope(key, key, requiredBy, (requestScope) => requestScope.withCycleCheck(key, () => requestScope.build(key as Newable, requiredBy)))
       }
       if (scope === 'singleton') {
         // Built by the root so a child's overrides never leak into the shared instance.
         let root: Container = this
         while (root.parent) root = root.parent
-        const build = () => root.withCycleCheck(key, () => root.build(key as Newable))
+        const build = () => root.withCycleCheck(key, () => root.build(key as Newable, requiredBy))
         if (root.bubbled.has(key)) return this.fromRequestScope(key, key, requiredBy, build)
         const cached = root.autowired.get(key)
         if (cached) return cached.value
@@ -331,7 +601,7 @@ export class Container {
         root.bubbled.add(key)
         return this.bubble(key, key, value, requestDep)
       }
-      return this.withCycleCheck(key, () => this.build(key as Newable))
+      return this.withCycleCheck(key, () => this.build(key as Newable, requiredBy))
     }
     throw new DiError(errors.noBinding(key, requiredBy))
   }
@@ -404,35 +674,55 @@ export class Container {
   }
 
   /** Construct `cls`, resolving its constructor params from the deps lookup and `@Inject` records. */
-  protected build(cls: Newable): unknown {
+  protected build(cls: Newable, requiredBy?: string): unknown {
     const entry = this.deps.get(cls)
-    if (!entry) {
-      if (cls.length > 0) throw new DiError(errors.noMetadata(cls))
-      return new cls()
+    // An inherited entry with no slots does not cover a constructor whose defaults hide its params. Only a lookup
+    // that implements `hasOwn` can say an entry is inherited; without it, the entry is authoritative.
+    const hiddenParams = entry !== undefined
+      && entry.slots.length === 0
+      && cls.length === 0
+      && this.deps.hasOwn?.(cls) === false
+    if (!entry || hiddenParams) {
+      // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
+      const params = leadingConstructorParamCount(cls) ?? cls.length
+      if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
+      if (!entry) return new cls()
     }
     const injected = injectTokens(cls)
-    const args = entry.slots.map((slot, index) => {
+    const args: unknown[] = []
+    // A loop, not `map`: one less frame per level keeps a deep autowire chain off the call stack limit.
+    for (let index = 0; index < entry.slots.length; index++) {
+      const slot = entry.slots[index]
       const optional = entry.meta?.optional?.includes(index) ?? false
       const param = paramLabel(cls, index, entry.meta?.params[index])
       const override = injected?.get(index)
       if (typeof slot !== 'function') {
-        if (override !== undefined) return this.resolve(override, param)
-        if (optional) return undefined
-        throw new DiError(errors.unresolvedParam(param, slot.unresolved))
+        if (override !== undefined) {
+          args.push(this.resolve(override, param))
+        } else if (optional) {
+          args.push(undefined)
+        } else {
+          throw new DiError(errors.unresolvedParam(param, slot.unresolved))
+        }
+        continue
       }
       const dep = slot()
       if (override !== undefined) {
         if (dep !== undefined && dep !== override) {
           throw new DiError(errors.conflict(param, dep, override))
         }
-        return this.resolve(override, param)
+        args.push(this.resolve(override, param))
+        continue
       }
       if (dep === undefined) {
-        if (optional) return undefined
+        if (optional) {
+          args.push(undefined)
+          continue
+        }
         throw new DiError(errors.undefinedThunk(param))
       }
-      return this.resolve(dep, param)
-    })
+      args.push(this.resolve(dep, param))
+    }
     return new cls(...args)
   }
 

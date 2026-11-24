@@ -1,16 +1,19 @@
 // Type tests for createClient (CL1 #109), the result union (CL2 #110), the options (CL3 #124, CL9 #315) and the JSON-safe input (CL7 #255), inferred from the generated appApi.
 import { describe, expectTypeOf, test } from 'vitest'
 import * as z from 'zod'
-import { createClient } from '@laratype/client'
-import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
+import { createClient, ResponseValidationError } from '@laratype/client'
+import type { CallInput, Client, ClientOf, ClientOptions, ClientRequest, ClientResult, ClientSuccess, HeaderValues, ManifestClientOptions, ProvidedHeaders, ResponseData, UnexpectedResult } from '@laratype/client'
 import { defineContract, endpoint } from '@laratype/contract'
-import type { ApiTypes } from '@laratype/contract'
+import type { ApiTypes, Jsonify, StandardIssue } from '@laratype/contract'
 import { appApi } from './fixtures/.laratype/api/index.gen'
 import type { AppApi } from './fixtures/.laratype/api/index.gen'
 import posts from './fixtures/app/api/users/[user]/posts'
 import usersContract from './fixtures/app/api/users'
 import { manifest } from './fixtures/separate-fe/api'
 import type { AppApi as Generated } from './fixtures/separate-fe/api'
+
+/** Type-level checks only: the body is type-checked but never run. */
+const typeOnly = (_fn: () => void) => {}
 
 const api = createClient(appApi)
 
@@ -190,6 +193,16 @@ describe('wire type of the response (Jsonify)', () => {
     }>
     expectTypeOf<Wire>().toEqualTypeOf<{ a: string; b?: string; c?: number; f?: string; g: Record<string, boolean> }>()
   })
+
+  // H32 #312: the server sends `null` when JSON has no text for the handler's value (an optional schema's `undefined`)
+  test('a top-level undefined is null, as the server sends it', () => {
+    type Shape<Response> = {
+      method: 'get'; path: '/'; params: {}; query: undefined; body: undefined; headers: undefined
+      response: Response; status: 200; errors: never
+    }
+    expectTypeOf<ResponseData<Shape<string | undefined>>>().toEqualTypeOf<string | null>()
+    expectTypeOf<ResponseData<Shape<{ a: 1 } | undefined>>>().toEqualTypeOf<{ a: 1 } | null>()
+  })
 })
 
 describe('JSON-safe request input (#255)', () => {
@@ -216,6 +229,17 @@ describe('JSON-safe request input (#255)', () => {
   test('body: an object whose toJSON returns a value JSON cannot carry is never, since JSON.stringify throws', () => {
     type Body = CallInput<Shape<{ at: { toJSON(): bigint } }>>['body']
     expectTypeOf<Body>().toEqualTypeOf<{ at: never }>()
+  })
+
+  // H32 #312: the client's NotJson is the contract's `undefined | symbol | ((...args: any[]) => unknown)`. The aliases
+  // are private to their packages, so the pin is behavioural: a property of one of those types is not on the wire
+  // (`Jsonify`), and is no body field either (`JsonInput`): a symbol or a function is `never`, an undefined property
+  // stays optional and JSON.stringify drops it, on both sides
+  test("the client NotJson is the contract's", () => {
+    expectTypeOf<Jsonify<{ a: undefined; b: symbol; c: () => void }>>().toEqualTypeOf<{}>()
+    expectTypeOf<Jsonify<[undefined, symbol, () => void]>>().toEqualTypeOf<[null, null, null]>()
+    type Body = CallInput<Shape<{ a: undefined; b: symbol; c: () => void }>>['body']
+    expectTypeOf<Body>().toEqualTypeOf<{ a: undefined; b: never; c: never }>()
   })
 
   test('query: a Date is passed as itself or its ISO string, as buildUrl sends it; the rest is the schema input', () => {
@@ -398,5 +422,51 @@ describe('options and hooks', () => {
         request.url = '/other'
       },
     })
+  })
+})
+
+describe('dev-mode response validation', () => {
+  test('validateResponses is a boolean option on every input with schemas', () => {
+    expectTypeOf<ClientOptions['validateResponses']>().toEqualTypeOf<boolean | undefined>()
+    void createClient(appApi, { validateResponses: true })
+    void createClient(appApi, { validateResponses: false })
+    void createClient(appApi.users, { validateResponses: true })
+    void createClient(usersContract, { validateResponses: true })
+    // @ts-expect-error not a flag
+    createClient(appApi, { validateResponses: 'yes' })
+  })
+
+  test('the manifest client refuses it: the generated manifest has no schemas', () => {
+    expectTypeOf<ManifestClientOptions['validateResponses']>().toEqualTypeOf<false | undefined>()
+    void createClient<Generated>(manifest, { validateResponses: false })
+    typeOnly(() => {
+      // @ts-expect-error the manifest carries no response schemas
+      void createClient<Generated>(manifest, { validateResponses: true })
+    })
+    // both manifest overloads take ManifestClientOptions (client.md › createClient), not ClientOptions: a
+    // ClientOptions value cannot prove validateResponses is off, so it is refused with or without headers
+    const plain: ClientOptions = { headers: {}, validateResponses: true }
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions may set validateResponses: true
+      void createClient<Generated>(manifest, plain)
+    })
+    const plainKeyed = { headers: { 'x-api-key': 'k' }, validateResponses: true }
+    // the same value is a ClientOptions, a valid one; the manifest overload takes the narrowed type, so it is refused
+    expectTypeOf(plainKeyed).toMatchTypeOf<ClientOptions<{ 'x-api-key': string }>>()
+    typeOnly(() => {
+      // @ts-expect-error ClientOptions may set validateResponses: true
+      void createClient<Generated, { 'x-api-key': string }>(manifest, plainKeyed)
+    })
+    const off: ManifestClientOptions = { validateResponses: false }
+    void createClient<Generated>(manifest, off)
+    // the second overload takes ManifestClientOptions too: the same headers with the option off are accepted
+    void createClient<Generated, { 'x-api-key': string }>(manifest, { headers: { 'x-api-key': 'k' }, validateResponses: false })
+  })
+
+  test('ResponseValidationError carries the error bag and the Standard Schema issues', () => {
+    const error = new ResponseValidationError('m', {}, [])
+    expectTypeOf(error).toMatchTypeOf<Error>()
+    expectTypeOf(error.errors).toEqualTypeOf<Record<string, string[]>>()
+    expectTypeOf(error.issues).toEqualTypeOf<ReadonlyArray<StandardIssue>>()
   })
 })
