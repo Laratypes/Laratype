@@ -57,7 +57,7 @@ type Result<E extends AnyEndpoint>;        // response schema INPUT (void if non
 type ControllerOf<C>;                       // { [endpoint key]: (ctx: any) => MaybePromise<Result<C[K]>> }; merged with | ResponseEscape (0.5 response()/JsonResource, unchecked; v2 resources, #123, return checked data)
 ```
 
-Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)):
+Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts)). The A2 #120 addition (`ctx.user`, the route's `AuthExtension` merged into the provided ctx) is proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`proof.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/proof.ts)).
 
 ```ts
 type BaseCtx<E extends AnyEndpoint, P = PathParams<E path>> = { readonly endpoint: E; params: P; query: InferOut<query>; body: InferOut<body> };
@@ -85,7 +85,7 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 ### Invariants
 - Handlers are **class methods**, and each one annotates its first parameter `Ctx<typeof contract.endpoint, Requires>`. `implements` doesn't contextually type params (TS #23911), so the annotation is required.
 - `Requires` is what the handler **needs from the route**: middleware extensions and `.bind()`-resolved params.
-- `ctx.user` comes from the endpoint's `auth` capability and is typed per guard, so a handler doesn't list it in `Requires` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120)).
+- `ctx.user` comes from the endpoint's `auth` capability and is typed per guard, so a handler doesn't list it in `Requires` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120); A2 addition, proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000).
 - `ctx.query` and `ctx.body` use the schema **output**, because they hold validated values.
 - `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it (merged, [#105](https://github.com/Laratypes/Laratype/issues/105)). It is a non-writable, non-configurable, non-enumerable own property of the ctx, and of the 0.5 request object that middleware gets, so each request and each endpoint sees its own, and spreading either doesn't copy it. 0.5 routes have no `endpoint`.
 - **Return value:** a handler returns the response schema **input**, since the serializer runs afterwards.
@@ -115,7 +115,7 @@ Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../pack
 ## Route proof at r.contract()
 
 ### Status
-Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions and the `r.bind()` bindings its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458; model binding, H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639), with the `auth` capability's user (A2 [#120](https://github.com/Laratypes/Laratype/issues/120)). A handler that requires a model for a param no `.bind()` binds fails the proof; an unbound path param stays available as a string.
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions and the `r.bind()` bindings its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458; model binding, H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639), with the `auth` capability's user (A2 [#120](https://github.com/Laratypes/Laratype/issues/120)). The A2 #120 additions (`AuthExtension` in the provided ctx and its two `user` diagnostics) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`proof.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/proof.ts)). A handler that requires a model for a param no `.bind()` binds fails the proof; an unbound path param stays available as a string.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -131,17 +131,19 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
 // the merged Provided (below) puts the bound params over the extensions' params
 ```
 
-Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)):
+Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)).
+
+The A2 #120 additions in this block (`AuthExtension` and the `Ctx` parameter of `VerifyController`) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`proof.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/proof.ts)).
 
 ```ts
 // What the runtime passes (H3 #106): BaseCtx with every path param of the full path, X, and the bound params
-// A2 #120: the auth capability's user is merged before X, so a route middleware's `user` type still wins
+// A2 #120, proposed: PR #414 @ 52a21000: the auth capability's user is merged before X, so a route middleware's `user` type still wins
 type AuthExtension<E, Ctx> = ResolvedAuth<E, Ctx> extends true | string ? { user: GuardUser<ResolvedAuth<E, Ctx>> } : {};
 type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;   // a binding wins a key X.params also adds
 type Provided<E, Path extends string, X extends object = {}, B = {}, Ctx = RootContext> =
   Merge<Merge<BaseCtx<E, FullParams>, AuthExtension<E, Ctx>>, WithBindings<X, FullParams, B>>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
 // Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 feeds X, H7 #118 feeds B
-type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}, Ctx extends EndpointContext = RootContext>;   // Ctx: the contract's scopes and options, for ResolvedAuth
+type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}, Ctx extends EndpointContext = RootContext>;   // Ctx: the contract's scopes and options, for ResolvedAuth (A2 #120, proposed: PR #414 @ 52a21000)
 type RouteProof<A, C, I, O, X extends object = {}, B = {}>;   // VerifyController for the tree entry r.contract() mounts, with the builder's X and B
 type Merge<Base, Extra>;              // Base with Extra on top, params merged one level deep: the runtime's own merge rule (also what ExtOf merges a middleware tuple with)
 type Binder;                          // a model class, a callable carrying its statics, or a resolver (raw: string) => value, for r.bind() (H7)
@@ -181,8 +183,8 @@ interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends
 ### Diagnostics
 Message templates from the S1 spike (real tsc 5.9.2 output in `s1-controller/tsc-errors.txt` @ 4c558fd). `<c>.<e>` is the route name:
 - `` <c>.<e>: handler requires `<key>`, route does not provide it (add middleware / .bind()) ``, with `{ handler_requires: T }`
-- `` <c>.<e>: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope) `` (A2 [#120](https://github.com/Laratypes/Laratype/issues/120))
-- `` <c>.<e>: `user` of the ctx does not match the guard's user type (the auth capability's guard) ``
+- `` <c>.<e>: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope) `` (A2 [#120](https://github.com/Laratypes/Laratype/issues/120), proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000)
+- `` <c>.<e>: `user` of the ctx does not match the guard's user type (the auth capability's guard) `` (A2 [#120](https://github.com/Laratypes/Laratype/issues/120), proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000)
 - `` <c>.<e>: `<key>` provided by the route does not match the handler (missing .bind()?) ``, with `{ route_provides; handler_requires }`
 - `` <c>.<e>: handler takes the 0.5 request (`<key>`), Route.api passes the ctx { endpoint, params, query, body } ``, for a member of the 0.5 request object the ctx doesn't have
 - `` <c>.<e>: `query` of the ctx does not match the handler (it is the output of the endpoint's query schema) ``, and the same for `body`
@@ -225,10 +227,12 @@ Route.api(appApi, (r) => {
 ## Router v2
 
 ### Status
-merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7). Controllers are resolved with `Request.container().make()` ([Controller resolution](#controller-resolution), H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) and run through the `RequestKernel` pipeline, which validates their query and body (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), [Request pipeline](#request-pipeline)).
+merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The A2 #120 changes (the contract auth slot, and `RouteEntry.unenforced` / `UNENFORCED_NOTICE` dropping `auth`) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000. The production tree source is merged ([#125](https://github.com/Laratypes/Laratype/issues/125)): `examples/basic` builds and serves its `Route.api` routes in production. The registry move into the container is proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → [#114](https://github.com/Laratypes/Laratype/issues/114) (D7). Controllers are resolved with `Request.container().make()` ([Controller resolution](#controller-resolution), H2a [#105](https://github.com/Laratypes/Laratype/issues/105)) and run through the `RequestKernel` pipeline, which validates their query and body (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), [Request pipeline](#request-pipeline)).
 
 ### Public API
 [`packages/http/src/routing/api/ApiRouter.ts`](../../packages/http/src/routing/api/ApiRouter.ts) · [`packages/http/src/routing/api/types.ts`](../../packages/http/src/routing/api/types.ts)
+
+The A2 #120 changes in this block (the contract auth slot, `RouteEntry.unenforced` and `UNENFORCED_NOTICE` without `auth`) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`packages/http/src/routing/api/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/contractAuth.ts)).
 
 ```ts
 class Route {
@@ -284,7 +288,7 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
   readonly bindings: Bindings;                   // r.bind() resolved per this route's path params (H7)
-  readonly unenforced: readonly ("authorize" | "validation")[];   // what the router does not enforce yet
+  readonly unenforced: readonly ("authorize" | "validation")[];   // what the router does not enforce yet (A2 #120 dropped "auth", proposed: PR #414 @ 52a21000)
   readonly domain: string | undefined;
 }
 
@@ -296,11 +300,11 @@ type ApiTreeNode<A>;          // the tree nodes that hold a contract: typeof app
 type ApiScopeDir<A>;          // "" | "users/[user]"
 type ApiAuthorizeDir<A>;      // the scope folders with authorize
 type CheckApiRoutes<A, M>;    // unknown, or { error: "Route.api: ..." }
-const UNENFORCED_NOTICE: "authorize and headers schema validation are not enforced yet (planned → #121)";
-// A2 #120: the contract auth slot, filled by @laratype/auth on import
+const UNENFORCED_NOTICE: "authorize and headers schema validation are not enforced yet (planned → #121)";   // A2 #120, proposed: PR #414 @ 52a21000
+// A2 #120, proposed: PR #414 @ 52a21000: the contract auth slot, filled by @laratype/auth on import
 const CONTRACT_AUTH: unique symbol;                  // Symbol.for('laratype.http.contractAuth')
-function registerContractAuth(factory: (guard: true | string) => AnyTypedMiddleware): void;
-function contractAuth(): ((guard: true | string) => AnyTypedMiddleware) | undefined;   // only a function value
+function registerContractAuth(factory: (guard: true | string) => AnyTypedMiddleware): void;   // A2 #120, proposed: PR #414 @ 52a21000
+function contractAuth(): ((guard: true | string) => AnyTypedMiddleware) | undefined;   // only a function value; A2 #120, proposed: PR #414 @ 52a21000
 ```
 
 The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it. `Binder`, `MergedBindings` and the `B` of `r.bind()` are [Model binding](#model-binding)'s.
