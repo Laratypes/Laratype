@@ -30,6 +30,38 @@ const abilityMethod = (policy: object, ability: string): ((...args: unknown[]) =
 };
 
 /**
+ * The half of a policy that answered a route check and its answer: `before` (a `true` is the scope bypass) or the
+ * ability method. A `null` check means `before` had no opinion and the ability name matches no method.
+ */
+export interface PolicyRouteCheck {
+  readonly by: "before" | "ability";
+  readonly answer: boolean;
+}
+
+/**
+ * The route form of `policyCheck()` (H8 #122): the same `before` then ability method, with the half that answered.
+ * @laratype/http registers it on its contract policy slot; it is not exported by the package, so the public
+ * `policyCheck()` / `policyAllows()` / `policyAuthorize()` behaviour is unchanged.
+ */
+export const policyRouteCheck = async (
+  policy: object,
+  user: unknown,
+  ability: string,
+  ...args: unknown[]
+): Promise<PolicyRouteCheck | null> => {
+  // A guest never reaches a policy, whatever the caller passed: a policy written for a signed-in user must not decide
+  // on `undefined`, and `false` (TokenGuard.user() for a request with no token) or another non-object denies too
+  // (docs/v1/auth.md › Invariants). A guest is denied before the hook runs, as every check does.
+  if (!isUser(user)) return { by: "before", answer: false };
+  const hook = await before(policy, user, ability, args);
+  if (hook !== null) return { by: "before", answer: hook };
+  const method = abilityMethod(policy, ability);
+  if (!method) return null;
+  // Only an explicit true allows: a truthy string, an object or a promise of one denies (docs/v1/auth.md › Invariants)
+  return { by: "ability", answer: (await method.call(policy, user, ...args)) === true };
+};
+
+/**
  * Runs one check of a policy instance (#121): `before` first, then the ability method (docs/v1/auth.md › Policies and
  * gates). `true` allows and `false` denies; `null` means `before` had no opinion and the ability name matches no
  * method (an ability that returns `null` denies), which a scope hook (http.md › Authorization from the contract) reads
@@ -41,16 +73,8 @@ export const policyCheck = async (
   ability: string,
   ...args: unknown[]
 ): Promise<boolean | null> => {
-  // A guest never reaches a policy, whatever the caller passed: a policy written for a signed-in user must not decide
-  // on `undefined`, and `false` (TokenGuard.user() for a request with no token) or another non-object denies too
-  // (docs/v1/auth.md › Invariants)
-  if (!isUser(user)) return false;
-  const hook = await before(policy, user, ability, args);
-  if (hook !== null) return hook;
-  const method = abilityMethod(policy, ability);
-  if (!method) return null;
-  // Only an explicit true allows: a truthy string, an object or a promise of one denies (docs/v1/auth.md › Invariants)
-  return (await method.call(policy, user, ...args)) === true;
+  const route = await policyRouteCheck(policy, user, ability, ...args);
+  return route === null ? null : route.answer;
 };
 
 /** Whether the policy allows `ability`: `policyCheck()` resolves `true`, as every caller of a single check does. */

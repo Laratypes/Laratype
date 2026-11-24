@@ -14,8 +14,11 @@ const branded = (checks: ContractPolicyChecks): ContractPolicyChecks =>
   Object.defineProperty(checks, brand, { value: true });
 
 const checksOf = (name: string): ContractPolicyChecks => ({
-  async check(policy, user, ability, ...args) { void [policy, user, ability, args]; return true; },
-  async authorize(policy, user, ability, ...args) { void [policy, user, ability, args]; },
+  async check(policy, user, ability, ...args) {
+    void [name, policy, user, ability, args];
+    return { by: "ability", answer: true };
+  },
+  async authorize(policy, user, ability, ...args) { void [name, policy, user, ability, args]; },
 });
 
 const apiOf = (contract: AnyContract, name = "users") =>
@@ -174,7 +177,7 @@ describe("the contract policy slot", () => {
   it("does not call the checks for a public route", () => {
     let called = 0;
     registerContractPolicies({
-      async check() { called++; return true; },
+      async check() { called++; return { by: "ability", answer: true }; },
       async authorize() { called++; },
     });
     const open = defineContract()({ index: endpoint.get("/").public().response(anything) });

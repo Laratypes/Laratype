@@ -92,7 +92,8 @@ interface Call {
 }
 
 const calls: Call[] = [];
-let scopeAnswers: (boolean | null)[] = [];
+type ScopeAnswer = { by: "before" | "ability"; answer: boolean };
+let scopeAnswers: (ScopeAnswer | null)[] = [];
 let endpointResult: "allow" | "deny" | "throw" = "allow";
 
 const checks: ContractPolicyChecks = {
@@ -177,7 +178,7 @@ describe("the contract policy chain", () => {
   });
 
   it("a scope denial is the derived 403: no inner scope, no endpoint policy, no handler", async () => {
-    scopeAnswers = [null, false];
+    scopeAnswers = [null, { by: "before", answer: false }];
     const response = await update(build());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "This action is unauthorized." });
@@ -185,11 +186,41 @@ describe("the contract policy chain", () => {
   });
 
   it("a scope before that allows skips the inner scopes and the endpoint policy", async () => {
-    scopeAnswers = [true];
+    scopeAnswers = [{ by: "before", answer: true }];
     const response = await update(build());
     expect(response.status).toBe(200);
     expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
     expect(userLookups).toEqual(["7"]);
+  });
+
+  it("a scope ability that allows passes that scope only: the inner scope and the endpoint policy still run", async () => {
+    scopeAnswers = [{ by: "ability", answer: true }, null];
+    const response = await update(build());
+    expect(response.status).toBe(200);
+    expect(calls.map((call) => [call.level, (call.policy as object).constructor.name])).toEqual([
+      ["check", "RootPolicy"],
+      ["check", "UserPolicy"],
+      ["authorize", "PostPolicy"],
+    ]);
+  });
+
+  it("an inner denial after an outer ability true is the 403, and the endpoint policy does not run", async () => {
+    scopeAnswers = [{ by: "ability", answer: true }, { by: "before", answer: false }];
+    const response = await update(build());
+    expect(response.status).toBe(403);
+    expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy", "UserPolicy"]);
+  });
+
+  it("a scope ability that allows is enough with no endpoint policy; all-null is the 403", async () => {
+    scopeAnswers = [{ by: "ability", answer: true }, null];
+    const allowed = await build().request("/api/users/7/comments");
+    expect(allowed.status).toBe(200);
+    expect(calls.map((call) => call.level)).toEqual(["check", "check"]);
+
+    calls.length = 0;
+    scopeAnswers = [null, null];
+    const denied = await build().request("/api/users/7/comments");
+    expect(denied.status).toBe(403);
   });
 
   it("an endpoint policy denial is the derived 403", async () => {
@@ -220,7 +251,7 @@ describe("the contract policy chain", () => {
     scopeAnswers = [null, null];
     expect((await update(build(), {})).status).toBe(422);
     calls.length = 0;
-    scopeAnswers = [false];
+    scopeAnswers = [{ by: "before", answer: false }];
     const denied = await update(build(), {});
     expect(denied.status).toBe(403);
     expect(calls.map((call) => (call.policy as object).constructor.name)).toEqual(["RootPolicy"]);
@@ -284,7 +315,7 @@ describe("the contract policy chain", () => {
 
   it("a binding miss is a 404 before the policies, and no policy runs", async () => {
     // The documented order: model binding (404) before policies (403). The policy would deny, but never runs
-    scopeAnswers = [false];
+    scopeAnswers = [{ by: "before", answer: false }];
     const response = await update(build(), { name: "Ada" }, "missing");
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not Found." });

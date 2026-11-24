@@ -14,12 +14,18 @@ const CONTRACT_POLICIES: unique symbol = Symbol.for("laratype.http.contractPolic
 const CONTRACT_POLICIES_BRAND: unique symbol = Symbol.for("laratype.auth.contractPolicyChecks");
 
 /**
- * The single-policy checks of A3, reused as is: `check` is `policyCheck` (`true` allows, `false` denies, `null` means
- * `before` fell through and the ability name matches no method) and `authorize` is `policyAuthorize` (the derived 403
- * unless `check` resolves `true`).
+ * The half that answered a scope check and its answer: `before` (a boolean `true` is the scope bypass) or the ability
+ * method. A `null` check means `before` had no opinion and the ability name matches no method.
+ */
+type ContractPolicyCheck = { readonly by: "before" | "ability"; readonly answer: boolean };
+
+/**
+ * The single-policy checks of A3: `check` is `policyCheck` tagged with the half that answered, and `authorize` is
+ * `policyAuthorize` (the derived 403 unless the policy allows). `@laratype/auth` builds them from A3's internals
+ * without changing the public `policyCheck` / `policyAllows` / `policyAuthorize` behaviour.
  */
 export interface ContractPolicyChecks {
-  check(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<boolean | null>;
+  check(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<ContractPolicyCheck | null>;
   authorize(policy: object, user: unknown, ability: string, ...args: unknown[]): Promise<void>;
 }
 

@@ -336,12 +336,19 @@ export default class Request extends AppServiceProvider {
               // must run as the principal the auth capability authenticated (A2 #120, H8 #122)
               const user = ContextApi.getUser();
               const container = Request.container();
+              // With no endpoint policy, at least one scope must allow explicitly: an ability(true) passes its scope
+              // only, every scope falling through is the 403 (docs/v1/http.md › Authorization from the contract)
+              let explicitlyAllowed = false;
               for (const scope of scopes) {
                 const answer = await checks.check(container.make(scope), user, ability, bound);
-                // false is a denial. true allows the request and skips the remaining (inner) scopes and the endpoint
-                // policy; null means before fell through and the ability matches no method, so the chain continues
-                if (answer === false) throw errors.forbidden();
-                if (answer === true) return await next(arg);
+                // false from before or the ability is the 403 at once; a null check (before fell through and the
+                // ability matches no method) passes the scope and continues
+                if (answer === null) continue;
+                if (answer.answer === false) throw errors.forbidden();
+                // Only a scope's before(true) is the admin bypass: it allows the request and skips the remaining inner
+                // scopes and the endpoint policy. An ability(true) passes this scope only and the chain continues.
+                if (answer.by === "before") return await next(arg);
+                explicitlyAllowed = true;
               }
               if (policy !== undefined) {
                 // The endpoint policy's arguments: the endpoint's own bound models, in path order. A binding the request
@@ -350,8 +357,8 @@ export default class Request extends AppServiceProvider {
                 await checks.authorize(container.make(policy), user, ability, ...args);
                 return await next(arg);
               }
-              // No policy decided: a typo in the endpoint key, or a scope with neither before nor the ability, must
-              // never allow by falling through (docs/v1/http.md › Authorization from the contract)
+              // No endpoint policy: a scope's ability(true) allows, and every scope falling through is the 403
+              if (explicitlyAllowed) return await next(arg);
               throw errors.forbidden();
             }
             else if(currentPipelineType === "policies") {

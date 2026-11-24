@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { Container, depsRegistry, Facade } from "@laratype/core";
 import { ContextApi, HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, defineScope, endpoint } from "@laratype/contract";
+import type { ContractPrefix } from "@laratype/contract";
 import { Controller, RequestKernel, ResponseKernel, Route, contractAuth, defineMiddleware, registerContractAuth } from "@laratype/http";
 import { AuthManager } from "../src";
 
@@ -36,6 +37,12 @@ let beforeAnswer: boolean | null = null;
 let updateAnswer: unknown = true;
 let scopePost: PostModel | undefined;
 let endpointPost: PostModel | undefined;
+let scopeBefore: boolean | null = null;
+let scopeAbility: unknown = true;
+let outerBefore: boolean | null = null;
+let outerAbility: unknown = true;
+let innerBefore: boolean | null = null;
+let innerAbility: unknown = true;
 
 class PostModel {
   static readonly primaryKey = "id";
@@ -67,6 +74,55 @@ class PostPolicy {
   }
 }
 
+/** A scope with both halves: a `before` true is the bypass, an ability true passes only this scope. */
+class AbilityScopePolicy {
+  before() {
+    calls.push("scope-before");
+    return scopeBefore;
+  }
+  update() {
+    calls.push("scope-ability");
+    return scopeAbility;
+  }
+}
+
+class OuterScopePolicy {
+  before() {
+    calls.push("outer-before");
+    return outerBefore;
+  }
+  update() {
+    calls.push("outer-ability");
+    return outerAbility;
+  }
+}
+
+class InnerScopePolicy {
+  before() {
+    calls.push("inner-before");
+    return innerBefore;
+  }
+  update() {
+    calls.push("inner-ability");
+    return innerAbility;
+  }
+}
+
+/** The scope policies of the no-endpoint-policy tree: one allows by its ability, one only falls through. */
+class AllowScopePolicy {
+  index() {
+    calls.push("plain-ability");
+    return true;
+  }
+}
+
+class FallthroughScopePolicy {
+  before() {
+    calls.push("plain-before");
+    return null;
+  }
+}
+
 const root = defineScope()({ auth: true, authorize: true });
 const posts = defineContract()({ update: endpoint.patch("/:post").response(anything) });
 const typo = defineContract()({ remove: endpoint.delete("/:post").response(anything) });
@@ -75,12 +131,51 @@ const appApi = defineApi({
   typo: { contract: typo, path: "/api/typos", scopes: [{ scope: root, dir: "" }] },
 });
 
+// The A1 rule: a scope's ability true passes only that scope; a scope's before true is the bypass.
+const abilityRoot = defineScope()({ auth: true, authorize: true });
+const ability = defineContract()({ update: endpoint.patch("/:post").response(anything) });
+const abilityApi = defineApi({ ability: { contract: ability, path: "/api/ability", scopes: [{ scope: abilityRoot, dir: "" }] } });
+
+const plainRoot = defineScope()({ auth: true, authorize: true });
+const plain = defineContract()({ index: endpoint.get("/").response(anything) });
+const plainApi = defineApi({ plain: { contract: plain, path: "/api/plain", scopes: [{ scope: plainRoot, dir: "" }] } });
+
+const outer = defineScope()({ auth: true, authorize: true });
+const inner = defineScope<ContractPrefix<"/api/teams/:team", [typeof outer]>>()({ authorize: true });
+const nested = defineContract<ContractPrefix<"/api/teams/:team/posts", [typeof outer, typeof inner]>>()({
+  update: endpoint.patch("/:post").response(anything),
+});
+const nestedApi = defineApi({
+  nested: { contract: nested, path: "/api/teams/:team/posts", scopes: [{ scope: outer, dir: "" }, { scope: inner, dir: "teams/[team]" }] },
+});
+
 class PostController extends Controller {
   update() { return { updated: true }; }
 }
 class TypoController extends Controller {
   remove() { return { removed: true }; }
 }
+class AbilityController extends Controller {
+  update() { return { updated: true }; }
+}
+class PlainController extends Controller {
+  index() { return { ok: true }; }
+}
+class NestedController extends Controller {
+  update() { return { updated: true }; }
+}
+
+/** A fresh app for one of the rule's trees. */
+const mountApp = (api: any, build: (r: any) => unknown[]) => {
+  const container = new Container({ deps: depsRegistry });
+  const hono = new Hono();
+  container.instance(HTTP_APP, hono);
+  container.instance(AuthManager, manager as unknown as AuthManager);
+  new RequestKernel(container).boot();
+  new ResponseKernel(container).boot();
+  Route.api(api, build as never).mount(hono);
+  return hono;
+};
 
 const app = () => {
   const container = new Container({ deps: depsRegistry });
@@ -111,6 +206,12 @@ beforeEach(() => {
   updateAnswer = true;
   scopePost = undefined;
   endpointPost = undefined;
+  scopeBefore = null;
+  scopeAbility = true;
+  outerBefore = null;
+  outerAbility = true;
+  innerBefore = null;
+  innerAbility = true;
 });
 
 afterEach(() => {
@@ -231,5 +332,84 @@ describe("contract authorization with the real checks", () => {
     expect(contractAuth()).toBeDefined();
     const value = (globalThis as Record<symbol, unknown>)[Symbol.for("laratype.http.contractPolicies")] as object;
     expect((value as Record<symbol, unknown>)[Symbol.for("laratype.auth.contractPolicyChecks")]).toBe(true);
+  });
+});
+
+describe("the scope ability passes only its own scope (A1)", () => {
+  const abilityApp = () => mountApp(abilityApi, (r) => [
+    r.bind({ post: PostModel }).scope("", { policy: AbilityScopePolicy }),
+    r.bind({ post: PostModel }).contract(ability, AbilityController, { policy: PostPolicy }),
+  ]);
+  const patchAbility = () => abilityApp().request("/api/ability/9", { method: "PATCH" });
+
+  it("a scope method true does not skip the endpoint policy: an endpoint denial is the 403", async () => {
+    registered.web = user;
+    scopeBefore = null;
+    scopeAbility = true;
+    beforeAnswer = false;
+    const response = await patchAbility();
+    expect(response.status).toBe(403);
+    expect(calls).toEqual(["scope-before", "scope-ability", "before:update:9:1"]);
+  });
+
+  it("a scope before true is the bypass: the endpoint denial does not run", async () => {
+    registered.web = user;
+    scopeBefore = true;
+    scopeAbility = true;
+    beforeAnswer = false;
+    const response = await patchAbility();
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["scope-before"]);
+  });
+
+  it("a scope method true allows with no endpoint policy; every scope falling through is the 403", async () => {
+    registered.web = user;
+    const allowed = await mountApp(plainApi, (r) => [
+      r.bind({}).scope("", { policy: AllowScopePolicy }),
+      r.bind({}).contract(plain, PlainController),
+    ]).request("/api/plain");
+    expect(allowed.status).toBe(200);
+    expect(calls).toEqual(["plain-ability"]);
+
+    calls.length = 0;
+    const denied = await mountApp(plainApi, (r) => [
+      r.bind({}).scope("", { policy: FallthroughScopePolicy }),
+      r.bind({}).contract(plain, PlainController),
+    ]).request("/api/plain");
+    expect(denied.status).toBe(403);
+    expect(calls).toEqual(["plain-before"]);
+  });
+});
+
+describe("nested scopes and the A1 rule", () => {
+  const nestedApp = () => mountApp(nestedApi, (r) => [
+    r.bind({ post: PostModel }).scope("", { policy: OuterScopePolicy }),
+    r.bind({ post: PostModel }).scope("teams/[team]", { policy: InnerScopePolicy }),
+    r.bind({ post: PostModel }).contract(nested, NestedController, { policy: PostPolicy }),
+  ]);
+  const patchNested = () => nestedApp().request("/api/teams/7/posts/9", { method: "PATCH" });
+
+  it("an outer method true does not skip an inner before false: the 403", async () => {
+    registered.web = user;
+    outerAbility = true;
+    innerBefore = false;
+    const response = await patchNested();
+    expect(response.status).toBe(403);
+    expect(calls).toEqual(["outer-before", "outer-ability", "inner-before"]);
+  });
+
+  it("an outer method true and an inner method true let the endpoint policy decide", async () => {
+    registered.web = user;
+    outerAbility = true;
+    innerAbility = true;
+    const allowed = await patchNested();
+    expect(allowed.status).toBe(200);
+    expect(calls).toEqual(["outer-before", "outer-ability", "inner-before", "inner-ability", "before:update:9:1", "update:9:1"]);
+
+    calls.length = 0;
+    updateAnswer = false;
+    const denied = await patchNested();
+    expect(denied.status).toBe(403);
+    expect(calls.at(-1)).toBe("update:9:1");
   });
 });

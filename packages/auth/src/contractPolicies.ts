@@ -1,10 +1,11 @@
 import { registerContractPolicies } from "@laratype/http";
 import type { ContractPolicyChecks } from "@laratype/http";
-import { policyAuthorize, policyCheck } from "./policies/authorize";
+import { policyAuthorize, policyRouteCheck } from "./policies/authorize";
 
 /**
- * Links the A3 policy checks to the router (H8 #122): `policyCheck` / `policyAuthorize` are registered as they are,
- * and @laratype/http runs the route chain. No policy semantics move into http, and this module exports nothing.
+ * Links the A3 policy checks to the router (H8 #122): `policyRouteCheck` (A3's `before` then ability, tagged with the
+ * half that answered) and `policyAuthorize` are registered, and @laratype/http runs the route chain. No policy
+ * semantics move into http, and this module exports nothing.
  *
  * The marker `@laratype/http` reads on the registered value. It lets a reloaded module, or a second copy of this
  * package, replace the value it registered instead of throwing. It is not a security boundary: any in-process code can
@@ -12,7 +13,7 @@ import { policyAuthorize, policyCheck } from "./policies/authorize";
  */
 const CONTRACT_POLICIES_BRAND: unique symbol = Symbol.for("laratype.auth.contractPolicyChecks");
 
-const checks: ContractPolicyChecks = { check: policyCheck, authorize: policyAuthorize };
+const checks: ContractPolicyChecks = { check: policyRouteCheck, authorize: policyAuthorize };
 Object.defineProperty(checks, CONTRACT_POLICIES_BRAND, {
   value: true,
   enumerable: false,
