@@ -16,7 +16,7 @@ import type { Bindings, Binder, EndpointKey, Merge, VerifyController } from "./p
 /** A controller class, resolved with `app.make()`: its constructor params are injected (H2 #105). */
 export type ControllerClass = new (...args: any[]) => object;
 
-/** A policy class. Mounted policies are recorded on the registry; running them is A3 #121. */
+/** A policy class. Mounted policies run for a route whose resolved `authorize` is true (H8 #122). */
 export type PolicyClass = abstract new (...args: any[]) => object;
 
 /** A middleware class: its constructor params are injected from the request's container (H21 #269). */
@@ -92,7 +92,8 @@ export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyCl
   | {
       /**
        * The policy for the endpoints with `.authorize()`: it needs a method named after each of them, or `before`
-       * (checked at `r.contract()` and, for its presence, when `Route.api` mounts). Recorded only: running it is A3 #121.
+       * (checked at `r.contract()` and, for its presence, when `Route.api` mounts). It runs for every endpoint whose
+       * resolved `authorize` is true (H8 #122).
        */
       readonly policy: P;
     }
@@ -440,13 +441,13 @@ export interface RouteEntry extends ApiRoute {
   readonly middleware: readonly MiddlewareItem[];
   /** Scope interceptors (outer to inner), then the contract's, then the endpoint's, deduplicated (H11 #138). */
   readonly interceptors: readonly AnyInterceptor[];
-  /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: A3 #121 runs them. */
+  /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Run when the route's resolved `authorize` is true. */
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
-  /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */
+  /** The `policy` of `r.contract()`, if any. Run last when the route's resolved `authorize` is true. */
   readonly policy: PolicyClass | undefined;
   /** The `r.bind()` binders of this route, its scopes' then its contract's and its path params only: `resolveBindings()` runs them per request. */
   readonly bindings: Bindings;
-  /** What the router does not enforce yet: resolved `authorize` (#121), headers schema validation. */
+  /** What the router does not enforce yet: headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
   readonly domain: string | undefined;
@@ -463,7 +464,7 @@ export interface AdHocRouteEntry {
   readonly domain: string | undefined;
 }
 
-export type UnenforcedCap = "authorize" | "validation";
+export type UnenforcedCap = "validation";
 
 /** What `RouteEntry.unenforced` means; printed by the mount warning. */
-export const UNENFORCED_NOTICE = "authorize and headers schema validation are not enforced yet (planned → #121)";
+export const UNENFORCED_NOTICE = "headers schema validation is not enforced yet";

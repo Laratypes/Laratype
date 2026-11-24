@@ -9,7 +9,7 @@ import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBi
 import { FormValidation } from "@laratype/validation";
 import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
-import { validate } from "@laratype/contract";
+import { errors, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
@@ -86,6 +86,9 @@ type PipeLineType = {
 } | {
   type: 'bindings',
   bindings: Bindings,
+} | {
+  type: 'authorization',
+  authorization: NonNullable<RouteParams["authorization"]>,
 } | {
   type: 'interceptors',
   handler: readonly AnyInterceptor[],
@@ -332,6 +335,42 @@ export default class Request extends AppServiceProvider {
               }
               return await next(arg);
             }
+            else if(currentPipelineType === 'authorization') {
+              const { ability, scopes, policy, models, checks } = currentPipeline.authorization;
+              // The guard's user, never the ctx extension: a route middleware may replace `ctx.user`, but the policies
+              // must run as the principal the auth capability authenticated (A2 #120, H8 #122)
+              const user = ContextApi.getUser();
+              const container = Request.container();
+              // With no endpoint policy, at least one scope must allow explicitly: an ability(true) passes its scope
+              // only, every scope falling through is the 403 (docs/v1/http.md › Authorization from the contract)
+              let explicitlyAllowed = false;
+              for (const scope of scopes) {
+                const answer = await checks.check(container.make(scope), user, ability, bound);
+                // false from before or the ability is the 403 at once; a null check (before fell through and the
+                // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
+                // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403
+                // too: a denial must never become the allow of a route with no endpoint policy
+                if (answer === null) continue;
+                if (answer?.answer !== true) throw errors.forbidden();
+                // Only a scope's before(true) is the admin bypass: it allows the request and skips the remaining inner
+                // scopes and the endpoint policy. An ability(true) passes this scope only and the chain continues.
+                if (answer.by === "before") return await next(arg);
+                if (answer.by !== "ability") throw errors.forbidden();
+                explicitlyAllowed = true;
+              }
+              if (policy !== undefined) {
+                // The endpoint policy's arguments: the endpoint's own bound models, in path order. A binding the request
+                // did not carry (an absent optional param, or a key the contract does not bind) is undefined. Read own
+                // keys only: an unbound param named `constructor`, `toString` or `hasOwnProperty` must not pass an
+                // Object.prototype member to the policy as if it were a bound model
+                const args = models.map((key) => Object.hasOwn(bound, key) ? bound[key] : undefined);
+                await checks.authorize(container.make(policy), user, ability, ...args);
+                return await next(arg);
+              }
+              // No endpoint policy: a scope's ability(true) allows, and every scope falling through is the 403
+              if (explicitlyAllowed) return await next(arg);
+              throw errors.forbidden();
+            }
             else if(currentPipelineType === "policies") {
               const policyHandler = currentPipeline.handler;
               const modelBindings = ContextApi.getModelBindings();
@@ -508,6 +547,11 @@ export default class Request extends AppServiceProvider {
         // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
         if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
           pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        }
+        // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403
+        // must come before a 422 and neither may leak a resource (H8 #122)
+        if(routeOption.authorization) {
+          pipelines.push({ type: 'authorization' as const, authorization: routeOption.authorization });
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));

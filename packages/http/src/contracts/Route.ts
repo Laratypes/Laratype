@@ -2,10 +2,11 @@ import type { Ability, Policy } from "@laratype/auth";
 import type { AnyEndpoint, AnyErrorDef } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import Controller from "../controller/Controller"
+import type { ContractPolicyChecks } from "../routing/api/contractPolicies"
 import type { MiddlewareItem } from "../middleware/defineMiddleware"
 import type { AnyInterceptor } from "../interceptor/defineInterceptor"
 import type { Bindings } from "../routing/api/proof"
-import type { MiddlewareClass } from "../routing/api/types";
+import type { MiddlewareClass, PolicyClass } from "../routing/api/types";
 import Request from "../supports/Request";
 import type { METHOD } from "./Request";
 
@@ -17,6 +18,20 @@ export type PolicyFactory = {
   modelPolicy: any,
   /** The policy instance the request pipeline resolves from its container (H21 #269). */
   handle: (ability: Ability, policy: Policy, ...args: any[]) => Promise<boolean>
+}
+
+/**
+ * @internal The contract policy chain `Route.api` hands to the kernel (H8 #122): the route's scope policies (outer to
+ * inner), its endpoint policy and the endpoint key as the ability. `models` names the endpoint's own bound path params
+ * in path order, the arguments the endpoint policy receives; a scope hook gets the whole resolved record instead.
+ * `checks` are the slot functions read once at `mount()`, so a later slot change cannot turn enforcement off.
+ */
+interface RouteAuthorization {
+  readonly ability: string,
+  readonly scopes: readonly PolicyClass[],
+  readonly policy: PolicyClass | undefined,
+  readonly models: readonly string[],
+  readonly checks: ContractPolicyChecks,
 }
 
 export type RouteOptions = ({
@@ -61,6 +76,8 @@ export type RouteParams = {
   interceptors?: Array<AnyInterceptor>,
   /** The `r.bind()` bindings of a `Route.api` route, resolved once per request before policies (H7 #118). */
   bindings?: Bindings,
+  /** @internal The contract policy chain, built by `Route.api` for a route whose resolved `authorize` is true (H8 #122). */
+  authorization?: RouteAuthorization,
   withoutMiddleware?: Array<MiddlewareClass>,
   name?: string,
   meta?: any,

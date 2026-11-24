@@ -1,4 +1,6 @@
 
+import "./contractPolicies"
+
 export * from './passport'
 export * from './support'
 export * from "./commands"

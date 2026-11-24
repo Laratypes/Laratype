@@ -25,6 +25,8 @@ export type {
 export type { ApiRoutes } from "./routing/api/ApiRouter"
 export { registerContractAuth, contractAuth } from "./routing/api/contractAuth"
 export type { ContractAuthFactory } from "./routing/api/contractAuth"
+export { registerContractPolicies, contractPolicies } from "./routing/api/contractPolicies"
+export type { ContractPolicyChecks } from "./routing/api/contractPolicies"
 export type * from "./routing/api/types"
 export type * from "./routing/api/proof"
 export { UNENFORCED_NOTICE } from "./routing/api/types"
