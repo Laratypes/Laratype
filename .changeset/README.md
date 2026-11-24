@@ -37,5 +37,5 @@ the version to `CHANGELOG.md`, and deletes the applied `.md` files. See
 
 `.changeset/pre.json` holds `{"mode":"pre","tag":"alpha","base":"<next stable line>"}`. While it exists,
 `release:version` writes `<base>-alpha.<N>` and a bump never moves the line; `bun run release:pre-exit` removes it and
-the next `release:version` writes `<base>`. That stable write has no new changelog notes (the prerelease sections above
-hold them). Only `alpha` is a configured prerelease dist-tag; a stable version publishes to `latest`.
+the next `release:version` writes `<base>`. Pending changesets at that point only contribute their notes to the stable
+section, never a bump. Only `alpha` is a configured prerelease dist-tag; a stable version publishes to `latest`.
