@@ -1,4 +1,4 @@
-import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, EndpointTypes, PathParams } from "@laratype/contract";
+import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, EndpointTypes, EntryContext, PathParams, RootContext } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import type { AnyInterceptor } from "../../interceptor/defineInterceptor";
 import type Middleware from "../../middleware/Middleware";
@@ -327,9 +327,22 @@ export type RouteProof<A, C, I, O, X extends object = {}, B = {}> = MountedEntry
     : IsUnion<Hit> extends true
       ? unknown
       : Hit extends { name: infer N extends string; contract: infer EC; path: infer P extends string }
-        ? VerifyController<N, EC, P, I, X, B, O>
+        ? VerifyController<N, EC, P, I, X, B, O, ProofContext<Hit>>
         : unknown
   : unknown;
+
+/** The scope values of a tree entry's `{ scope, dir }` chain, outer to inner. */
+type ScopeValues<S extends readonly object[]> = {
+  [I in keyof S]: S[I] extends { readonly scope: infer Sc } ? Sc : never;
+};
+
+/**
+ * The endpoint context the route proof resolves auth in: the entry's path, its scope values (not the contract's
+ * prefix, which does not know the folder it is mounted in) and its contract options.
+ */
+type ProofContext<Hit> = Hit extends { path: infer P extends string; scopes: infer S extends readonly object[] }
+  ? { path: P; scopes: ScopeValues<S>; options: EntryContext<Hit>["options"] }
+  : RootContext;
 
 /**
  * The interceptor proof of `r.contract()` (H11 #138, docs/v1/http.md › Interceptors): resolves the mounted tree entry
@@ -433,7 +446,7 @@ export interface RouteEntry extends ApiRoute {
   readonly policy: PolicyClass | undefined;
   /** The `r.bind()` binders of this route, its scopes' then its contract's and its path params only: `resolveBindings()` runs them per request. */
   readonly bindings: Bindings;
-  /** What the router does not enforce yet: resolved `auth` / `authorize` (#105, #121), headers schema validation. */
+  /** What the router does not enforce yet: resolved `authorize` (#121), headers schema validation. */
   readonly unenforced: readonly UnenforcedCap[];
   /** Hostname set with `.domain()`, or `undefined` for any host. */
   readonly domain: string | undefined;
@@ -450,7 +463,7 @@ export interface AdHocRouteEntry {
   readonly domain: string | undefined;
 }
 
-export type UnenforcedCap = "auth" | "authorize" | "validation";
+export type UnenforcedCap = "authorize" | "validation";
 
 /** What `RouteEntry.unenforced` means; printed by the mount warning. */
-export const UNENFORCED_NOTICE = "auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)";
+export const UNENFORCED_NOTICE = "authorize and headers schema validation are not enforced yet (planned → #121)";

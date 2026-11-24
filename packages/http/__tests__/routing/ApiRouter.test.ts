@@ -6,8 +6,13 @@ import { Facade } from '@laratype/core'
 import { ModelBindingRegistry } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
-import { Controller, Middleware, Route, UNENFORCED_NOTICE } from '../../src/index'
+import { Controller, Middleware, Route, UNENFORCED_NOTICE, contractAuth, defineMiddleware, registerContractAuth } from '../../src/index'
 import type { ApiRoutes } from '../../src/index'
+
+// A2 #120: Route.api enforces a route's resolved auth. These tests exercise routing, not the guard, so a permissive
+// typed middleware stands in for @laratype/auth (which is not imported here). Its absence is tested in contractAuth.
+const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next())
+if (!contractAuth()) registerContractAuth(permissiveAuth)
 
 // A small tree, as `sauf types:generate` emits it for:
 //   app/api/_scope.ts                    { auth: true }
@@ -229,8 +234,8 @@ describe('Route.api', () => {
     expect(store.scopes).toEqual([root, usersUser])
     expect(store.authorize).toBe(true)
     expect(store.domain).toBeUndefined()
-    expect(store.unenforced).toEqual(['auth', 'authorize'])
-    expect(routes.routes[0]!.unenforced).toEqual(['auth'])
+    expect(store.unenforced).toEqual(['authorize'])
+    expect(routes.routes[0]!.unenforced).toEqual([])
     expect(routes.routes[0]!.policies).toEqual([])
     expect(routes.routes[0]!.middleware).toEqual([])
     expect(routes.routes).toEqual(entries)
@@ -291,7 +296,7 @@ describe('Route.api', () => {
   })
 })
 
-describe('auth and authorize are not enforced yet', () => {
+describe('authorize and headers validation are not enforced yet', () => {
   // the warning is remembered per process
   beforeEach(() => { delete (globalThis as Record<symbol, unknown>)[Symbol.for('laratype.http.unenforcedWarned')] })
 
@@ -307,7 +312,7 @@ describe('auth and authorize are not enforced yet', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     mount(build().domain('api.example.test'))
     expect(warn).toHaveBeenCalledTimes(1)
-    const open = defineContract()({ ping: endpoint.get('/').auth() })
+    const open = defineContract()({ ping: endpoint.get('/').headers(anything) })
     class Ping extends Controller { ping() {} }
     mount(Route.api(defineApi({ ping: { contract: open, path: '/ping', scopes: [] } }), (r) => [r.contract(open, Ping)]))
     expect(warn).toHaveBeenCalledTimes(2)
@@ -318,7 +323,7 @@ describe('auth and authorize are not enforced yet', () => {
 
   it('two Route.api groups warn once each, across restarts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const open = defineContract()({ ping: endpoint.get('/').auth() })
+    const open = defineContract()({ ping: endpoint.get('/').headers(anything) })
     class Ping extends Controller { ping() {} }
     const groups = () => [
       Route.api(appApi, (r) => [r.contract(users, UserController), r.scope('users/[user]', { policy: UserScopePolicy }), r.contract(posts, PostController)]),
@@ -332,7 +337,7 @@ describe('auth and authorize are not enforced yet', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     class Ping extends Controller { ping() {} }
     const group = (i: number) => {
-      const c = defineContract()({ ping: endpoint.get('/').auth() })
+      const c = defineContract()({ ping: endpoint.get('/').headers(anything) })
       return Route.api(defineApi({ [`p${i}`]: { contract: c, path: `/p${i}`, scopes: [] } }), (r) => [r.contract(c, Ping)])
     }
     for (let i = 0; i < 40; i++) mount(group(i))
@@ -346,18 +351,18 @@ describe('auth and authorize are not enforced yet', () => {
     expect(warn).toHaveBeenCalledTimes(41)
   })
 
-  it('mount() warns once, listing the routes with auth or authorize', () => {
+  it('mount() warns once, listing the routes with authorize', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mount(Route.api(appApi, (r) => [
       r.contract(users, UserController),
       r.scope('users/[user]', { policy: UserScopePolicy }),
       r.contract(posts, PostController),
     ]))
-    expect(UNENFORCED_NOTICE).toBe('auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)')
+    expect(UNENFORCED_NOTICE).toBe('authorize and headers schema validation are not enforced yet (planned → #121)')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
-      '[@laratype/http] Route.api: auth, authorize and headers schema validation are not enforced yet (planned → #105, #121), so these routes skip those checks: ' +
-        'users.index (auth), users.show (auth), users.posts.index (auth, authorize), users.posts.store (auth, authorize)',
+      '[@laratype/http] Route.api: authorize and headers schema validation are not enforced yet (planned → #121), so these routes skip those checks: ' +
+        'users.posts.index (authorize), users.posts.store (authorize)',
     )
   })
 
@@ -379,7 +384,7 @@ describe('auth and authorize are not enforced yet', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(': forms.head (validation)'))
   })
 
-  it('no warning without auth or authorize', () => {
+  it('no warning without authorize or a headers schema', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const open = defineContract()({ ping: endpoint.get('/') })
     class Ping extends Controller { ping() {} }

@@ -1,4 +1,4 @@
-import type { AnyEndpoint, EndpointTypes, InferIn, InferOut, PathParams } from "@laratype/contract";
+import type { AnyEndpoint, EndpointContext, EndpointTypes, GuardUser, InferIn, InferOut, PathParams, ResolvedAuth, RootContext } from "@laratype/contract";
 import type ResponseSupport from "../../supports/Response";
 import type JsonResource from "../../resource/json/JsonResource";
 import type RequestSupport from "../../supports/Request";
@@ -128,15 +128,26 @@ type BoundParams<P, B> = {
 /** Every path param of endpoint `E` mounted under `Path`, the tree path of its contract, as the client sees them. */
 type FullParams<E extends AnyEndpoint, Path extends string> = EndpointTypes<E, { path: Path; scopes: []; options: {} }>["params"];
 
+type IsOn<V> = [V] extends [undefined | false] ? false : true;
+
+/**
+ * What the endpoint's resolved `auth` adds to the handler ctx (A2 #120): the guard's user, under `user`. Nothing on
+ * a public route. Route middleware extensions are merged after it, so a middleware's `user` type wins, as it wins the
+ * value at runtime.
+ */
+type AuthExtension<E extends AnyEndpoint, Ctx extends EndpointContext> =
+  IsOn<ResolvedAuth<E, Ctx>> extends true ? { user: GuardUser<ResolvedAuth<E, Ctx>> } : {};
+
 /** The middleware extensions with the bound params in place of their strings: a binding wins a param key both add. */
 type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;
 
 /**
  * What the route passes to the handler of endpoint `E` under `Path`: `BaseCtx` with every path param of the full
- * path (folder params included), the middleware extensions `X` and the bound params `B` in place of their strings.
+ * path (folder params included), the `auth` capability's user, the middleware extensions `X` and the bound params
+ * `B` in place of their strings.
  */
-export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}> =
-  Merge<BaseCtx<E, FullParams<E, Path>>, WithBindings<X, FullParams<E, Path>, B>>;
+export type Provided<E extends AnyEndpoint, Path extends string, X extends object = {}, B = {}, Ctx extends EndpointContext = RootContext> =
+  Merge<Merge<BaseCtx<E, FullParams<E, Path>>, AuthExtension<E, Ctx>>, WithBindings<X, FullParams<E, Path>, B>>;
 
 // ---- the check --------------------------------------------------------------
 
@@ -217,8 +228,17 @@ type MissingLabel<N extends string, M extends string, Rq> = M extends RequestKey
  * Readable errors: the diagnosis is in the PROPERTY NAMES of the error type, since tsc prints the names of missing
  * properties in full but truncates property types to `{ ...; }`. The values hold the details.
  */
-type RequirementIssues<N extends string, Pv, Rq> = {
-  [M in MissingKeys<Pv, Rq> as MissingLabel<N, M, Rq>]: {
+/**
+ * The requirement check's diagnosis, one per key. `user` has its own messages (A2 #120): on a route without auth the
+ * handler asks for a user the framework never resolves, and on an auth route a different type is the guard's user
+ * type. A middleware that adds `user` keeps the generic messages, since its type is the value the runtime keeps.
+ */
+type RequirementIssues<N extends string, Pv, Rq, AuthOn extends boolean, X extends object> = {
+  [M in MissingKeys<Pv, Rq> as M extends "user"
+    ? AuthOn extends true
+      ? MissingLabel<N, M, Rq>
+      : `${N}: handler requires \`user\`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)`
+    : MissingLabel<N, M, Rq>]: {
     handler_requires: At<Rq, M>;
   };
 } & {
@@ -226,7 +246,13 @@ type RequirementIssues<N extends string, Pv, Rq> = {
     ? `${N}: handler ctx is typed for a different endpoint`
     : M extends "query" | "body"
       ? `${N}: \`${M}\` of the ctx does not match the handler (it is the output of the endpoint's ${M} schema)`
-      : `${N}: \`${M}\` provided by the route does not match the handler (missing .bind()?)`]: {
+      : M extends "user"
+        ? AuthOn extends true
+          ? "user" extends keyof X
+            ? `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
+            : `${N}: \`user\` of the ctx does not match the guard's user type (the auth capability's guard)`
+          : `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
+        : `${N}: \`${M}\` provided by the route does not match the handler (missing .bind()?)`]: {
     route_provides: At<Pv, M>;
     handler_requires: At<Rq, M>;
   };
@@ -265,7 +291,7 @@ type NoBody<E extends AnyEndpoint> = T<E>["response"] extends undefined ? null :
  * A key a middleware declared `never` is reported before the parameter check, since the handler would otherwise be
  * proven against a value the runtime never produces.
  */
-type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extends object> = IsAny<H> extends true
+type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extends object, AuthOn extends boolean> = IsAny<H> extends true
   ? {}
   : keyof ConflictIssues<N, X> extends never
     ? H extends (ctx: infer Rq, ...rest: infer Rest) => infer R
@@ -273,17 +299,25 @@ type HandlerIssues<N extends string, E extends AnyEndpoint, H, Pv, Raw, X extend
         ? [Awaited<R>] extends [Result<E> | NoBody<E> | ResponseEscape]
           ? SecondIssues<N, Rest, Raw>
           : { [_ in `${N}: return type does not match the response schema`]: ReturnMismatch<Result<E>, Awaited<R>> }
-        : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq>>>
+        : Unexplained<N, Pv, Rq, Flat<RequirementIssues<N, Pv, Rq, AuthOn, X>>>
       : { [_ in `${N}: controller has no handler for this endpoint`]: H }
     : ConflictIssues<N, X>;
 
 /** The handler for key `K`: a member of the controller, never one of the base `Controller` (the runtime rejects those). */
 type HandlerOf<I, K> = K extends Exclude<keyof I, keyof Controller> ? I[K] : undefined;
 
-type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B> = UnionToIntersection<
+type ControllerIssues<N extends string, C, Path extends string, I, X extends object, B, Ctx extends EndpointContext> = UnionToIntersection<
   {
     [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
-      ? HandlerIssues<`${N}.${K}`, E, HandlerOf<I, K>, Provided<E, Path, X, B>, { [P in keyof FullParams<E, Path>]: string }, X> &
+      ? HandlerIssues<
+          `${N}.${K}`,
+          E,
+          HandlerOf<I, K>,
+          Provided<E, Path, X, B, Ctx>,
+          { [P in keyof FullParams<E, Path>]: string },
+          X,
+          IsOn<ResolvedAuth<E, Ctx>>
+        > &
         ReservedIssues<`${N}.${K}`, X>
       : {};
   }[EndpointKey<C>]
@@ -349,7 +383,7 @@ type PolicyIssues<N extends string, C, O> = PolicyOf<O> extends infer P
  * `B` and options `O`: `unknown` when the proof holds (so `K & unknown` is `K`), otherwise an object whose property
  * names are the diagnosis.
  */
-export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}> =
-  Flat<ControllerIssues<N, C, Path, I, X, B> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O>> extends infer Errs
+export type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}, Ctx extends EndpointContext = RootContext> =
+  Flat<ControllerIssues<N, C, Path, I, X, B, Ctx> & BindIssues<N, C, Path, B> & PolicyIssues<N, C, O>> extends infer Errs
     ? (keyof Errs extends never ? unknown : Errs)
     : never;

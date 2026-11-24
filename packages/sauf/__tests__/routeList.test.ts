@@ -4,9 +4,14 @@ import { Container, Facade } from '@laratype/core';
 import { RouteRegistry } from '@laratype/support';
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract';
 import type { ContractPrefix } from '@laratype/contract';
-import { Controller, Middleware, Route, defineMiddleware } from '@laratype/http';
+import { Controller, Middleware, Route, contractAuth, defineMiddleware, registerContractAuth } from '@laratype/http';
 import { Console } from '@laratype/console';
 import RouteListCommand, { routeRow } from '../src/commands/route/list';
+
+// A2 #120: mounting a route with a resolved auth needs @laratype/auth's registered factory. These tests list the
+// registry, so a permissive stand-in is enough.
+const permissiveAuth = () => defineMiddleware<{ user?: unknown }>((_request, next) => next());
+if (!contractAuth()) registerContractAuth(permissiveAuth);
 
 // `sauf route:list` reads the route registry that Route.api fills (H1 #104)
 const root = defineScope()({ auth: true });
@@ -41,17 +46,17 @@ afterEach(() => {
 });
 
 describe('sauf route:list', () => {
-  it('lists the Route.api registry entries and marks auth that is not enforced yet', async () => {
+  it('lists the Route.api registry entries and marks authorize that is not enforced yet', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     useRegistry(routes.mount(new Hono()));
     const table = vi.spyOn(Console, 'table').mockImplementation(() => {});
     const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
     expect(await new RouteListCommand().handle()).toBe(0);
     expect(table).toHaveBeenCalledWith([
-      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', 'Not enforced': 'auth' },
+      { Method: 'get', path: '/api/users', Name: 'users.index', Controller: 'UserController::index', Middleware: '-', Policies: '-', 'Not enforced': '-' },
       {
         Method: 'delete', path: '/api/users/:user/posts/:post', Name: 'users.posts.destroy', Controller: 'PostController::destroy',
-        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy, contract: PostPolicy', 'Not enforced': 'auth, authorize',
+        Middleware: 'Audit', Policies: 'users/[user]: UserScopePolicy, contract: PostPolicy', 'Not enforced': 'authorize',
       },
     ]);
     expect(warn).toHaveBeenCalledWith('The routes with a "Not enforced" value skip those checks: see the [@laratype/http] Route.api warning.');

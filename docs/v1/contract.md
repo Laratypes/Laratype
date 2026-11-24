@@ -739,14 +739,20 @@ export default defineScope<ScopePrefix>()({ auth: true, authorize: true })
 ## Capabilities and derived errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the contract types and their runtime resolution. Server side: [#120](https://github.com/Laratypes/Laratype/issues/120) (auth), [#105](https://github.com/Laratypes/Laratype/issues/105) (authorize), [#229](https://github.com/Laratypes/Laratype/issues/229) (throttle), [#106](https://github.com/Laratypes/Laratype/issues/106) (422), [#108](https://github.com/Laratypes/Laratype/issues/108) (thrown errors).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the contract types and their runtime resolution. The A2 #120 additions (`AuthRegisterLink`, the linked half of `GuardName` and `GuardUser`) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000. Server side: [#120](https://github.com/Laratypes/Laratype/issues/120) (auth), [#105](https://github.com/Laratypes/Laratype/issues/105) (authorize), [#229](https://github.com/Laratypes/Laratype/issues/229) (throttle), [#106](https://github.com/Laratypes/Laratype/issues/106) (422), [#108](https://github.com/Laratypes/Laratype/issues/108) (thrown errors).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
 
+The A2 #120 additions (`AuthRegisterLink`, `LinkedUser`, `LinkedGuards`, `GuardUser` and the linked half of `GuardName`) are proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`capabilities.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/contract/src/capabilities.ts)). `GuardRegistry`, `AuthOption` and the rest of `GuardName` are merged as before.
+
 ```ts
-export interface GuardRegistry {}                     // augmented by the app: declare module '@laratype/contract' { interface GuardRegistry { api: true } }
-export type GuardName = keyof GuardRegistry & string;
+export interface GuardRegistry {}                     // augmented by a contract-only app: declare module '@laratype/contract' { interface GuardRegistry { api: true } }
+export interface AuthRegisterLink {}                   // A2 #120, proposed: PR #414 @ 52a21000; empty, @laratype/auth augments it from the app's Register
+export type GuardName = (keyof GuardRegistry & string) | (AuthRegisterLink extends { guards: infer G } ? keyof G & string : never);   // the GuardRegistry half is merged (#228); the A2 half is proposed: PR #414 @ 52a21000
+type LinkedUser = AuthRegisterLink extends { user: infer U } ? U : unknown;                    // A2 #120, proposed: PR #414 @ 52a21000
+type LinkedGuards = AuthRegisterLink extends { guards: infer G } ? G : {};                     // A2 #120, proposed: PR #414 @ 52a21000
+export type GuardUser<A = AuthOption> = A extends true ? LinkedUser : A extends string ? (A extends keyof LinkedGuards ? LinkedGuards[A] : LinkedUser) : never;   // A2 #120, proposed: PR #414 @ 52a21000
 export type AuthOption = true | GuardName;
 export type Duration = number | `${number}${"s" | "m" | "h" | "d"}`;   // a number is seconds
 export interface ThrottleOptions { readonly limit: number; readonly per: Duration }
@@ -801,7 +807,7 @@ Inheritance runs scope → nested scope → contract → endpoint:
 | `authorize` | scope, endpoint | every level runs, outer to inner, then the endpoint | `.authorize(false)` |
 
 ### Invariants
-- **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names are the keys of `GuardRegistry`, an empty interface the app augments ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract); A1 [#119](https://github.com/Laratypes/Laratype/issues/119) will feed it from the auth `Register`). A 401 can only come from `auth`; it can't be declared directly.
+- **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names come from `GuardRegistry` (a contract-only app) and from `@laratype/auth`'s `Register['guards']` through the empty `AuthRegisterLink` that auth augments on import (A2 [#120](https://github.com/Laratypes/Laratype/issues/120)); `GuardUser<A>` gives the guard's user, and the route proof adds it to `ctx.user` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract)). A 401 can only come from `auth`; it can't be declared directly. The contract stays browser-pure: it imports nothing from auth.
 - **`authorize`:** `authorize: true` on a [scope](#folder-scopes), or `.authorize()` on an endpoint. It requires `auth` at the same level or an outer one, because a policy checks a signed-in user.
 - **`.public()` under a scope with `authorize`** is a compile error, unless the endpoint also has `.authorize(false)`: `.public().authorize(false)` runs no guard and no policy.
 - **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)). `per` is a number of seconds or a string such as `'30s'`, `'1m'`, `'1h'` or `'1d'`, from 1 second to `Number.MAX_SAFE_INTEGER` ms (`'0s'`, `0.5`, `NaN` and `Infinity` are rejected; proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2).

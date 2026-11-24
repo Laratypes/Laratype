@@ -197,9 +197,69 @@ describe('the context extension', () => {
     expect(res.status).toBe(500)
     expect(handled).toBe(0)
     expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
-      '[@laratype/http] typed middleware badMiddleware passed param to next(): it is a method of the request, and the extension would replace it',
+      '[@laratype/http] typed middleware badMiddleware passed param to next(): it is a member of the 0.5 request, and the extension would replace it',
     )
     logged.mockRestore()
+  })
+
+  it('an ad-hoc route refuses an extension that would replace a request data field, not only a method', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let handled = 0
+    // requestCtx is the 0.5 request's own data field: an extension under that key would replace it
+    const bad = defineMiddleware(function badMiddleware(_request, next) {
+      return next({ requestCtx: 'x' })
+    })
+    const routes = Route.api(appApi, (r) => [
+      r.middleware(bad).get('/shadow-field', () => { handled++; return { ok: true } }),
+      r.contract(posts, Plain),
+    ])
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request('/shadow-field')
+    expect(res.status).toBe(500)
+    expect(handled).toBe(0)
+    expect(logged.mock.calls.flat().map(String).join(' ')).toContain(
+      '[@laratype/http] typed middleware badMiddleware passed requestCtx to next(): it is a member of the 0.5 request, and the extension would replace it',
+    )
+    logged.mockRestore()
+  })
+
+  it('snapshots the extension at next(): a later mutation does not change the handler ctx', async () => {
+    const ext: { tag: string } = { tag: 'before' }
+    const mutate = defineMiddleware<{ tag: string }>((_request, next) => {
+      // The mutation runs before the request step merges the extension (next() yields at validation)
+      const pending = next(ext)
+      ext.tag = 'after'
+      return pending
+    })
+    class Reads extends Controller {
+      index(ctx: Ctx<typeof posts.index, { tag: string }>) { return { tag: ctx.tag } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(mutate).contract(posts, Reads)]))
+    expect(await json(app, '/api/posts')).toEqual({ tag: 'before' })
+  })
+
+  it('snapshots ownKeys at next(): a Proxy that adds a reserved key later cannot break the ctx', async () => {
+    let calls = 0
+    const proxy = new Proxy({}, {
+      ownKeys() {
+        calls++
+        return calls === 1 ? [] : ['query']
+      },
+      getOwnPropertyDescriptor() {
+        return { value: { replaced: true }, enumerable: true, configurable: true, writable: true }
+      },
+    })
+    const late = defineMiddleware((_request, next) => next(proxy))
+    class Reads extends Controller {
+      index() { return { ok: true } }
+      show() { return { post: 'x' } }
+    }
+    const app = mount(Route.api(appApi, (r) => [r.middleware(late).contract(posts, Reads)]))
+    expect(await json(app, '/api/posts')).toEqual({ ok: true })
+    // The snapshot read ownKeys once; applying the extension later would have read the reserved key
+    expect(calls).toBe(1)
   })
 
   it('an own __proto__ key becomes an own ctx field, it does not swap the prototype', async () => {
