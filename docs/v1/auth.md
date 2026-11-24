@@ -13,7 +13,7 @@ last-verified: 2026-10-09
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
-| [Authentication from the contract](#authentication-from-the-contract) | proposed: PR <leader fills> @ 6c680c59 → #120 |
+| [Authentication from the contract](#authentication-from-the-contract) | proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 → #120 |
 | [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async password check proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; composite-key rehash and login timing proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d; dummy-hash key hardening and the Hasher format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
@@ -26,7 +26,7 @@ last-verified: 2026-10-09
 proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
-[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts):
+[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`Register.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/Register.ts)).
 
 ```ts
 // @laratype/auth
@@ -34,8 +34,8 @@ export interface Register {}
 
 export type RegisteredUser<R = Register> = R extends { user: infer U extends Model } ? U : Model;
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
-// A2 #120: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
-export type GuardUser<A extends true | GuardName> = ...;
+// A2 #120, proposed: PR #414 @ 52a21000: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
+export type GuardUser<A extends true | GuardName = true> = ...;
 ```
 
 An app fills `Register` once, by module augmentation: `user` is its user model, and each guard is `true` (the app's
@@ -97,7 +97,7 @@ export class AuthVerification {
 ## Authentication from the contract
 
 ### Status
-proposed: PR <leader fills> @ 6c680c59 ([#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts`](../../packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts`](../../packages/http/src/routing/api/contractAuth.ts).
+proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/contractAuth.ts).
 
 ### Public API
 
@@ -117,8 +117,9 @@ export type ContractAuthFactory = (guard: true | string) => TypedMiddleware;
 export function registerContractAuth(factory: ContractAuthFactory): void;
 export function contractAuth(): ContractAuthFactory | undefined;   // undefined unless the slot holds a function
 
-// @laratype/auth
-export const auth: <G extends true | GuardName = true>(guard?: G) => TypedMiddleware<{ user: GuardUser<G> }>;
+// @laratype/auth: the guard is an argument; a type argument alone (`auth<'admin'>()`) is a compile error
+export function auth(): TypedMiddleware<{ user: GuardUser<true> }>;
+export function auth<G extends true | GuardName>(guard: G): TypedMiddleware<{ user: GuardUser<G> }>;
 
 declare module '@laratype/contract' {                    // done by @laratype/auth on import
   interface AuthRegisterLink {
