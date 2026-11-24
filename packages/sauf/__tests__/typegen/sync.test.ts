@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { outputLinkDiagnostic, outputPathDiagnostic } from '../../src/typegen/sync';
+import { resolve, sep } from 'node:path';
+import { inside, outputLinkDiagnostic, outputPathDiagnostic } from '../../src/typegen/sync';
 
 /**
  * The output-path diagnostics (G2 #142): a POSIX folder name can carry a control character or an ANSI escape, while
@@ -27,5 +28,38 @@ describe('output path diagnostics', () => {
       'the output path "types/bad\\u0001file/$types.d.ts" is a symbolic link or junction; refusing to write through it',
     );
     expect(message).not.toContain('\u0001');
+  });
+});
+
+describe('inside', () => {
+  const project = resolve('project');
+
+  it('allows a name that only starts with two dots, and rejects a parent segment', () => {
+    expect(inside(project, resolve(project, 'openapi.json'))).toBe(true);
+    expect(inside(project, resolve(project, '..openapi.json'))).toBe(true);
+    expect(inside(project, resolve(project, 'foo..'))).toBe(true);
+    expect(inside(project, resolve(project, '...'))).toBe(true);
+    expect(inside(project, resolve(project, 'dir/..openapi.json'))).toBe(true);
+    // x/../y leaves x and lands inside the project again
+    expect(inside(project, resolve(project, 'x/../y'))).toBe(true);
+    expect(inside(project, resolve(project, '..'))).toBe(false);
+    expect(inside(project, resolve(project, '../x'))).toBe(false);
+    expect(inside(project, resolve(project, 'x/../..'))).toBe(false);
+    // x/.. is the project itself, which is not strictly inside it
+    expect(inside(project, resolve(project, 'x/..'))).toBe(false);
+    expect(inside(project, project)).toBe(false);
+  });
+
+  it('uses the platform separator for the parent segment', () => {
+    expect(inside(project, resolve(project, `x${sep}..${sep}y`))).toBe(true);
+    expect(inside(project, resolve(project, `..${sep}outside.json`))).toBe(false);
+    expect(inside(project, resolve(project, `dir${sep}..openapi.json`))).toBe(true);
+  });
+
+  it.runIf(process.platform === 'win32')('treats a backslash parent segment as a parent on Windows', () => {
+    expect(inside(project, resolve(project, '..\\outside.json'))).toBe(false);
+    expect(inside(project, resolve(project, '..foo\\inside.json'))).toBe(true);
+    expect(inside('C:\\project', 'c:\\PROJECT\\inside.json')).toBe(true);
+    expect(inside('C:\\project', 'D:\\project\\inside.json')).toBe(false);
   });
 });

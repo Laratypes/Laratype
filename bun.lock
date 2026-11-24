@@ -245,11 +245,13 @@
         "@types/figlet": "^1.7.0",
       },
       "peerDependencies": {
+        "@laratype/contract": "workspace:*",
         "@laratype/database": "workspace:*",
         "laratype": "workspace:*",
         "typescript": ">=5",
       },
       "optionalPeers": [
+        "@laratype/contract",
         "@laratype/database",
         "laratype",
         "typescript",
