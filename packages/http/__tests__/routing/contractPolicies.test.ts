@@ -100,6 +100,34 @@ describe("the contract policy slot", () => {
     expect(contractPolicies()!.check).toBe(checks.check);
   });
 
+  it("reads an inherited or a non-enumerable member too, and snapshots a Proxy's answer once", () => {
+    const checks = checksOf("inherited");
+    const inherited = Object.create({ check: checks.check, authorize: checks.authorize }) as ContractPolicyChecks;
+    registerContractPolicies(inherited);
+    expect(contractPolicies()!.check).toBe(checks.check);
+
+    delete (globalThis as Record<symbol, unknown>)[slot];
+    const hidden = checksOf("hidden");
+    const nonEnumerable = {};
+    Object.defineProperty(nonEnumerable, "check", { value: hidden.check, enumerable: false });
+    Object.defineProperty(nonEnumerable, "authorize", { value: hidden.authorize, enumerable: false });
+    registerContractPolicies(nonEnumerable as ContractPolicyChecks);
+    expect(contractPolicies()!.authorize).toBe(hidden.authorize);
+
+    delete (globalThis as Record<symbol, unknown>)[slot];
+    let reads = 0;
+    const proxy = new Proxy({}, {
+      get(_target, key) {
+        if (key === "check") { reads++; return hidden.check; }
+        if (key === "authorize") return hidden.authorize;
+        return undefined;
+      },
+    }) as ContractPolicyChecks;
+    registerContractPolicies(proxy);
+    expect(reads).toBe(1);
+    expect(contractPolicies()!.check).toBe(hidden.check);
+  });
+
   it("reads the two functions once and snapshots them: a flipping getter cannot answer validation and requests differently", async () => {
     let reads = 0;
     const first = checksOf("first");
