@@ -367,8 +367,10 @@ export default class Request extends AppServiceProvider {
               }
               if (policy !== undefined) {
                 // The endpoint policy's arguments: the endpoint's own bound models, in path order. A binding the request
-                // did not carry (an absent optional param, or a key the contract does not bind) is undefined
-                const args = models.map((key) => bound[key]);
+                // did not carry (an absent optional param, or a key the contract does not bind) is undefined. Read own
+                // keys only: an unbound param named `constructor`, `toString` or `hasOwnProperty` must not pass an
+                // Object.prototype member to the policy as if it were a bound model
+                const args = models.map((key) => Object.hasOwn(bound, key) ? bound[key] : undefined);
                 await checks.authorize(container.make(policy), user, ability, ...args);
                 return await next(arg);
               }

@@ -29,7 +29,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 |
 | [Model binding](#model-binding) | proposed: PR <leader fills> @ <last code commit> (H14 [#163](https://github.com/Laratypes/Laratype/issues/163), M2: implicit binding, `.withoutImplicitBinding()`, `.scopeBindings()`, generated `Register['models']`) over H7 [#118](https://github.com/Laratypes/Laratype/issues/118) (PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1821cd59) |
 | [Policies on routes: .can()](#policies-on-routes-can) | superseded by [Authorization from the contract](#authorization-from-the-contract) (proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416), [#122](https://github.com/Laratypes/Laratype/issues/122)): the `authorize` capability + `{ policy }` |
-| [Authorization from the contract](#authorization-from-the-contract) | proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416) @ 754f81ba (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)) |
+| [Authorization from the contract](#authorization-from-the-contract) | proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416) @ f3c8a8d9 (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)) |
 | [Request.ip()](#requestip) | proposed: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d (H30 [#299](https://github.com/Laratypes/Laratype/issues/299)) |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2 (H17); H30 text: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d; user-id key planned → [#319](https://github.com/Laratypes/Laratype/issues/319) |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
@@ -85,7 +85,7 @@ export class UserController implements ControllerOf<typeof users> {   // optiona
 ### Invariants
 - Handlers are **class methods**, and each one annotates its first parameter `Ctx<typeof contract.endpoint, Requires>`. `implements` doesn't contextually type params (TS #23911), so the annotation is required.
 - `Requires` is what the handler **needs from the route**: middleware extensions and `.bind()`-resolved params.
-- `ctx.user` comes from the endpoint's `auth` capability and is typed per guard, so a handler doesn't list it in `Requires` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120); A2 addition, proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000).
+- `ctx.user` comes from the endpoint's `auth` capability and is typed per guard. `Ctx` does not add it: a handler that reads `ctx.user` lists `user` in `Requires` with the guard's user type, `Ctx<typeof posts.destroy, { user: User }>`, and the route proof checks that entry against the route's auth (a route without auth, or another guard's user type, is a compile error) ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract), [#120](https://github.com/Laratypes/Laratype/issues/120); A2 addition, proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000).
 - `ctx.query` and `ctx.body` use the schema **output**, because they hold validated values.
 - `ctx.endpoint` is a read-only runtime field that holds the endpoint, so interceptors ([#138](https://github.com/Laratypes/Laratype/issues/138)) and X3 [#157](https://github.com/Laratypes/Laratype/issues/157) can read it (merged, [#105](https://github.com/Laratypes/Laratype/issues/105)). It is a non-writable, non-configurable, non-enumerable own property of the ctx, and of the 0.5 request object that middleware gets, so each request and each endpoint sees its own, and spreading either doesn't copy it. 0.5 routes have no `endpoint`.
 - **Return value:** a handler returns the response schema **input**, since the serializer runs afterwards.
@@ -1182,7 +1182,7 @@ The earlier v1 design: `.can({ show: ['view', 'user'] })`: the ability comes fro
 ## Authorization from the contract
 
 ### Status
-proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416) @ 754f81ba (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)). `r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)), and the compile checks are merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105) for the contract policy, [#104](https://github.com/Laratypes/Laratype/issues/104) for the scope, contract.md › Capabilities for `authorize` without `auth`). This round runs the policies at runtime; the policy types and checks are [auth.md › Policies and gates](./auth.md#policies-and-gates).
+proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416) @ f3c8a8d9 (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)). `r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)), and the compile checks are merged (H2b [#105](https://github.com/Laratypes/Laratype/issues/105) for the contract policy, [#104](https://github.com/Laratypes/Laratype/issues/104) for the scope, contract.md › Capabilities for `authorize` without `auth`). This round runs the policies at runtime; the policy types and checks are [auth.md › Policies and gates](./auth.md#policies-and-gates).
 
 ### Public API
 - **Declared in the contract:** `authorize: true` on a [folder scope](./contract.md#folder-scopes) or `.authorize()` on an endpoint adds a 403, and `.public()` under an `authorize` scope is a compile error ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
@@ -1248,7 +1248,7 @@ export default defineContract<Prefix>()({
 // app/src/providers/RouteServiceProvider.ts
 export const routes = Route.api(appApi, (r) => [
   r.bind({ user: User }).scope('users/[user]', { policy: UserScopePolicy }),
-  r.bind({ post: Post }).contract(posts, PostController, { policy: PostPolicy }),
+  r.bind({ user: User, post: Post }).contract(posts, PostController, { policy: PostPolicy }),
 ])
 
 // The scope hook gets the resolved record; the endpoint policy gets the endpoint's own model, in path order
