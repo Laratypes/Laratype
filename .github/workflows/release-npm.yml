@@ -53,8 +53,9 @@ jobs:
           npm --version
 
       # A tag push is the release intent: it must name the tree's version and sit on master. A manual dispatch must
-      # run from refs/heads/master exactly. The dist-tag is derived from the version, never chosen by hand, so a
-      # prerelease can only go to `alpha` and never to `latest`; `check` also rejects a non-alpha prerelease id.
+      # run from refs/heads/master exactly, at its current tip. The dist-tag is derived from the version, never chosen
+      # by hand, so a prerelease can only go to `alpha` and never to `latest`; `check --publish` also rejects a
+      # non-alpha prerelease id and a stable tree that still has .changeset/pre.json.
       - name: Resolve release
         id: release
         shell: bash
@@ -62,10 +63,12 @@ jobs:
           set -euo pipefail
 
           version=$(node -p "require('./packages/laratype/package.json').version")
-          node scripts/release/cli.js check --version "$version"
+          node scripts/release/cli.js check --version "$version" --publish
           dist_tag=$(node scripts/release/cli.js dist-tag "$version")
 
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$GITHUB_REF_TYPE" = "tag" || {
+              echo "::error::unexpected push ref $GITHUB_REF in the release workflow"; exit 1; }
             test "$GITHUB_REF_NAME" = "v$version" || {
               echo "::error::tag $GITHUB_REF_NAME does not match the tree version $version"; exit 1; }
             git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
@@ -74,6 +77,9 @@ jobs:
           else
             test "$GITHUB_REF" = "refs/heads/master" || {
               echo "::error::manual publish must run from refs/heads/master, not $GITHUB_REF"; exit 1; }
+            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+            test "$GITHUB_SHA" = "$(git rev-parse refs/remotes/origin/master)" || {
+              echo "::error::manual publish must run from the tip of origin/master"; exit 1; }
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
