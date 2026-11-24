@@ -120,6 +120,10 @@ describe("auth() middleware (A2 #120)", () => {
       auth("nope");
       // @ts-expect-error '__proto__' is not one of the registered guards
       auth("__proto__");
+      // @ts-expect-error a long string is a string, and only the registered guard names are accepted
+      auth("a".repeat(200));
+      // @ts-expect-error a lookalike with a Cyrillic "а" is not the registered "admin"
+      auth("аdmin");
       // @ts-expect-error the guard is true or a guard name, never a number
       auth(1);
       // @ts-expect-error the guard is true or a guard name, never NaN
