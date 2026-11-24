@@ -284,11 +284,26 @@ type ProvidedKeys<Hd> = [Hd] extends [Record<string, string>]
  */
 export type ProvidedHeaders<Hd> = { [K in ProvidedKeys<Hd>]: Hd[K & keyof Hd] };
 
-/** One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, error codes. */
+/** One declared error of the generated `manifest`: the code and the 4xx/5xx status it is declared with. */
+export interface ManifestError {
+  readonly status: number;
+  readonly code: string;
+}
+
+/**
+ * One route of the generated `manifest` (`sauf types:generate`, api.ts): method, full path, success status, whether the
+ * success carries a JSON body, and the declared errors. The fields are optional so a manifest generated before CL8
+ * (no `status`, no `response`, `errors` as plain code strings) stays valid and keeps its lenient runtime behaviour.
+ */
 export interface ManifestRoute {
   readonly method: string;
   readonly path: string;
-  readonly errors?: readonly string[];
+  /** The declared success status; absent when unknown: any 2xx. */
+  readonly status?: number;
+  /** Whether the success carries a JSON body; absent when unknown: parse a body if there is one. */
+  readonly response?: boolean;
+  /** `{ status, code }` entries; a bare string is an older manifest's code, matched at any 4xx/5xx status. */
+  readonly errors?: readonly (string | ManifestError)[];
 }
 
 /** The generated `manifest`: route name (`"users.posts.update"`) → route. Typed by the generated `AppApi`. */

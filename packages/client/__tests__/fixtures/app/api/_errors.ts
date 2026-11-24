@@ -3,3 +3,5 @@ import { defineError } from '@laratype/contract'
 
 export const EmailTaken = defineError(409, 'EMAIL_TAKEN', (email: string) => ({ message: 'The email is taken.', email }))
 export const AccountLocked = defineError(403, 'ACCOUNT_LOCKED')
+/** The same code as the derived 404 at another status, as in the G1 fixture (CL8 #259). */
+export const NotFoundGone = defineError(410, 'NOT_FOUND')

@@ -1,7 +1,7 @@
 ---
 area: typegen
 packages: ["sauf", "@laratype/ts-gen"]
-issues: [85, 133, 142, 143, 144]
+issues: [85, 133, 142, 143, 144, 259]
 verified-against: Laratype@d70daa7 (+ 256a743 and v0.5.4 @ 053be38 for the 0.5 state)
 last-verified: 2026-10-13
 ---
@@ -22,7 +22,7 @@ last-verified: 2026-10-13
 ## sauf types:generate
 
 ### Status
-merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is merged: 8ad92ae9 ([#142](https://github.com/Laratypes/Laratype/issues/142)). The generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032.
+merged ([#133](https://github.com/Laratypes/Laratype/issues/133)). The config key `api.root` / `api.base` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104)). The manifest fields (success status, body flag, error statuses) are proposed: PR [#402](https://github.com/Laratypes/Laratype/pull/402) @ 6042bd34 (CL8 [#259](https://github.com/Laratypes/Laratype/issues/259)). Running it as step 4 of `sauf build` is part of the planned [build steps](./build.md#sauf-build-steps), and the watch in `sauf dev` is merged: 8ad92ae9 ([#142](https://github.com/Laratypes/Laratype/issues/142)). The generated-file hard-link guard is proposed in PR [#399](https://github.com/Laratypes/Laratype/pull/399) @ b4418032.
 
 ### Public API
 [`packages/sauf/src/commands/types/generate.ts`](../../packages/sauf/src/commands/types/generate.ts) · [`packages/sauf/src/typegen/`](../../packages/sauf/src/typegen/)
@@ -57,7 +57,7 @@ Output, for the default options:
 |---|---|
 | `.laratype/types/<root>/<folder>/$types.d.ts` | `Prefix` and `ScopePrefix` for one folder of the tree ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)) |
 | `.laratype/api/index.gen.ts` | `export const appApi = defineApi({ 'users.posts': { contract, path, scopes: [{ scope, dir }] }, ... })` and `export type AppApi = typeof appApi`, imported as `$api` |
-| `.laratype/api.ts` | the separate-repo file: `export type AppApi = {...}` (flattened `ApiTypes<AppApi>`) and `export const manifest = {...} as const` |
+| `.laratype/api.ts` | the separate-repo file: `export type AppApi = {...}` (flattened `ApiTypes<AppApi>`) and `export const manifest = {...} as const`, with each route's method, full path, success status, body flag and error statuses |
 
 The app's tsconfig needs:
 ```jsonc
@@ -78,7 +78,7 @@ The app's tsconfig needs:
 - **Strict mode:** the contract types need `strictNullChecks` (`"strict": true`), so the command refuses a project tsconfig without it.
 - **`api.ts` uses the TS checker only.** It type-checks `index.gen.ts` through the project tsconfig, with `<out>/types` added to `rootDirs`, and prints `ApiTypes<AppApi>`. It tells endpoints from nodes by type, as `ApiTypes` does (`AnyEndpoint`), not by a `method` field, so an endpoint key such as `method` stays an endpoint; an `AppApi` without the `API_ROOT` brand fails ([#258](https://github.com/Laratypes/Laratype/issues/258)). No contract module is executed. A type error in the tree fails the command.
 - **`api.ts` is self-contained:** it has no import, no contract library and no schema library. Named types are inlined structurally, for example a user interface or the contract's `MessageBody`. Types from the TypeScript default lib keep their names (`Date`, `Record<string, boolean>`). A type met again while it is being printed (a recursive type) prints `unknown`. Optional members print as `x?: T | undefined`.
-- **Manifest:** a flat map keyed by route name, `'users.posts.update': { method, path, errors }`. `path` is the full path, and `errors` is the endpoint's derived and declared error codes, sorted. `createClient<AppApi>(manifest)` types it for the client, merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); see [client.md › Separate-repo FE](./client.md#separate-repo-fe-generated-manifest).
+- **Manifest:** a flat map keyed by route name, `'users.posts.update': { method, path, status, response, errors }`. `path` is the full path; `status` is the endpoint's success status (omitted when its type is not one number literal: a wide `number`, or a union such as `.status(flag ? 201 : 202)`); `response` is `true` when the success declares a response schema and its status is not 204/205 (even when the schema's output type is `undefined`); `errors` holds `{ status, code }` for each derived and declared error, sorted by code and then status, with exact duplicates removed (the same code at two statuses stays as two entries; a finite status union such as `defineError(flag ? 409 : 422, 'X')` gives one entry per status, up to 16 statuses). `createClient<AppApi>(manifest)` types and validates it for the client, merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); see [client.md › Separate-repo FE](./client.md#separate-repo-fe-generated-manifest) and [client.md › Result union](./client.md#result-union) for the rules the fields trigger. A manifest generated before CL8 has `errors` as code strings only, no `status` and no `response`; the client still accepts it with its old lenient behaviour. A wide `number` status type, and a status union of more than 16 members (a helper typed with `FailureStatus` or a 4xx/5xx range), keep the code-string form, which matches any 4xx/5xx, so one code never fills the client's manifest `errors` cap; a wide `string` code names no code to match and is left out.
 - **Generated types** are a `type` alias. They satisfy the client's `ApiShape<A>` self-constraint, and they are mutually assignable with `ApiTypes<AppApi>` (tested).
 - **`typescript` is an optional peer dependency** of `sauf` (`>=5`). It is loaded with a dynamic `import()` in `types:generate` only, so `sauf dev` and the app never load it.
 
@@ -118,7 +118,7 @@ Errors are printed by the command, which exits with code 1, prefixed `[sauf type
 - Resolved: the earlier `laratype-api.d.ts` + `rollup-plugin-dts` task is superseded by S2 ([#133](https://github.com/Laratypes/Laratype/issues/133)).
 
 ### Acceptance
-[#133 Done when](https://github.com/Laratypes/Laratype/issues/133)
+[#133 Done when](https://github.com/Laratypes/Laratype/issues/133) · [#259 Done when](https://github.com/Laratypes/Laratype/issues/259)
 
 ---
 
