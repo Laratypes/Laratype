@@ -15,6 +15,8 @@ import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { interceptorName } from "../interceptor/defineInterceptor";
+import type { AnyInterceptor } from "../interceptor/defineInterceptor";
 import { mountCors } from "../middleware/cors";
 import { resolveBindings } from "../routing/api/bindings";
 import type { Bindings } from "../routing/api/proof";
@@ -84,6 +86,9 @@ type PipeLineType = {
 } | {
   type: 'bindings',
   bindings: Bindings,
+} | {
+  type: 'interceptors',
+  handler: readonly AnyInterceptor[],
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -385,6 +390,27 @@ export default class Request extends AppServiceProvider {
                 return await next(arg);
               });
             }
+            else if(currentPipelineType === 'interceptors') {
+              // The chain wraps the handler (H11 #138): the first registered is outermost, next() runs the rest once.
+              // `handlerArg` is the ctx the request step built; nothing between this step and the controller writes it.
+              const chain = currentPipeline.handler;
+              let at = 0;
+              const run = async (): Promise<unknown> => {
+                const interceptor = chain[at++];
+                if(!interceptor) return await next(arg);
+                const name = interceptorName(interceptor);
+                let called = false;
+                const handle = interceptor.handle as unknown as (ctx: unknown, next: () => Promise<unknown>) => unknown;
+                return await handle(handlerArg, async () => {
+                  if(called) {
+                    throw new TypeError(`[@laratype/http] interceptor ${name} called next() more than once`);
+                  }
+                  called = true;
+                  return await run();
+                });
+              };
+              return await run();
+            }
             else {
               // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
               const middleware = Request.container().make(currentPipeline.handler);
@@ -487,6 +513,10 @@ export default class Request extends AppServiceProvider {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
         }
         pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
+        // After validation and bindings, before the handler (H11 #138): a cache hit still validates the request
+        if(routeOption.endpoint && routeOption.interceptors?.length) {
+          pipelines.push({ type: 'interceptors' as const, handler: routeOption.interceptors });
+        }
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
         try {

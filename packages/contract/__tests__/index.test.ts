@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus, isFailureStatus } from '@laratype/contract'
+import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus, isEndpointPath, isFailureStatus } from '@laratype/contract'
 import type { AnyEndpoint, AnyErrorDef } from '@laratype/contract'
 
 const notFound = defineError(404, 'POST_NOT_FOUND')
@@ -107,6 +107,14 @@ describe('endpoint builder', () => {
     expect(endpoint.get('/files/:name{[\\w ]+}').def.path).toBe('/files/:name{[\\w ]+}')
     expect(endpoint.get('/').def.path).toBe('/')
     expect(endpoint.get('/a//b').def.path).toBe('/a//b')
+  })
+
+  it('isEndpointPath: the same rule without the endpoint builder (shared with @laratype/client)', () => {
+    for (const path of ['/api/users', '/', '/a//b', '/files/:name{[\\w ]+}']) expect(isEndpointPath(path)).toBe(true)
+    for (const path of ['x', ':tenant/x', '', ' /x', '//evil.com/x', '/\\evil.com/x', 1, 1n, null, undefined, {}]) {
+      expect(isEndpointPath(path)).toBe(false)
+    }
+    for (const path of ['/\t/evil.com/x', '/\n/evil.com', '/\r\n\\evil.com', '/a\u0000', '/a\u007f']) expect(isEndpointPath(path)).toBe(false)
   })
 
   it('.status(n) sets a body-less 2xx; success statuses outside 200-299 throw at definition', () => {

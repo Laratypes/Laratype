@@ -2,6 +2,7 @@
 import { describe, expectTypeOf, test } from 'vitest'
 import * as v from 'valibot'
 import * as z from 'zod/v4'
+import { isEndpointPath } from '@laratype/contract'
 import type { InferIn, InferOut, PathParamKeys, PathParams, StandardSchemaV1 } from '@laratype/contract'
 
 describe('PathParams', () => {
@@ -50,5 +51,13 @@ describe('Standard Schema inference', () => {
     // @ts-expect-error a plain object is not a Standard Schema
     const notASchema: StandardSchemaV1 = { parse: (x: unknown) => x }
     void notASchema
+  })
+})
+
+describe('isEndpointPath', () => {
+  test('narrows an unknown to string', () => {
+    expectTypeOf(isEndpointPath).parameter(0).toEqualTypeOf<unknown>()
+    const value: unknown = '/api/users'
+    if (isEndpointPath(value)) expectTypeOf(value).toEqualTypeOf<string>()
   })
 })

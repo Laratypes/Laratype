@@ -1,4 +1,3 @@
-import { Console } from "@laratype/console";
 import type { StatusCode } from "hono/utils/http-status";
 
 export class Exception extends Error {
@@ -6,6 +5,10 @@ export class Exception extends Error {
   protected code = "UNKNOWN"
   protected httpCode: StatusCode = 500;
   protected responsible = false;
+  /**
+   * Whether the exception filter reports the error (docs/v1/http.md › Exceptions › Logs). Constructing an exception
+   * has no side effects: only the filter logs, once (#273).
+   */
   protected reportable = true;
 
   constructor({
@@ -26,9 +29,6 @@ export class Exception extends Error {
     this.httpCode = httpCode
     this.responsible = responsible
     this.reportable = reportable
-    if(this.reportable) {
-      Console.error(this.message, this.stack)
-    }
   }
 
   /**

@@ -1,9 +1,11 @@
 import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, EndpointTypes, EntryContext, PathParams, RootContext } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
+import type { AnyInterceptor } from "../../interceptor/defineInterceptor";
 import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
 import type { Equal, Matches } from "./equal";
+import type { EndpointInterceptorFit, InterceptorIssues } from "./interceptorProof";
 import type { Bindings, Binder, EndpointKey, Merge, VerifyController } from "./proof";
 
 /**
@@ -52,28 +54,38 @@ type WithoutMiddleware<M extends readonly MiddlewareItem[], W extends readonly M
  * The `r` of an `endpoints` callback: `{ destroy: (r) => r.middleware(Audit) }`. It starts empty: `withoutMiddleware`
  * removes only what the callback added (route middleware is removed on the builder, before `.contract()`). It takes 0.5
  * `Middleware` classes: a `defineMiddleware()` value extends the ctx of the handlers its route proves, and the
- * extensions of a callback cannot join that proof in the same call (docs/v1/http.md › Typed middleware).
+ * extensions of a callback cannot join that proof in the same call (docs/v1/http.md › Typed middleware). An
+ * `interceptor()` here is checked against the callback's endpoint at the call site (H11 #138).
  */
-export interface EndpointRouteBuilder {
-  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
-  withoutMiddleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder;
+export interface EndpointRouteBuilder<E extends AnyEndpoint = AnyEndpoint> {
+  middleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder<E>;
+  withoutMiddleware(...middleware: MiddlewareClass[]): EndpointRouteBuilder<E>;
+  /**
+   * Interceptors for this one endpoint (H11 #138): the callback is checked before the options argument, so the check
+   * covers the endpoint's response type, not the route's bindings or middleware extensions.
+   */
+  interceptor<const W extends readonly AnyInterceptor[]>(
+    ...interceptors: W & EndpointInterceptorFit<E, W>
+  ): EndpointRouteBuilder<E>;
 }
 
-/**
- * The callback of one `endpoints` key. For an endpoint named after an `Object.prototype` member (`toString`), a map that
+/** The callback of one `endpoints` key. For an endpoint named after an `Object.prototype` member (`toString`), a map that
  * leaves it out still has the inherited member, which TypeScript compares with the callback type, so that member's type
  * is accepted too. A member with parameters (`hasOwnProperty`) widens to `Function` instead, which has no call signature,
  * so `r` keeps its contextual type. The runtime reads own keys only and rejects a callback that does not return the
  * builder.
  */
-type EndpointCallback<K> = K extends keyof Object
-  ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
-  : (r: EndpointRouteBuilder) => EndpointRouteBuilder;
+type EndpointCallback<C, K extends string> = K extends keyof Object
+  ? ((r: EndpointRouteBuilder<EndpointOf<C, K>>) => EndpointRouteBuilder<EndpointOf<C, K>>) | (Object[K] extends () => unknown ? Object[K] : Function)
+  : (r: EndpointRouteBuilder<EndpointOf<C, K>>) => EndpointRouteBuilder<EndpointOf<C, K>>;
+
+/** The endpoint type of `key C[K]`, for the endpoint callback's typed interceptor check. */
+type EndpointOf<C, K extends string> = K extends keyof C ? (C[K] extends AnyEndpoint ? C[K] : never) : never;
 
 /** `r.contract(contract, Controller, { policy, endpoints })`. */
 export type ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> = {
   /** Middleware for one endpoint, after the contract's: `{ destroy: (r) => r.middleware(Audit) }`. */
-  readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
+  readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<C, K> };
 } & (
   // A required `policy` member, so `P` keeps the `undefined` of `cond ? Policy : undefined` (inference from an
   // optional property drops it) and the route proof reports the missing policy
@@ -96,6 +108,8 @@ export interface MountedContract<C extends object = AnyContract, B extends Recor
   readonly contract: C;
   readonly controller: ControllerClass;
   readonly middleware: readonly MiddlewareItem[];
+  /** The `r.interceptor()` values of the builder, in order: scope, contract, endpoint (H11 #138). */
+  readonly interceptors: readonly AnyInterceptor[];
   /** The `r.bind()` bindings of the builder: resolved before the handler, later keys winning over a scope's. */
   readonly bindings: B;
   readonly options: ContractRouteOptions<C> | undefined;
@@ -108,6 +122,8 @@ export interface MountedScope<D extends string = string, B extends Record<string
   readonly policy: PolicyClass;
   /** Runs before the middleware of every contract under the folder. */
   readonly middleware: readonly MiddlewareItem[];
+  /** The generic `r.interceptor()` values for every contract under the folder (H11 #138). */
+  readonly interceptors: readonly AnyInterceptor[];
   /** The `r.bind()` bindings for the contracts under the folder (a contract's builder bindings win). */
   readonly bindings: B;
 }
@@ -328,6 +344,36 @@ type ProofContext<Hit> = Hit extends { path: infer P extends string; scopes: inf
   ? { path: P; scopes: ScopeValues<S>; options: EntryContext<Hit>["options"] }
   : RootContext;
 
+/**
+ * The interceptor proof of `r.contract()` (H11 #138, docs/v1/http.md › Interceptors): resolves the mounted tree entry
+ * as `RouteProof` does, then checks every concrete interceptor against every endpoint. Empty (unknown) without
+ * interceptors; a generic interceptor is skipped (its result-parametric handler is the runtime backstop).
+ */
+type InterceptorProof<A, C, I extends readonly AnyInterceptor[], X extends object, B> = I extends readonly []
+  ? unknown
+  : MountedEntry<ApiTreeEntry<A>, C> extends infer Hit
+    ? [Hit] extends [never]
+      ? unknown
+      : IsUnion<Hit> extends true
+        ? unknown
+        : Hit extends { name: infer N extends string; contract: infer EC; path: infer P extends string }
+          ? InterceptorIssues<N, EC, P, I, X, B>
+          : unknown
+    : unknown;
+
+/** A scope takes generic interceptors only (H11 #138, amendment B): an endpoint-specific one is typed for one response. */
+type EndpointSpecific<A> = A extends { readonly __kind: "endpoint" } ? A : never;
+
+/**
+ * The type-level half of amendment B. The check is compile-time only: a cast can bypass it, and the dev response check
+ * is the runtime backstop (docs/v1/http.md › Interceptors).
+ */
+type ScopeInterceptorIssue<I extends readonly AnyInterceptor[], D extends string> = [
+  EndpointSpecific<I[number]>,
+] extends [never]
+  ? unknown
+  : { error: `Route.api: scope "${D}": interceptor is endpoint-specific; mount it on r.contract() or an endpoint` };
+
 /** The tree entry `r.contract()` mounts: by tree node, or by the exact type of its contract. */
 type MountedEntry<En, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer Name, any> }
   ? Extract<En, { name: Name }>
@@ -339,35 +385,51 @@ type MountedEntry<En, C> = C extends { readonly [API_NODE]: ApiNodeInfo<infer Na
  */
 type MergedBindings<B, NB> = Omit<B, keyof NB> & NB;
 
-/** The `r` of `Route.api(appApi, (r) => [...])`: its `M` is the middleware and `B` the bindings it accumulated. */
-export interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {}> {
+/**
+ * The `r` of `Route.api(appApi, (r) => [...])`: its `M` is the middleware and `B` the bindings it accumulated; `I` is
+ * the interceptor tuple (H11 #138), which the route proof and the scope check read.
+ */
+export interface ApiRouteBuilder<
+  A,
+  M extends readonly MiddlewareItem[] = [],
+  B extends Record<string, Binder> = {},
+  I extends readonly AnyInterceptor[] = [],
+> {
   /** Middleware for the contracts or scope mounted from the returned builder: 0.5 classes or `defineMiddleware()`. */
-  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W], B>;
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W], B, I>;
   /** Drops middleware the builder accumulated (the same value, or a structurally identical one): the opt-out. */
-  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>, B>;
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>, B, I>;
+  /**
+   * Interceptors around the handlers of the contracts or scope mounted from the returned builder (H11 #138): the first
+   * registered is outermost, and `next()` runs the rest of the chain once. A scope takes generic interceptors only.
+   */
+  interceptor<const W extends readonly AnyInterceptor[]>(...interceptors: W): ApiRouteBuilder<A, M, B, [...I, ...W]>;
   /**
    * Binds path params for the contracts or scope mounted from the returned builder (docs/v1/http.md › Model binding):
    * a model class (its instance) or a resolver from the raw param. A key is checked against every path param of the
    * contract at `r.contract()`; a later call wins a key it binds again.
    */
-  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>>;
+  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>, I>;
   /**
    * Mounts every endpoint of `contract` on the controller method of the same key. `contract` is the contract, or its
    * tree node (`appApi.users.posts`), which is needed when two contracts of the tree have the same type.
    */
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
     contract: C,
-    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
+    controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B> & InterceptorProof<A, C, I, ExtOf<M>, B>,
     options?: ContractRouteOptions<NoInfer<C>, P>,
   ): MountedContract<C, B>;
-  /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). */
-  scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D, B>;
-  /** An ad-hoc route, without a contract: `r.get('/health', () => 'ok')`. */
-  get: AdHocRouteMethod<"get">;
-  post: AdHocRouteMethod<"post">;
-  put: AdHocRouteMethod<"put">;
-  patch: AdHocRouteMethod<"patch">;
-  delete: AdHocRouteMethod<"delete">;
+  /** Mounts the policy for the `_scope.ts` of `dir` (root-relative, `""` for the root). A scope takes generic interceptors only. */
+  scope<D extends ApiScopeDir<A>>(
+    dir: D & ScopeInterceptorIssue<I, D>,
+    options: ScopeRouteOptions,
+  ): MountedScope<D, B>;
+  /** An ad-hoc route, without a contract: `r.get('/health', () => 'ok')`. Not with interceptors (they need an endpoint). */
+  get: I extends readonly [] ? AdHocRouteMethod<"get"> : never;
+  post: I extends readonly [] ? AdHocRouteMethod<"post"> : never;
+  put: I extends readonly [] ? AdHocRouteMethod<"put"> : never;
+  patch: I extends readonly [] ? AdHocRouteMethod<"patch"> : never;
+  delete: I extends readonly [] ? AdHocRouteMethod<"delete"> : never;
 }
 
 /** One route registry entry: the contract route plus how it is served. Read by `sauf route:list`. */
@@ -376,6 +438,8 @@ export interface RouteEntry extends ApiRoute {
   readonly controller: readonly [ControllerClass, string];
   /** Scope middleware (outer to inner), then the contract's, then the endpoint's (`endpoints`). */
   readonly middleware: readonly MiddlewareItem[];
+  /** Scope interceptors (outer to inner), then the contract's, then the endpoint's, deduplicated (H11 #138). */
+  readonly interceptors: readonly AnyInterceptor[];
   /** Policies mounted with `r.scope()` for this route's scopes, outer to inner. Recorded only: A3 #121 runs them. */
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   /** The `policy` of `r.contract()`, if any. Recorded only: A3 #121 runs it for endpoints with `.authorize()`. */

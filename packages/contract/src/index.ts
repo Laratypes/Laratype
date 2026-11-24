@@ -10,5 +10,6 @@ export * from "./endpoint";
 export * from "./contract";
 export * from "./api-types";
 export * from "./url";
-// The origin rule shared with @laratype/client (C11 #293), internal: not part of the documented public API.
-export { isAbsoluteUrl, leavesOrigin } from "./internal";
+// The endpoint path rule and the origin/baseUrl rules shared with @laratype/client (C11 #293), internal: not part of
+// the documented public API.
+export { isAbsoluteUrl, isEndpointPath, leavesOrigin } from "./internal";
