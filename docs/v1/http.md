@@ -21,7 +21,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7) |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
-| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; B30 [#410](https://github.com/Laratypes/Laratype/issues/410) re-read the body cache, form conversion and form classifier, and refused a multi-valued `Content-Type` and a form media type name outside the leading media type, at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3); interceptors planned → #138 |
+| [Request pipeline](#request-pipeline) | parsing and validation proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d; B30 [#410](https://github.com/Laratypes/Laratype/issues/410) re-read the body cache, form conversion and form classifier, and refused a multi-valued `Content-Type` and a form media type name outside the leading media type, at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3); interceptors proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
 | [Default body limit](#default-body-limit) | proposed: PR [#381](https://github.com/Laratypes/Laratype/pull/381) @ [554d82f](https://github.com/Laratypes/Laratype/commit/554d82f) (H44 [#341](https://github.com/Laratypes/Laratype/issues/341)); B30 [#410](https://github.com/Laratypes/Laratype/issues/410) took the form cap from the form classifier and refused a multi-valued `Content-Type` and a form media type name outside the leading media type before it at [4109aef3](https://github.com/Laratypes/Laratype/commit/4109aef3) |
 | [Response from the contract](#response-from-the-contract) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H4 [#107](https://github.com/Laratypes/Laratype/issues/107), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)) |
 | [The 0.5 response](#the-05-response) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); H45 [#342](https://github.com/Laratypes/Laratype/issues/342) proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575); string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336), breaking) |
@@ -33,7 +33,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [Request.ip()](#requestip) | proposed: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d (H30 [#299](https://github.com/Laratypes/Laratype/issues/299)) |
 | [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2 (H17); H30 text: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
-| [Interceptors](#interceptors) | planned → #138 |
+| [Interceptors](#interceptors) | proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [Route names and URLs](#route-names-and-urls) | proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
 | [CORS](#cors) | proposed: PR [#386](https://github.com/Laratypes/Laratype/pull/386) @ [c40f616](https://github.com/Laratypes/Laratype/commit/c40f616) (H15 [#164](https://github.com/Laratypes/Laratype/issues/164)) |
@@ -475,7 +475,7 @@ Tests: [`packages/http/__tests__/request/containerResolution.test.ts`](../../pac
 ## Request pipeline
 
 ### Status
-Parsing, validation and the handler ctx: proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H43 [#340](https://github.com/Laratypes/Laratype/issues/340), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors are planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
+Parsing, validation and the handler ctx: proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ e54cb4d (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), H43 [#340](https://github.com/Laratypes/Laratype/issues/340), see [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422)). Interceptors proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). The pipeline still runs inside `RequestKernel.handle`; the guard and policy steps from the contract are planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121); the contract's rate limit runs before the route middleware ([Rate limiting](#rate-limiting)).
 
 ### Public API
 No new export. The parsing and validation steps run inside `RequestKernel.handle`, and the handler ctx is `Ctx<E>`: the signatures, permalinked at the SHA in Status, are in [validation.md › Pipeline validation and 422](./validation.md#pipeline-validation-and-422) and [Controller typing](#controller-typing-ctx-and-controllerof).
@@ -493,8 +493,9 @@ Fixed order, combining Nest and Laravel:
 
 ```
 global middleware → auth guard (contract auth, 401) → throttle (429) → route middleware
-→ model binding (404) → policies (authorize, 403: scopes outer → inner, then the endpoint)
-→ validation (422) → interceptor (before) → handler → interceptor (after)
+→ model binding (404) → validation (422) and policies (authorize, 403: scopes outer → inner, then the endpoint),
+  in the order H8 #122 settles
+→ interceptor (before) → handler → interceptor (after)
 → serialize (Resource / response schema) → exception filter
 ```
 
@@ -592,7 +593,7 @@ No new API: a `Route.api` route answers through `resolveContractResponse` ([`pac
 Tests: [`packages/http/__tests__/response/contractResponse.test.ts`](../../packages/http/__tests__/response/contractResponse.test.ts) (200, 201, 202, 204, 205, JSON, a middleware's 429, a redirect's kept headers, a 5xx `Response`'s scrub, a 201's `Location` and `Content-Location`, output validation, the schema running once) and [`edgeInputs.test.ts`](../../packages/http/__tests__/response/edgeInputs.test.ts) (a status the platform cannot send on an explicit, decorator (0 and `NaN`) or redirect status, a Proxy response, hostile header objects).
 
 ### Non-goals
-- Resources v2 (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) and interceptors (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) wrap this step later; error responses are [Exceptions](#exceptions).
+- Resources v2 (H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) wrap this step; interceptors (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)) wrap the handler and hand their final value to it. Error responses are [Exceptions](#exceptions).
 
 ### Open questions
 - Resolved: the frontend sees the response as `Jsonify<output>` (`Date` → `string`) ([#107](https://github.com/Laratypes/Laratype/issues/107), [#110](https://github.com/Laratypes/Laratype/issues/110)).
@@ -1306,10 +1307,215 @@ Tests: [`packages/http/__tests__/resource/defineResource.test.ts`](../../package
 ## Interceptors
 
 ### Status
-planned → [#138](https://github.com/Laratypes/Laratype/issues/138) (H11, M3).
+proposed: PR [#415](https://github.com/Laratypes/Laratype/pull/415) @ 0e34d5ff (H11 [#138](https://github.com/Laratypes/Laratype/issues/138)). Explicit
+`r.interceptor()` registration on the `Route.api` builder and in `endpoints` callbacks; values only, no DI classes;
+`withoutInterceptor` is not in this task. The `cache(ttl)` interceptor is the Cache package's
+([services.md › Cache](./services.md#cache), [#166](https://github.com/Laratypes/Laratype/issues/166)).
 
-### Design (non-binding)
-Nest-style hooks before and after the handler, for transform, cache and logging. An interceptor may change the handler's result, but the contract response stays the final type the FE sees.
+### Public API
+[`packages/http/src/interceptor/defineInterceptor.ts`](../../packages/http/src/interceptor/defineInterceptor.ts) ·
+[`routing/api/types.ts`](../../packages/http/src/routing/api/types.ts) ·
+[`routing/api/interceptorProof.ts`](../../packages/http/src/routing/api/interceptorProof.ts)
+
+```ts
+// @laratype/http: the six exports
+function defineInterceptor(
+  handle: <R>(ctx: Ctx<AnyEndpoint>, next: () => Promise<R>) => R | Promise<R>,
+): Interceptor;
+function defineInterceptor<E extends AnyEndpoint = never, Requires extends object = {}>(
+  handle: InterceptorHandler<E, Requires>,
+): Interceptor<E, Requires>;
+
+/**
+ * What a handler may return, and what next() resolves to: Result<E>, null for an endpoint without a response schema,
+ * or a 0.5 Response/JsonResource.
+ */
+type Intercepted<E extends AnyEndpoint>;
+
+/** The handler of an endpoint-pinned interceptor. `Requires` mirrors Ctx: middleware extensions and bound params. */
+type InterceptorHandler<E extends AnyEndpoint = AnyEndpoint, Requires extends object = {}> = (
+  ctx: Ctx<E, Requires>,
+  next: () => Promise<Intercepted<E>>,
+) => Intercepted<E> | Promise<Intercepted<E>>;
+
+/** The defineInterceptor() value. The two overloads differ only in its type-only kind. */
+type Interceptor<E extends AnyEndpoint = AnyEndpoint, Requires extends object = {}>;
+type AnyInterceptor = Interceptor<any, any>;
+function isInterceptor(value: unknown): value is AnyInterceptor;
+
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {},
+                          I extends readonly AnyInterceptor[] = []> {
+  interceptor<const W extends readonly AnyInterceptor[]>(...interceptors: W): ApiRouteBuilder<A, M, B, [...I, ...W]>;
+  contract<C, K extends ControllerClass, P>(
+    contract: C,
+    controller: K & RouteProof<...> & InterceptorProof<A, C, I, ExtOf<M>, B>,
+    options?: ContractRouteOptions<NoInfer<C>, P>,
+  ): MountedContract<C, B>;
+  scope<D extends ApiScopeDir<A>>(
+    dir: D & ScopeInterceptorIssue<I, D>,                 // generic interceptors only (type-level)
+    options: ScopeRouteOptions,
+  ): MountedScope<D, B>;
+  get: I extends readonly [] ? AdHocRouteMethod<"get"> : never;   // same for post / put / patch / delete
+}
+
+interface EndpointRouteBuilder<E extends AnyEndpoint = AnyEndpoint> {
+  interceptor<const W extends readonly AnyInterceptor[]>(
+    ...interceptors: W & EndpointInterceptorFit<E, W>
+  ): EndpointRouteBuilder<E>;
+}
+```
+
+`Intercepted` is the exported value type; its definition expands to `Result<E> | NoBody<E> | ResponseEscape`, where
+`NoBody<E>` is `null` for an endpoint without a response schema. `InterceptorProof`, `ScopeInterceptorIssue` and
+`EndpointInterceptorFit` are internal (not exported); the builder signatures show where those checks attach. The pinned
+overload's `E` defaults to `never`, so a call without a type argument builds the generic form; pass the endpoint type to
+pin it. `GenericInterceptorHandler` and the two value shapes behind `Interceptor` are internal too.
+
+The generic overload comes first, so a call **without** a type argument builds the generic form and a call with the
+endpoint type argument pins it:
+
+```ts
+const log = defineInterceptor((ctx, next) => next())                         // generic: mounts anywhere
+const trim = defineInterceptor<typeof posts.show>(async (ctx, next) => {     // pinned to posts.show
+  const value = (await next()) as Result<typeof posts.show>                 // the DTO arm of Intercepted<E>
+  return { ...value, title: value.title.trim() }
+})
+```
+
+`defineInterceptor()` freezes one `{ handle }` value with a `Symbol.for` brand (`INTERCEPTOR`) for both forms;
+`isInterceptor()` recognizes either. The generic/concrete distinction (`__kind`) is a phantom in the types only.
+
+### Invariants
+- **Registration.** `r.interceptor(...)` before `.contract()` or `.scope()` applies to every contract mounted from that
+  builder; in `r.contract(c, Ctrl, { endpoints: { show: (r) => r.interceptor(x) } })` it applies to that endpoint only.
+  Contract and endpoint registration take both forms; a scope takes **generic** interceptors only (type-level, see
+  Diagnostics). There is no app-wide registry: mount every contract from a builder that carries the interceptor, or from
+  a scope. There is no `withoutInterceptor` in this task. An ad-hoc route has no contract response type, so a builder with
+  interceptors cannot mount one (the type makes `get`/`post`/... `never`, and `Route.api` refuses it). 0.5 routes have no
+  endpoint and take none.
+- **Two forms.** The generic form is result-parametric, `<R>(ctx, next) => R | Promise<R>`: an interceptor can only pass
+  through, or return, what `next()` gave it, so a cache hit needs an explicit `as R` cast and the dev response check is
+  the runtime backstop. The endpoint-pinned form is checked at `r.contract()` against every endpoint it is mounted on:
+  1. its returned value fits `Result<E> | NoBody<E> | ResponseEscape` (the response schema input; the client's
+     `Jsonify<output>` type never changes);
+  2. its `next()` accepts what the handler returns (`Intercepted<E>`);
+  3. `Provided<E, Path, X, B>` (the ctx the route passes, bound models and middleware extensions included) extends
+     `Ctx<IE, IReq>`.
+  A pinned interceptor at contract level must fit every endpoint of the contract; use an `endpoints` callback when it fits
+  one. A generic interceptor is skipped by the proof; `Interceptor` and `AnyInterceptor` describe the values,
+  `InterceptorHandler` the pinned handler, and `Intercepted<E>` the value `next()` resolves to.
+- **Order.** After global middleware, the auth guard (A2 [#120](https://github.com/Laratypes/Laratype/issues/120)), the
+  throttle, the route middleware, model binding and input validation; after bindings and policies
+  ([H8 #122](https://github.com/Laratypes/Laratype/issues/122)); before the handler. H8 settles the relative order of
+  policies and validation; an interceptor runs after both. The first registered interceptor is outermost; `next()` runs
+  the rest of the chain once, and a duplicate value runs once at its first position. Route order is the scope's (outer to
+  inner), then the contract's, then the endpoint's.
+- **Around the handler.** `next()` resolves to the handler's value (or the next interceptor's return), or rejects with
+  what the handler or a later interceptor threw. Not calling `next()` skips the handler: that is the cache short-circuit.
+  A second or concurrent `next()` is a `TypeError`. The interceptor gets the same ctx object the handler gets
+  (`Ctx<E, Requires>`): the validated `query` and `body`, `params` with bound models, middleware extensions, and the
+  read-only `endpoint`.
+- **The final value.** The interceptor's return takes the handler's place and goes through the existing
+  `resolveContractResponse` exactly as the handler's value: the endpoint's status, `JSON.stringify` serialization, the
+  `ResponseEscape` rules (`Response`, `JsonResource`), and, in dev/test only, the response schema check. A value that
+  does not match is the existing logged generic **500** (`the handler's value does not match...` /
+  `...changes the handler's value...`); production sends it as before. No new error body or format is introduced.
+- **Errors.** A throw from an interceptor goes through `checkUndeclaredError` (X3
+  [#157](https://github.com/Laratypes/Laratype/issues/157)) and the exception filter. A declared `ContractError` answers
+  its status and body; anything else is the existing dev/test 500 plus log (production rethrows). A handler or later
+  interceptor throw rejects `next()`; the interceptor may catch it and return a value or throw another error; uncaught is
+  the same path.
+- **Scope rule is type-level only (amendment B).** `r.interceptor(concrete).scope(...)` is a compile error; there is no
+  mount-time check for it. A cast (`as any`) can bypass it, and the dev response check is the runtime backstop. A generic
+  interceptor mounted at a scope is applied to every contract under the folder at runtime; its type is not part of another
+  builder's proof (the same limitation as H6 scope middleware).
+- **A cache short-circuit skips the handler's checks.** When an interceptor returns without calling `next()`, every
+  check made inside the handler is skipped, and the same value is replayed to every request that passes the route's
+  auth and policies. Key the cache per user (or principal) when the value depends on the user, keep authorization in
+  policies and middleware rather than in the handler, and never cache a `ResponseSupport` value that sets cookies: its
+  headers, `Set-Cookie` included, are replayed too.
+- **Values only.** No interceptor classes or container DI; a `cache(ttl)` factory from
+  [@laratype/cache](./services.md#cache) (#166) returns a generic `defineInterceptor()` value.
+
+### Diagnostics
+Runtime `Error`s and `TypeError`s, prefixed `[@laratype/http]`:
+- `defineInterceptor(): expected a function (ctx, next), got <typeof>` (a `TypeError` at definition)
+- `Route.api: r.interceptor(): <value> is not an interceptor (a defineInterceptor(...) value)`
+- `Route.api: contract "<name>": interceptors must be an array of defineInterceptor(...) values` (a hand-built item; the
+  scope's wording is `scope "<dir>": ...`)
+- `Route.api: contract "<name>": <value> is not an interceptor (a defineInterceptor(...) value)` (a hand-built item; the
+  scope's wording is `scope "<dir>": ...`)
+- `Route.api: r.<method>('<path>'): interceptors need a contract route (there is no endpoint response type to check)`
+- `interceptor <name> called next() more than once` (a `TypeError`; `<name>` is the handle's function name, or
+  `interceptor`)
+- The response check's existing messages (`the handler's value does not match the endpoint's response schema (...)`,
+  `the endpoint's response schema changes the handler's value ...`) apply to the interceptor's value as the handler's
+  replacement (dev and test only, logged, 500).
+
+Type-level:
+- `Route.api: scope "<folder>": interceptor is endpoint-specific; mount it on r.contract() or an endpoint` (on the
+  `scope()` folder argument; a cast bypasses it)
+- `<c>.<e>: interceptor result does not match the response schema` with `{ expected; got }`
+- `<c>.<e>: interceptor's next() does not accept the handler's result` with `{ handler_returns; interceptor_next }`
+- `<c>.<e>: interceptor does not accept the handler's ctx` with `{ route_provides; interceptor_requires }`
+- `endpoint callback: interceptor result does not match the response schema` and
+  `endpoint callback: interceptor's next() does not accept the handler's result` (an `endpoints` callback; the callback
+  checks the response, not the route's bindings or extensions)
+- A pinned `defineInterceptor<E>` whose handler returns another shape is a normal TS return error at the definition; a
+  generic interceptor cannot return an arbitrary shape (it needs `as R`)
+- `r.interceptor(...)` makes `get`, `post`, `put`, `patch` and `delete` `never` on that builder (no ad-hoc route)
+
+### Example
+```ts
+const log = defineInterceptor((ctx, next) => {
+  const started = Date.now()
+  return next().then((value) => {
+    console.log(ctx.endpoint.def.method, ctx.endpoint.def.path, Date.now() - started)
+    return value
+  })
+})
+
+// a public, user-independent value: key per user when the value depends on the user (Invariants › cache short-circuit)
+const cache = new Map<string, unknown>()
+const cached = defineInterceptor(async <R>(ctx: Ctx<AnyEndpoint>, next: () => Promise<R>): Promise<R> => {
+  const post = (ctx.params as Record<string, string | undefined>).post
+  const key = `${ctx.endpoint.def.path}:${String(post)}`
+  const hit = cache.get(key) as R | undefined          // the visible cast the generic form needs
+  if (hit !== undefined) return hit
+  const value = await next()
+  cache.set(key, value)
+  return value
+})
+
+const trim = defineInterceptor<typeof posts.show>(async (_ctx, next) => {
+  // a 0.5 Response/JsonResource is the other arm of Intercepted<E>; this route returns the DTO
+  const value = (await next()) as Result<typeof posts.show>
+  return { ...value, title: value.title.trim() }        // still the response schema's type
+})
+
+Route.api(appApi, (r) => [
+  r.interceptor(log).contract(posts, PostController, {
+    endpoints: { show: (r) => r.interceptor(cached, trim) },
+  }),
+])
+```
+
+Tests: [`packages/http/__tests__/routing/interceptors.test.ts`](../../packages/http/__tests__/routing/interceptors.test.ts)
+(transform, cache short-circuit, logging/order, validation and binding order, multiple interceptors and scope order,
+declared and undeclared errors, a second `next()`, a response-schema mismatch, bodyless endpoints, mount errors, edge
+inputs) and [`interceptors.test-d.ts`](../../packages/http/__tests__/routing/interceptors.test-d.ts) (the two forms, the
+result-parametric generic, the scope-only error, the proof checks, the cast cache hit). Compiled example:
+[`docs/v1/examples/http/proposed/interceptors.ts`](./examples/http/proposed/interceptors.ts).
+
+### Non-goals
+- No cache store and no `cache(ttl)`: [@laratype/cache](./services.md#cache) (#166) provides the interceptor value.
+- No interceptor classes or container DI: values only, as for H6's `defineMiddleware()`.
+- No app-wide registry: mount from a builder or a scope.
+- No `withoutInterceptor` in this task; no removal of an inherited scope interceptor.
+- No ad-hoc or 0.5 route: they have no endpoint response type.
+- No context extension from an interceptor: use H6 typed middleware.
+- No auth guard or policy execution here: A2 [#120](https://github.com/Laratypes/Laratype/issues/120), A3
+  [#121](https://github.com/Laratypes/Laratype/issues/121) and H8 [#122](https://github.com/Laratypes/Laratype/issues/122).
 
 ### Acceptance
 [#138 Done when](https://github.com/Laratypes/Laratype/issues/138)
