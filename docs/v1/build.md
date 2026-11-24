@@ -25,7 +25,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
-| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed @ d8ca303c → [#190](https://github.com/Laratypes/Laratype/issues/190) |
+| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed: PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ d8ca303c → [#190](https://github.com/Laratypes/Laratype/issues/190) |
 | [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 |
 
 ---
@@ -239,7 +239,7 @@ proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/iss
 ## CI and release
 
 ### Status
-B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in this PR @ d8ca303c: the fixed-version
+B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ d8ca303c: the fixed-version
 release tool (`scripts/release/`), the `v*`-tag publish workflow inside the `npm-release` environment, and the `alpha`
 dist-tag.
 Its Done-when needs the user (one alpha publish from CI, the npm trusted publishers, deleting `NPM_TOKEN`), so the PR
