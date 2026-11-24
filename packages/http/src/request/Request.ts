@@ -3,6 +3,7 @@ import { HonoRequest } from "hono/request"
 import RequestSupport, { DEFAULT_RULES, HONO_CONTEXT } from "../supports/Request"
 import ResponseKernel from "../response/Response";
 import { resolveContractResponse } from "../response/contractResponse";
+import { checkUndeclaredError } from "../response/undeclaredError";
 import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts/Route";
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
@@ -14,6 +15,9 @@ import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { mountCors } from "../middleware/cors";
+import { resolveBindings } from "../routing/api/bindings";
+import type { Bindings } from "../routing/api/proof";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -59,6 +63,9 @@ type PipeLineType = {
 } | {
   type: 'typed-middleware',
   handler: AnyTypedMiddleware,
+} | {
+  type: 'bindings',
+  bindings: Bindings,
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -201,12 +208,20 @@ export default class Request extends AppServiceProvider {
 
   /**
    * The handler context of a contract route (docs/v1/http.md › Controller typing: Ctx and ControllerOf): the raw path
-   * params, and the query and body validated by the endpoint's schemas (their output). `endpoint` is a read-only,
-   * non-enumerable own field, so spreading or logging the ctx doesn't copy the endpoint definition.
+   * params (with the `r.bind()` models in place of their strings), and the query and body validated by the endpoint's
+   * schemas (their output). `endpoint` is a read-only, non-enumerable own field, so spreading or logging the ctx
+   * doesn't copy the endpoint definition.
    */
-  public static async contractContext({ endpoint, input }: { endpoint: AnyEndpoint, input: RawInput }, extensions: readonly object[] = []) {
+  public static async contractContext(
+    { endpoint, input }: { endpoint: AnyEndpoint, input: RawInput },
+    extensions: readonly object[] = [],
+    bound: Record<string, unknown> = {},
+  ) {
     const { query, body } = await validateInput(endpoint, input);
-    const ctx = this.applyExtensions({ params: input.params, query, body }, extensions);
+    // Bindings merge last: a typed middleware extension adding the same param key must not replace the model the
+    // route proof promises the handler (docs/v1/http.md › Model binding)
+    const merged = Object.keys(bound).length ? [...extensions, { params: bound }] : extensions;
+    const ctx = this.applyExtensions({ params: input.params, query, body }, merged);
     return Object.defineProperty(ctx, 'endpoint', { value: endpoint, writable: false, enumerable: false, configurable: false });
   }
 
@@ -260,6 +275,8 @@ export default class Request extends AppServiceProvider {
         let error: any;
         // What the handler gets: the 0.5 request, or the ctx of a contract route
         let handlerArg: unknown = requestInstance;
+        // The `r.bind()` models, resolved once by the bindings step and merged into the ctx params (H7 #118)
+        let bound: Record<string, unknown> = {};
         // What typed middleware passed to next(ext), merged into the handler argument once the request step runs
         const extensions: object[] = [];
         const next = async (arg?: any) => {
@@ -270,9 +287,13 @@ export default class Request extends AppServiceProvider {
           }
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
+            if(currentPipelineType === 'bindings') {
+              bound = await resolveBindings(currentPipeline.bindings, requestInstance.param());
+              return await next(arg);
+            }
             if(currentPipelineType === 'request') {
               handlerArg = currentPipeline.contract
-                ? await this.contractContext(currentPipeline.contract, extensions)
+                ? await this.contractContext(currentPipeline.contract, extensions, bound)
                 : this.applyExtensions(await this.processValidation(requestInstance, routeOption), extensions);
               return await next(arg);
             }
@@ -382,7 +403,7 @@ export default class Request extends AppServiceProvider {
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
       const rules = requestInstance.rules() as StandardSchemaV1;
       if(typeof rules?.["~standard"]?.validate !== "function") {
-        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 3.25+, valibot, ...)`);
+        throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)`);
       }
       // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only
       const result = await validate(rules, requestInstance.all());
@@ -409,7 +430,8 @@ export default class Request extends AppServiceProvider {
       // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
       const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
-      // For request.ip() (A5 #288). Non-enumerable, so logging or serializing the request doesn't walk Node's socket
+      // For request.ip() (A5 #288, H30 #299). Non-enumerable, so logging or serializing the request doesn't copy the
+      // Hono context, and the adapter's getConnInfo still reads the request's own context
       Object.defineProperty(transformedRequest, HONO_CONTEXT, { value: ctx, writable: false, enumerable: false, configurable: true });
       // The endpoint (#105) is also a read-only, non-enumerable field of the request, for middleware. A contract route
       // takes no request class, so the request has no own `endpoint` to clash with
@@ -436,20 +458,33 @@ export default class Request extends AppServiceProvider {
             ? { type: 'typed-middleware' as const, handler: m }
             : { type: 'middleware' as const, handler: m }));
         }
+        // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
+        if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
+          pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
         }
         pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
-        const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
-
-        if(pipelineResult instanceof Error) {
-          throw pipelineResult;
+        try {
+          const pipelineResult = await this.pipeline(transformedRequest, pipelines, routeOption, ctx.res);
+          if(pipelineResult instanceof Error) {
+            throw pipelineResult;
+          }
+          // `await`ed inside the try: a contract response resolution that rejects (a `JsonResource` whose `toJson()`
+          // throws) is a route error too, and must be checked, not escape the catch as a rejected promise
+          return routeOption.endpoint
+            ? await resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
+            : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
         }
-        return routeOption.endpoint
-          ? resolveContractResponse(ctx, pipelineResult, routeOption.endpoint, routeOption.name ?? routeOption.path)
-          : ResponseKernel.resolveResponse(ctx, pipelineResult, routeOption);
+        catch (error) {
+          // A route's thrown error must be declared on its endpoint (docs/v1/http.md › Undeclared-error check, X3 #157):
+          // dev logs it, test answers the generic 500, production skips the check and the error is rethrown untouched
+          checkUndeclaredError(error, routeOption);
+          throw error;
+        }
       });
     }
   }
@@ -472,6 +507,9 @@ export default class Request extends AppServiceProvider {
   }
 
   public boot(): void {
+    // First, before the routes are mounted (an app provider's boot) and before the request scope: a preflight is
+    // answered before routing and before the body read, and the headers Hono sets before next() reach error responses
+    mountCors(this.apps);
     this.apps.use(async (ctx, next) => {
       // One request scope per request (D6 #112): request-scoped values are built in it and disposed once the handler
       // settles, without holding the response back: a slow or hung disposer must not delay or hang the response

@@ -1,19 +1,17 @@
-import type { Context } from "hono";
+import type { Context, Env, Hono, MiddlewareHandler, Schema } from "hono";
+import type { GetConnInfo } from "hono/conninfo";
 import { HonoRequest } from "hono/request";
-import { getConnInfo as getNodeConnInfo } from "@hono/node-server/conninfo";
 import type { InferOut, StandardSchemaV1 } from "@laratype/contract";
 import type { RequestInterface } from "../contracts/Request";
 import { isNil, omit, pick } from "es-toolkit"
 import { has } from "es-toolkit/compat"
+import { normalizeIp } from "./ip";
 
 /**
  * `Authorization: Bearer <token>` (RFC 6750 §2.1): the scheme ignores case (RFC 9110 §11.1), the token is a b64token,
  * the same grammar as Hono's `bearerAuth`.
  */
 const BEARER = /^Bearer +([A-Za-z0-9._~+/-]+=*) *$/i
-
-/** What `ip()` reads of the adapter's env: Node's `incoming` request, or Bun's `Server.requestIP`. */
-type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globalThis.Request) => { address: string } | null }
 
 /**
  * The key of the Hono context `RequestKernel.handle` attaches to the request after building it: `ip()` reads the
@@ -22,28 +20,135 @@ type AdapterEnv = { incoming?: { socket?: unknown }, requestIP?: (request: globa
 export const HONO_CONTEXT = Symbol.for("laratype.http.honoContext")
 
 /**
+ * The context variable `mountConnInfo`'s middleware stores its capture under (what its `getConnInfo` answered when the
+ * middleware ran), or, from an older copy of @laratype/http, the getter itself. A `Symbol.for` key, so the middleware
+ * and `ip()` agree across two copies of the package (CJS and ESM), even when the adapter loaded one copy and the app
+ * the other.
+ */
+const CONN_INFO: unique symbol = Symbol.for("laratype.http.connInfo")
+
+/**
+ * The middlewares `mountConnInfo` mounted on an app, so a second mount is still accepted while a mount after anything
+ * else is refused (the capture has to run before a middleware can await). A `Symbol.for` key like `CONN_INFO`, for the
+ * same two-copies reason.
+ */
+const CONN_INFO_MOUNTS: unique symbol = Symbol.for("laratype.http.connInfoMounts")
+
+/**
  * The brand of the default `rules()`: the kernel skips validation for a request class that doesn't override it. A
  * `Symbol.for` key, so it holds across two copies of @laratype/http (CJS and ESM), where prototype identity fails.
  */
 export const DEFAULT_RULES: unique symbol = Symbol.for("laratype.http.defaultRules");
 
-/** `request.ip()` read from the Hono context: the rate limit (#229) keys on it before the request is built. */
-export const clientIp = (ctx: Context | undefined): string => {
-  if(!ctx?.env) {
-    return ""
+/** The context methods `mountConnInfo` and `clientIp` use with the symbol key, which Hono's string-keyed types omit. */
+type ConnInfoContext = { get(key: symbol): unknown, set(key: symbol, value: unknown): void }
+
+/** What `mountConnInfo`'s middleware stores when it runs: `ConnInfoSource` for the request that ran it. */
+type CapturedConnInfo = { readonly registered: true, readonly address: string | undefined }
+
+/** What `mountConnInfo`'s `getConnInfo` answered, normalized: `remote.address` when it is a connection info object. */
+const readAddress = (ctx: Context, getConnInfo: GetConnInfo): string | undefined => {
+  try {
+    const info: unknown = getConnInfo(ctx);
+    const address = typeof info === "object" && info !== null
+      ? (info as { remote?: { address?: unknown } }).remote?.address
+      : undefined;
+    return normalizeIp(address)
   }
-  // The adapter's env, or `env.server` when it wraps it: the same pick as Hono's getConnInfo for Node and Bun
-  const env = ctx.env as AdapterEnv & { server?: AdapterEnv }
-  const bindings = env.server || env
-  // Node passes `{ incoming, outgoing }`, its IncomingMessage carries the socket
-  if(bindings.incoming?.socket) {
-    return getNodeConnInfo(ctx).remote.address ?? ""
+  catch {
+    return undefined
   }
-  // Bun passes its server. `hono/bun`'s getConnInfo makes the same call, but `hono/bun` reads `Bun` on import
-  if(typeof bindings.requestIP === "function") {
-    return bindings.requestIP(ctx.req.raw)?.address ?? ""
+}
+
+/**
+ * Mounts the serving adapter's `getConnInfo` (docs/v1/http.md › Request.ip()): `sauf`'s node entry and `sauf dev`
+ * mount the node server's, a Bun entry `hono/bun`'s. The middleware runs before the routes and captures the address
+ * once, synchronously, so a client that resets its connection during a later `await` still has its address counted by
+ * the rate limit. Mount it before any route or middleware that can await; a late mount is refused, because the lazy
+ * read after that await is exactly what loses the address of a reset connection.
+ */
+export const mountConnInfo = <E extends Env, S extends Schema, BasePath extends string>(
+  app: Hono<E, S, BasePath>,
+  getConnInfo: GetConnInfo,
+): void => {
+  if (typeof getConnInfo !== "function") {
+    throw new TypeError(`[@laratype/http] mountConnInfo(): expected the runtime's getConnInfo(context) function, got ${typeof getConnInfo}`)
   }
-  return ""
+  if (typeof (app as { use?: unknown } | undefined)?.use !== "function") {
+    throw new TypeError(`[@laratype/http] mountConnInfo(): expected a Hono app, got ${app === null ? "null" : typeof app}`)
+  }
+  const mounted = app as unknown as Hono & { [CONN_INFO_MOUNTS]?: readonly MiddlewareHandler[] }
+  const previous = mounted[CONN_INFO_MOUNTS] ?? []
+  // Hono runs a middleware registered after a route only after that route, and after an earlier middleware: the capture
+  // would run after its await. Our own earlier mounts are fine, so mounting twice stays harmless.
+  const routes = Array.isArray(app.routes) ? app.routes : []
+  const late = routes.filter((route) => !previous.includes(route.handler))
+  if (late.length > 0) {
+    throw new Error(`[@laratype/http] mountConnInfo(): call it before any route or middleware, so the address is captured before one can await; the app already has ${late.length} route${late.length === 1 ? "" : "s"} or middleware`)
+  }
+  const middleware: MiddlewareHandler = async (ctx, next) => {
+    const captured: CapturedConnInfo = { registered: true, address: readAddress(ctx, getConnInfo) }
+    ;(ctx as unknown as ConnInfoContext).set(CONN_INFO, captured)
+    await next()
+  }
+  app.use("*", middleware)
+  mounted[CONN_INFO_MOUNTS] = [...previous, middleware]
+}
+
+/**
+ * What the serving adapter's `getConnInfo` answered (A5 #288, H30 #299): whether one is registered at all, and the
+ * client address it found. `registered: false` is the app-wiring gap the rate limit warns about once per process; a
+ * registered getter that finds no address (a unix socket, a gone connection) is a per-request fact.
+ */
+export type ConnInfoSource =
+  | { readonly registered: false, readonly address: undefined }
+  | { readonly registered: true, readonly address: string | undefined }
+
+/** Whether `value` is the capture `mountConnInfo`'s middleware stores, rather than a getter an older copy stored. */
+const isCaptured = (value: unknown): value is CapturedConnInfo =>
+  typeof value === "object" && value !== null && (value as { registered?: unknown }).registered === true
+
+/**
+ * The client address `request.ip()` answers, read from what `mountConnInfo`'s middleware captured when it ran (A5
+ * #288, H30 #299), or `undefined` when no middleware ran or the getter found no address. The getter is not called
+ * again: after an `await` a reset connection has no address left to read. The one lazy path left is a getter an older
+ * copy of the package stored itself, for a request whose app never ran this copy's middleware; a getter that throws or
+ * answers no address is no address either, and never fails the request.
+ */
+export const connInfoSource = (ctx: Context | undefined): ConnInfoSource => {
+  if (ctx === undefined) return { registered: false, address: undefined };
+  const stored = (ctx as unknown as Partial<ConnInfoContext>).get?.(CONN_INFO)
+  if (typeof stored === "function") return { registered: true, address: readAddress(ctx, stored as GetConnInfo) }
+  if (isCaptured(stored)) return { registered: true, address: normalizeIp(stored.address) }
+  return { registered: false, address: undefined };
+}
+
+/** The address `ip()` answers: `connInfoSource(ctx).address`, `undefined` for every reason it can be unknown. */
+export const clientIp = (ctx: Context | undefined): string | undefined => connInfoSource(ctx).address
+
+/**
+ * `pick` with an own `__proto__` key kept as data. es-toolkit's `pick` assigns each own key to the new object
+ * (`result[key] = value`), so an own `__proto__` in the source sets the result's prototype instead of becoming a key.
+ * The source is client input here, so the key is handled the way the rest of the package handles it: an own data
+ * property, never a prototype (B30 #410). Every other key keeps `pick`'s behaviour.
+ */
+const pickData = (source: Record<string, any>, keys: string[]): Record<string, any> => {
+  // `only()` is typed `string[]`; a non-array at runtime (JS callers) is no keys, not an array-like `pick` would walk
+  if (!Array.isArray(keys)) return {}
+  const picked = pick(source, keys) as Record<string, any>
+  if(!keys.includes("__proto__") || !Object.hasOwn(source, "__proto__")) {
+    return picked
+  }
+  // `picked` has no own `__proto__` key: the value became its prototype (or was ignored, for a primitive). A copy
+  // with define semantics gives the key back without the swapped prototype.
+  const result = { ...picked }
+  Object.defineProperty(result, "__proto__", {
+    value: source.__proto__,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  })
+  return result
 }
 
 export default class Request implements RequestInterface {
@@ -75,7 +180,7 @@ export default class Request implements RequestInterface {
     const input = this.requestCtx.input;
     if(!isNil(keys)) {
       if(keys instanceof Array) {
-        return pick(input, keys);
+        return pickData(input, keys);
       }
       return input[keys as never]
     }
@@ -123,11 +228,12 @@ export default class Request implements RequestInterface {
   }
 
   /**
-   * The client address of the connection on the Node and Bun adapters, or `""` when there is no socket to read (an
-   * in-process `app.request()`, another runtime). It never reads `X-Forwarded-For`: behind a proxy, this is the proxy's
-   * address.
+   * The client address of the socket `mountConnInfo`'s `getConnInfo` read when its middleware ran (docs/v1/http.md ›
+   * Request.ip()), or `undefined` when no adapter mounted one (an in-process `app.request()`, another runtime) or the
+   * socket is gone. It never reads `X-Forwarded-For` or `X-Real-IP`: behind a proxy, this is the proxy's address until
+   * the trusted-proxy setting ([#320](https://github.com/Laratypes/Laratype/issues/320)) names the proxies.
    */
-  ip(): string {
+  ip(): string | undefined {
     return clientIp((this as { [HONO_CONTEXT]?: Context })[HONO_CONTEXT])
   }
 
@@ -136,7 +242,7 @@ export default class Request implements RequestInterface {
   }
 
   only(keys: string[]): Record<string, any> {
-    return pick(this.all(), keys)
+    return pickData(this.all(), keys)
   }
 
   path(): string {

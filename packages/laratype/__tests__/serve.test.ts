@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { __laratype_deps, Container, Facade } from "@laratype/core";
-import { AppServiceProvider, ServiceProvider } from "@laratype/support";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { __laratype_deps, Container, depsRegistry, Facade } from "@laratype/core";
+import { AppServiceProvider, bootProviders, Hash, Hasher, ServiceProvider } from "@laratype/support";
 import Serve from "../src/serve";
 
 class Clock {}
@@ -10,6 +10,20 @@ class Greeter {
 }
 // What the `laratype:di` transform emits after the class.
 __laratype_deps(Greeter, [() => Clock], { params: ["clock"] });
+
+/** A Hasher whose make() is replaced, for the facade tests. */
+class Fixed extends Hasher {
+  override make() {
+    return "fixed";
+  }
+}
+
+/** A Hasher a provider binds, to check the app binding wins over a dropped fake. */
+class OtherHash extends Hasher {
+  override make() {
+    return "provider";
+  }
+}
 
 describe("Serve.getContainer", () => {
   afterEach(() => Serve.down());
@@ -90,5 +104,110 @@ describe("Serve.stop", () => {
 
   it("reports several failures together", async () => {
     await expect(Serve.stop([() => { throw new Error("x"); }, () => { throw new Error("y"); }])).rejects.toBeInstanceOf(AggregateError);
+  });
+});
+
+const FALLBACK_WARNED = Symbol.for("laratype.di.fallbackWarned");
+const FAKES_DROPPED = Symbol.for("laratype.di.fakesDropped");
+
+describe("facade application (D11 #318)", () => {
+  afterEach(() => {
+    Serve.down();
+    Facade.setFacadeApplication(undefined);
+    delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED];
+    delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  /** Create the fallback (and its D9 warning) before the counted calls. */
+  const warmFallback = (warn: ReturnType<typeof vi.spyOn>): void => {
+    Facade.getFacadeApplication();
+    warn.mockClear();
+  };
+
+  it("re-sets a facade application cleared while the container lives", () => {
+    const container = Serve.getContainer().bind(Hasher, Fixed);
+    // A test afterEach of another suite cleared it while Serve's container lives
+    Facade.setFacadeApplication(undefined);
+    expect(Serve.getContainer()).toBe(container);
+    expect(Facade.getFacadeApplication()).toBe(container);
+    expect(Hash.make("secret")).toBe("fixed");
+  });
+
+  it("replaces a facade application an earlier bare boot set", async () => {
+    class BindOther extends ServiceProvider {
+      register() {
+        this.app.bind(Hasher, OtherHash);
+      }
+    }
+    const bare = new Container({ deps: depsRegistry });
+    await bootProviders(bare, [BindOther]);
+    expect(Facade.getFacadeApplication()).toBe(bare);
+    const container = Serve.getContainer();
+    expect(Facade.getFacadeApplication()).toBe(container);
+    // The bare boot's binding is no longer the facade application's
+    expect(Hash.make("secret")).not.toBe("provider");
+  });
+
+  it("a pre-boot fake warns once, names the token, and the app binding wins", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
+    const restore = Hash.fake(new Fixed());
+    class BindHash extends ServiceProvider {
+      register() {
+        this.app.bind(Hasher, OtherHash);
+      }
+    }
+    await Serve.bootProvider([BindHash]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]![0]);
+    expect(message).toContain("setFacadeApplication() dropped the shared fallback with unrestored fakes: Hasher");
+    expect(message).toContain("Make the fake after the boot");
+    expect(Hash.make("secret")).toBe("provider");
+    // The dropped fallback's restore is a no-op, never a throw
+    expect(() => restore()).not.toThrow();
+    expect(Hash.make("secret")).toBe("provider");
+  });
+
+  it("does not warn when every fake was restored before the boot", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
+    const restore = Hash.fake(new Fixed());
+    restore();
+    await Serve.bootProvider([ServiceProvider]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("does not warn in production", async () => {
+    vi.stubGlobal("__PROD__", true);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns once per process for dropped fakes", async () => {
+    vi.stubGlobal("__PROD__", false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warmFallback(warn);
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    Serve.down();
+    Hash.fake(new Fixed());
+    await Serve.bootProvider([ServiceProvider]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("concurrent boots share one container and one facade application", async () => {
+    const [first, second] = await Promise.all([
+      Serve.bootProvider([ServiceProvider]),
+      Serve.bootProvider([ServiceProvider]),
+    ]);
+    const container = Serve.getContainer();
+    expect(Facade.getFacadeApplication()).toBe(container);
+    for (const down of [...first, ...second]) await down();
   });
 });

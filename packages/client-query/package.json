@@ -44,7 +44,7 @@
     "happy-dom": "21.0.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "vue": "3.5.43",
+    "vue": "3.5.44",
     "zod": "catalog:"
   },
   "peerDependencies": {

@@ -1,19 +1,14 @@
-import { Model } from "@laratype/database"
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from "@laratype/database"
+import { CreateDateColumn, Entity, Model, PrimaryGeneratedColumn, UpdateDateColumn } from "@laratype/database";
 
 @Entity()
 export class {{ModelName}} extends Model {
-    @PrimaryGeneratedColumn()
-    id: number
 
-    @CreateDateColumn()
-    created_at: Date
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-    @UpdateDateColumn()
-    updated_at: Date
+  @CreateDateColumn()
+  created_at!: Date;
 
-    static readonly fillable = [
-    ]
+  @UpdateDateColumn()
+  updated_at!: Date;
 }
-
-export interface {{ModelName}} {}

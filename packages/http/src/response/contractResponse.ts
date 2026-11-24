@@ -6,14 +6,12 @@ import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import ResponseSupport from "../supports/Response";
 import JsonResource from "../resource/json/JsonResource";
 import ResponseKernel from "./Response";
-import { isBodyHeader } from "./bodyHeaders";
+import { isBodyHeader, isRedirectHeader } from "./bodyHeaders";
+import { isProduction } from "../supports/runtime";
 
 const fail = (route: string, message: string): never => {
   throw new Error(`[@laratype/http] ${route}: ${message}`);
 };
-
-/** Dev and test: the output check runs unless the app is a production build (`__PROD__`) or `NODE_ENV=production`. */
-const isProduction = () => globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
 
 /** The JSON text sent for a value: `JSON.stringify` gives none for `undefined` (or a function), which is sent as `null`. */
 const serialize = (value: unknown): string => JSON.stringify(value) ?? "null";
@@ -46,10 +44,11 @@ const isSuccess = (status: number) => status >= 200 && status <= 299;
  *
  * The handler may return the 0.5 `Response` for its headers and content; a 2xx status set on it must be the
  * endpoint's. A redirect or a non-2xx one (a middleware answering 401 or 429 without calling next) is not the
- * endpoint's success and keeps the 0.5 response. Its body or redirect headers (`BODY_HEADERS`) are dropped: the body
- * sent here is the server's serialization, not the one they describe. The `Location` of a `201 Created` is the one
- * exception: it names the created resource, not the body (RFC 9110 §15.3.2). An endpoint cannot declare a 3xx (its
- * status is checked to be 2xx), so a redirect is a 0.5 `Response`, sent as it is above.
+ * endpoint's success and keeps the 0.5 response. Its body and redirect headers (`BODY_HEADERS`, `REDIRECT_HEADERS`) are
+ * dropped: the body sent here is the server's serialization, not the one they describe, and the resource is the
+ * endpoint's. The `Location` and `Content-Location` of a `201 Created` are the exception: they name the created
+ * resource, not the body (RFC 9110 §15.3.2, §8.7). An endpoint cannot declare a 3xx (its status is checked to be 2xx),
+ * so a redirect is a 0.5 `Response`, sent as it is above.
  */
 export const resolveContractResponse = async (ctx: Context, result: unknown, endpoint: AnyEndpoint, route: string) => {
   const support = result instanceof ResponseSupport ? result : undefined;
@@ -73,9 +72,13 @@ export const resolveContractResponse = async (ctx: Context, result: unknown, end
   const headers = support?.getHeaders() ?? {};
   for (const name in headers) {
     // The body is JSON or nothing: the handler's Content-Type, Content-Length or Content-Encoding describes its own
-    // body, not the one sent here (H4 #107, the BODY_HEADERS of #272). A 201's Location is not about the body: it
-    // names the created resource (RFC 9110 §15.3.2)
-    if (isBodyHeader(name) && !(status === 201 && name.toLowerCase() === "location")) continue;
+    // body, not the one sent here (H4 #107, the BODY_HEADERS of #272), and a Location or Refresh sends the client
+    // elsewhere. A 201's Location and Content-Location are not about the body: they name the created resource
+    // (RFC 9110 §15.3.2, §8.7), and the endpoint's own status decides the 201, not the Response's (H32 #312)
+    if (!Object.hasOwn(headers, name)) continue;
+    const lower = name.toLowerCase();
+    if (isBodyHeader(name) && !(status === 201 && lower === "content-location")) continue;
+    if (isRedirectHeader(name) && !(status === 201 && lower === "location")) continue;
     ctx.header(name, headers[name]);
   }
 

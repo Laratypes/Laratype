@@ -42,7 +42,7 @@ const UserDto = z.object({ id: z.number(), name: z.string() })
 // One endpoint: method + Hono-style path, then optional slots in any order.
 export const showPost = endpoint
   .get('/users/:user/posts/:post?')
-  .query(z.object({ page: z.coerce.number().default(1) }))
+  .query(z.object({ page: z.coerce.number<number>().default(1) }))
   .response(UserDto)
   .auth()
   .authorize()
