@@ -237,9 +237,9 @@ const errors = {
   scopeRelationKind: (model: string, relation: string): string =>
     `[@laratype/database] ${model} relation ${formatValue(relation)} is not a many-to-one or an owning one-to-one`
     + " relation: .scopeBindings() needs the side that holds the join column",
-  scopeDuplicate: (model: string, property: string): string =>
-    `[@laratype/database] ${model}: two scoped parents filter the join column ${formatValue(property)}:`
-    + " .scopeBindings() cannot filter it for both",
+  scopeDuplicate: (model: string, relation: string): string =>
+    `[@laratype/database] ${model}: two scoped parents resolve to the relation ${formatValue(relation)}:`
+    + " .scopeBindings() cannot scope the lookup by both",
   scopeNotLoaded: (model: string, parent: string, name: string): string =>
     `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance has not`
     + " loaded: select it before .scopeBindings()",
@@ -446,7 +446,12 @@ const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: R
       throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
     }
     if (properties.has(join.propertyName)) {
-      throw new ModelError(errors.scopeDuplicate(metadata.targetName, join.propertyName));
+      // Two scope entries resolved to the same relation: the later value would overwrite the earlier in the where. The
+      // immediate parent is a configuration error; an earlier one is transitive and skipped.
+      if (index === immediate) {
+        throw new ModelError(errors.scopeDuplicate(metadata.targetName, relation.propertyName));
+      }
+      continue;
     }
     let value: unknown;
     try {
