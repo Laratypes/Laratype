@@ -9,7 +9,7 @@ import { z } from "zod";
 import { Container, depsRegistry, setConfigs } from "@laratype/core";
 import { HTTP_APP } from "@laratype/support";
 import { defineApi, defineContract, endpoint } from "@laratype/contract";
-import { BODY_LIMIT_DEFAULTS, isPayloadTooLarge } from "../../src/request/bodyLimit";
+import { BODY_LIMIT_DEFAULTS } from "../../src/request/bodyLimit";
 import { Controller, Request as RequestSupport, RequestKernel, ResponseKernel, Route } from "../../src/index";
 import type { Ctx } from "../../src/index";
 
@@ -288,6 +288,27 @@ describe("a body an earlier middleware already read (H44 #341)", () => {
     mount(app, "0.5");
     await expect413(await app.request("/users", json({ d: "a".repeat(2_048) })));
   });
+
+  it("measures a form body a middleware parsed with parseBody(), not one it read with formData()", async () => {
+    quiet();
+    const body = form(`name=${"a".repeat(2_048)}`);
+    // 4.13.17's parseBody() reads through c.req.arrayBuffer(), so the cache holds the bytes next to its FormData
+    const parsed = bootApp({ bodyLimit: { form: 1_024 } });
+    parsed.use(async (c, next) => {
+      await c.req.parseBody();
+      await next();
+    });
+    mount(parsed, "0.5");
+    await expect413(await parsed.request("/users", body));
+    // c.req.formData() caches only its promise, not the bytes it spent: the default cannot measure this body
+    const formData = bootApp({ bodyLimit: { form: 1_024 } });
+    formData.use(async (c, next) => {
+      await c.req.formData();
+      await next();
+    });
+    mount(formData, "0.5");
+    expect((await formData.request("/users", body)).status).toBe(201);
+  });
 });
 
 describe("multipart raw bytes (H44 #341)", () => {
@@ -434,28 +455,62 @@ describe("mixed-case form media types (H44 security review)", () => {
   it.each([
     ["multipart", { method: "POST", headers: { "Content-Type": MIXED_CASE_MULTIPART }, body: multipart(64) }],
     ["urlencoded", form("name=ada", MIXED_CASE_FORM)],
-  ] as const)("leaves a mixed-case %s body under the cap unparsed, as Hono's parseBody does", async (_label, init) => {
+  ] as const)("parses a mixed-case %s body under the cap", async (_label, init) => {
     quiet();
     const app = bootApp();
     mountInput(app);
     const response = await app.request("/users", init);
     expect(response.status).toBe(201);
-    // Hono 4.9.6's parseBody() matches the form media types case-sensitively: a handler gets no fields, and the
-    // pipeline does not parse them either, so the limit and the parse stay separate classifiers
-    expect(await response.json()).toEqual({ input: {} });
+    // The pipeline lowercases the media type before its form classifier: a handler gets the fields, as for the
+    // lowercase spelling, and `parseBody()` reads the same body
+    expect(await response.json()).toEqual({
+      input: _label === "multipart" ? { data: "a".repeat(64) } : { name: "ada" },
+    });
   });
 
-  it("fails the contract validation of a mixed-case form body, which no layer parsed", async () => {
+  it.each([
+    [
+      "multipart",
+      {
+        method: "POST",
+        headers: { "Content-Type": "Multipart/Form-Data; boundary=XyZ" },
+        body: '--XyZ\r\nContent-Disposition: form-data; name="name"\r\n\r\nada\r\n--XyZ\r\nContent-Disposition: form-data; name="user.age"\r\n\r\n36\r\n--XyZ--\r\n',
+      },
+    ],
+    ["urlencoded", form("name=ada&user.age=36", MIXED_CASE_FORM)],
+  ] as const)("parses and validates a mixed-case %s body; input() equals parseBody()", async (_label, init) => {
+    quiet();
+    const app = bootApp();
+    let input: unknown;
+    let parsed: unknown;
+    class Users extends Controller {
+      store(req: RequestSupport) {
+        input = req.input();
+        return { ok: true };
+      }
+    }
+    // After the kernel read it, Hono's own `parseBody({ dot: true })` serves the same FormData from the cache
+    app.use("/users", async (c, next) => {
+      await next();
+      parsed = await c.req.parseBody({ dot: true });
+    });
+    app.post("/users", RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"] }));
+    const response = await app.request("/users", init);
+    expect(response.status).toBe(201);
+    expect(input).toEqual({ name: "ada", user: { age: "36" } });
+    expect(parsed).toEqual(input);
+  });
+
+  it("validates a mixed-case form body instead of answering 422", async () => {
     quiet();
     const app = bootApp();
     mount(app, "Route.api");
-    // The route's body schema needs `name`; the mixed-case body is `{}` to the pipeline, so it is a 422, not a 201
-    expect((await app.request("/users", form("name=ada", MIXED_CASE_FORM))).status).toBe(422);
-    // The lowercase spelling of the same body is parsed and passes
+    // The route's body schema needs `name`: the lowercased media type makes the mixed-case body a parsed, valid body
+    expect((await app.request("/users", form("name=ada", MIXED_CASE_FORM))).status).toBe(201);
     expect((await app.request("/users", form("name=ada"))).status).toBe(201);
   });
 
-  it("never gives a handler the bytes of a mixed-case over-cap body through c.req.formData()", async () => {
+  it("caps a mixed-case chunked body before the handler can read it through c.req.formData()", async () => {
     quiet();
     const app = bootApp({ bodyLimit: { multipart: 2_048 } });
     let fields: FormData | undefined;
@@ -480,8 +535,8 @@ describe("mixed-case form media types (H44 security review)", () => {
       "/users",
       RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"], request: FormDataRequest }),
     );
-    // No Content-Length: the pipeline does not read a mixed-case form body, so the handler's formData() is the reader
-    // and the counting stream is what must stop it
+    // No Content-Length: the pipeline reads the mixed-case body, the counting stream stops it at the cap, and the
+    // handler never runs to read the bytes itself
     const text = new TextEncoder().encode(multipart(4_096));
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -496,9 +551,140 @@ describe("mixed-case form media types (H44 security review)", () => {
       duplex: "half",
     };
     const response = await app.request("/users", init);
-    expect(response.status).toBe(201);
-    // The parse never resolves with the body, and what stopped it is the default limit's own 413
+    await expect413(response);
     expect(fields).toBeUndefined();
-    expect(isPayloadTooLarge(failure)).toBe(true);
+    expect(failure).toBeUndefined();
+  });
+});
+
+describe("a multi-valued Content-Type (B30 #410 security review)", () => {
+  const MESSAGE = "Invalid Content-Type header: more than one media type.";
+  const FORM_MESSAGE = "Invalid Content-Type header: a form media type name outside the leading media type.";
+
+  /** A 0.5 route that records whether its handler ran. */
+  const mountReached = (app: Hono): { reached: boolean } => {
+    const state = { reached: false };
+    class Users extends Controller {
+      store() {
+        state.reached = true;
+        return { ok: true };
+      }
+    }
+    app.post("/users", RequestKernel.handle({ method: "post", path: "/users", controller: [Users, "store"] }));
+    return state;
+  };
+
+  it.each([
+    ["application/json, multipart/form-data; boundary=x", '{"name":"ada"}'],
+    ["text/plain, application/x-www-form-urlencoded", "name=ada"],
+    ['application/json; x=", multipart/form-data; boundary=x', '{"name":"ada"}'],
+  ])("answers 400 for %s before the handler", async (contentType, body) => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    const response = await app.request("/users", { method: "POST", headers: { "Content-Type": contentType }, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it.each([
+    ["a form name in a quoted boundary", 'multipart/form-data; boundary="application/x-www-form-urlencoded"', "u=1"],
+    ["a form name on a non-form type", 'text/plain; t="application/x-www-form-urlencoded"', "u=1"],
+    ["a form name in an octet-stream parameter", "application/octet-stream; boundary=x; t=multipart/form-data", "u=1"],
+    ["both form names outside the leading type", "text/plain; a=multipart/form-data; b=application/x-www-form-urlencoded", "u=1"],
+  ] as const)("answers 400 for %s in the Content-Type", async (_label, contentType, body) => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    const response = await app.request("/users", { method: "POST", headers: { "Content-Type": contentType }, body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: FORM_MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it("answers 400 on a GET with no body", async () => {
+    quiet();
+    const app = bootApp();
+    let reached = false;
+    class Users extends Controller {
+      index() {
+        reached = true;
+        return { ok: true };
+      }
+    }
+    app.get("/users", RequestKernel.handle({ method: "get", path: "/users", controller: [Users, "index"] }));
+    const response = await app.request("/users", { headers: { "Content-Type": "application/json, text/plain" } });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(reached).toBe(false);
+  });
+
+  it("answers 400 when two Content-Type header lines are joined", async () => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    // Fetch's Headers.get joins repeated header lines with ", ", so the two singleton values reach readBody as one
+    const headers = new Headers();
+    headers.append("Content-Type", "application/json");
+    headers.append("Content-Type", "application/x-www-form-urlencoded");
+    expect(headers.get("Content-Type")).toBe("application/json, application/x-www-form-urlencoded");
+    const response = await app.request("/users", { method: "POST", headers, body: "name=ada" });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it("answers 400 before the default cap refuses the body", async () => {
+    quiet();
+    // The header classifies as multipart (its first value), so the 1 KiB cap would answer 413; the 400 comes first
+    const app = bootApp({ bodyLimit: { multipart: 1_024 } });
+    const state = mountReached(app);
+    const body = `name=${"a".repeat(4_096)}`;
+    const response = await app.request(
+      "/users",
+      sized({ method: "POST", headers: { "Content-Type": "multipart/form-data, application/x-www-form-urlencoded" }, body }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message: MESSAGE });
+    expect(state.reached).toBe(false);
+  });
+
+  it.each([
+    ["a comma-joined", "multipart/form-data, application/x-www-form-urlencoded", MESSAGE],
+    ["a form-name-in-a-parameter", 'multipart/form-data; boundary=x; t="application/x-www-form-urlencoded"', FORM_MESSAGE],
+  ] as const)("answers 400 before reading a %s urlencoded body under the multipart cap", async (_label, contentType, message) => {
+    quiet();
+    const app = bootApp();
+    const state = mountReached(app);
+    // 5 MiB urlencoded: the header's leading type is multipart, so the platform form parser could parse the body while
+    // the pipeline took the 10 MiB multipart cap. The 400 comes before the cap and the parse, so the stream is not read.
+    const payload = new TextEncoder().encode(`name=${"a".repeat(5 * MIB)}`);
+    let offset = 0;
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= payload.length) {
+          controller.close();
+          return;
+        }
+        const chunk = payload.slice(offset, offset + 64 * 1024);
+        offset += chunk.byteLength;
+        pulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body,
+      duplex: "half",
+    };
+    const response = await app.request("/users", init);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ message });
+    expect(state.reached).toBe(false);
+    // The request's own read-ahead aside, nothing was pulled: never the 5 MiB body, and so never the 10 MiB read
+    expect(pulled).toBeLessThanOrEqual(64 * 1024);
   });
 });

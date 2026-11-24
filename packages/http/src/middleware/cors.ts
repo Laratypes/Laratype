@@ -28,7 +28,7 @@ export type CorsConfig = Omit<
   readonly paths?: readonly string[];
   /** `'*'` for every origin, an origin string (matched exactly), a list of them, or a function answering one. */
   readonly origin: ReadonlyList<HonoCorsOptions["origin"]>;
-  /** Hono's default `GET, HEAD, PUT, POST, DELETE, PATCH`; a function may answer per origin. */
+  /** Hono 4.13.17's default `GET, HEAD, PUT, POST, DELETE, PATCH, QUERY`; a function may answer per origin. */
   readonly allowMethods?: ReadonlyList<HonoCorsOptions["allowMethods"]>;
   /** The preflight's `Access-Control-Allow-Headers`; without it, Hono echoes `Access-Control-Request-Headers`. */
   readonly allowHeaders?: readonly string[];
@@ -294,9 +294,10 @@ const varyCoversOrigin = (vary: string): boolean =>
   });
 
 /**
- * Appends `Origin` to a response's `Vary`, keeping every other token and adding none twice. Hono 4.9.6 sets `Vary` from
- * the REQUEST's `Vary` header when it has one (`c.req.header("Vary")`), so a client that sends `Vary: x` drops
- * `Vary: Origin` and a shared cache can serve one origin's answer to another site.
+ * Appends `Origin` to a response's `Vary`, keeping every other token and adding none twice. Hono before 4.10.3 set
+ * `Vary` from the REQUEST's `Vary` header when it had one (`c.req.header("Vary")`), so a client that sends `Vary: x`
+ * dropped `Vary: Origin` and a shared cache could serve one origin's answer to another site. 4.13.17 appends `Origin`
+ * to the response itself; the wrapper stays for the `^4.8.0` peer floor and covers a handler's own `Response` too.
  */
 const addVaryOrigin = (headers: Headers): void => {
   const vary = headers.get("Vary");

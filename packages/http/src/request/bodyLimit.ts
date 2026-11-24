@@ -10,8 +10,10 @@ import type { BodyCache } from "./bodyCache";
  *
  * Enforced at the start of `readBody`, before any reader touches the stream. Not with a second Hono `bodyLimit`
  * mounted by the kernel: on Hono 4.9.6 two stacked `bodyLimit`s lose bytes of a multi-chunk body, and the outer one
- * answers its own 413 over the inner one's (H44 #341). An app's own `bodyLimit` stays the one limiter in front of the
- * pipeline, and the caps here can only tighten it: an app that needs a larger body raises `http.bodyLimit`.
+ * answers its own 413 over the inner one's (H44 #341); 4.13.17 buffers the body itself and no longer loses the bytes,
+ * but a second limiter would still read and buffer the whole body twice. An app's own `bodyLimit` stays the one limiter
+ * in front of the pipeline, and the caps here can only tighten it: an app that needs a larger body raises
+ * `http.bodyLimit`.
  */
 
 /** The built-in caps in bytes: Fastify's JSON default, and a higher multipart cap for uploads. */
@@ -32,19 +34,53 @@ const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-
 export const isJsonMediaType = (contentType: string | undefined): boolean =>
   contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
 
+/** The two media types Hono's `parseBody()` reads as form fields. */
+export type FormMediaType = "multipart/form-data" | "application/x-www-form-urlencoded";
+
+/**
+ * The form media type `formMediaType` answers, or `undefined`, from the three rules the `^4.8.0` peer range and the
+ * 0.5 cap used:
+ * - 4.8.0–4.12.27 (`parseBody` in `hono/utils/body.ts`): `contentType?.startsWith("multipart/form-data") || ...` on
+ *   the value `headers.get("Content-Type")` returns (leading/trailing HTTP whitespace stripped by `Headers`; case and
+ *   parameters as sent);
+ * - 4.12.28+ (4.12.28 is the first release; `dist/utils/body.js:7`): `contentType?.split(";")[0].trim().toLowerCase()`
+ *   compared exactly to the two types;
+ * - the 0.5 default cap's own rule (`mediaTypeOf` before B30): `contentType.toLowerCase().startsWith(...)`, which also
+ *   returns a form for a suffixed spelling (`Application/X-WWW-Form-Urlencodedx`) the two exact rules miss.
+ * The helper keeps all three arms as the description of every spelling a peer or the old cap read as a form. Through
+ * `readBody`, however, the arms decide nothing for a suffixed or embedded form name in the leading type: that header is
+ * the form-name 400 before this helper or the cap runs, so the third arm does not restore a pipeline parse or cap. A
+ * header the pipeline accepts has a leading type exactly one of the two form names; it is parsed, validated and capped
+ * from that type, and a spelling no arm accepts is `{}` to the pipeline, as it is to `parseBody()` on every peer.
+ * `readBody` also refuses a Content-Type holding more than one media type, or a form type name outside its leading media
+ * type (Bun's form parser picks the type by a substring search over the whole header), before this helper or the cap
+ * runs. The classifier and the default cap both use this helper (`mediaTypeOf`), so for an accepted header the parse and
+ * the cap read the same leading type.
+ */
+export const formMediaType = (contentType: string | undefined): FormMediaType | undefined => {
+  if (contentType === undefined) return undefined;
+  const exact = contentType.split(";")[0]!.trim().toLowerCase();
+  if (exact === "multipart/form-data" || exact === "application/x-www-form-urlencoded") return exact;
+  if (contentType.startsWith("multipart/form-data")) return "multipart/form-data";
+  if (contentType.startsWith("application/x-www-form-urlencoded")) return "application/x-www-form-urlencoded";
+  const lower = contentType.toLowerCase();
+  if (lower.startsWith("multipart/form-data")) return "multipart/form-data";
+  if (lower.startsWith("application/x-www-form-urlencoded")) return "application/x-www-form-urlencoded";
+  return undefined;
+};
+
 /**
  * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
- * does not parse). Matched on the lowercased value: media types are case-insensitive (RFC 9110 §8.3.1), so a
- * `Multipart/Form-Data` or `Application/X-WWW-Form-Urlencoded` body is capped as its lowercase spelling is.
- * The pipeline's form parse is a separate, case-sensitive classifier (`isFormMediaType` in `input.ts`): a mixed-case
- * form body is `{}` to the pipeline, and the cap here still counts its bytes, so a later `c.req.formData()` cannot read
- * an unbounded body.
+ * does not parse). The form types come from `formMediaType`, the same union of the peer range's classifiers the parse
+ * uses. `readBody` has already refused a Content-Type holding more than one media type or a form type name outside the
+ * leading media type, so the cap and the parse see the same accepted leading type. JSON uses `isJsonMediaType` (Hono's
+ * `validator('json')` shape, see the regex above).
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";
-  const type = contentType?.toLowerCase();
-  if (type?.startsWith("multipart/form-data")) return "multipart";
-  if (type?.startsWith("application/x-www-form-urlencoded")) return "form";
+  const form = formMediaType(contentType);
+  if (form === "multipart/form-data") return "multipart";
+  if (form === "application/x-www-form-urlencoded") return "form";
   return undefined;
 };
 
