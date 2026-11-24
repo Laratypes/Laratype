@@ -15,6 +15,22 @@ export const fail = (message: string): never => {
 };
 
 /**
+ * Whether `value` is a plain object: a `null` prototype or any realm's `Object.prototype` (an iframe's or a vm's too),
+ * so an array, a `Map`, a `Set`, a `Date` or a class instance is not one. A realm's `Object.prototype` is the root of its
+ * chain and has its own `hasOwnProperty`; a bare null-prototype object used as a prototype is not it. A proxy whose
+ * `getPrototypeOf` throws is not one either, so its error never replaces the caller's diagnostic.
+ */
+export const isPlainObject = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  try {
+    const prototype: object | null = Object.getPrototypeOf(value as object);
+    return prototype === null || (Object.getPrototypeOf(prototype) === null && Object.prototype.hasOwnProperty.call(prototype, "hasOwnProperty"));
+  } catch {
+    return false;
+  }
+};
+
+/**
  * An endpoint path starts with one "/": the client appends it to `baseUrl`, so `":tenant/x"` could extend the host, and
  * under a same-origin `baseUrl` a `"//evil.com"` (or `"/\evil.com"`, `"/\t/evil.com"`, as URL parsing reads them) is another host.
  */

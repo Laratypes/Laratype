@@ -1,7 +1,7 @@
 ---
 area: http
 packages: ["@laratype/http"]
-issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 336, 341, 342]
+issues: [84, 104, 105, 106, 107, 108, 112, 117, 118, 121, 122, 123, 138, 139, 157, 162, 163, 164, 184, 229, 269, 288, 299, 336, 341, 342]
 verified-against: Laratype@d70daa7 (+ spike PR #197 @ 4c558fd)
 last-verified: 2026-10-09
 ---
@@ -17,7 +17,7 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | Section | Status |
 |---|---|
 | [Controller typing: Ctx and ControllerOf](#controller-typing-ctx-and-controllerof) | merged (#105, H2a + H2b); `BaseCtx` proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 |
-| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458); `r.bind()` planned → #118 |
+| [Route proof at r.contract()](#route-proof-at-rcontract) | merged (#105, H2b); middleware extensions proposed (H6, PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458); bindings proposed (H7, PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639) |
 | [Router v2](#router-v2) | merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); prod tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); tree read by brand and `{ scope, dir }` entries proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; registry storage proposed: PR [#362](https://github.com/Laratypes/Laratype/pull/362) @ a1de433 → #114 (D7) |
 | [Controller resolution](#controller-resolution) | merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a); request scope proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)); fallback warning and core hint proposed: PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 40faad5 |
 | [Middleware and policy resolution](#middleware-and-policy-resolution) | proposed: PR [#351](https://github.com/Laratypes/Laratype/pull/351) @ 9e9f4c4 (H21 [#269](https://github.com/Laratypes/Laratype/issues/269)) |
@@ -27,10 +27,11 @@ Decision record: S1 [#84](https://github.com/Laratypes/Laratype/issues/84), [DEC
 | [The 0.5 response](#the-05-response) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); H45 [#342](https://github.com/Laratypes/Laratype/issues/342) proposed: PR [#345](https://github.com/Laratypes/Laratype/pull/345) @ [04fb575](https://github.com/Laratypes/Laratype/commit/04fb575); string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336), breaking) |
 | [Exceptions](#exceptions) | proposed: PR [#404](https://github.com/Laratypes/Laratype/pull/404) @ 23875e4e (H29 [#295](https://github.com/Laratypes/Laratype/issues/295), X3 [#392](https://github.com/Laratypes/Laratype/issues/392), H32 [#312](https://github.com/Laratypes/Laratype/issues/312)); error handling merged (#267, #272, #275); contract errors PR #307 @ 1d24eb0 (#108) |
 | [Typed middleware](#typed-middleware) | proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458 |
-| [Model binding](#model-binding) | planned → #118, #163 |
+| [Model binding](#model-binding) | proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2); implicit binding planned → [#163](https://github.com/Laratypes/Laratype/issues/163) |
 | [Policies on routes: .can()](#policies-on-routes-can) | planned → #122; superseded by planned → #105, #121 |
 | [Authorization from the contract](#authorization-from-the-contract) | `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); planned → #105, #121 |
-| [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2; user-id key planned → #120 |
+| [Request.ip()](#requestip) | proposed: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d (H30 [#299](https://github.com/Laratypes/Laratype/issues/299)) |
+| [Rate limiting](#rate-limiting) | proposed: PR #305 @ 21161f2 (H17); H30 text: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d; user-id key planned → #120 |
 | [Resources](#resources) | merged (PR [#309](https://github.com/Laratypes/Laratype/pull/309), H9); refused keys and generic `when()` proposed: PR [#334](https://github.com/Laratypes/Laratype/pull/334) @ c93aebf |
 | [Interceptors](#interceptors) | planned → #138 |
 | [Ad-hoc routes](#ad-hoc-routes) | proposed: PR #306 @ 9df674f; string body `text/plain` and `nosniff` merged @ e8633c9 (PR [#384](https://github.com/Laratypes/Laratype/pull/384)) (H41 [#336](https://github.com/Laratypes/Laratype/issues/336)); `Route.prefix(...)` and `group(...)` planned → [#321](https://github.com/Laratypes/Laratype/issues/321); `.name()` proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 |
@@ -114,7 +115,7 @@ Type tests: [`packages/http/__tests__/routing/route-proof.test-d.ts`](../../pack
 ## Route proof at r.contract()
 
 ### Status
-Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458) and with no bindings until `r.bind()` lands ([#118](https://github.com/Laratypes/Laratype/issues/118), H7). Until then a handler that requires a bound param fails the proof.
+Merged (H2a, H2b [#105](https://github.com/Laratypes/Laratype/issues/105)): the `r.contract()` options and the route proof. The proof is generic in the middleware extensions and the bound params: `Route.api` runs it with the extensions and the `r.bind()` bindings its builder accumulated (typed middleware, H6 [#117](https://github.com/Laratypes/Laratype/issues/117), proposed: PR [#352](https://github.com/Laratypes/Laratype/pull/352) @ fd69458; model binding, H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639). A handler that requires a model for a param no `.bind()` binds fails the proof; an unbound path param stays available as a string.
 
 ### Public API
 Reference shape from the spike ([`s1-controller/lib/router.ts` @ 4c558fd](https://github.com/Laratypes/Laratype/blob/4c558fd553cbf1c909e2ef71715d289ca003f4c0/spikes/v1/s1-controller/lib/router.ts)):
@@ -127,40 +128,42 @@ interface RouteBuilder<X extends object = {}, B extends Record<string, Binder> =
   contract<C extends Contract, K extends ControllerClass>(contract: C, controller: K & VerifyController<C, InstanceType<K>, X, B>): void;
 }
 // runtime merged (E10, H2a #105): contract(contract, controller, { policy?, endpoints? }), see Router v2
-// Provided<E, X, B> = Ctx<E, X & { params: BoundParams<E, B> }>
+// the merged Provided (below) puts the bound params over the extensions' params
 ```
 
 Merged ([`packages/http/src/routing/api/proof.ts`](../../packages/http/src/routing/api/proof.ts), [`types.ts`](../../packages/http/src/routing/api/types.ts)):
 
 ```ts
 // What the runtime passes (H3 #106): BaseCtx with every path param of the full path, X, and the bound params
+type WithBindings<X extends object, P, B> = Merge<X, { params: BoundParams<P, B> }>;   // a binding wins a key X.params also adds
 type Provided<E, Path extends string, X extends object = {}, B = {}> =
-  Merge<BaseCtx<E, FullParams>, X & { params: BoundParams<FullParams, B> }>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
+  Merge<BaseCtx<E, FullParams>, WithBindings<X, FullParams, B>>;   // FullParams = PathParams<JoinPath<Path, E path>>, merged as in Ctx
 // Low-level: unknown when the proof holds, else { "<diagnosis>": details }. H6 #117 feeds X, H7 #118 feeds B
 type VerifyController<N extends string, C, Path extends string, I, X extends object = {}, B = {}, O = {}>;
-type RouteProof<A, C, I, O, X extends object = {}>;   // VerifyController for the tree entry r.contract() mounts, with B = {}
+type RouteProof<A, C, I, O, X extends object = {}, B = {}>;   // VerifyController for the tree entry r.contract() mounts, with the builder's X and B
 type Merge<Base, Extra>;              // Base with Extra on top, params merged one level deep: the runtime's own merge rule (also what ExtOf merges a middleware tuple with)
-type Binder;                          // a model class or a resolver (raw: string) => value, for r.bind() (H7)
+type Binder;                          // a model class, a callable carrying its statics, or a resolver (raw: string) => value, for r.bind() (H7)
 
-interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {}> {
+  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>>;   // a key bound again is replaced
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
-    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
-    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C, B>;
 }
 ```
 
 `Merge<Base, Extra>` is exported too: `Ctx` and `Provided` build on it, and `ExtOf` merges a middleware tuple with it (H6 [#117](https://github.com/Laratypes/Laratype/issues/117)).
 
 ### Invariants
-- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, MiddlewareExt & { params: Bound }>`. Here `MiddlewareExt` is the extensions of the route builder's `r.middleware()` calls, merged in order as the runtime merges them (a later middleware wins a key, `params` one level deep; typed middleware, [Typed middleware](#typed-middleware)), and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
-- **Bound value types:** a class binder gives `InstanceType`. A resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404.
+- **The controller declares, the route proves.** For each endpoint, the route computes `Provided = Ctx<E, WithBindings<MiddlewareExt, FullParams, Bound>>`, where `WithBindings` merges the bound params over the extensions' `params` (a binding wins a key both add). Here `MiddlewareExt` is the extensions of the route builder's `r.middleware()` calls, merged in order as the runtime merges them (a later middleware wins a key, `params` one level deep; typed middleware, [Typed middleware](#typed-middleware)), and `Bound` is the `.bind()` map restricted to that endpoint's path params, the params of the contract's folders included. Without bindings `params` holds every path param as a string, so a handler that types one as a model fails with `missing .bind()?`. Since H3 [#106](https://github.com/Laratypes/Laratype/issues/106) the route passes the ctx, not the 0.5 request object, so a handler typed with that object fails.
+- **Bound value types:** a `BindableModelClass` gives `InstanceType`; a callable that carries its statics gives the lookup result; any other resolver gives `NonNullable<Awaited<ReturnType>>`, because a miss is a 404 ([Model binding](#model-binding) › Invariants).
 - **Requirement check:** `[Provided] extends [Param]` (one-directional), where `Param` is the handler's first parameter. Function assignability is **not** used: methods compare bivariantly, so a naive check would accept a handler that needs a middleware extension the route doesn't provide. A provided key typed `never` (a middleware declares it `never`) fails first with the extension diagnosis ([Typed middleware](#typed-middleware) › Diagnostics).
 - **Return check:** `[Awaited<R>] extends [Result<E>]`; `null` too on an endpoint without a response schema (the runtime sends no body for either). A `response()` / `redirect()` value (its own status wins) and a 0.5 `JsonResource` also pass, unchecked, since the runtime takes them as is (`ResponseEscape`). A v2 resource ([Resources](#resources), H9 [#123](https://github.com/Laratypes/Laratype/issues/123)) returns plain data, which this check covers.
 - **Second parameter:** the runtime passes the raw path params (strings) as the second argument, so a second parameter must accept them.
 - **Handler type `any`:** passes. A policy known only as a `PolicyClass` (options in a variable typed `ContractRouteOptions`) can't be checked, so it passes too.
 - **Also checked at `r.contract()`:**
   - exhaustiveness, so every endpoint needs a handler;
-  - `.bind()` keys that are not a path param of any endpoint (a type today; `r.bind()` is H7 [#118](https://github.com/Laratypes/Laratype/issues/118));
+  - `.bind()` keys that are not a path param of any endpoint (`r.bind()`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118));
   - a handler typed for a different endpoint (told by `ctx.endpoint`: two endpoints with identical types can't be told apart);
   - a base `Controller` member (`exposed`) is not a handler, as at runtime. The types also reject an own override of it in a subclass, and an `exposed()` method of a plain class (not a `Controller` subclass), though the runtime accepts both;
   - a middleware extension that names `query`, `body` or `endpoint` of a contract route: the route keeps them, so the proof refuses the key ([Typed middleware](#typed-middleware) › Invariants);
@@ -193,10 +196,13 @@ Here `<key>` may be nested, for example `params.user`. At `r.contract()`, tsc re
 ### Example
 Planned shape (E3, E10; illustrative, no compiled example yet):
 ```ts
-Route.api(appApi, (r) => [
-  r.bind({ user: User }).scope('users/[user]', { policy: UserScopePolicy }),
-  r.contract(posts, PostController, { policy: PostPolicy, endpoints: { destroy: (r) => r.middleware(audit()) } }),
-])
+Route.api(appApi, (r) => {
+  const bound = r.bind({ user: User })
+  return [
+    bound.scope('users/[user]', { policy: UserScopePolicy }),
+    bound.contract(posts, PostController, { policy: PostPolicy, endpoints: { destroy: (r) => r.middleware(audit()) } }),
+  ]
+})
 ```
 
 ### Non-goals
@@ -226,13 +232,14 @@ class Route {
     appApi: A, routes: (r: ApiRouteBuilder<A>) => M & CheckApiRoutes<A, M>): ApiRoutes;
 }
 
-interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
-  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W]>;   // 0.5 classes or defineMiddleware values
-  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>>;
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {}> {
+  middleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, [...M, ...W], B>;   // 0.5 classes or defineMiddleware values
+  withoutMiddleware<const W extends readonly MiddlewareItem[]>(...middleware: W): ApiRouteBuilder<A, WithoutMiddleware<M, W>, B>;
+  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>>;   // a key bound again is replaced (Model binding)
   contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
-    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>>,
-    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C>;               // a contract or its tree node; Route proof
-  scope<D extends ApiScopeDir<A>>(dir: D, options: { readonly policy: PolicyClass }): MountedScope<D>;
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C, B>;            // a contract or its tree node; Route proof
+  scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D, B>;
   get: AdHocRouteMethod<"get">;                                                         // ad-hoc routes, see Ad-hoc routes
   post: AdHocRouteMethod<"post">;
   put: AdHocRouteMethod<"put">;
@@ -243,6 +250,9 @@ interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = []> {
 interface ContractRouteOptions<C, P extends PolicyClass | undefined = PolicyClass> {
   readonly policy?: P;                 // recorded; running it is #121
   readonly endpoints?: { readonly [K in EndpointKey<C>]?: EndpointCallback<K> };
+}
+interface ScopeRouteOptions {
+  readonly policy: PolicyClass;        // recorded; running it is #121
 }
 type EndpointCallback<K> = K extends keyof Object       // not exported; a key named after an Object.prototype member
   ? ((r: EndpointRouteBuilder) => EndpointRouteBuilder) | (Object[K] extends () => unknown ? Object[K] : Function)
@@ -269,6 +279,7 @@ interface RouteEntry extends ApiRoute {          // name, method, path, endpoint
   readonly middleware: readonly MiddlewareItem[];   // 0.5 classes and typed middleware, in order
   readonly policies: ReadonlyArray<{ readonly dir: string; readonly policy: PolicyClass }>;
   readonly policy: PolicyClass | undefined;      // the policy of r.contract(), if any
+  readonly bindings: Bindings;                   // r.bind() resolved per this route's path params (H7)
   readonly unenforced: readonly ("auth" | "authorize" | "validation")[];   // what the router does not enforce yet
   readonly domain: string | undefined;
 }
@@ -284,7 +295,7 @@ type CheckApiRoutes<A, M>;    // unknown, or { error: "Route.api: ..." }
 const UNENFORCED_NOTICE: "auth, authorize and headers schema validation are not enforced yet (planned → #105, #121)";
 ```
 
-The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it.
+The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)). In dev, the `laratype:api` Vite plugin of `sauf` ([`packages/sauf/src/typegen/plugin.ts`](../../packages/sauf/src/typegen/plugin.ts)) resolves `$api` and scans the tree the first time the app imports it. `Binder`, `MergedBindings` and the `B` of `r.bind()` are [Model binding](#model-binding)'s.
 
 ### Invariants
 - **Every contract exactly once.** The routes callback returns `r.contract()` and `r.scope()` items, and any ad-hoc routes (`r.get()`, ...; [Ad-hoc routes](#ad-hoc-routes)). A tree contract that is not mounted, or one mounted twice, is a compile error on the callback's return value and a runtime error in `Route.api`.
@@ -295,7 +306,7 @@ The tree comes from `$api` ([contract.md › Contract folder tree](./contract.md
 - **Handlers.** Each endpoint runs the controller method named after its key. Handlers must be class (prototype) methods of the controller or of a class between it and the base `Controller`: an arrow-function class field, `constructor`, an `Object.prototype` method or a base `Controller` method is not a handler, and is reported like a missing method. A controller without that method, or an `undefined` controller (usually a circular import), is a runtime error in `Route.api`. The compile check of the controller is the [Route proof at r.contract()](#route-proof-at-rcontract) (H2b [#105](https://github.com/Laratypes/Laratype/issues/105)).
 - **Scopes.** `r.scope('<folder>', { policy })` names a scope folder of the tree, written as the `dir` of the entry's `{ scope, dir }` (root-relative, `""` for the root; [contract.md › defineApi and route names](./contract.md#defineapi-and-route-names)). A folder that is not a scope of the tree is an error at the argument and at runtime. A scope with `authorize` and no `r.scope()` is a compile error and a runtime error, and so is a scope mounted twice.
 - **Status.** A contract route answers with its endpoint's status (`.response(schema[, status])` or `.status(n)`; 200 with a response schema, 204 with no body without one, and a 205 from `.status(205)` has no body either, see [Response from the contract](#response-from-the-contract)), passed to the 0.5 kernel as `RouteParams.status`, never one guessed from the method name. A `Response` the handler returns with its own status still wins. A 0.5 status decorator on the handler that disagrees with the endpoint's status is a runtime error in `Route.api`; an equal one is fine.
-- **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a lookup or answers an undeclared 404. The handler's second argument is the raw params object (`show(ctx, { user })` gets the string). Model binding for contracts is `r.bind`, H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
+- **Path params are raw.** Contract routes skip the 0.5 implicit and `Route.model` binding (`RouteParams.modelBinding: false`), so a `[user]` folder never runs a 0.5 lookup or answers an undeclared 404. A folder param is raw unless `r.bind()` binds it: a bound one runs its binder, and a miss is the contract's 404 (Model binding). The handler's second argument is the raw params object, whatever is bound (`show(ctx, { user })` gets the string). Model binding for contracts is `r.bind` ([Model binding](#model-binding), H7 [#118](https://github.com/Laratypes/Laratype/issues/118)).
 - **Policies are recorded, not run.** A mounted scope policy is recorded on each route under its folder (`RouteEntry.policies`, outer to inner), and the `policy` of `r.contract()` on each route of the contract (`RouteEntry.policy`). Running them is planned → [#121](https://github.com/Laratypes/Laratype/issues/121): a scope policy's `before` needs the signed-in user ([#120](https://github.com/Laratypes/Laratype/issues/120)) and the bound models ([#118](https://github.com/Laratypes/Laratype/issues/118)).
 - **Auth and headers validation are not enforced yet.** A route whose resolved `auth` or `authorize` is set still serves every request until [#105](https://github.com/Laratypes/Laratype/issues/105) and [#121](https://github.com/Laratypes/Laratype/issues/121). A resolved `throttle` is enforced by `mount()` ([Rate limiting](#rate-limiting)). The query and body schemas are validated (H3 [#106](https://github.com/Laratypes/Laratype/issues/106), proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155); a headers schema is not, so a route whose endpoint has one is listed with `validation`. `RouteEntry.unenforced` records which of `auth`, `authorize` and `validation` apply. `mount()` logs one warning that lists those routes, once per process for each route list (the printed lists are remembered, up to 32, oldest dropped first, so an `--hmr` restart that mounts the same `Route.api` groups does not repeat it), and `sauf route:list` shows them in its "Not enforced" column (its "Policies" column lists the scope policies, then `contract: <Policy>`).
 - **Middleware.** `r.middleware(...)` before `.scope()` applies to every contract under that folder; before `.contract()`, to that contract; in `r.contract(c, Ctrl, { endpoints: { <key>: (r) => r.middleware(...) } })`, to that endpoint only. A route's middleware is its scopes' (outer to inner), then its contract's, then its endpoint's, with duplicates removed: a middleware mounted at several levels (for example from one `r.middleware(Web)` builder used for a scope and a contract) runs once, at its first position. `r.middleware()` takes 0.5 `Middleware` classes and typed middleware ([Typed middleware](#typed-middleware)); `r.withoutMiddleware(...)` drops what the builder accumulated. The `endpoints` callbacks take 0.5 classes only.
@@ -367,7 +378,7 @@ Tests: [`packages/http/__tests__/routing/ApiRouter.test.ts`](../../packages/http
 
 ### Non-goals
 - No policy execution: [#121](https://github.com/Laratypes/Laratype/issues/121).
-- No model binding (`r.bind()`): H7 [#118](https://github.com/Laratypes/Laratype/issues/118).
+- No implicit model binding: path params that match a model bind on their own only once H14 [#163](https://github.com/Laratypes/Laratype/issues/163) lands. The explicit `r.bind()` is [Model binding](#model-binding) (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379)).
 - No 401 or 403 from the contract's capabilities: [#120](https://github.com/Laratypes/Laratype/issues/120), [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121). The 429 is in [Rate limiting](#rate-limiting).
 - No domain params (`{account}.example.com`).
 
@@ -389,7 +400,7 @@ merged ([#105](https://github.com/Laratypes/Laratype/issues/105), H2a). The requ
 - **Which container:** `RequestKernel.boot()` creates one request scope of the app container per request (`createRequestScope()`), puts it on the request (`ContextApi.getContainer()`, `RequestKernel.container()`) and starts its disposal when the handler settles: after its response, or after it throws, once the error handler has answered. The middleware does not await the disposal, so a slow disposer never delays the response and one that never settles never hangs it; a failed one is logged once and never changes the response ([di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)). Controllers resolve from it, so app bindings apply and a request-scoped dependency is built once per request. Outside `RequestKernel` (a bare Hono app, as in tests), controllers are autowired without app bindings, by one container created on first use. Creating it prints one `console.warn` per process (module copies and dev restarts included), except in production (`globalThis.__PROD__`, or `NODE_ENV=production` when `__PROD__` is unset): ``[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.`` ([#270](https://github.com/Laratypes/Laratype/issues/270)).
 - **Lifetime:** an unbound controller is transient: a new instance per request, as with `new`. A binding's scope (`singleton`, `@Injectable({ scope })`) applies as it does anywhere else.
 - **Request-scoped dependencies:** a transient controller that depends on a request-scoped provider gets the request's value and needs no bubbling. A singleton controller (a binding, or `@Injectable({ scope: 'singleton' })`) that depends on one bubbles to request scope, with one dev warning per key ([di.md › Request scope and scope bubbling](./di.md#request-scope-and-scope-bubbling)).
-- **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount. A controller (0.5 too) whose constructor takes params needs the [DI transform](./di.md#di-transform)'s metadata, so it must be app code the `laratype:di` plugin compiles; otherwise it fails where `new` used to pass `undefined`: ``Cannot autowire <Controller>: its constructor takes <n> param(s) but no dependency metadata was found. Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.`` The hint comes from core ([di.md › Resolution errors with fix hints](./di.md#resolution-errors-with-fix-hints)); a binding is an app binding, so it needs RequestKernel. `@Inject` can't fix it: without DI metadata the container fails before it reads `@Inject`.
+- **Errors:** a dependency the container cannot resolve is a `DiError` when the request runs, not when the routes mount. A controller (0.5 too) whose constructor takes params needs the [DI transform](./di.md#di-transform)'s metadata **when the container autowires it**: app code the `laratype:di` plugin compiles works, or an app-container factory binding of the controller resolves it without metadata. Under `RequestKernel`, `Request.container()` is the request scope, so that binding is visible; a bare Hono app uses the autowire-only fallback container described above and has no app bindings. A class binding of the controller to itself still autowires, so it does not skip the metadata. Without either path it fails where `new` used to pass `undefined`: ``Cannot autowire <Controller>: its constructor takes <n> param(s) but no dependency metadata was found.`` followed by a factory-binding hint (and the plugin fix for app code; the exact dev and production texts are in [di.md › Resolution errors with fix hints](./di.md#resolution-errors-with-fix-hints)). `@Inject` can't fix a controller with no metadata: the container fails before it reads `@Inject`.
 - **Mount checks read the declared class:** the handler and status-decorator checks of `Route.api` read the class passed to `r.contract()`. A binding of that class should be a subclass of it.
 - **Kernel container:** the kernel container passes `{ deps: depsRegistry }`, merged ([#102](https://github.com/Laratypes/Laratype/issues/102)).
 
@@ -885,23 +896,135 @@ and nested, an `undefined`-only key, a self-referencing extension type, the rese
 ## Model binding
 
 ### Status
-planned → [#118](https://github.com/Laratypes/Laratype/issues/118) (H7, explicit), [#163](https://github.com/Laratypes/Laratype/issues/163) (H14, implicit). Both bind through the `BindableModel` interface ([database.md › BindableModel](./database.md#bindablemodel)), which S5 [#88](https://github.com/Laratypes/Laratype/issues/88) settled in step 1. H7 depends only on that interface; the step 2 decision keeps TypeORM, so H14 no longer waits for it.
+proposed: PR [#379](https://github.com/Laratypes/Laratype/pull/379) @ 1578b639 (H7 [#118](https://github.com/Laratypes/Laratype/issues/118), M2). Explicit `r.bind()` for `Route.api` routes. The 0.5 `Route.model`, `Route.bind`, `explicitModelBinding` and `ModelBindingRegistry.paramModelMap` paths are unchanged: `Route.api` routes keep `modelBinding: false` and get `r.bind()` only. Implicit binding is [#163](https://github.com/Laratypes/Laratype/issues/163) (H14), planned.
 
-### Design (non-binding)
-- **Explicit binding (H7):** `.bind({ user: User })`, with keys restricted to path params, or a custom resolver `.bind({ user: (v) => ... })`.
-  - A bound class satisfies `BindableModel` ([database.md › BindableModel](./database.md#bindablemodel)); a resolver gets the raw string.
-  - A miss is a 404.
-  - The binding contributes `{ params: { user: User } }` to the provided context.
-  - Replaces `Route.model` / `Route.bind` and `explicitModelBinding`.
-  - Keys are checked against every path param of the contract, including the params of parent `[x]` folders ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)).
-  - `r.bind({...}).scope('<folder>', ...)` binds once for every contract under that scope. Each bound model is resolved once per request.
-- **Implicit binding (H14):**
-  - Path params that match a key in `Register['models']` bind automatically. The manifest generates that map, keyed by the camelCase model name.
-  - An explicit `.bind()` takes precedence, and `.withoutImplicitBinding()` opts out.
-  - `static routeKeyName` sets the lookup property (the default is the primary key, [BindableModel](./database.md#bindablemodel)).
-  - `.scopeBindings()` handles nested params.
-  - Implicit binding and `.scopeBindings()` use the same folder params as `.bind()`.
-  - Removes the 0.5 implicit binding (`ModelBindingRegistry.paramModelMap`).
+### Public API
+[`packages/http/src/routing/api/bindings.ts`](https://github.com/Laratypes/Laratype/blob/1578b639/packages/http/src/routing/api/bindings.ts) ·
+[`proof.ts`](https://github.com/Laratypes/Laratype/blob/1578b639/packages/http/src/routing/api/proof.ts) ·
+[`types.ts`](https://github.com/Laratypes/Laratype/blob/1578b639/packages/http/src/routing/api/types.ts) ·
+[`packages/database/src/eloquent/BindableModel.ts`](https://github.com/Laratypes/Laratype/blob/1578b639/packages/database/src/eloquent/BindableModel.ts)
+
+```ts
+// @laratype/http: the static side of a model class, structural (the same shape as @laratype/database BindableModel)
+interface BindableModelClass<M extends object = object> {
+  new (...args: any[]): M;
+  readonly primaryKey: string;
+  readonly routeKeyName?: string;
+  findByRouteKey(key: string): Promise<M | null | undefined>;
+}
+type Binder = BindableModelClass | ModelFunction | Resolver;
+// internal members of Binder: a callable with the statics is a model, and a resolver must not carry the lookup
+type ModelFunction = ((raw: string) => unknown) & { readonly primaryKey: string; findByRouteKey(key: string): unknown };
+type Resolver = ((raw: string) => unknown) & { readonly findByRouteKey?: never };
+type Bindings = Readonly<Record<string, Binder>>;
+// internal to the proof (not exported): how a binder's value is typed
+type Bound<B>;                       // BindableModelClass: InstanceType<B>; a callable with its statics: the lookup result; a resolver: NonNullable<Awaited<ReturnType<B>>> (Date included)
+type BoundParams<P, B>;              // keyof B & keyof P, plus `| undefined` for an optional path param
+type MergedBindings<B, NB>;          // Omit<B, keyof NB> & NB: a later bind replaces the key it binds again
+
+interface ApiRouteBuilder<A, M extends readonly MiddlewareItem[] = [], B extends Record<string, Binder> = {}> {
+  bind<const NB extends Record<string, Binder>>(bindings: NB): ApiRouteBuilder<A, M, MergedBindings<B, NB>>;   // a key bound again is replaced
+  contract<C extends ApiTreeContract<A> | ApiTreeNode<A>, K extends ControllerClass, P extends PolicyClass | undefined = undefined>(
+    contract: C, controller: K & RouteProof<A, C, InstanceType<K>, { readonly policy: NoInfer<P> }, ExtOf<M>, B>,
+    options?: ContractRouteOptions<NoInfer<C>, P>): MountedContract<C, B>;
+  scope<D extends ApiScopeDir<A>>(dir: D, options: ScopeRouteOptions): MountedScope<D, B>;
+}
+interface MountedContract<C extends object = AnyContract, B extends Record<string, Binder> = Bindings> {
+  readonly bindings: B;          // the r.bind() map of the builder, typed for the scope-binding check
+}
+interface MountedScope<D extends string = string, B extends Record<string, Binder> = Bindings> {
+  readonly bindings: B;          // the bindings for the contracts under the folder
+}
+
+// @laratype/database, type-only
+interface BindableModel<M extends object = object> {
+  new (...args: any[]): M;
+  readonly primaryKey: string;
+  readonly routeKeyName?: string;
+  findByRouteKey(key: string): Promise<M | null | undefined>;
+}
+```
+
+### Invariants
+- **Explicit.** `r.bind({ user: User })` is called on the `r` of `Route.api`. Its keys are checked against every path param of the contract it is mounted with, the params of parent `[x]` folders included ([contract.md › Contract folder tree](./contract.md#contract-folder-tree)): a key that is not a path param of any endpoint is a compile error at `r.contract()` and a runtime error at `Route.api` (a scope's keys are checked against the endpoints under its folder). A later `.bind()` wins a key it binds again, and the map is a frozen copy: mutating the original object after `Route.api` changes no route.
+- **Values.** A model class is the `BindableModel` static side: the lookup is `Model.findByRouteKey(raw)`, and `routeKeyName` defaults to `primaryKey` ([database.md › BindableModel](./database.md#bindablemodel)). A resolver is called with the raw path param. The router never parses a route key: converting a numeric id or a UUID is the model's or the resolver's job. A function that carries `findByRouteKey` is a model binding whatever its declared type (`checkBinder` reads the static); a resolver must not carry it, and `Binder` refuses a callable with `findByRouteKey` and no string `primaryKey` at `r.bind()`, as the mount check does. A class without the statics is a compile error at `r.bind()`, and a runtime error at `Route.api` (a class without `findByRouteKey` would otherwise be called without `new`).
+- **Bound value types.** A model class binds `InstanceType<C>`, not the return type of `findByRouteKey` (a subclass that inherits a base-typed lookup overrides it, [database.md › BindableModel](./database.md#bindablemodel)). A callable that carries the `BindableModel` statics but has no construct signature is a model at runtime (`isModelClass`), so it binds its lookup result. A resolver binds `NonNullable<Awaited<ReturnType<R>>>`, because a miss is a 404; a callable constructor such as `Date` is a resolver (it has no statics), whatever its `new` signature. An optional path param (`:post?`) binds `Model | undefined` when the request has none; a present one with no match is still a 404.
+- **Optional layouts.** Hono expands a path that ends with `?` at registration: `checkOptionalParameter` registers every prefix ending at an optional segment and strips the `?` from all of them, so `/mixed/:first?/:post/:last?` is also served as `/mixed`, `/mixed/:first` and `/mixed/:first/:post`. A required binding the expansion leaves out would resolve `undefined` on a shorter registration, where the proof promises the model, so `Route.api` refuses it at mount. The check follows Hono's `RegExpRouter`, the stricter of Hono's routers (a `TrieRouter` fallback keeps the param, so the refusal can be conservative): it limits each registration to the first `paramCount - expansions + i + 1` params (`paramCount` counts the params of the full path), so a static segment after an optional param drops params the registration names: `/a/:post/:first?/fixed/:last?` also registers `/a/:post` (0 params: `/a/one` answers no `post`) and `/a/:post/:first` (1 param: `/a/one/two` answers no `first`). A binding, required or optional, on a param such a registration drops is therefore refused at mount when a static segment follows an optional param in its route path (Diagnostics). A path with no static segment after an optional param (`/a/:post/:first?`, `/a/:post/:opt?`) keeps binding, including a binding on the optional param: a present one runs its lookup and a miss is the 404, an absent one binds `undefined` (Bound value types).
+- **Resolution.** A route gets its scopes' bindings (outer to inner), then its contract's, a later key winning, restricted to the path params of that route's full path: a contract may bind a key only some of its endpoints declare. Each bound model is resolved once per request, in map order, after the route middleware and before the planned policies (A3 [#121](https://github.com/Laratypes/Laratype/issues/121)) and the input validation: a 404 precedes a 422, while a 403 the route middleware answers precedes the 404, because middleware runs before the binding step (Binding is not authorization). A miss stops the lookups after it.
+- **Miss.** `null` / `undefined` from `findByRouteKey` or a resolver is the 404 of the contract's derived path-param error: `{ code: "NOT_FOUND", message: "Not Found." }` ([Exceptions](#exceptions), [contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). It is an expected answer, so it is not logged. An optional param the request does not carry binds `undefined` without a lookup. A route key the model cannot convert is its own miss: the router passes the raw string, so the model returns `null` / `undefined`. A throw from the lookup is not a miss but an answer from the exception filter (a `ContractError` such as `errors.validation({})` answers its own status, 422 included; a responsible `Exception` or a recognized HTTP error keeps its status; anything else is the generic 500) ([database.md › BindableModel](./database.md#bindablemodel)).
+- **Binding is not authorization.** Binding checks no ownership: it loads the row for any request that reaches the binding step, so a 404 tells the caller that an id does not exist even when the request should have been denied. Authorization is route middleware that runs before the binding step, or a resolver that checks access. Router v2 `policy` options are recorded, not run, and an endpoint's `.authorize()` enforces nothing, until A3 [#121](https://github.com/Laratypes/Laratype/issues/121) lands. A non-enumerable route key (a UUID) only makes enumeration harder: a caller who knows the key still reaches the binding step and loads the row, so it is not an authorization option.
+- **Context.** A binding contributes `{ params: { user: User } }` to the provided context (`Provided` / `Ctx`), merged over the raw path params. A typed middleware extension that also adds the key to `params` does not replace the bound model, at runtime or in the proof: the proof drops the bound keys from the extension's `params` before it merges (the binding wins, since the proof promises the bound type). The handler's second argument stays the raw path params object (strings). A binding key named after an `Object.prototype` member (`hasOwnProperty`, `toString`) shadows that member on `ctx.params`, so `ctx.params.hasOwnProperty(...)` throws: read keys with `Object.hasOwn(ctx.params, key)`, which never walks the prototype chain.
+- **Scopes.** `r.bind({...}).scope('<folder>', { policy })` records the bindings on the mounted scope: at runtime every contract under that folder gets them. The type level is the builder, as for H6 scope middleware: `r.contract()` proves each handler when it runs, before the routes array exists, with the bindings of the builder that mounts the contract only. A scope binding on a param a contract under the folder declares must also be bound on that contract's own builder: it is refused otherwise, at `Route.api(...)` in the types and at mount at runtime: the route would pass a model where the handler's `params` type says string. Mount the scope and its contracts from the same bound builder. When both bind the same key, the contract's binder runs (a later key wins, Resolution), and the proof sees it, so the handler types match what runs.
+- **No ORM dependency.** `@laratype/http` types the binder against its own structural shape and does not import `@laratype/database`. `@laratype/database` exports `BindableModel` type-only; any class with the three statics fits it without an `implements` clause.
+- **0.5 routes unchanged.** `Route.model`, `Route.bind`, `explicitModelBinding` and `ModelBindingRegistry.paramModelMap` keep their 0.5 behavior; a `Route.api` route still takes no 0.5 model binding (`RouteParams.modelBinding: false`).
+- **Runtime check.** `r.bind()` checks each value is a function; a value whose static `findByRouteKey` is a function is a model class and needs a string static `primaryKey` (the `Binder` type refuses a callable with `findByRouteKey` and no `primaryKey`, the same rule); a class (a `class` source) without `findByRouteKey` fails at mount; an arrow or plain function without it is a resolver. The map is copied with a spread, so it must be plain and enumerable: `Object.prototype` or `null` as its prototype, and its own string keys enumerable (a map made with `Object.create({ id: User })` or with `Object.defineProperty(map, 'id', { enumerable: false })` would bind nothing while the types say it binds; both are refused). `Route.api` runs the same check on the bindings of an item it did not build through `r.bind()` (a hand-built contract or scope item), reads that `bindings` once and stores the checked copy, so a map mutated in an `endpoints` callback, or a getter that answers another map on a later read, cannot install a binder the check never saw. A bad binder, or a `bindings` that is not an object, fails at mount instead of being skipped (a bad binder would otherwise answer 500 on every request). `__proto__` is not a binding key (Diagnostics): every object reads it as its prototype, so the binding would be dropped, and a map written as `{ __proto__: User }` sets the prototype of the map instead of binding a key, so it is refused too. `constructor` and `prototype` are ordinary keys, held as own properties of the ctx params.
+
+### Diagnostics
+Runtime `Error`s, prefixed `[@laratype/http] Route.api: `, and thrown by `Route.api` when the builder binds:
+- `` r.bind(): `<key>` must be a model class (static primaryKey, optional routeKeyName, findByRouteKey(key)) or a (raw: string) => value resolver `` (a value that is not a function; also for an item built by hand, when `Route.api` checks its bindings)
+- `` r.bind(): `__proto__` cannot be a binding key: every object reads it as its prototype, so the binding would be dropped. Fix: name the path param something else. `` (an own `__proto__` key, from `{ ["__proto__"]: User }` or a parsed object: Hono drops a `:__proto__` path param, so the handler would read `undefined`; refused at `r.bind()`, and at mount for a hand-built item)
+- `` r.bind(): `{ __proto__: User }` sets the prototype of the bindings map instead of binding a key. Fix: name the path param something else. `` (that literal has no `__proto__` own key at all, so the key check never sees it; the map would bind nothing while the types say it binds `__proto__`)
+- `` r.bind(): the bindings map must have Object.prototype or null as its prototype, not a class instance or an Object.create(base) object (got <prototype>) `` (an inherited entry is dropped by the copy, so the map would bind nothing while the types say it binds; `<prototype>` is `Foo.prototype` for a class instance, a `Map` or an array, or `an object that is not Object.prototype` for `Object.create({ id: User })`)
+- `` r.bind(): the bindings must be an object, one value per path param (got <value>) `` (a hand-built item's `bindings` that is not an object, such as `42` or `null`: refused at mount; only an omitted `bindings` defaults to `{}`)
+- `` r.bind(): `<key>` is a non-enumerable property of the bindings map: r.bind() copies enumerable own properties only, so the binding would be dropped. Fix: declare it as a plain property, { <key>: ... }. `` (an own key from `Object.defineProperty(map, '<key>', { value: User })`: the types say it binds, the spread drops it)
+- `` r.bind(): `<key>` is a model class without a static primaryKey (the default route key of BindableModel) ``
+- `` r.bind(): `<key>` is a model class without a static findByRouteKey (BindableModel: primaryKey, optional routeKeyName, findByRouteKey(key)) ``
+- `` r.bind(): `<key>` is not a path param of any endpoint in <contract> `` (a key no endpoint of the contract declares would otherwise be dropped; typed callers get it at `r.contract()` already)
+- `` r.bind(): `<key>` is not a path param of any endpoint under scope "<dir>" ``
+- `` r.bind(): `<key>` binds `:<key>?` in <path>, where Hono registers it as `<key>?`: it expands only a path that ends with an optional param, so the binding would never run. Fix: make the optional param the last segment, or drop the `?`. `` (Hono's `checkOptionalParameter` expands a path ending in `?`, stripping the `?` from every optional segment; any other path is registered as written, so `param()` never answers `<key>` and the binding would read an absent optional param)
+- `` r.bind(): `<key>` is a required param of <path> that Hono's optional-param expansion leaves out of a registration: Hono also registers `<expansion>`, where its router passes no `<key>` to the handler, so the binding would give `undefined` where the proof promises a model. Fix: move `<key>` before the optional params, or drop their `?`. `` (Hono expands `/mixed/:first?/:post/:last?` into `/mixed`, `/mixed/:first`, `/mixed/:first/:post` and the full path; a required binding is absent from a shorter registration, e.g. `post` from `/mixed`. A required key that every registration carries stays valid: Optional layouts)
+- `` r.bind(): `<key>` is a param of <path> that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): Hono also registers `<expansion>`, where the handler receives no `<key>` even when the request carries it, so the binding would give `undefined`. Fix: drop the `?` of the optional params, or move the static segment before them. `` (the router keeps the first `paramCount - expansions + i + 1` params of each registration; `/a/:post/:first?/fixed/:last?` registers `/a/:post` with no param and `/a/:post/:first` with only `post`, so `/a/one` has no `post` and `/a/one/two` has no `first`. A required or optional binding on `post` or `first` is refused; `/a/:post/:first?` and `/a/:post/:opt?` keep binding: Optional layouts)
+- `` scope "<dir>" binds `<key>`, but contract "<name>" is mounted from a builder that does not bind it: mount the contract from a builder that binds `<key>` too (a handler's types see only its own builder's bindings) `` (the first such conflict in route order, before any request)
+- The miss answers 404 with `{ code: "NOT_FOUND", message: "Not Found." }` (no log).
+
+Type-level:
+- `` .bind(): `<key>` is not a path param of any endpoint in <contract> `` at `r.contract()` ([Route proof](#route-proof-at-rcontract) › Diagnostics).
+- `` Route.api: scope "<dir>" binds `<key>`, but contract "<name>" is mounted from a builder that does not bind it: mount the contract from a builder that binds `<key>` too (a handler's types see only its own builder's bindings) `` at the `Route.api(...)` call (the scope-binding rule above).
+- A class that does not satisfy the static side, at `r.bind()`: `Type 'typeof Plain' is not assignable to type 'Binder'.` with `Type 'typeof Plain' is missing the following properties from type 'BindableModelClass<object>': primaryKey, findByRouteKey` (an object argument reports it at the value's key).
+- A callable that carries `findByRouteKey` but no string `primaryKey`, at `r.bind()`: it is not assignable to `Binder` (it is neither `ModelFunction`, which needs `primaryKey`, nor `Resolver`, which must not carry `findByRouteKey`), as the mount check refuses it. A callable with `primaryKey` and no lookup is a resolver, as at runtime.
+- A handler that requires a model the route does not bind keeps the proof's diagnosis: `` <c>.<e>: `params.user` provided by the route does not match the handler (missing .bind()?) ``.
+
+### Example
+Compiled (proposed API): [`docs/v1/examples/http/proposed/modelBinding.ts`](./examples/http/proposed/modelBinding.ts).
+```ts
+// app/api/users/[user]/posts.ts: `user` is a folder param, `post` an endpoint param
+const posts = defineContract()({
+  show: endpoint.get('/:post').response(PostDto),
+  latest: endpoint.get('/latest/:post?').response(PostDto),
+})
+
+class PostController extends Controller {
+  show(ctx: Ctx<typeof posts.show, { params: { user: User; post: Post } }>) { return { id: ctx.params.user.id, slug: ctx.params.post.slug } }
+  latest(ctx: Ctx<typeof posts.latest, { params: { user: User; post: Post | undefined } }>) {
+    return { id: ctx.params.user.id, slug: ctx.params.post?.slug ?? '' }
+  }
+}
+
+Route.api(appApi, (r) => [r.bind({ user: User, post: Post }).contract(posts, PostController)])
+```
+
+Or, with a resolver for `user` (an alternative mount of the same contract, not a second route):
+
+```ts
+Route.api(appApi, (r) => [
+  // a resolver gets the raw string; null / undefined is a 404
+  r.bind({ user: (raw: string) => User.findByRouteKey(raw), post: Post }).contract(posts, PostController),
+])
+```
+Tests: [`packages/http/__tests__/routing/modelBinding.test.ts`](../../packages/http/__tests__/routing/modelBinding.test.ts) (requests through `app.request()`: folder and endpoint params, a regex param pattern, a pattern with a brace in a class or a nested quantifier, the raw second argument, a class miss and a resolver miss as 404, the optional param (a name that is an `Object.prototype` member included), one lookup per request, the frozen copy, a binding over a middleware `params` extension, 404 before 422, `Date` and a callable model class, the scope builder (same builder passing, a scope-only key refused at mount, a contract binder winning), a binding key no endpoint declares, a `__proto__` key refused, an `Object.create({ id: User })` map, a class-instance map and a non-enumerable key refused, a null-prototype map binding, a wrong-type map (a number, `null`, `undefined`, a string) and `NaN` / `Infinity` binders refused, a `{ length: 1e9 }` map checked as one key named `length`, a 10k unicode key checked as an ordinary key, a hand-built contract and scope item with a non-binder value or a non-object `bindings` refused at mount, a hand-built item's map mutated from an `endpoints` callback, its `bindings` getter read once (scope and contract), a Proxy key with no descriptor, a mid-path optional param Hono registers as `:key?` refused while the paths it expands still bind (two optionals included), a required binding after an optional param refused (the `/mixed/:first?/:post/:last?` path, `/mixed` named as the missing expansion), a required or optional binding a static segment after an optional one drops from Hono's handler map refused (the `/a/:post/:first?/fixed/:last?` path, `/a/:post` for `post` and `/a/:post/:first` for `first`, with the static-segment fix), an optional binding on that layout refused while `/a/:post/:first?` mounts and a present-but-unknown `first` is a 404, and the optional bindings of `/mixed/...` and `/a/:post/:opt?` still bind, ad-hoc routes) and [`modelBinding.test-d.ts`](../../packages/http/__tests__/routing/modelBinding.test-d.ts) (the binder types, a later bind winning, a binding over a middleware `params` key, a wrong key, a class outside `BindableModel`, a callable with `findByRouteKey` and no `primaryKey` refused as at mount, the optional param, the scope builder, the refused scope-only key with its exact `Route.api` diagnosis).
+
+### Non-goals
+- **No implicit binding:** H14 [#163](https://github.com/Laratypes/Laratype/issues/163) is planned.
+- No per-endpoint binding in the `endpoints` callbacks of `r.contract()`: the callbacks are checked before the options argument, so their bindings cannot join the proof (the same limitation as typed middleware there).
+- No binding for ad-hoc routes: `r.get()`, `r.post()` and the others have no contract and no typed params, so a bound builder's bindings are ignored and the handler gets the raw params.
+- No binding of query or body values, and no custom miss behavior: a miss is always the 404.
+- No whole-tuple proof: the handler proof runs per `r.contract()` call, before the routes array exists, so a scope binding is refused unless the contract's own builder binds the same key (Scopes). A later proof of the returned array would let the proof see a sibling scope's bindings.
+- No removal of the 0.5 `Route.model` / `Route.bind` paths in this task.
+
+### Open questions
+- Resolved: an optional path param with `.bind()` is `Model | undefined` when absent; a present one with no match is a 404 ([#118](https://github.com/Laratypes/Laratype/issues/118)).
+- Resolved: a route key the model cannot convert is its own miss, and a thrown lookup goes through the exception filter (Invariants › Miss) ([#118](https://github.com/Laratypes/Laratype/issues/118), [database.md › BindableModel](./database.md#bindablemodel)).
+- Deferred: an explicit binding kind ([#163](https://github.com/Laratypes/Laratype/issues/163)): a callable whose declared type is a resolver but whose runtime value carries the model statics is dispatched as a model (`isModelClass`). A function with `findByRouteKey` is always a model binding, and a resolver must not carry it (Invariants › Values); a `{ model: ... }` wrapper that makes the kind explicit is an API change for H14.
 
 ### Acceptance
 [#118 Done when](https://github.com/Laratypes/Laratype/issues/118) · [#163 Done when](https://github.com/Laratypes/Laratype/issues/163)
@@ -924,7 +1047,7 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
 ## Authorization from the contract
 
 ### Status
-`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged and recorded on the routes (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The compile check is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b); running policies, in the order below, is planned → [#121](https://github.com/Laratypes/Laratype/issues/121) (A3). Until then `authorize` is not enforced.
+`r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts a scope policy, records it on the routes under the folder and checks that every scope with `authorize` has one ([Router v2](#router-v2)). `r.contract(c, Ctrl, { policy })` is merged and recorded on the routes (H2a [#105](https://github.com/Laratypes/Laratype/issues/105)). The compile check is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2b); running policies, in the order below, is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) ([auth.md › Policies and gates](./auth.md#policies-and-gates) leaves the call there too). Until then `authorize` is not enforced.
 
 ### Design (non-binding)
 - **Declared in the contract:** `authorize: true` on a [folder scope](./contract.md#folder-scopes) or `.authorize()` on an endpoint adds a 403 ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
@@ -934,39 +1057,153 @@ The earlier design: `.can({ show: ['view', 'user'] })`: the ability comes from `
   - a scope with `authorize` and no mounted policy is a compile error in `Route.api`, with a runtime check too;
   - `authorize` without `auth` at the same or an outer level, including `.public()` under a scope with `authorize`, is a compile error ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
 - **Order:** scope policies run once per request, outer to inner, then the endpoint's policy. Bound models are resolved once and reused.
-- **Scope hook:** a scope policy's `before(user, params)` receives the signed-in user and the scope's bound params (the resolved models).
+- **Scope hook:** a scope policy's `before(user, ability, params)` receives the signed-in user, the endpoint's key as the ability and the scope's bound params (the resolved models).
 - **`Gate.policy`:** `Gate.policy(Model, Policy)` stays for imperative checks such as `user.can('update', post)` in services ([auth.md › Policies and gates](./auth.md#policies-and-gates)).
 - **Replaces:** the route-level `.can()` ([Policies on routes](#policies-on-routes-can)) and `FormRequest.authorize()` ([validation.md › FormRequest v2](./validation.md#formrequest-v2)).
 
 ### Open questions
-- The arguments of an endpoint's policy method → [#121](https://github.com/Laratypes/Laratype/issues/121)
+- The arguments of an endpoint's policy method → [#105](https://github.com/Laratypes/Laratype/issues/105)
 
 ### Acceptance
 [#105 Done when](https://github.com/Laratypes/Laratype/issues/105) · [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
 
 ---
 
+## Request.ip()
+
+### Status
+proposed: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d (H30 [#299](https://github.com/Laratypes/Laratype/issues/299), M2). A5 [#288](https://github.com/Laratypes/Laratype/issues/288) added `ip()` on the Node and Bun adapters; this round registers the adapter's `getConnInfo`, drops `@hono/node-server` from `@laratype/http` and normalizes the address. Round 2 warns once when a rate-limited route runs with no address source registered; round 3 adds the second warning for a registered getter that finds no address. Round 4 reads the address once, when the `mountConnInfo` middleware runs (a reset connection loses it after an `await`), refuses a mount after a route or middleware, and never runs a throttled handler for a request whose connection closed before its address was read. Trusted proxy headers are H35 [#320](https://github.com/Laratypes/Laratype/issues/320), a later round. Leader fixup round 3: a copy that loads without `mountConnInfo` (an import failure the loader logged, or an older copy) gets a second one-per-process warning, and the missing-package warning names `process.cwd()` and offers adding `@laratype/http` as a direct dependency of the app for an unhoisted optional peer.
+
+### Public API
+`request.ip(): string | undefined`, a method of the 0.5 `Request` (`RequestInterface`) and every request class that extends it. Code: [`supports/Request.ts`](https://github.com/Laratypes/Laratype/blob/5fba1d5dbca18d583dafe05382dbeb45b6c07a1c/packages/http/src/supports/Request.ts), [`supports/ip.ts`](https://github.com/Laratypes/Laratype/blob/5fba1d5dbca18d583dafe05382dbeb45b6c07a1c/packages/http/src/supports/ip.ts).
+
+The serving adapter registers its runtime's Hono `getConnInfo` with `mountConnInfo()`, which mounts one middleware on the Hono app:
+
+```ts
+// @laratype/http
+export function mountConnInfo<E extends Env, S extends Schema, BasePath extends string>(
+  app: Hono<E, S, BasePath>,
+  getConnInfo: GetConnInfo,
+): void
+```
+
+`GetConnInfo` is Hono's `(c: Context) => ConnInfo` from `hono/conninfo`.
+
+`mountConnInfo()` mounts one middleware that calls the getter **once, synchronously, when it runs** and stores the address it answered on the request's context; `ip()` and the rate limit read that capture, never a later call. Mount it before any middleware that can await (a session load, an auth load, a request log): a client that resets its connection during that await has no socket address left to read, and a late mount is refused at boot ([Diagnostics](#diagnostics-10)). The examples below show it mounted first, on a fresh app.
+
+```ts
+// A node entry, before the routes are mounted
+import { mountConnInfo } from "@laratype/http"
+import { getConnInfo } from "@hono/node-server/conninfo"
+
+mountConnInfo(app, getConnInfo)
+```
+
+```ts
+// A Bun entry
+import { getConnInfo } from "hono/bun"
+
+mountConnInfo(app, getConnInfo)
+```
+
+`sauf`'s node adapter (`sauf build`'s node entry) and `sauf dev` mount the node one themselves, before the app's providers boot. An adapter that mounts none leaves `ip()` `undefined`. An app where `@laratype/http` does not resolve (not installed where the app runs, or left unhoisted, as pnpm can) registers no `getConnInfo` and gets one warning per process that `request.ip()` stays `undefined` (so `.throttle()` routes keyed by IP have no address); a copy that resolves but fails to import is logged by the loader, and the mount then warns once that `@laratype/http` loaded without `mountConnInfo` (the failed import or an older copy); any other rejection of the loader is thrown. `sauf` resolves the package from `process.cwd()`.
+
+A Bun or custom entry must call it: before H30 the Bun runtime was detected automatically, now an entry that mounts nothing gets `ip() === undefined` and every `.throttle()` route serves without a limit, with one warning per process ([Rate limiting](#rate-limiting) › Diagnostics).
+
+### Invariants
+- **Source: the registered getter, nothing else.** `ip()` answers the `remote.address` the adapter's `getConnInfo` found with the request's Hono context when `mountConnInfo`'s middleware ran. `@laratype/http` has no per-runtime branch and never reads the shape of `ctx.env` (`incoming`, `requestIP`, `server`): an adapter registers what its runtime offers, and `sauf`'s node entry is the only place that knows about the node server.
+- **Captured once, when the middleware runs.** The getter is called once per request, synchronously, before the middleware's `next()`: the normalized address is stored on the context and every later `ip()` (and the rate limit) reads that value. It is never called again after an `await`, where a connection the client reset has no address left (Node caches `socket.remoteAddress` only once it has been read). A getter from another copy of the package that stored itself on the context is the one lazy path left; no app booted with this copy's `mountConnInfo` has it.
+- **No adapter, no address.** With no `mountConnInfo()` (an in-process `app.request()` in a test, a Hono app a bare kernel served, another runtime) `ip()` answers `undefined`. It also answers `undefined` when the getter throws (a Bun `requestIP()` returning null for a unix socket, a socket gone) or answers no `remote.address`: it never throws, so a route that reads it cannot turn a missing socket into a 500.
+- **No source, one warning; no address, another.** The first `.throttle()` route that runs with no getter registered logs one warning per process, in every mode, naming the fix ([Rate limiting](#rate-limiting) › Diagnostics). A registered getter that finds no address (a unix socket or named pipe, a socket gone, a getter for another runtime) is a second cause the rate limit warns about once per process: those requests are unthrottled too, and a unix-socket or proxy deployment needs H35 [#320](https://github.com/Laratypes/Laratype/issues/320)'s trusted-proxy setting for a limit. `ip()` itself logs nothing.
+- **A gone connection never runs a throttled handler.** If the registered getter captured no address **and** the connection is already closed (`c.req.raw.signal.aborted`, or the node adapter's `c.env.incoming.socket.destroyed`), a `.throttle()` route answers `204` with no body without running the handler: the client cannot receive an answer, and a side-effecting handler (an OTP, an SMS, a signup) must not run with no limit. A live request with no address (a unix socket) keeps the warning and runs the handler, unthrottled, as round 3 left it.
+- **Normalized.** An IPv4-mapped IPv6 address (`::ffff:203.0.113.7`, any case, and the expanded `0:0:0:0:0:ffff:203.0.113.7`) is the IPv4 address it carries: a dual-stack listener reports an IPv4 client as `::ffff:<v4>` with family `IPv6` (checked with a `net` server on `::`: Node reported `::ffff:127.0.0.1`; the `::ffff:0:` IPv4-translated form is a different range and stays IPv6). An IPv6 zone id (`fe80::1%eth0`, `fe80::1%3`) is stripped. A plain IPv4 or IPv6 address is returned as the runtime wrote it.
+- **Anything else is no address.** An empty string, `null`, `undefined`, a non-string (an object, a number, `NaN`, an array), a string that is not an IPv4/IPv6 address (a blank one, a very long one, one with control characters, a header value) all answer `undefined`. `ip()` never turns text no socket produced into a client address.
+- **Never a proxy header.** `X-Forwarded-For` and `X-Real-IP` are never read: behind a proxy `ip()` is the proxy's address until the trusted-proxy setting (H35 [#320](https://github.com/Laratypes/Laratype/issues/320)) names the proxies it may skip. Spoofing either header changes nothing.
+- **Mounted first, or the boot fails.** Hono runs a middleware registered after a route only after that route, and after an earlier middleware, so `mountConnInfo()` must run on the fresh app before anything that can await. A mount when `app.routes` already has a route or middleware (other than this function's own earlier mounts) throws ([Diagnostics](#diagnostics-10)). `sauf`'s node entry and `sauf dev` mount it before `Serve.bootProvider()` boots the app's providers. Mounting it twice in a row is still harmless: each middleware captures the address and the last one to run wins. The check sees only the app it is given: call `mountConnInfo` on the outermost app that serves requests, because a sub-app mounted behind an async middleware of its parent (`parent.route("/", app)`) captures after that await.
+- **The rate limit reads it.** `Route.api`'s contract throttle keys its window on `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): `undefined` is an unthrottled request, never a shared bucket, and one with no source registered warns once ([Rate limiting](#rate-limiting)). A request whose connection closed before the capture never reaches the handler ([Rate limiting](#rate-limiting) › Invariants).
+
+### Diagnostics
+`mountConnInfo()` fails the boot with a `TypeError` on a wrong argument, and refuses a late mount with an `Error`:
+
+- `[@laratype/http] mountConnInfo(): expected the runtime's getConnInfo(context) function, got <typeof>` (a missing or non-function `getConnInfo`)
+- `[@laratype/http] mountConnInfo(): expected a Hono app, got <null|typeof>` (an `app` with no `use()`)
+- `[@laratype/http] mountConnInfo(): call it before any route or middleware, so the address is captured before one can await; the app already has <n> route(s) or middleware` (a mount after `app.routes` already has anything that is not this function's own earlier mount; the count is what was already there)
+
+The node mount warns once per process, and skips the mount, when it has no `mountConnInfo` to call:
+
+- `[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http does not resolve from the working directory <process.cwd()> (it is an optional peer of laratype). Install @laratype/http where the app runs and start the app from the project root, or add @laratype/http as a direct dependency of the app.` (a resolution failure of the package itself; any other rejection of the loader is thrown)
+- `[sauf] If this app serves routes with @laratype/http, request.ip() stays undefined and .throttle() routes keyed by IP have no address: @laratype/http loaded without mountConnInfo (its import failed and the loader logged that above, or the app has an older copy of the package).` (support's `importModule` logs a failed import of a resolvable module and returns `undefined`, so that failure is not thrown)
+
+A getConnInfo that throws at capture time makes `ip()` answer `undefined`; the rate limit logs one warning per process the first time a throttled route sees it ([Rate limiting](#rate-limiting) › Diagnostics).
+
+The first rate-limited route that runs with no getConnInfo registered warns once per process, in every mode, and so does one whose registered getter finds no address: [Rate limiting](#rate-limiting) › Diagnostics has both texts.
+
+### Example
+```ts
+// app/http/controllers/WhoAmIController.ts
+import { Controller } from "@laratype/http"
+import type { Request } from "@laratype/http"
+
+class WhoAmIController extends Controller {
+  index(request: Request) {
+    return { ip: request.ip() ?? null }
+  }
+}
+```
+
+A node entry mounts the getter before the routes (what `sauf`'s node entry does):
+
+```ts
+import { Hono } from "hono"
+import { mountConnInfo } from "@laratype/http"
+import { getConnInfo } from "@hono/node-server/conninfo"
+
+const app = new Hono()
+mountConnInfo(app, getConnInfo)
+```
+
+Tests: [`packages/http/__tests__/support/bearerTokenAndIp.test.ts`](../../packages/http/__tests__/support/bearerTokenAndIp.test.ts) (a node-shaped and a Bun-shaped getter, no registration, a throwing getter, non-string and invalid addresses, mapped upper/lower/expanded, a zone id, a plain IPv6, a very long string, control characters, spoofed proxy headers, the two `mountConnInfo` `TypeError`s, the late-mount `Error`, the getter read once before an awaiting middleware, the older-copy getter fallback), [`packages/http/__tests__/support/requestIp.test-d.ts`](../../packages/http/__tests__/support/requestIp.test-d.ts) (the `ip()` return type and `mountConnInfo`'s generic app parameter, including an app with typed bindings), [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (the no-source warning once per process across routes and in production, the no-address warning once across routes for an addressless or throwing getter, none for a working getter, the two flags independent, the IPv4-carrying IPv6 forms, the `204` for a closed connection with no address and the handler left alone, the live unreadable connection that still runs it) and [`packages/sauf/__tests__/throttleReset.test.ts`](../../packages/sauf/__tests__/throttleReset.test.ts) (a real `@hono/node-server`, a 100 ms global middleware and a client that resets after the write: the captured `127.0.0.1` is counted, the side-effect counter stops at the limit and a live request gets 429) and [`packages/sauf/__tests__/requestIp.test.ts`](../../packages/sauf/__tests__/requestIp.test.ts) (a real node server, a dual-stack listener's IPv4-mapped address, and the on-demand load: a package that does not resolve warns once, a loaded copy without `mountConnInfo` warns once too, a copy that throws at import is logged by the loader and then warns the same way, and the rethrow cases (an inner dependency, a look-alike package, another module) are guards tested with a stub loader that rejects).
+
+### Non-goals
+- No trusted-proxy setting and no `X-Forwarded-For` / `X-Real-IP` fallback: H35 [#320](https://github.com/Laratypes/Laratype/issues/320).
+- No runtime detection inside `@laratype/http`: the adapter registers its getter.
+- No asynchronous `getConnInfo`: Hono's is sync, and an async one answers a `Promise`, which is no address.
+- No port, family, hostname or DNS lookup: the address only.
+
+### Open questions
+- None recorded.
+
+### Acceptance
+[#299 Done when](https://github.com/Laratypes/Laratype/issues/299)
+
+---
+
 ## Rate limiting
 
 ### Status
-proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2 (H17 [#229](https://github.com/Laratypes/Laratype/issues/229), M2). Keying by the user id waits for the contract auth guard: planned → [#120](https://github.com/Laratypes/Laratype/issues/120). Counters through the cache: planned → [#166](https://github.com/Laratypes/Laratype/issues/166).
+proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2 (H17 [#229](https://github.com/Laratypes/Laratype/issues/229), M2); H30 text: PR [#400](https://github.com/Laratypes/Laratype/pull/400) @ 5fba1d5d. H30 [#299](https://github.com/Laratypes/Laratype/issues/299) round 2: one warning when no address source is registered, and the IPv4 address a SIIT or IPv4-compatible form carries is the bucket; round 3: a registered getter that finds no address warns once per process too, and a unix-socket or proxy deployment needs H35 [#320](https://github.com/Laratypes/Laratype/issues/320) for a limit; round 4: the address is read once before any `await`, and a request whose connection closed before it was read answers `204` without running the handler. Keying by the user id waits for the contract auth guard: planned → [#120](https://github.com/Laratypes/Laratype/issues/120). Counters through the cache: planned → [#166](https://github.com/Laratypes/Laratype/issues/166).
 
 ### Public API
-None: `ApiRoutes.mount()` applies the rate limit of each route whose resolved `throttle` is set ([`throttle.ts`](https://github.com/Laratypes/Laratype/blob/21161f25ff30fdac72392b47cc92616d83ba84d9/packages/http/src/routing/api/throttle.ts)). The store interface is internal until the cache implements it.
+None: `ApiRoutes.mount()` applies the rate limit of each route whose resolved `throttle` is set ([`throttle.ts`](https://github.com/Laratypes/Laratype/blob/5fba1d5dbca18d583dafe05382dbeb45b6c07a1c/packages/http/src/routing/api/throttle.ts)). The store interface is internal until the cache implements it.
 
 ### Invariants
 - **Declared in the contract:** `.throttle({ limit, per })` on a scope, a contract or an endpoint. The nearest level wins, and `.throttle(false)` opts out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). A route whose resolved `throttle` is unset is never limited and never counted.
 - **Applied when routes are registered,** with no route middleware: `mount()` wraps the route's handler, so the limit runs before the route middleware and the request parsing. On a `.domain()` route, only requests for that host are counted.
 - **Fixed window per route and client.** Each route (its method, `.domain()` host and path, so same-named routes of two groups or domains never share a counter) counts its own hits per client in windows of `per` (seconds, or `"<n>s|m|h|d"`; from 1 second to `Number.MAX_SAFE_INTEGER` ms, as the contract checks). The window starts at the client's first hit; the hit past `limit` in a window, and every hit after it in that window, answers 429.
-- **Key:** the IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288)): the socket address (`getConnInfo` of `@hono/node-server` on Node, the server's `requestIP()` on Bun), never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists. An IPv4 address carried in IPv6 (`::ffff:203.0.113.5` from a dual-stack listener, `64:ff9b::203.0.113.5` from a SIIT/NAT64 translator) counts as that IPv4 address, and an IPv6 client is counted by its /64, the block one client can rotate addresses in. Keying by the user id when one is signed in is planned → [#120](https://github.com/Laratypes/Laratype/issues/120): no contract auth guard runs before the limit yet.
-- **No address, no limit.** A request with no client address (`request.ip()` is `""`: another runtime, an in-process `app.request()` without an env, a socket gone) is served unthrottled, so clients without an address never share one bucket. The first such request logs one warning per process.
+- **Key:** the IP is `request.ip()` (A5 [#288](https://github.com/Laratypes/Laratype/issues/288), H30 [#299](https://github.com/Laratypes/Laratype/issues/299)): the socket address the serving adapter registers through `getConnInfo` ([Request.ip()](#requestip)), read once when `mountConnInfo`'s middleware ran, never `X-Forwarded-For`, so behind a proxy it is the proxy's address until a trusted-proxy setting exists. `request.ip()` has already normalized an IPv4-mapped IPv6 address (`::ffff:203.0.113.5` from a dual-stack listener) to its IPv4 address, and this bucket maps the IPv4 address carried in `64:ff9b::203.0.113.5` (NAT64), `::ffff:0:203.0.113.5` (SIIT) and `::203.0.113.5` (IPv4-compatible, except `::` and `::1`) too; any other IPv6 client is counted by its /64, the block one client can rotate addresses in. Keying by the user id when one is signed in is planned → [#120](https://github.com/Laratypes/Laratype/issues/120): no contract auth guard runs before the limit yet.
+- **A source is required, or the limit is off.** A Bun or custom entry must call `mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo)` before the routes are mounted. Before H30 a Bun entry was detected automatically; now an entry that mounts none registers no getter, so `request.ip()` is `undefined` and every `.throttle()` route serves without a limit. The first such request logs one warning per process, in every mode including production ([Diagnostics](#diagnostics-11)).
+- **No address, no limit; a gone connection, no handler.** A request whose *registered* getter finds no address (`request.ip()` is `undefined`: a unix socket or named pipe, a socket gone, an empty `remote.address`, a getter for another runtime) is served unthrottled, so clients without an address never share one bucket. The first such request logs one warning per process, in every mode, naming the first route ([Diagnostics](#diagnostics-11)): it disables every `.throttle()` route, and a unix-socket or proxy deployment needs the trusted-proxy setting (H35 [#320](https://github.com/Laratypes/Laratype/issues/320)) for a limit. If the connection is already closed when the limit runs (`c.req.raw.signal.aborted`, or the node socket `destroyed`), there is no one to serve and no bucket to count: the request answers `204` with no body and the handler never runs, so a side-effecting route cannot be called without a limit by a client that resets after the write. A live request with no address keeps the warning and the unthrottled handler.
 - **Response:** 429 with the catalog error body `{ code: "TOO_MANY_REQUESTS", message: "Too Many Requests." }` ([Exceptions](#exceptions)) and `Retry-After`, the whole seconds until the window ends (at least 1). It is thrown as a Hono `HTTPException`, so the exception path of `ResponseKernel` (or Hono's own error handler) answers it.
 - **Store:** an in-memory store, one per process, until the cache ([#166](https://github.com/Laratypes/Laratype/issues/166)) implements the store interface. Counters are not shared between processes, and two Hono apps of one process share them. Ended windows are dropped at most once a minute, and past 100,000 windows a full store drops the window that ends first: an ended one if there is one, else the live one nearest its end (its client starts a new window early). It finds it among the oldest window of each window length, with no scan of the store. `mount()` checks the window again before it registers any route.
 
 ### Diagnostics
 - `[@laratype/http] Route.api: <route name>: throttle per must be from 1 second to 9007199254740991 ms, got <per>` (at `mount()`; the contract already rejects such a `per`)
 
-Warning, logged once per process: `[@laratype/http] Route.api: a request has no client address (another runtime, or an in-process app.request()), so rate-limited routes serve such requests without a limit (first: <route name>)`
+Warning, logged once per process, in every mode, when a throttled route runs with no getConnInfo registered: `[@laratype/http] Route.api: no getConnInfo is registered, so .throttle() routes serve requests without a limit: a Bun or custom entry must call mountConnInfo(app, getConnInfo from hono/bun or @hono/node-server/conninfo) before the routes are mounted (first: <route name>)`
+
+Warning, logged once per process, in every mode, when the registered getConnInfo finds no client address or throws (a unix socket or named pipe, a getter for another runtime): `[@laratype/http] Route.api: the registered getConnInfo found no client address (a unix socket or named pipe, or a getter for another runtime), so .throttle() routes serve such requests without a limit; behind a proxy or a unix socket the limit needs the trusted-proxy setting (#320) (first: <route name>)`
+
+Neither warning includes request data: each names the first throttled route only. A request answered `204` because its connection closed before its address was captured logs neither warning: the warning describes a live request whose rate limit is off.
 
 ### Example
 ```ts
@@ -980,7 +1217,7 @@ export default defineContract<Prefix>()({
 })
 ```
 
-Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (requests through `app.request()` with a Bun-style env for the client address).
+Tests: [`packages/http/__tests__/routing/throttle.test.ts`](../../packages/http/__tests__/routing/throttle.test.ts) (requests through `app.request()`, with a mounted getter that reads the client address from the request's env; a second app without the seam warns once for several routes and requests, in production too, and a registered getter that throws or finds no address warns once on the first throttled route, while a working getter does not warn and the two flags are independent; an aborted signal or a destroyed socket with no address answers `204` without the handler and without a warning, an unreadable `c.env` is live, and a captured address still counts with the socket gone; `ipBucket` keys the SIIT, IPv4-compatible and mapped forms by the IPv4 address they carry) and [`packages/sauf/__tests__/throttleReset.test.ts`](../../packages/sauf/__tests__/throttleReset.test.ts) (a real node server, a 100 ms global middleware and five clients that reset after the write: the side-effect counter stops at the limit and the captured `127.0.0.1` bucket answers a later live request with 429).
 
 ### Non-goals
 - No stacked limits on one endpoint (named limiters, later).
@@ -1212,9 +1449,10 @@ export function redirect(url: string, httpStatusCode?: RedirectStatusCode): Resp
 - **One name, one route.** An ad-hoc name maps to one method and path: a second ad-hoc route with the name and a different method or path (in this group or a later `Route.api()` call), or an ad-hoc name a contract route has, is an error; so is a contract route whose name an ad-hoc route of an earlier call took. The same group mounting again in one process (an `--hmr` restart) registers the same route, not a duplicate. `Route.api()` checks the whole group (duplicate names included) before it registers any of its names: a group that fails `Route.api()` leaves nothing behind, so `route()` cannot build a URL for a group that never registered. The names are registered before `Route.api()` returns, and a later `.domain()` or `.mount()` failure (`.domain('not a host')`, a handler `mount()` refuses) does not roll them back: `route()` can then build the URL of a group the app does not serve.
 - **Relative by default.** `route()` returns the mounted path (`/api/users/1/posts/2?page=2`); `{ absolute: true }` appends it to `config('config.url')` (`https://app.test/api/users/1/posts/2`). The config value is an http(s) URL whose origin and path are used (a `URL` value is accepted): no query, hash or credentials, and its trailing slashes are dropped. The path is appended to the config's own path, so a base path stays on every route, the root route `/` included: with `https://app.test/sub/`, the root route builds `https://app.test/sub/` and a query never changes the pathname. The request's `Host` and `X-Forwarded-Host` headers never reach an absolute URL: the config value is the only origin source.
 - **No host from `.domain()`.** `route()` ignores the group's `.domain()`: the URL is a path relative to the current host, or with `{ absolute: true }` a URL under `config('config.url')`, never the domain the route is served on. A contract name mounted by several groups builds the path of the latest mount.
-- **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, a `bigint`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`, and a bigint value (direct, or the route key) is converted with `String()` before `buildUrl` encodes it, so DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)'s bigint keys keep their digits. A path without params takes no key at all (an omitted `params` and an explicit `{}` stay valid), so a typo is a type error. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
-- **Query** is typed from the endpoint's query schema **input**, as the client types it; an endpoint without a query schema takes no `query` (`query?: undefined`). An ad-hoc route has no schema, so its query is `object`.
-- **One encoder.** `buildUrl` fills the path and serializes the query: params with `encodeURIComponent`, the query with `URLSearchParams` (`undefined` and `null` skipped, an array repeats its key, a `Date` as ISO 8601). `route()` never concatenates a value into a URL itself, and `buildUrl`'s diagnostics propagate unchanged.
+- **Params** are typed from the full path, parent `[x]` folders included, and take a `string`, a `number`, a `bigint`, or a model: a `RouteKeyed` value contributes its `getRouteKey()`, and a bigint value (direct, or the route key) is converted with `String()` before `buildUrl` encodes it, so DB1 [#145](https://github.com/Laratypes/Laratype/issues/145)'s bigint keys keep their digits. A path without params takes no key at all (an omitted `params` and an explicit `{}` stay valid), so a typo is a type error. A `/` is `%2F` by default; a regex param whose pattern needs a literal `/` (`:file{.+/.+}`) is split per segment, each segment encoded on its own, so the route the server mounts matches; a top-level `|` in a pattern throws only when the split would be sent and Hono's two routers read it differently (`a|.+/.+` with `admin/all`), while a value without `/` keeps the encoded form; a split that is used refuses an empty, `.` or `..` segment, while a value the pattern rejects in both forms keeps the encoded one and 404s. A pattern Hono cannot route (a `}` before a `/`, `:f{a{2}/x}`) throws, naming the path. A `*` wildcard segment cannot be built: `route()` throws `buildUrl`'s `has a "*" segment` error for a named wildcard route, at any call, since the path is the route's own. At the model layer ([database.md › BindableModel](./database.md#bindablemodel)) the route key is the property the model class's `routeKeyName` names, or `primaryKey`; H14 [#163](https://github.com/Laratypes/Laratype/issues/163) adds `getRouteKey()` to the model base, so until then a model instance with the method (or any object with it) passes. An object param without it throws.
+- **Query** is typed from the endpoint's query schema **input**, as the client types it; an endpoint without a query schema takes no `query` (`query?: undefined`). An ad-hoc route has no schema, so its query is `object`. `buildUrl` takes flat values only and its query must be a plain object of keys (a `null` prototype or any realm's `Object.prototype`), so an array, a `Map`, a `Date` or a class instance throws (plainness is a runtime check; the type cannot express it), and a schema input with a nested object throws `buildUrl`'s `query "<key>"` error at build ([contract.md › URL builder](./contract.md#url-builder)).
+- **One encoder.** `buildUrl` fills the path and serializes the query: params with `encodeURIComponent` (per segment only when the pattern needs a literal `/`), the query with `URLSearchParams` (`undefined` and `null` skipped, an array repeats its key, a `Date` as ISO 8601). `route()` never concatenates a value into a URL itself, and `buildUrl`'s diagnostics propagate unchanged.
+- **Route patterns cost.** `buildUrl` runs a param's pattern against a value: the encoded form always, then the split when the value holds `/` and the encoded form is rejected. `route()` and `redirect().route()` therefore spend on a request-derived value about what Hono's own match spends: a catastrophic (exponential) pattern costs there too, so keep route patterns linear.
 - **`.name()` is immutable.** It returns a new frozen route with `routeName` set and leaves the route it is called on unchanged. A name is a non-empty string.
 - **`redirect().route()`** redirects to the same URL, relative by default like `route()`, with `{ absolute: true }` to opt in: a relative `Location` is valid (RFC 9110 §10.2.2), and an absolute default would throw on every app without a `url`. A relative `Location` stays on the request origin; `{ absolute: true }` uses the `config('config.url')` origin, which can differ from the request origin (an app URL, never a request header). It resolves any registered name, so never pass a request value as the name without an allowlist: `redirect().route(req.query.to)` reaches every named route. Take the name from a fixed list.
 - **Server-side.** `route()` is for the server; the FE builds URLs with `@laratype/client` (CL1) over the same `buildUrl`. A name is not added to OpenAPI or typegen: an ad-hoc route stays out of both.
@@ -1234,7 +1472,9 @@ Runtime `TypeError`s, prefixed `[@laratype/http] `:
 - `Route.api: contract "<name>" has the name of r.get('/path')`
 - `Route.api: r.get('/x').name() needs a name, a non-empty string`
 
-From `buildUrl` ([contract.md › URL builder](./contract.md#url-builder)), unchanged: `buildUrl: missing param "<name>" for "<path>"`, `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)`, `buildUrl: "<path>" builds "<result>", which a URL reads as another host`, `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`.
+From `buildUrl` ([contract.md › URL builder](./contract.md#url-builder)), unchanged: `buildUrl: missing param "<name>" for "<path>"`, `buildUrl: param "<name>" for "<path>" must be a string or a number, got <typeof>`, `buildUrl: param "<name>" for "<path>" cannot be "." (a dot segment)`, `buildUrl: param "<name>" for "<path>" has an empty segment`, `buildUrl: param "<name>" for "<path>" has a "." or ".." segment (a dot segment)`, `buildUrl: param "<name>" for "<path>" has an unpaired surrogate`, `buildUrl: path "<path>" has a "*" segment, which buildUrl cannot fill`, `buildUrl: "<path>" builds "<result>", which a URL reads as another host`, `buildUrl: query "<key>" must be a string, number, boolean, bigint or Date, or an array of them`.
+
+New in this PR (C8 [#253](https://github.com/Laratypes/Laratype/issues/253)): `buildUrl: param "<name>" for "<path>" has a pattern with "}" before "/", which Hono cannot route`; `buildUrl: param "<name>" for "<path>" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`; `buildUrl: query must be a plain object of keys, got <Array | Map | URLSearchParams | Date | Class | an object | typeof>`.
 
 Type errors, in [`route.test-d.ts`](../../packages/http/__tests__/routing/route.test-d.ts): an unknown name, a tree node used as a name, an ad-hoc route without `.name()`, a missing required param, an unknown param (on a path with no params too: `route('health', { typo: 'x' })` is an error), a param value that is not a string, number, bigint or `RouteKeyed`, a query key the endpoint's schema does not have, and `query` on an endpoint without a query schema.
 

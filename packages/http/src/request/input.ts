@@ -126,7 +126,7 @@ const cacheFormData = (cache: BodyCache, formData: FormData): void => {
  * A body read that fails: a rejected promise, or a reader that throws before it returns one (Hono's cache chains a
  * reader from its first entry, so a plain value there throws synchronously). A failure means the body is truncated, the
  * connection went away, or an adapter errored the stream: the client sent that body, so it is the malformed-body 400
- * whatever the request's signal says (H43 #340: it aborted in `@hono/node-server`, but a truncated body can arrive
+ * whatever the request's signal says (H43 #340: it aborted in the Node adapter, but a truncated body can arrive
  * without one). Hono's `bodyLimit` error is the only one that is not that 400: it is rethrown for its handler.
  */
 const orMalformed = async <T>(read: () => Promise<T> | T, message: string): Promise<T> => {
@@ -332,7 +332,7 @@ const hasNoBodyBytes = (request: HonoRequest): boolean => request.header("Conten
  * The FormData Hono's cache holds: `c.req.parseBody()` or `validator('form')` put it there. A rejection is the client's
  * malformed body, the 400 — unless the body is blank: `formData()` rejects an empty multipart body, and a client may
  * send its form Content-Type with no body, which is no body, `{}`. The bytes still in the cache say so; a spent stream
- * leaves none, and there a `Content-Length: 0` is the same blank body (`@hono/node-server` sends it). Hono's
+ * leaves none, and there a `Content-Length: 0` is the same blank body (the Node adapter sends it). Hono's
  * `bodyLimit` error is rethrown for its 413.
  */
 const readCachedFormData = async (

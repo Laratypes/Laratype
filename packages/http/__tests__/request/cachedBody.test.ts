@@ -716,7 +716,7 @@ describe("a body the pipeline read, then read again (H43 #345)", () => {
 
   it("an empty body stream behind a swallowed parseBody() is still no body", async () => {
     quiet();
-    // @hono/node-server sends `Content-Length: 0` with no bytes: the middleware's `formData()` rejects and the stream
+    // The node adapter sends `Content-Length: 0` with no bytes: the middleware's `formData()` rejects and the stream
     // is spent (`raw.bodyUsed`), so the declared length is all that is left to say the body was blank
     let validated: unknown;
     class EmptyRequest extends LaratypeRequest {

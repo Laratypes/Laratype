@@ -6,6 +6,7 @@ import path from "path";
 import { IncomingMessage, ServerResponse } from "http";
 import { getRequestListener } from "@hono/node-server";
 import { guardStreamErrors } from "../adapters/node/streamErrors";
+import { mountNodeConnInfo } from "../adapters/node/connInfo";
 import Transpile from "../utils/transplie";
 import type { Runner } from "../utils/runner/Runner";
 import { contractTreePlugin } from "../typegen/plugin";
@@ -132,13 +133,18 @@ export default class LaratypeDevCommand extends Command {
       internal: true,
     })) as typeof import("laratype");
 
+    const app = Serve.getInstance();
+
+    // Before bootProvider(): request.ip() reads the getter this mounts, and the middleware must run before the routes
+    await mountNodeConnInfo(app);
+
     const cleanupFns = await Serve.bootProvider();
 
     // Every cleanup runs and the Hono app and container are reset even when one throws (Serve.stop)
     const down = () => Serve.stop(cleanupFns);
 
     return {
-      app: Serve.getInstance(),
+      app,
       down,
     }
 

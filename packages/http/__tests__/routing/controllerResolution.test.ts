@@ -48,6 +48,7 @@ const json = async (app: Hono, path: string, init?: RequestInit) => (await app.r
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('controller resolution', () => {
@@ -137,6 +138,8 @@ describe('controller resolution', () => {
   })
 
   it('a controller with constructor params and no DI metadata says how to fix it', async () => {
+    // Pin the dev form: the test runner's NODE_ENV is test, and __PROD__ false keeps the dev hint explicit.
+    vi.stubGlobal('__PROD__', false)
     class NoMeta extends Controller {
       constructor(readonly greeter: Greeter) { super() }
       index() { return {} }
@@ -152,7 +155,8 @@ describe('controller resolution', () => {
     expect(errors[0]).toMatchObject({
       name: 'DiError',
       message: 'Cannot autowire NoMeta: its constructor takes 1 param(s) but no dependency metadata was found. ' +
-        'Fix: compile the class with the laratype:di plugin (app code under sauf dev), or bind it with a factory in a service provider `register()` of the app container.',
+        'Fix: bind it with a factory in a service provider `register()` of the app container (the only fix for a class ' +
+        'outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under `sauf dev`.',
     })
   })
 })

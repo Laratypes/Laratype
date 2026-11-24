@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { setConfigs } from '@laratype/core'
-import { defineApi, defineContract, endpoint } from '@laratype/contract'
+import { defineApi, defineContract, endpoint, buildUrl } from '@laratype/contract'
 import { Controller, Route, redirect, route } from '../../src/index'
 import { resetRouteRegistry } from '../../src/routing/routeUrl'
 
@@ -132,6 +132,44 @@ describe('route()', () => {
     expect(route('file', { name: 'read me' })).toBe('/files/read%20me')
   })
 
+  it('builds the URL Hono matches for a regex param that holds "/"', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/files/:file{.+/.+}/raw', (req, { file }) => ({ file })).name('file.raw'),
+    ])
+    const file = 'a b/c?d#e%f'
+    const url = route('file.raw', { file })
+    // one encoded segment per part: the "/" stays a separator, so the regex pattern still matches
+    expect(url).toBe('/files/a%20b/c%3Fd%23e%25f/raw')
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request(url)
+    expect(res.status).toBe(200)
+    // Hono decodes each segment: the handler reads the value buildUrl was given
+    expect(await res.json()).toEqual({ file })
+  })
+
+  it('builds a request-derived value its pattern rejects as one encoded segment: a bad id is a 404, not a 500', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/posts/:id{[0-9]+}', (req, { id }) => ({ id })).name('post.show'),
+    ])
+    // neither form can match ":id{[0-9]+}" (a "1//2" request value, say): the encoded one is kept and the route 404s
+    const url = route('post.show', { id: '1//2' })
+    expect(url).toBe('/posts/1%2F%2F2')
+    expect(route('post.show', { id: '1/../2' })).toBe('/posts/1%2F..%2F2')
+    const app = new Hono()
+    routes.mount(app)
+    expect((await app.request(url)).status).toBe(404)
+  })
+
+  it('refuses a named wildcard route through buildUrl, naming the path', () => {
+    Route.api(appApi, (r) => [r.contract(posts, PostController), r.get('/files/*', () => 'ok').name('files.all')])
+    expect(() => route('files.all')).toThrow(
+      new TypeError('[@laratype/contract] buildUrl: path "/files/*" has a "*" segment, which buildUrl cannot fill'),
+    )
+  })
+
   it('serializes the query with buildUrl: "&" and "=" encoded, arrays repeated, null skipped', () => {
     mount()
     const query = { filter: 'a&b=c', tag: ['x', 'y'], none: undefined, nil: null, page: 2 }
@@ -187,6 +225,78 @@ describe('route()', () => {
     expect(() => route('users.posts.show', { user: {} as never, post: 1 })).toThrow(
       new TypeError('[@laratype/http] route: param "user" got an object that is not a model (no getRouteKey())'),
     )
+  })
+})
+
+describe('buildUrl through a real Hono app', () => {
+  it('keeps "/" one segment, so a value cannot reach a sibling route (C8 #253 B1)', async () => {
+    for (const [path, expected] of [
+      ['/files/:f{.+}', 'admin/all'],
+      ['/files/:f{[^.]+}', 'admin/all'],
+    ] as const) {
+      const app = new Hono()
+      // registered first: a static sibling wins over a param route whenever the raw path matches it
+      app.delete('/files/admin/all', () => new Response('sibling'))
+      app.delete(path, (c) => c.json({ f: c.req.param('f') }))
+      expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+      const url = buildUrl(path, { params: { f: 'admin/all' } })
+      // the encoded value stays one segment, so the sibling's path is never spelled out
+      expect(url).toBe('/files/admin%2Fall')
+      const res = await app.request(url, { method: 'DELETE' })
+      expect(res.status).toBe(200)
+      // the :f route read the encoded value, and the sibling never ran
+      expect(await res.json()).toEqual({ f: expected })
+    }
+  })
+
+  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', async () => {
+    const app = new Hono()
+    app.delete('/files/admin/all', () => new Response('sibling'))
+    app.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The static
+    // path answers the split, and the encoded path reads the prefix, so neither URL carries "admin/all"
+    expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
+    const encoded = await app.request('/files/admin%2Fall', { method: 'DELETE' })
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(
+      new TypeError(
+        '[@laratype/contract] buildUrl: param "f" for "/files/:f{a|.+/.+}" has a pattern Hono\'s two routers read differently for this value, so the URL depends on the app\'s router',
+      ),
+    )
+  })
+
+  it('sees the trie router once another route forces it, where a top-level "|" reads a prefix (C8 round 3)', async () => {
+    const app = new Hono()
+    app.get('/other/:x{.*}', (c) => c.json({ x: c.req.param('x') }))
+    app.get('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    // the ".*" route makes RegExpRouter throw UnsupportedPathError, so SmartRouter serves the whole app with TrieRouter:
+    // both the encoded and the split URL are read as the prefix "a", never as "admin/all"
+    const encoded = await app.request('/files/admin%2Fall')
+    expect(encoded.status).toBe(200)
+    expect(await encoded.json()).toEqual({ f: 'a' })
+    const split = await app.request('/files/admin/all')
+    expect(split.status).toBe(200)
+    expect(await split.json()).toEqual({ f: 'a' })
+    expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(/two routers read differently/)
+  })
+
+  it('matches the following static segment of a lookahead pattern, so the split reaches the route (C8 round 1)', async () => {
+    const routes = Route.api(appApi, (r) => [
+      r.contract(posts, PostController),
+      r.get('/files/:file{.+/.+(?=/raw)}/raw', (req, { file }) => ({ file })).name('file.lookahead'),
+    ])
+    const file = 'a/b'
+    const url = route('file.lookahead', { file })
+    // the pattern's own lookahead needs the following "/raw": Hono's RegExp router refuses it, the trie router serves
+    // the route and compiles "^pattern(?=/raw)"
+    expect(url).toBe('/files/a/b/raw')
+    const app = new Hono()
+    routes.mount(app)
+    const res = await app.request(url)
+    expect(res.status).toBe(200)
+    // the handler reads the whole value, not a prefix of it
+    expect(await res.json()).toEqual({ file })
   })
 })
 
