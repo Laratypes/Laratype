@@ -45,9 +45,13 @@ interface Window {
 }
 
 /**
- * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. A prefix at its
- * cap drops its own window that ends first, so one client cannot evict another client's window; a full store drops the
- * window that ends first (an ended one if there is one, else the live one nearest its end), whichever prefix it is.
+ * The counters in this process's memory: fixed windows, the ended ones dropped at most once a minute. Capacity is
+ * counted per client prefix (an IPv4 address, or an IPv6 /48), so the /64s of one /48 share one budget: a prefix at its
+ * cap drops its own window that ends first, which can be another /64 of the same /48 (a co-tenant on a cloud range).
+ * An eviction fails open for the evicted client only (its limit restarts early): the counters stay per /64 bucket, so a
+ * co-tenant never adds hits to another /64's window and cannot cause its 429, and another prefix is untouched below the
+ * global cap. A full store drops the window that ends first (an ended one if there is one, else the live one nearest its
+ * end), whichever prefix it is. Fair eviction at both levels is tracked in #418.
  */
 export class MemoryThrottleStore implements ThrottleStore {
   private readonly windows = new Map<string, Window>();
@@ -96,7 +100,9 @@ export class MemoryThrottleStore implements ThrottleStore {
 
   /**
    * Drops the window of one prefix that ends first: a scan of at most `maxWindowsPerPrefix` keys, and only when that
-   * prefix is full. It never touches another client's window.
+   * prefix is full. The prefix is shared by the /64s of one /48, so this can drop another /64's window (a co-tenant on a
+   * cloud range); an eviction fails open for the evicted client only (its limit restarts early), never adds a hit to
+   * another /64's counter, and never touches another prefix below the global cap. Fair eviction at both levels: #418.
    */
   private evictPrefix(keys: Set<string>) {
     let first: [string, Window] | undefined;
