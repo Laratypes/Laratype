@@ -365,6 +365,40 @@ describe('errors and short-circuits', () => {
     )
   })
 
+  it('r.interceptor() refuses a class or a plain function (only defineInterceptor values)', () => {
+    const mountWith = (value: unknown) =>
+      Route.api(appApi, (r) => [r.interceptor(value as never).contract(posts, PostController)])
+    expect(() => mountWith(class Policy {})).toThrow('is not an interceptor (a defineInterceptor(...) value)')
+    expect(() => mountWith(() => undefined)).toThrow('is not an interceptor (a defineInterceptor(...) value)')
+  })
+
+  it('a hand-built interceptor list is a frozen snapshot: a later mutation changes no route', async () => {
+    const trace: string[] = []
+    const first = defineInterceptor((_ctx, next) => {
+      trace.push('first')
+      return next()
+    })
+    const second = defineInterceptor((_ctx, next) => {
+      trace.push('second')
+      return next()
+    })
+    const list = [first]
+    const item = {
+      kind: 'contract',
+      contract: posts,
+      controller: PostController,
+      middleware: [],
+      interceptors: list,
+      bindings: {},
+      options: undefined,
+    }
+    const routes = Route.api(appApi, (() => [item]) as never)
+    list.push(second)
+    const app = mount(routes)
+    expect(await json(app, '/api/posts/1')).toEqual({ id: 1, title: 'lower' })
+    expect(trace).toEqual(['first'])
+  })
+
   it('a hand-built item is checked at mount: a bad interceptor or a non-array list', () => {
     const item = (interceptors: unknown) =>
       ({ kind: 'contract', contract: posts, controller: PostController, middleware: [], interceptors, bindings: {}, options: undefined }) as never
@@ -391,7 +425,7 @@ describe('errors and short-circuits', () => {
 })
 
 describe('edge inputs', () => {
-  const bad = [undefined, null, 42, NaN, Infinity, {}, [], { length: 1e9 }, 'x', 'x'.repeat(10_000) + '\uD800']
+  const bad = [undefined, null, 42, NaN, Infinity, {}, [], { length: 1e9 }, 'x', `${'x'.repeat(10_000)}\uD800`]
   const mountWith = (interceptor: unknown) =>
     Route.api(appApi, (r) => [r.interceptor(interceptor as never).contract(posts, PostController)])
 
@@ -409,6 +443,12 @@ describe('edge inputs', () => {
     const protoKey = JSON.parse('{"__proto__": {"polluted": true}}')
     expect(() => mountWith(protoKey)).toThrow('is not an interceptor')
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('a throwing getter or Proxy is not a brand, and the diagnostic does not run its trap', () => {
+    const hostile = new Proxy({}, { get() { throw new Error('trap') } })
+    expect(isInterceptor(hostile)).toBe(false)
+    expect(() => mountWith(hostile)).toThrow('object is not an interceptor')
   })
 
   it('a non-enumerable brand with a handle is still a brand, a plain class is not', () => {

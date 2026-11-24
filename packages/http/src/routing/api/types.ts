@@ -348,15 +348,15 @@ type InterceptorProof<A, C, I extends readonly AnyInterceptor[], X extends objec
           : unknown
     : unknown;
 
-/** A scope takes generic interceptors only (H11 #138, amendment B): an endpoint-pinned one is typed for one response. */
-type EndpointPinned<A> = A extends { readonly __kind: "endpoint" } ? A : never;
+/** A scope takes generic interceptors only (H11 #138, amendment B): an endpoint-specific one is typed for one response. */
+type EndpointSpecific<A> = A extends { readonly __kind: "endpoint" } ? A : never;
 
 /**
  * The type-level half of amendment B. The check is compile-time only: a cast can bypass it, and the dev response check
  * is the runtime backstop (docs/v1/http.md › Interceptors).
  */
 type ScopeInterceptorIssue<I extends readonly AnyInterceptor[], D extends string> = [
-  EndpointPinned<I[number]>,
+  EndpointSpecific<I[number]>,
 ] extends [never]
   ? unknown
   : { error: `Route.api: scope "${D}": interceptor is endpoint-specific; mount it on r.contract() or an endpoint` };

@@ -39,10 +39,14 @@ const checkMiddleware = (middleware: unknown): void => {
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 
+/** A `defineInterceptor()` value's failure message (the `at` prefix names where it was registered). */
+const interceptorValue = (value: unknown): string =>
+  `${describeValue(value)} is not an interceptor (a defineInterceptor(...) value)`;
+
 /** A `defineInterceptor()` value; anything else would fail when the request reaches the step (H11 #138). */
 const checkInterceptor = (interceptor: unknown): void => {
   if (isInterceptor(interceptor)) return;
-  fail(`r.interceptor(): ${describeValue(interceptor)} is not an interceptor (a defineInterceptor(...) value)`);
+  fail(`r.interceptor(): ${interceptorValue(interceptor)}`);
 };
 
 /** A value for a message without trusting its `toString` (a null-prototype object or a revoked Proxy would throw). */
@@ -213,7 +217,7 @@ const copyInterceptors = (at: string, value: unknown): readonly AnyInterceptor[]
   if (!Array.isArray(value)) fail(`${at}: interceptors must be an array of defineInterceptor(...) values`);
   const list = value as readonly unknown[];
   for (const interceptor of list) {
-    if (!isInterceptor(interceptor)) fail(`${at}: ${describeValue(interceptor)} is not an interceptor (a defineInterceptor(...) value)`);
+    if (!isInterceptor(interceptor)) fail(`${at}: ${interceptorValue(interceptor)}`);
   }
   return Object.freeze([...list]) as readonly AnyInterceptor[];
 };
@@ -352,16 +356,16 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
           `declare .response(schema, ${decorated}) on the endpoint, or drop the decorator`,
       );
     }
-    const endpoint = endpointStack(mounted.options, key, route.name);
+    const endpointHooks = endpointPipeline(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
       // One builder can mount a scope and a contract: each middleware runs once, at its first position
-      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpoint.middleware])]),
+      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointHooks.middleware])]),
       // Same rule for interceptors: scope (outer to inner), contract, then endpoint; first position wins
-      interceptors: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.interceptors), ...mounted.interceptors, ...endpoint.interceptors])]),
+      interceptors: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.interceptors), ...mounted.interceptors, ...endpointHooks.interceptors])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
       bindings: routeBindings(scopeItems, mounted, route.path),
@@ -560,7 +564,7 @@ const isCallback = (value: unknown) => {
 };
 
 /** The middleware and interceptors of one endpoint's `endpoints` callback, run on a fresh builder. */
-const endpointStack = (
+const endpointPipeline = (
   options: ContractRouteOptions<object> | undefined,
   key: string,
   name: string,

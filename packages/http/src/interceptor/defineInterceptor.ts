@@ -8,13 +8,9 @@ import type { Ctx, ResponseEscape, Result } from "../routing/api/proof";
 export const INTERCEPTOR: unique symbol = Symbol.for("laratype.http.interceptor");
 
 /**
- * The type-only overload kind (H11 #138, amendment B): an endpoint-pinned interceptor cannot be mounted on a scope.
- * It is a declaration only: `defineInterceptor()` writes the brand above, never this member, and `isInterceptor()`
- * cannot tell the two forms apart at runtime (the scope check is a compile-time rule).
+ * The same rule as proof.ts's private `NoBody`: an endpoint without a response schema may return null. proof.ts stays
+ * untouched for A2/H8, so the three-line conditional is repeated here (H11 #138).
  */
-type InterceptorKind = "endpoint" | "generic";
-
-/** proof.ts's NoBody: an endpoint without a response schema may return null. */
 type NoBody<E extends AnyEndpoint> = E["__types"]["response"] extends undefined ? null : never;
 
 /** What a handler may return, and what `next()` resolves to: the response schema input, no body, or a 0.5 escape. */
@@ -35,9 +31,12 @@ export type GenericInterceptorHandler = <R>(
   next: () => Promise<R>,
 ) => R | Promise<R>;
 
-/** The endpoint-pinned interceptor `defineInterceptor<Endpoint>()` builds (the export list keeps this type internal). */
+/**
+ * The endpoint-pinned interceptor `defineInterceptor<Endpoint>()` builds (the export list keeps this type internal).
+ * `__kind` is a phantom for amendment B: it never exists at runtime, and the scope check reads it (types only).
+ */
 export interface EndpointInterceptor<E extends AnyEndpoint = AnyEndpoint, Requires extends object = {}> {
-  readonly __kind: InterceptorKind & "endpoint";
+  readonly __kind: "endpoint";
   readonly __endpoint?: E;
   readonly __requires?: Requires;
   readonly [INTERCEPTOR]: true;
@@ -46,7 +45,7 @@ export interface EndpointInterceptor<E extends AnyEndpoint = AnyEndpoint, Requir
 
 /** The generic interceptor `defineInterceptor()` builds: it mounts on any endpoint, contract or scope. */
 export interface GenericInterceptor {
-  readonly __kind: InterceptorKind & "generic";
+  readonly __kind: "generic";
   readonly [INTERCEPTOR]: true;
   readonly handle: GenericInterceptorHandler;
 }
@@ -88,12 +87,21 @@ export function defineInterceptor(
   return Object.freeze({ [INTERCEPTOR]: true as const, handle }) as unknown as EndpointInterceptor<any, any> | GenericInterceptor;
 }
 
-/** Whether `value` is a `defineInterceptor()` value. One brand for both forms: the kind is type-only. */
-export const isInterceptor = (value: unknown): value is AnyInterceptor =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { readonly [INTERCEPTOR]?: unknown })[INTERCEPTOR] === true &&
-  typeof (value as { readonly handle?: unknown }).handle === "function";
+/**
+ * Whether `value` is a `defineInterceptor()` value. One brand for both forms: the kind is type-only. A Proxy or an
+ * accessor that throws on the brand reads as not branded, so the mount check reports the value, never the trap's error.
+ */
+export const isInterceptor = (value: unknown): value is AnyInterceptor => {
+  if (typeof value !== "object" || value === null) return false;
+  try {
+    return (
+      (value as { readonly [INTERCEPTOR]?: unknown })[INTERCEPTOR] === true &&
+      typeof (value as { readonly handle?: unknown }).handle === "function"
+    );
+  } catch {
+    return false;
+  }
+};
 
 /** The name the runtime errors print for an interceptor: the handle's function name, or `interceptor`. */
 export const interceptorName = (interceptor: AnyInterceptor): string => interceptor.handle.name || "interceptor";
