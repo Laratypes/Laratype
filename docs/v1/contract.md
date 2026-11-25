@@ -14,7 +14,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 
 | Section | Status |
 |---|---|
-| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2 |
+| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2; `isStandardSchema` proposed: PR <leader fills> @ 9b5a2c3d (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)) |
 | [Path params](#path-params) | merged @ d70daa7 |
 | [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the constructor's one bypass check and the walker's forged-endpoint re-checks proposed: PR [#401](https://github.com/Laratypes/Laratype/pull/401) @ 61e6da36 (C11 [#293](https://github.com/Laratypes/Laratype/issues/293)) |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
@@ -41,10 +41,10 @@ Package-level invariants:
 ## Standard Schema types
 
 ### Status
-merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is merged @ 883a8e2.
+merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is merged @ 883a8e2. `isStandardSchema` (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)) is proposed: PR <leader fills> @ 9b5a2c3d.
 
 ### Public API
-[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/standard-schema.ts#L12-L15)
+[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/standard-schema.ts#L12-L15) · [`isStandardSchema` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/contract/src/standard-schema.ts#L24-L34)
 
 ```ts
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
@@ -64,10 +64,12 @@ export type StandardResult<O> =
   | { readonly issues: ReadonlyArray<StandardIssue> };    // inline object type on master
 export type InferIn<S>  = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["input"]  : undefined;
 export type InferOut<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["output"] : undefined;
+export const isStandardSchema: (value: unknown) => value is StandardSchemaV1;   // K4 #314
 ```
 
 ### Invariants
 - These are types only, a minimal copy of the Standard Schema v1 spec. The package never imports a schema library at runtime.
+- **The one guard (K4):** `isStandardSchema` is the check `defineEnv`, `validateEnv` and `Request.rules()` share, so a schema is accepted the same way everywhere: an object or a function (an arktype schema is callable) whose `~standard.validate` is a function. It reads `~standard` and `validate` once each, so a getter cannot pass with one value and answer another. A getter, or a Proxy's `get` trap, that throws propagates the error: a schema is app data, so the guard does not hide the app's bug.
 - `InferIn<undefined>` and `InferOut<undefined>` are `undefined`, so an empty endpoint slot projects to `undefined`.
 - Inputs (query, body, headers) are typed with the schema **input**; the response is typed with the schema **output** (see [API type projection](#api-type-projection)).
 
