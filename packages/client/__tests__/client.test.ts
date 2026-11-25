@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createClient } from '@laratype/client'
-import type { ClientOptions, FetchLike } from '@laratype/client'
+import type { ClientOptions, ClientRequest, FetchLike } from '@laratype/client'
 import { ENDPOINT, defineApi, defineContract, defineError, endpoint } from '@laratype/contract'
 import * as z from 'zod'
 import { appApi } from './fixtures/.laratype/api/index.gen'
@@ -152,18 +152,60 @@ describe('createClient', () => {
     }
   })
 
-  it('reads baseUrl, headers and fetch from the options at each call (a refreshed token applies)', async () => {
+  it('reads baseUrl and fetch from the options at each call; a headers value is copied at createClient (#326)', async () => {
     const first = fakeFetch()
     const second = fakeFetch()
-    const options: ClientOptions = { fetch: first.fetch, baseUrl: 'https://a.example', headers: { authorization: 'Bearer old' } }
+    const headers = { authorization: 'Bearer old' }
+    const options: ClientOptions = { fetch: first.fetch, baseUrl: 'https://a.example', headers }
     const api = createClient(appApi, options)
     await api.users.index()
     options.baseUrl = 'https://b.example'
-    options.headers = { authorization: 'Bearer new' }
+    headers.authorization = 'Bearer new'
+    options.headers = { authorization: 'Bearer replaced' }
     options.fetch = second.fetch
     await api.users.index()
     expect(first.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://a.example/api/users', 'Bearer old']])
-    expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer new']])
+    // the value was copied at createClient: the mutation and the replacement change nothing; baseUrl and fetch are live
+    expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer old']])
+  })
+
+  it('copies a headers object, a pairs array and a Headers at createClient; the function form stays live (#326)', async () => {
+    const { fetch, calls } = fakeFetch()
+    const object = { authorization: 'Bearer old' }
+    const pairs: [string, string][] = [['authorization', 'Bearer old']]
+    const fixed = new Headers({ authorization: 'Bearer old' })
+    let token = 'Bearer old'
+    const apis = [
+      createClient(appApi, { fetch, headers: object }),
+      createClient(appApi, { fetch, headers: pairs }),
+      createClient(appApi, { fetch, headers: fixed }),
+      createClient(appApi, { fetch, headers: () => ({ authorization: token }) }),
+    ]
+    for (const api of apis) await api.users.index()
+    object.authorization = 'Bearer changed'
+    pairs[0]![1] = 'Bearer changed'
+    fixed.set('authorization', 'Bearer changed')
+    token = 'Bearer new'
+    for (const api of apis) await api.users.index()
+    expect(calls.map((c) => c.headers.authorization)).toEqual([
+      'Bearer old',
+      'Bearer old',
+      'Bearer old',
+      'Bearer old',
+      'Bearer old',
+      'Bearer old',
+      'Bearer old',
+      'Bearer new',
+    ])
+  })
+
+  it('reads a headers value at createClient, so a throwing getter throws there (#326)', () => {
+    const headers = {
+      get authorization(): string {
+        throw new Error('no token')
+      },
+    }
+    expect(() => createClient(appApi, { headers })).toThrow('no token')
   })
 
   it('uses the global fetch, read at call time, with (url, init): a polyfill that only takes string URLs works', async () => {
@@ -502,6 +544,37 @@ describe('options and hooks', () => {
     ])
   })
 
+  it('a headers function may return undefined: that call has no default headers (#315)', async () => {
+    const { fetch, calls } = fakeFetch()
+    const api = createClient(appApi, { fetch, headers: () => undefined })
+    await api.users.index()
+    await api.users.store({ body: { name: 'Ada', email: 'a@b.c' }, headers: { 'x-tenant': 't' } })
+    expect(calls[0]!.headers).toEqual({})
+    expect(calls[1]!.headers).toEqual({ 'content-type': 'application/json', 'x-tenant': 't' })
+  })
+
+  it('calls a method-style headers, onRequest and onResponse on the options object, so this works (#315)', async () => {
+    const { fetch, calls } = fakeFetch()
+    const seen: string[] = []
+    const options = {
+      fetch,
+      token: 'Bearer t',
+      headers() {
+        return { authorization: this.token }
+      },
+      onRequest(this: { token: string }, request: ClientRequest) {
+        seen.push(`request:${this.token}`)
+        request.init.headers.set('x-signature', 'sig')
+      },
+      onResponse(this: { token: string }) {
+        seen.push(`response:${this.token}`)
+      },
+    }
+    await createClient(appApi, options).users.index()
+    expect(calls[0]!.headers).toEqual({ authorization: 'Bearer t', 'x-signature': 'sig' })
+    expect(seen).toEqual(['request:Bearer t', 'response:Bearer t'])
+  })
+
   it('a headers function that throws or rejects rejects the call, before fetch', async () => {
     const { fetch } = fakeFetch()
     const failure = new Error('no token')
@@ -655,6 +728,51 @@ describe('options and hooks', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('one pre-flight Request rejects an invalid method or a stream without duplex before fetch, naming the path (#315)', async () => {
+    const { fetch } = fakeFetch()
+    const badMethod = createClient(appApi, { fetch, onRequest: ({ init }) => void (init.method = 'BAD METHOD') })
+    await expect(badMethod.users.index()).rejects.toThrow(/^\[@laratype\/client\] fetch would refuse the request: .+: "\/api\/users"$/)
+    expect(fetch).not.toHaveBeenCalled()
+
+    const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+    const streamed = createClient(appApi, {
+      fetch,
+      onRequest: ({ init }) => void ((init as { body?: unknown }).body = stream),
+    })
+    await expect(streamed.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(
+      '[@laratype/client] the request body is a stream, which needs duplex: "half": "/api/users"',
+    )
+    expect(fetch).not.toHaveBeenCalled()
+    // the probe never took the body: the caller's stream is still readable
+    expect(stream.locked).toBe(false)
+  })
+
+  it('a stream body with duplex: "half" reaches fetch unread and unlocked, and its bytes arrive (#315)', async () => {
+    const seen: Array<{ locked: boolean; text: string }> = []
+    const fetch = vi.fn<FetchLike>(async (input, init) => {
+      expect(input).toBe('/api/users/1/posts/2')
+      const body = init.body as ReadableStream<Uint8Array>
+      seen.push({ locked: body.locked, text: await new Response(body).text() })
+      return new Response('{}', { status: 200 })
+    })
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode('hello'))
+        controller.close()
+      },
+    })
+    const api = createClient(appApi, {
+      fetch,
+      onRequest: ({ init }) => {
+        const replaced = init as { body?: unknown; duplex?: unknown }
+        replaced.body = stream
+        replaced.duplex = 'half'
+      },
+    })
+    await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    expect(seen).toEqual([{ locked: false, text: 'hello' }])
+  })
+
   it('the request is frozen: onRequest changes the init, not the url or the init object', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, {
@@ -686,6 +804,28 @@ describe('options and hooks', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('an abort with an undefined reason resolves with an AbortError, before fetch and after onRequest (#315)', async () => {
+    const { fetch } = fakeFetch()
+    // Safari < 15.4 / Chrome < 98: AbortSignal.reason does not exist
+    const reasonless = { aborted: true, reason: undefined } as unknown as AbortSignal
+    const before = await createClient(appApi, { fetch }).users.index({ signal: reasonless })
+    expect(before).toMatchObject({ ok: false, unexpected: true, status: 0, response: undefined })
+    const beforeError = (before as { error?: unknown }).error
+    expect(beforeError).toBeInstanceOf(DOMException)
+    expect((beforeError as DOMException).name).toBe('AbortError')
+
+    const after = await createClient(appApi, { fetch, onRequest: ({ init }) => void (init.signal = reasonless) }).users.index()
+    expect(after).toMatchObject({ ok: false, unexpected: true, status: 0, response: undefined })
+    expect(((after as { error?: unknown }).error as DOMException).name).toBe('AbortError')
+
+    // a real reason is kept as it is
+    const controller = new AbortController()
+    controller.abort()
+    const real = await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
+    expect((real as { error?: unknown }).error).toBe(controller.signal.reason)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('a throw from onResponse cancels the unread body; an onResponse that reads the body rejects the call', async () => {
     const cancel = vi.fn()
     const body = new ReadableStream({ cancel })
@@ -697,6 +837,52 @@ describe('options and hooks', () => {
     await expect(reading.users.index()).rejects.toThrow('[@laratype/client] onResponse read the response body: read a response.clone() instead')
     const locking = createClient(appApi, { fetch: fakeFetch([]).fetch, onResponse: (response) => void response.body!.getReader() })
     await expect(locking.users.index()).rejects.toThrow(/onResponse read the response body/)
+  })
+
+  it('a released, partly read body is cancelled before the call rejects; a kept reader is the hook\'s (#315)', async () => {
+    const cancel = vi.fn()
+    const body = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start: (controller) => controller.enqueue(new TextEncoder().encode('hello')),
+          cancel,
+        }),
+      )
+    const partly = createClient(appApi, {
+      fetch: async () => body(),
+      onResponse: async (response) => {
+        const reader = response.body!.getReader()
+        await reader.read()
+        reader.releaseLock()
+      },
+    })
+    await expect(partly.users.index()).rejects.toThrow(
+      '[@laratype/client] onResponse read the response body: read a response.clone() instead',
+    )
+    expect(cancel).toHaveBeenCalledTimes(1)
+
+    // a reader the hook keeps locks the body: cancel cannot free it, and the call still rejects
+    const kept = createClient(appApi, {
+      fetch: async () => body(),
+      onResponse: (response) => void response.body!.getReader(),
+    })
+    await expect(kept.users.index()).rejects.toThrow(/onResponse read the response body/)
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('onRequest may replace init.headers with a plain object: onResponse still reads request.init.headers.get (#315)', async () => {
+    const { fetch, calls } = fakeFetch()
+    let seen: string | null = null
+    const api = createClient(appApi, {
+      fetch,
+      onRequest: ({ init }) => void ((init as { headers: unknown }).headers = { 'x-a': 'b' }),
+      onResponse: (_response, request) => {
+        seen = request.init.headers.get('x-a')
+      },
+    })
+    await api.users.index()
+    expect(seen).toBe('b')
+    expect(calls[0]!.headers).toMatchObject({ 'x-a': 'b' })
   })
 
   it('a body the injected fetch already used is not blamed on onResponse: the result is unexpected', async () => {
