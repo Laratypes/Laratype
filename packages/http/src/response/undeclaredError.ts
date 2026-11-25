@@ -1,8 +1,7 @@
-import { isContractError } from "@laratype/contract";
+import { isContractError, isFailureStatus } from "@laratype/contract";
 import type { AnyErrorDef } from "@laratype/contract";
 import { isException } from "@laratype/support";
 import { isProduction, isTest } from "../supports/runtime";
-import { isBodylessResponse } from "./bodyless";
 
 /**
  * The undeclared-error check (docs/v1/http.md › Undeclared-error check, X3 #157): in dev and test, a thrown error whose
@@ -44,16 +43,18 @@ const sentCode = (payload: unknown): string | undefined => {
  * code (a guard or policy throwing `UnauthorizedException` is the derived 401). Anything else is not checked: a plain
  * error's generic 500 carries no code, a non-responsible `Exception` sends none either, and a responsible one with a 5xx
  * status is a server failure whose body is the generic `{ message: "Server Error" }`, without the code (docs/v1/http.md ›
- * Exceptions). A 204, 205 or 304 answer has no body, so no code either. A 5xx contract error keeps its code and body, and
- * is checked. The filter calls `toJson()` again for the answer it sends, so a `toJson()` that changed its code between
- * the two calls would send one this check never saw: it must be deterministic.
+ * Exceptions). A status outside 400-599 (a bodyless 204/205/304 included) is refused as the logged generic 500 by the
+ * filter (H33 #313), so it carries no code either. A 5xx contract error keeps its code and body, and is checked. The
+ * filter calls `toJson()` again for the answer it sends, so a `toJson()` that changed its code between the two calls
+ * would send one this check never saw: it must be deterministic.
  */
 const codedError = (error: unknown): CodedError | undefined => {
   if (isContractError(error)) return error;
   if (!isException(error) || !error.canResponsible()) return undefined;
   const status = error.getHttpCode();
-  // Every non-contract 5xx sends `{ message: "Server Error" }`, and a bodyless one no body: nothing for the client to narrow
-  if (status >= 500 || isBodylessResponse(status)) return undefined;
+  // Every non-contract 5xx sends `{ message: "Server Error" }`, and a non-error status is refused by the filter: nothing
+  // for the client to narrow
+  if (!isFailureStatus(status) || status >= 500) return undefined;
   const code = sentCode(error.toJson());
   return code === undefined ? undefined : { code, status };
 };

@@ -177,12 +177,14 @@ const refuseRedirectStatus = (value: unknown): never => {
 };
 
 /**
- * The status a responsible `Exception` sends: its own when it is one the platform can send, else 500. A string, a
- * bigint, `NaN`, `Infinity`, a negative number, 99 or 600 used to answer 200 with the generic body (H32 #312)
+ * The status a responsible `Exception` sends: its own when it is an error status (400-599), else 500. A string, a
+ * bigint, `NaN`, `Infinity`, a negative number, 99 or 600 used to answer 200 with the generic body (H32 #312); a
+ * success status (200, 204, 3xx) is refused the same way (H33 #313), since an `Exception` is an error answer, never a
+ * success.
  */
 const exceptionStatus = (exception: Exception): StatusCode => {
   const status = exception.getHttpCode();
-  return isHttpStatus(status) ? status : 500;
+  return isFailureStatus(status) ? (status as StatusCode) : 500;
 };
 
 /** The headers of an HTTP error's own response that its generic 5xx keeps (#272); the rest, body included, is dropped */
@@ -209,8 +211,8 @@ const installErrorScrub = (app: Hono) => {
   if (scrubInstalled.has(app)) return;
   scrubInstalled.add(app);
   const scrub: MiddlewareHandler = async (c, next) => {
-    // `finally`: a throw out of `next()` (a non-`Error`, whose generic 500 is the fetch wrapper's) must not skip the
-    // stored clone's cleanup
+    // `finally`: a throw out of `next()` (a non-`Error`, answered by the catch middleware) must not skip the stored
+    // clone's cleanup
     try {
       await next();
     }
@@ -243,6 +245,53 @@ const installErrorScrub = (app: Hono) => {
     }
   };
   app.use(scrub);
+};
+
+/** The generic 500 body every non-contract 5xx sends: the exception filter's, and the last-resort wrapper's (H33 #313). */
+const SERVER_ERROR_BODY = Object.freeze({ message: "Server Error" });
+
+/** The filter the catch middleware answers through: `Response.resolveException`. */
+type CatchResolver = (err: unknown, c: Context) => globalThis.Response | Promise<globalThis.Response>;
+
+const catchInstalled = new WeakSet<Hono>();
+
+/**
+ * Registers the catch middleware (H33 #313): Hono's compose sends only an `Error` to `onError`, so a non-`Error` throw
+ * (`throw "x"`, `throw {}`, a rejected string, a thrown `Symbol`) and a `ContractError` from another realm (not
+ * `instanceof Error` here) would leave the app, as would anything a throw out of `onError` leaves behind (the filter
+ * itself failing). It answers all of them through the filter, so the 500 carries the headers a middleware set (CORS,
+ * `Vary`) and `nosniff` from `resolveResponse`, and it works when the app is mounted with `parent.route()`: the route
+ * copy carries it. A second failure (the filter throwing again) answers the generic 500 here, never an unhandled
+ * rejection. Mounted right after the scrub and before CORS and every route, so it wraps both; the scrub stays outermost
+ * so it still runs last over the catch's answer (it cancels the stored clone) and the two orders below keep that.
+ * Like the scrub, it is registered in `register()` (before the app providers mount their routes in `boot()`) and in
+ * `boot()` for a direct boot.
+ */
+const installCatch = (app: Hono, resolve: CatchResolver) => {
+  if (catchInstalled.has(app)) return;
+  catchInstalled.add(app);
+  const catchAll: MiddlewareHandler = async (c, next) => {
+    try {
+      await next();
+    }
+    catch (err) {
+      // The context's error keeps the outermost scrub on its error path: it re-scrubs the answer and cancels the
+      // stored clone (`resolveException` keeps one for a middleware that replaces the answer after `await next()`)
+      (c as { error: unknown }).error = err;
+      try {
+        c.res = await resolve(err, c);
+      }
+      catch (failure) {
+        // The filter itself failed: the generic 500, logged with both, and the scrub still runs over it below
+        quietLog(err, failure);
+        c.res = new globalThis.Response(JSON.stringify(SERVER_ERROR_BODY), {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+    }
+  };
+  app.use(catchAll);
 };
 
 export default class Response extends AppServiceProvider {
@@ -373,9 +422,10 @@ export default class Response extends AppServiceProvider {
 
   /**
    * The exception filter (docs/v1/http.md › Exceptions). A contract error (`defineError`, the `errors` catalog) and a
-   * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts
+   * responsible `Exception` are told by their brand, not `instanceof`, so one from another copy of their package counts.
+   * `err` is `unknown`: the catch middleware hands it a non-`Error` throw (H33 #313).
    */
-  public resolveException(err: Error | Exception, c: Context) {
+  public resolveException(err: unknown, c: Context) {
     /**
      * The answer the outermost scrub puts back if a middleware replaces it (H29 #295). The store keeps a clone: compose
      * wraps the returned response in a new one that shares its body stream, and a middleware's `res.clone()`
@@ -422,7 +472,7 @@ export default class Response extends AppServiceProvider {
       catch (failure) {
         // A body JSON can't hold (a BigInt, a cycle, a getter that throws): the generic 500, with the error logged
         quietLog(err, failure);
-        return answer(c.json({ message: "Server Error" }, 500));
+        return answer(c.json(SERVER_ERROR_BODY, 500));
       }
     }
 
@@ -434,7 +484,7 @@ export default class Response extends AppServiceProvider {
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
     // constructor logs nothing, so a thrown reportable Exception has this one report (#273)
-    if ((err as { reportable?: unknown }).reportable || status >= 500) {
+    if ((err as { reportable?: unknown } | null | undefined)?.reportable || status >= 500) {
       quietLog(err);
     }
     // A 5xx never carries the error's own message, code or stack, whatever threw it (#267): an explicit status that
@@ -451,7 +501,7 @@ export default class Response extends AppServiceProvider {
         // The error's own body is not sent, so its stream is cancelled (H29 #295)
         cancelBody(httpError.response.body);
       }
-      const response = Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode));
+      const response = Response.resolveResponse(c, new ResponseSupport(SERVER_ERROR_BODY, status as StatusCode));
       // The generic body is JSON, so this is a Response; the type also covers `ctx.html`'s promise
       const withKept = (built: globalThis.Response) => {
         for (const [name, value] of kept) built.headers.append(name, value);
@@ -487,22 +537,26 @@ export default class Response extends AppServiceProvider {
     }
     catch (failure) {
       quietLog(err, failure);
-      return answer(Response.resolveResponse(c, new ResponseSupport({ message: "Server Error" }, status as StatusCode)));
+      return answer(Response.resolveResponse(c, new ResponseSupport(SERVER_ERROR_BODY, status as StatusCode)));
     }
   }
 
   /**
-   * Installs the outermost error scrub before the app providers boot their routes (H29 #295): Hono only runs a
-   * middleware added before the route it wraps, and this kernel boots after them
+   * Installs the outermost error scrub and the catch middleware before the app providers boot their routes (H29 #295,
+   * H33 #313): Hono only runs a middleware added before the route it wraps, and this kernel boots after them
    */
   public register(): void {
     installErrorScrub(this.apps);
+    // Right after the scrub: the scrub stays outermost so it still runs last over the catch's answer, and both are
+    // before CORS (`RequestKernel.boot()`) and every route, so the non-Error 500 carries the middleware's headers
+    installCatch(this.apps, (err, ctx) => this.resolveException(err, ctx));
   }
 
   public boot(): void {
     // First: the outermost middleware scrubs what a later middleware writes after `await next()` (H29 #295). A direct
     // boot (tests, an app that never calls `register()`) installs it here, before its routes are mounted
     installErrorScrub(this.apps);
+    installCatch(this.apps, (err, ctx) => this.resolveException(err, ctx));
 
     this.apps.use(async (ctx, next) => {
       this.resolveResponse(ctx);
@@ -511,14 +565,15 @@ export default class Response extends AppServiceProvider {
 
     this.apps.onError(this.resolveException)
 
-    // Hono's onError only sees an `Error`: a `throw "x"` or `throw {}` leaves `fetch`, and each adapter answers it its
-    // own way (Node an empty 500, Bun's dev error page). The app's fetch answers anything that leaves it with the
-    // generic 500 and logs it (#108). Wrapped here, not with a middleware: ResponseKernel boots after the routes, and
-    // the adapters read `fetch` once the app is booted
+    // The catch middleware answers every request error inside the app (H33 #313). This wrapper stays the last resort
+    // for what runs outside it: a middleware an app provider mounts in its own register() (before this kernel's), the
+    // scrub itself, a filter failure in the catch's answer, or a broken `fetch`. Without it those leave the app and
+    // each adapter answers its own way (Node an empty 500, Bun's dev error page). The adapters read `fetch` once the
+    // app is booted, so it is wrapped here.
     const fetch = this.apps.fetch;
     const serverError = (err: unknown) => {
-      console.error(err);
-      return new globalThis.Response(JSON.stringify({ message: "Server Error" }), {
+      quietLog(err);
+      return new globalThis.Response(JSON.stringify(SERVER_ERROR_BODY), {
         status: 500,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
