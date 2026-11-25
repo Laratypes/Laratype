@@ -100,6 +100,34 @@ export const swapAdminLookup = (): { restore: () => void } => {
   };
 };
 
+/**
+ * The no-DB write seam for `POST /api/admin/register`: its controller calls `Admin.save`, so the suite replaces that
+ * static with one that appends to `swapMemoryAuth`'s `admin()` rows. The route, the admin guard, `AdminPolicy.register`
+ * and the response path are real; only the insert is in memory.
+ */
+export const swapAdminSave = (): { restore: () => void } => {
+  const original = Admin.save;
+  Object.assign(Admin, {
+    save: async (data: Record<string, unknown>) => {
+      const admin = new MemoryAdmin();
+      Object.assign(admin, {
+        id: Math.max(0, ...MemoryAdmin.rows.map((row) => row.id)) + 1,
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        age: data.age,
+      });
+      MemoryAdmin.rows.push(admin);
+      return admin;
+    },
+  });
+  return {
+    restore: () => {
+      Object.assign(Admin, { save: original });
+    },
+  };
+};
+
 export const swapMemoryAuth = (app: Container, options: MemoryAuthOptions = {}): MemoryAuth => {
   MemoryUser.rows = [];
   MemoryAdmin.rows = [];

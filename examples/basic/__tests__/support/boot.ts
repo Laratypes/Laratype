@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
+import type { Context } from "hono";
 import type { Container } from "@laratype/core";
 import { PassportServiceProvider } from "@laratype/auth";
-import { RequestKernel, ResponseKernel } from "@laratype/http";
+import { mountConnInfo, RequestKernel, ResponseKernel } from "@laratype/http";
 import Serve from "../../../../packages/laratype/src/serve";
 import { register } from "../../../../packages/laratype/src/bootstrap";
 import { useAppManifest } from "../../../../packages/sauf/src/manifest";
@@ -47,12 +48,24 @@ export interface BootedExample {
   readonly store: (body: unknown, headers?: Record<string, string>) => Promise<JsonResult>;
 }
 
+/**
+ * The getter `sauf dev`'s node adapter mounts: the in-process `app.request()` has no socket, so a test passes the
+ * client address as the request's `env` (`app.request(path, init, { address })`). A request without one has no
+ * address, and a `.throttle()` route serves it unthrottled with the documented one-time warning (H30 [#299]).
+ */
+const addressFromEnv = (context: Context) => ({
+  remote: { address: (context.env as { address?: string } | undefined)?.address },
+});
+
 export const bootExample = async (): Promise<BootedExample> => {
   // `virtual:laratype/app` (laratype:manifest), whose loaders import the app sources through Vite
   await useAppManifest();
   const providers = await register(false, {
     framework: { RequestKernel, ResponseKernel, PassportServiceProvider },
   });
+  // `sauf dev` mounts the adapter's getConnInfo before bootProvider (docs/v1/http.md › Request.ip()); the rate limit
+  // reads the captured address, so the test boot must mount one before the providers register their routes.
+  mountConnInfo(Serve.getInstance(), addressFromEnv);
   // Resets the Hono app and container when a provider throws, like `sauf dev`'s boot
   const cleanups = await Serve.bootProvider(providers);
 

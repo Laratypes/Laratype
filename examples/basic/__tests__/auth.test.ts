@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { swapAdminLookup, swapMemoryAuth, type MemoryAuth, type MemoryAuthOptions } from "./support/auth";
+import { swapAdminLookup, swapAdminSave, swapMemoryAuth, type MemoryAuth, type MemoryAuthOptions } from "./support/auth";
 import { bootExample, type BootedExample } from "./support/boot";
 
 // E3 #135: the ported auth surface. The 401s run against the real AuthManager; the authenticated cases swap it for the
@@ -52,6 +52,8 @@ describe("contract auth", () => {
     await expectUnauthorized("/api/me");
     await expectUnauthorized("/api/admin/me");
     await expectUnauthorized("/api/admin/admins/1");
+    // Admin registration is admin-only (security round 1): no anonymous admin signup
+    await expectUnauthorized("/api/admin/register", "POST");
   });
 
   it("answers 200 on GET /api/me for a user token", async () => {
@@ -95,9 +97,21 @@ describe("contract auth", () => {
 
   it("answers 401 for a user token on an admin route (wrong guard claim)", async () => {
     const auth = install();
-    const response = await request("/api/admin/me", { headers: bearer(await auth.issue("web", auth.user(1))) });
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+    const headers = bearer(await auth.issue("web", auth.user(1)));
+    const me = await request("/api/admin/me", { headers });
+    expect(me.status).toBe(401);
+    expect(await me.json()).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
+
+    const register = await postJson("/api/admin/register", {
+      email: "new-admin@example.com",
+      password: "secret123",
+      name: "New Admin",
+      firstName: "New",
+      lastName: "Admin",
+      age: 30,
+    }, headers);
+    expect(register.status).toBe(401);
+    expect(await register.json()).toEqual({ code: "UNAUTHORIZED", message: "Unauthenticated." });
   });
 
   it("answers 401 for a malformed and an expired JWT", async () => {
@@ -143,22 +157,95 @@ describe("admin model binding", () => {
 });
 
 describe("validation", () => {
-  it("answers 422 for a missing or non-string register/login field", async () => {
-    const cases: Array<[string, unknown]> = [
+  it("answers 422 for a missing or non-string register/login field (the admin routes need an admin token)", async () => {
+    const auth = install();
+    const admin = bearer(await auth.issue("admin", auth.admin(1)));
+    const cases: Array<[string, unknown, Record<string, string>?]> = [
       ["/api/register", { email: 1, password: 1, name: 1, firstName: 1, lastName: 1, age: "not-a-number" }],
       ["/api/login", { email: 1, password: 1 }],
-      ["/api/admin/register", { email: 1, password: 1, name: 1, firstName: 1, lastName: 1, age: "not-a-number" }],
-      ["/api/admin/login", { email: 1, password: 1 }],
+      ["/api/admin/register", { email: 1, password: 1, name: 1, firstName: 1, lastName: 1, age: "not-a-number" }, admin],
+      ["/api/admin/login", { email: 1, password: 1 }, admin],
       ["/api/register", {}],
       ["/api/login", {}],
     ];
-    for (const [path, body] of cases) {
-      const response = await postJson(path, body);
+    for (const [path, body, headers] of cases) {
+      const response = await postJson(path, body, headers);
       expect(response.status, path).toBe(422);
       const json = (await response.json()) as { code: string; errors: Record<string, string[]> };
       expect(json.code, path).toBe("VALIDATION_ERROR");
       expect(Object.keys(json.errors).length, path).toBeGreaterThan(0);
     }
+  });
+
+  it("answers 422 for a password over 128 characters and for an invalid register email", async () => {
+    const auth = install();
+    const admin = bearer(await auth.issue("admin", auth.admin(1)));
+    const long = "a".repeat(129);
+    const register = { email: "new@example.com", password: long, name: "New", firstName: "New", lastName: "User", age: 30 };
+    const invalidEmail = { ...register, email: "not-an-email", password: "secret123" };
+    const cases: Array<[string, unknown, Record<string, string>?]> = [
+      ["/api/register", register],
+      ["/api/login", { email: "user1@example.com", password: long }],
+      ["/api/admin/register", register, admin],
+      ["/api/admin/login", { email: "admin1@example.com", password: long }, admin],
+      ["/api/register", invalidEmail],
+      ["/api/admin/register", invalidEmail, admin],
+    ];
+    for (const [path, body, headers] of cases) {
+      const response = await postJson(path, body, headers);
+      expect(response.status, path).toBe(422);
+      const json = (await response.json()) as { code: string; errors: Record<string, string[]> };
+      expect(json.code, path).toBe("VALIDATION_ERROR");
+      expect(json.errors.password ?? json.errors.email, path).toBeDefined();
+    }
+  });
+});
+
+describe("admin registration", () => {
+  it("creates an admin for an admin token (the insert is the DB seam)", async () => {
+    const auth = install();
+    const token = bearer(await auth.issue("admin", auth.admin(1)));
+    const save = swapAdminSave();
+    try {
+      const response = await postJson("/api/admin/register", {
+        email: "new-admin@example.com",
+        password: "secret123",
+        name: "New Admin",
+        firstName: "New",
+        lastName: "Admin",
+        age: 30,
+      }, token);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        id: expect.any(Number),
+        email: "new-admin@example.com",
+        firstName: "New",
+        lastName: "Admin",
+        age: 30,
+      });
+    } finally {
+      save.restore();
+    }
+  });
+});
+
+describe("credential rate limit", () => {
+  it("answers 429 with Retry-After on the sixth login in the window", async () => {
+    const auth = install();
+    const email = auth.user(1).email;
+    // A dedicated address: a throttled route counts per client, and the memory store keeps the window per process
+    const from = { address: "198.51.100.23" };
+    const login = () => example.app.request("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "wrong" }),
+    }, from);
+    for (let i = 0; i < 5; i++) expect((await login()).status, `login ${i + 1}`).toBe(401);
+
+    const limited = await login();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toMatch(/^\d+$/);
+    expect(await limited.json()).toEqual({ code: "TOO_MANY_REQUESTS", message: "Too Many Requests." });
   });
 });
 
