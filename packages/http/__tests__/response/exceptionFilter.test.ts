@@ -343,6 +343,26 @@ describe('non-Error throws', () => {
     expect(logged).toHaveBeenCalledTimes(2)
   })
 
+  it('a non-Error from a middleware mounted before the catch is the fetch wrapper\'s generic 500', async () => {
+    quiet()
+    // The only path the wrapper still covers: a provider's register() mounts its middleware before ResponseKernel's
+    // register() runs, so a throw there is outside the catch and the scrub (bootProviders' register pass)
+    const container = new Container({ deps: depsRegistry })
+    const app = new Hono()
+    container.instance(HTTP_APP, app)
+    app.use(() => { throw 'secret detail' })
+    new ResponseKernel(container).register()
+    class Ok extends Controller { index() { return {} } }
+    app.get('/outer', RequestKernel.handle({ method: 'get', path: '/outer', controller: [Ok, 'index'] }))
+    new ResponseKernel(container).boot()
+    const response = await app.request('/outer')
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    // No context headers reached this answer: the throw is outside the catch middleware
+    expect(response.headers.get('X-Content-Type-Options')).toBeNull()
+    expect(logged).toHaveBeenCalledTimes(1)
+  })
+
   it('a fetch that throws synchronously answers the generic 500 too', async () => {
     quiet()
     const { app, boot } = bootApp()

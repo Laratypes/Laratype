@@ -208,6 +208,11 @@ describe('a contract route', () => {
     [{ message: 'Invalid value', received: { secret: 'detail' } }, 'Invalid value'],
     [{ message: 'Invalid value', received: null }, 'Invalid value'],
     [{ message: 'Invalid value', received: NaN }, 'Invalid value'],
+    // Infinity is printable like any number, and a prototype-looking string is just data to search for
+    [{ message: 'Invalid value', received: Infinity }, 'Invalid value'],
+    [{ message: 'Ungültiger Wert: __proto__', received: '__proto__' }, 'Invalid value'],
+    // a lone surrogate is a string value like any other: no throw, and it is dropped when the message carries it
+    [{ message: 'Ungültiger Wert: \uD800', received: '\uD800' }, 'Invalid value'],
     // lone surrogates and control characters in the message never throw
     [{ message: 'Bad \uD800\u0007 value', received: 'secret' }, 'Bad \uD800\u0007 value'],
     // unrecognized keys with nothing before them
