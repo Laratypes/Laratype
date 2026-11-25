@@ -85,6 +85,9 @@ class ConstructorModel {
   constructor(readonly id: string) {}
 }
 
+/** A folder policy: the scope checks run before the policy class is used. */
+class FolderPolicy {}
+
 /** The controller reads `params.user` without a type assertion: a string stays a string, a model arrives as one. */
 class ShowController extends Controller {
   show(ctx: { params: Record<string, unknown> }) {
@@ -419,6 +422,17 @@ describe('implicit key mount checks (H14 #163)', () => {
     const api = defineApi({ proto: { contract, path: '/api/proto', scopes: [] } })
     expect(() => Route.api(api, (r) => [r.contract(contract, ShowController)])).toThrow(
       '[@laratype/http] Route.api: model binding: `__proto__` cannot be an implicit model key',
+    )
+  })
+
+  it('refuses a scope binder for an implicit model key: the proof promises the model', () => {
+    // Without the conflict, the scope binder would replace the implicit model at runtime while `Ctx` says User
+    expect(() => Route.api(nestedApi, (r) => [
+      r.bind({ user: () => 123 }).scope('users/[user]', { policy: FolderPolicy }),
+      r.contract(nestedContract, NestedController),
+    ])).toThrow(
+      '[@laratype/http] Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: ' +
+        "bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)",
     )
   })
 })

@@ -339,8 +339,29 @@ describe('scope bindings', () => {
       r.contract(posts, ScopeController),
     ])).toThrow(
       '[@laratype/http] Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: ' +
-        "mount the contract from a builder that binds `user` too (a handler's types see only its own builder's bindings)",
+        "bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)",
     )
+  })
+
+  it('leaves a scope binding alone on a contract that has no such path param', () => {
+    // The scope is mounted at the root and binds `user` for the users contract; the health contract has no params,
+    // so its own builder (unbound) is not the conflict the check reports
+    const users = defineContract()({ show: endpoint.get('/:user').response(anything) })
+    const health = defineContract()({ index: endpoint.get('/').response(anything) })
+    const tree = defineApi({
+      users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+      health: { contract: health, path: '/api/health', scopes: [{ scope: root, dir: '' }] },
+    })
+    class ShowController extends Controller {
+      show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params.user as User).id } }
+    }
+    class HealthController extends Controller {
+      index() { return {} }
+    }
+    expect(() => Route.api(tree, (r) => {
+      const bound = r.bind({ user: User })
+      return [bound.scope('', { policy: PostPolicy }), bound.contract(users, ShowController), r.contract(health, HealthController)]
+    })).not.toThrow()
   })
 
   it('a contract binding wins over the scope binding of the same key', async () => {

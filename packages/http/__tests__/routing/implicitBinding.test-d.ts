@@ -7,7 +7,7 @@ import { describe, expectTypeOf, test } from 'vitest'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, Route } from '../../src/index'
-import type { Ctx, RouteProof } from '../../src/index'
+import type { CheckApiRoutes, Ctx, MountedContract, MountedScope, RouteProof } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
 
@@ -31,6 +31,9 @@ class Unregistered {
 class OtherShape {
   declare readonly id: string
 }
+
+/** A folder policy: the type check reads only the scope's `policy` member's class. */
+class PostPolicy {}
 
 // The generated `.laratype/types/models.d.ts` augmentation (docs/v1/http.md › Model binding)
 declare module '@laratype/http' {
@@ -145,6 +148,22 @@ describe('the route proof provides the implicit models (H14 #163)', () => {
     expectTypeOf<
       RouteProof<typeof numericApi, typeof numeric, NumericController, { readonly policy: undefined }, {}, { "123": typeof ZzUser }>
     >().toEqualTypeOf<unknown>()
+  })
+
+  test('a scope binder for an implicit key fails the mount: the contract builder must bind it too', () => {
+    class NestedController extends Controller {
+      show() { return {} }
+    }
+    // @ts-expect-error Route.api: scope "zzUsers/[zzUser]" binds `zzUser`, but contract "users.posts" is mounted from a builder that does not bind it: bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)
+    Route.api(nestedApi, (r) => [
+      r.bind({ zzUser: () => 123 }).scope('zzUsers/[zzUser]', { policy: PostPolicy }),
+      r.contract(nested, NestedController),
+    ])
+
+    type Items = [MountedScope<'zzUsers/[zzUser]', { zzUser: () => number }>, MountedContract<typeof nested, {}>]
+    expectTypeOf<CheckApiRoutes<typeof nestedApi, Items>>().toEqualTypeOf<{
+      error: 'Route.api: scope "zzUsers/[zzUser]" binds `zzUser`, but contract "users.posts" is mounted from a builder that does not bind it: bind it on the contract builder, or drop it from the scope (a handler\'s types see only its own builder\'s bindings)'
+    }>()
   })
 })
 
