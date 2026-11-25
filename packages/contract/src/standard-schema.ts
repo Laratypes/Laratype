@@ -19,7 +19,7 @@ export type StandardResult<O> =
   | { readonly issues: ReadonlyArray<StandardIssue> };
 
 export type InferIn<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["input"] : undefined;
-export type InferOut<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["output"] : undefined
+export type InferOut<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["output"] : undefined;
 
 /**
  * Whether `value` is a Standard Schema: an object or function whose `~standard.validate` is a function. A function
