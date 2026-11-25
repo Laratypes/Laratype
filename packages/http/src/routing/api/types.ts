@@ -1,7 +1,6 @@
 import type { API_NODE, AnyContract, AnyEndpoint, ApiEntry, ApiNodeInfo, ApiRoute, EndpointTypes, EntryContext, PathParams, RootContext } from "@laratype/contract";
 import type { Newable } from "@laratype/core";
 import type { AnyInterceptor } from "../../interceptor/defineInterceptor";
-import type { RegisteredModels } from "../../register";
 import type Middleware from "../../middleware/Middleware";
 import type { MiddlewareItem, TypedMiddleware } from "../../middleware/defineMiddleware";
 import type Request from "../../supports/Request";
@@ -275,17 +274,10 @@ type MountedBindingKeys<A, M extends readonly unknown[], N> = Item<M> extends in
     : never
   : never;
 
-/** Whether the mounted contract of tree entry `N` took its implicit bindings away (`.withoutImplicitBinding()`). */
-type MountedImplicitOff<A, M extends readonly unknown[], N> = Item<M> extends infer I
-  ? I extends MountedContract<infer C, any, infer Off>
-    ? Equal<NamesOf<A, C>, N> extends true ? Off : never
-    : never
-  : never;
-
 /**
  * The tree entries a scope `D` covers whose contract declares `K` but whose route does not provide it: no
- * `r.bind()` on the mounted contract, and no implicit binding for it (H14 #163: a registered model key the route
- * provides implicitly is no conflict, an opted-out contract still is).
+ * `r.bind()` on the mounted contract. An implicit model key (H14 #163) is no exemption: the scope binder would
+ * replace the implicit model at runtime, so the contract builder must bind it explicitly too.
  */
 type UnboundEntries<A, M extends readonly unknown[], D extends string, K extends string> = ApiTreeEntry<A> extends infer E
   ? E extends { name: infer N extends string; contract: infer C; path: infer P extends string; scopes: readonly (infer S)[] }
@@ -293,9 +285,7 @@ type UnboundEntries<A, M extends readonly unknown[], D extends string, K extends
       ? K extends ParamKeys<C, P>
         ? K extends MountedBindingKeys<A, M, N>
           ? never
-          : [MountedImplicitOff<A, M, N>] extends [true]
-            ? N
-            : K extends keyof RegisteredModels ? never : N
+          : N
         : never
       : never
     : never
@@ -311,7 +301,7 @@ type ScopeBindingConflicts<A, M extends readonly unknown[]> = ScopeBindingKeys<M
     ? {
         [Key in K]: [UnboundEntries<A, M, D, Key>] extends [never]
           ? never
-          : { error: `Route.api: scope "${D}" binds \`${Key}\`, but contract "${UnboundEntries<A, M, D, Key> & string}" is mounted from a builder that does not bind it: mount the contract from a builder that binds \`${Key}\` too (a handler's types see only its own builder's bindings)` };
+          : { error: `Route.api: scope "${D}" binds \`${Key}\`, but contract "${UnboundEntries<A, M, D, Key> & string}" is mounted from a builder that does not bind it: bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)` };
       }[K]
     : never
   : never;

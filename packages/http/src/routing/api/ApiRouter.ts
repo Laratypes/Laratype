@@ -403,7 +403,7 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
     const implicitBindings = mounted.implicitBinding === false ? [] : implicitParamNames(route.path, modelKeys);
     const scopedBindings = mounted.scopedBindings === true;
-    checkScopeBindings(name, scopeItems, mounted, route.path, implicitBindings);
+    checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
@@ -440,23 +440,17 @@ const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract
  * Rejects a scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
  * `r.contract()` call with the mounting builder's bindings only, so a route whose contract builder does not bind the
  * key would give the handler a model where its types say string. The first conflict in route order is reported. A key
- * the route binds implicitly is provided by the proof (H14 #163), so it is no conflict.
+ * the route binds implicitly is provided by the proof (H14 #163), but the scope binder would still replace it at
+ * runtime, so the contract builder must bind it explicitly too.
  */
-const checkScopeBindings = (
-  name: string,
-  scopes: readonly MountedScope[],
-  mounted: MountedContract<object>,
-  path: string,
-  implicitBindings: readonly string[],
-): void => {
+const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): void => {
   const names = pathParamNames(path);
-  const implicit = new Set(implicitBindings);
   for (const scope of scopes) {
     for (const key of Object.keys(scope.bindings ?? {})) {
-      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key) || implicit.has(key)) continue;
+      if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key)) continue;
       fail(
         `scope "${scope.dir}" binds \`${key}\`, but contract "${name}" is mounted from a builder that does not bind it: ` +
-          `mount the contract from a builder that binds \`${key}\` too (a handler's types see only its own builder's bindings)`,
+          `bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)`,
       );
     }
   }
