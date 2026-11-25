@@ -184,7 +184,7 @@ describe('loadEnv', () => {
     const project = tmp()
     writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_SAFE=production\n')
 
-    for (const value of [undefined, '', '../x', 'a/b', 'a\\b', '..', '%2e%2e', 'a\u0000b']) {
+    for (const value of [undefined, '', '../x', 'a/b', 'a\\b', '..', '%2e%2e', 'a.b', 'a\u0000b', 'a\u0001b', '\uD800', 'a'.repeat(100_000)]) {
       delete process.env.K4_FALLBACK_LEAKED
       if (value === undefined) delete process.env.NODE_ENV
       else process.env.NODE_ENV = value
