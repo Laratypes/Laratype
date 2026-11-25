@@ -202,6 +202,13 @@ describe('no dependency metadata: hostile class names', () => {
     expect(messageOf(() => new Container().make(Throwing))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
+  it('does not print a non-string name (a static name() method) as the class name', () => {
+    const Tok = namedClass('Ignored')
+    Object.defineProperty(Tok, 'name', { value: () => 'Tok' })
+    expect(messageOf(() => new Container().make(Tok))).toContain('Cannot autowire <anonymous class>:')
+    expect(messageOf(() => new Container().make(Tok))).not.toContain('() =>')
+  })
+
   it('keeps a 100k class name', () => {
     const name = 'L'.repeat(100_000)
     const message = messageOf(() => new Container().make(namedClass(name)))
