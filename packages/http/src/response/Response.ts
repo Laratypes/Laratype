@@ -479,7 +479,7 @@ export default class Response extends AppServiceProvider {
     const responsible = isException(err) && err.canResponsible() ? err : undefined;
     const httpError = responsible ? undefined : asHttpError(err);
     // A responsible Exception and an HTTP error keep their status; anything else is an unknown error, a 500. An
-    // Exception's status is app data: only an integer 200-599 is sent, else the generic 500 (H32 #312)
+    // Exception's status is app data: only an integer 400-599 is sent, else the generic 500 (H32 #312, H33 #313)
     const status = responsible ? exceptionStatus(responsible) : httpError ? httpError.status : 500;
 
     // resolveException logs each error once: a reportable one, or any error that ends as a 5xx (#267). The Exception
@@ -565,11 +565,11 @@ export default class Response extends AppServiceProvider {
 
     this.apps.onError(this.resolveException)
 
-    // The catch middleware answers every request error inside the app (H33 #313). This wrapper stays the last resort
-    // for what runs outside it: a middleware an app provider mounts in its own register() (before this kernel's), the
-    // scrub itself, a filter failure in the catch's answer, or a broken `fetch`. Without it those leave the app and
-    // each adapter answers its own way (Node an empty 500, Bun's dev error page). The adapters read `fetch` once the
-    // app is booted, so it is wrapped here.
+    // The catch middleware answers every request error inside the app (H33 #313), a filter failure in its own answer
+    // included. This wrapper stays the last resort for what runs outside it: a middleware an app provider mounts in
+    // its own register() (before this kernel's, in bootProviders' register pass), the scrub itself, or a broken
+    // `fetch`. Without it those leave the app and each adapter answers its own way (Node an empty 500, Bun's dev error
+    // page). The adapters read `fetch` once the app is booted, so it is wrapped here.
     const fetch = this.apps.fetch;
     const serverError = (err: unknown) => {
       quietLog(err);
