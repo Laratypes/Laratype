@@ -5,8 +5,10 @@ type NotJson = undefined | symbol | ((...args: any[]) => unknown);
 
 /**
  * A body as a call passes it (#255): the schema input, restricted to what `JSON.stringify` carries. A value with
- * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string; a
- * `toJSON` result JSON can't carry (`toJSON(): bigint`) makes the value `never` too, since `JSON.stringify` throws.
+ * `toJSON` (a `Date`) is accepted as itself or as its JSON form (`Date | string`), since both send the same string; when
+ * the JSON form may be `undefined` (`toJSON(): undefined`, or a result that may be), `JSON.stringify` can return
+ * `undefined` and send no body, so only the non-undefined JSON form is accepted (#326). A `toJSON` result JSON can't
+ * carry (`toJSON(): bigint`) makes the value `never` too, since `JSON.stringify` throws.
  * `bigint` (`JSON.stringify` throws), `Map` / `Set` (sent as `{}`), functions and symbols become `never`, so a
  * schema input JSON can't carry is a type error at the call; so is an `undefined` array item, which is sent as `null`.
  * The server validates the parsed JSON, so a field typed `Date` needs a schema that accepts the ISO string (`z.coerce.date()`).
@@ -14,9 +16,13 @@ type NotJson = undefined | symbol | ((...args: any[]) => unknown);
 type JsonInput<T> = unknown extends T
   ? T
   : T extends { toJSON(...args: any[]): infer J }
-    ? [J] extends [JsonInput<J>]
-      ? T | JsonInput<J>
-      : JsonInput<J>
+    ? [Exclude<J, undefined>] extends [never]
+      ? never
+      : undefined extends J
+        ? JsonInput<Exclude<J, undefined>>
+        : [J] extends [JsonInput<J>]
+          ? T | JsonInput<J>
+          : JsonInput<J>
     : T extends string | number | boolean | null | undefined
       ? T
       : T extends NotJson | bigint | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
@@ -326,12 +332,14 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
   /** The fetch to call. Default: the global `fetch`, read at call time. */
   fetch?: FetchLike;
   /**
-   * Headers sent with every call; a call's own `headers` override them. Given as an object, the names it always sends
-   * (`ProvidedHeaders<Hd>`, inferred by `createClient`) are optional in each call's `headers`, even when the
-   * endpoint's headers schema requires them. A function is called at each call, so it can return a fresh auth token;
-   * it may be async. Its headers are known only when it runs, so it provides none to the types.
+   * Headers sent with every call; a call's own `headers` override them. Given as an object (a `Headers` or pairs too),
+   * it is read once at `createClient` and copied, so mutating it later changes nothing, and the names it always sends
+   * (`ProvidedHeaders<Hd>`, inferred by `createClient`) are optional in each call's `headers`, even when the endpoint's
+   * headers schema requires them. A function is called (and awaited) at each call, so it can return a fresh auth token;
+   * it may be async and may return `undefined` (no default headers for that call). Its headers are known only when it
+   * runs, so it provides none to the types.
    */
-  headers?: Hd | (() => HeadersInit | Promise<HeadersInit>);
+  headers?: Hd | (() => HeadersInit | undefined | Promise<HeadersInit | undefined>);
   /**
    * The `credentials` mode of every call (`"include"` sends cookies cross-origin). Default: `fetch`'s own (`"same-origin"`).
    * The client doesn't follow redirects by default (`redirect` is `"manual"`). A cross-origin redirect can carry custom
