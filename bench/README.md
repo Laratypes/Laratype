@@ -3,39 +3,80 @@
 Dev-only benchmark of the v1 request path: Laratype v1 against Hono (its own baseline), Express and Fastify. It is a
 private workspace; nothing here is published, and no `@laratype/*` package depends on it.
 
+> **Do not run this on a developer machine.** It starts real app servers and an autocannon load generator, which has
+> frozen a local Windows machine. Run it in Docker locally, or in the `bench` GitHub workflow. The only safe local
+> command is the pure unit project: `bunx vitest run --project bench`.
+
 **Phase 1 covers scenarios 1–5 and skips the SQLite read (6) in every app**: there is no v1 database API on master
 (DB1 #145 is planned), Node 20.17 has no `node:sqlite`, and `bun:sqlite` is Bun-only. The report says so. NestJS,
 AdonisJS, Laravel, the `sauf build` run and the docs results page are phase 2.
 
-## Setup
+## Docker
 
-Node 20.17 (`.node-version`) and Bun (CI pins 1.3.14) are required. From the repo root:
-
-```sh
-bun install --ignore-scripts --minimum-release-age=1209600
-bun run build
-```
-
-`bun run build` builds the workspace `dist` the apps import; the runner also builds it if `packages/http/dist` is
-missing (not timed).
-
-## One command
+`bench/Dockerfile` pins Node 20.17.0 and Bun 1.3.14 by image digest (see the comments there). The build context is the
+repo root; `.dockerignore` keeps `.git`, `node_modules`, `dist` and `bench/out` out of the image.
 
 ```sh
-bun run bench
+docker build -f bench/Dockerfile -t laratype-bench .
+mkdir -p bench/out
+docker run --rm -v "$PWD/bench/out:/out" laratype-bench
 ```
 
-It writes `bench/out/<sha>-<UTC>.json` and `.md` with the machine, runtime/framework versions, commit SHA, settings and
-every run. `bench/out/` is gitignored; results are never committed. Smoke only:
+On PowerShell, mount with the Windows path: `-v "${PWD}\bench\out:/out"`. The image's default command is
+`bun run bench`; the report is written to `/out`, so it lands in the host's `bench/out/` as
+`<short-sha>-<UTC>.json` and `.md`. `bench/out/` is gitignored; results are never committed.
+
+Already-built image, different profile (arguments are passed through the root script):
 
 ```sh
-bun run bench:smoke            # every app x runtime, every scenario, exact bodies, one 1 s autocannon run
+docker run --rm -v "$PWD/bench/out:/out" laratype-bench bun run bench --apps hono --runtimes node,bun --duration 30
 ```
 
-Flags: `--apps`, `--runtimes node,bun`, `--scenario <name>`, `--connections` (50), `--duration` (10 s), `--warmup` (2 s),
-`--out <dir>`, `--allow-node-mismatch`. Set `BENCH_NODE` / `BENCH_BUN` (or `--node` / `--bun`) to pick a runtime binary.
-On a machine whose `node` is not the `.node-version` binary, `BENCH_ALLOW_NODE_MISMATCH=1` records the actual version
-instead of failing; reports always name the Node and Bun versions they ran on.
+The same settings are available as environment variables, which is how the workflow passes its dispatch inputs:
+`BENCH_APPS`, `BENCH_RUNTIMES`, `BENCH_SCENARIO`, `BENCH_CONNECTIONS`, `BENCH_DURATION`, `BENCH_WARMUP`, `BENCH_OUT`.
+Flags win over the environment. `BENCH_NODE` / `BENCH_BUN` pick the runtime binaries, and
+`BENCH_ALLOW_NODE_MISMATCH=1` records a Node that is not the `.node-version` instead of failing.
+
+The Docker build context has no `.git`, so the container cannot read the commit. For a report with the real commit,
+pass `-e BENCH_GIT_SHA="$(git rev-parse HEAD)" -e BENCH_GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"` (and
+`-e BENCH_GIT_DIRTY=1` if the tree is dirty); otherwise the report says `unknown`.
+
+`bench:smoke` is the container/CI self-check (exact status and body of every scenario, plus one 1 s autocannon run per
+app/runtime). Use it through Docker, not on the host:
+
+```sh
+docker run --rm -v "$PWD/bench/out:/out" laratype-bench bun run bench:smoke
+```
+
+## The `bench` workflow
+
+`.github/workflows/bench.yml` builds the same image and runs it on a GitHub runner; it is the validation path for this
+change (the first CI run is the validation, no local benchmark run is).
+
+- **On a pull request:** add the `bench` label. The job runs only for that label (`pull_request`, never
+  `pull_request_target`), with `contents: read`, no secrets and a 60-minute timeout. Re-add the label to rerun; a new
+  run cancels the previous one. Only users with triage/write access can label.
+- **On master:** Actions › `bench` › Run workflow. The optional inputs are apps, runtimes, measured duration and
+  connections; they reach the container as environment only.
+- The JSON + Markdown report is uploaded as the `bench-report` artifact, and the Markdown is appended to the job
+  summary. A report of a failed run is still uploaded, if one was written.
+
+GitHub only starts `pull_request` workflows whose file exists on the default branch, and the Actions "Run workflow"
+button only lists the default branch. Until this file is on `master`, a maintainer can dispatch it on the branch with
+`gh workflow run bench.yml --ref build/b26-bench-phase1` (agents never trigger a run).
+
+## Unit tests (safe locally)
+
+The runner's pure code is covered without starting a server or a load generator:
+
+```sh
+bunx vitest run --project bench
+```
+
+This runs in about a second and is part of `bun run test --run`. The project only collects `bench/__tests__/**`; the
+unit project excludes `bench/**`. No package script starts the benchmark from the test path: `bench` and `bench:smoke`
+are explicit container commands, and the `vitest.bench.config.ts` project imports only `bench/lib/*` and
+`bench/scenarios.mjs`.
 
 ## Scenarios (same bytes in all four apps)
 
@@ -84,4 +125,5 @@ rule and dominate the measurement. No other kernel method is overridden. A frame
 ## Adding a scenario or framework
 
 Add the route to every app, add its exact response bytes to `scenarios.mjs`, and (only if it is a new framework) a
-folder under `apps/` plus the `APPS` list in `run.mjs`. Keep the body/status comparison exact; the smoke is the check.
+folder under `apps/` plus the `APPS` list in `lib/args.mjs`. Keep the body/status comparison exact; the smoke is the
+check.
