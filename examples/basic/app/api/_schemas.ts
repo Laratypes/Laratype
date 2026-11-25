@@ -19,7 +19,7 @@ export const AdminProfile = z.object({
   age: z.number(),
 });
 
-// bcrypt reads at most 72 bytes and hashes the whole value, so an unbounded password is a cheap way to burn server
+// The password hash (scrypt, 16 MiB) reads the whole value, so an unbounded password is a cheap way to burn server
 // time; `min(1)` only keeps the empty field out (a login may be shorter than a new password).
 export const LoginBody = z.object({
   email: z.string(),
