@@ -70,6 +70,10 @@ describe('loadEnv', () => {
     expect(loadEnv(project)).toBeUndefined()
   })
 
+  it('rejects a non-string projectDir, as path.resolve did before', () => {
+    expect(() => loadEnv(123 as unknown as string)).toThrow(TypeError)
+  })
+
   it('keeps .env over .env.local over .env.<mode>', () => {
     const project = tmp()
     writeFileSync(join(project, '.env'), 'H1_PRECEDENCE=dotenv\n')
