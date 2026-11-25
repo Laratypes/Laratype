@@ -128,6 +128,12 @@ describe('Model password cast', () => {
     expect(lookups[1]).toBe(cyclic)
   })
 
+  it('does not walk a non-plain where value, such as a large Buffer', async () => {
+    const { User, lookups } = model()
+    await expect(User.findOneBy({ email: Buffer.alloc(1024 * 1024) } as any)).resolves.toBeNull()
+    expect(lookups).toHaveLength(1)
+  })
+
   it('refuses a non-string credential before the repository, with no partial write', async () => {
     const { User, saved, updates } = model()
     for (const value of [{}, 1, null, undefined, NaN, Infinity, { length: 1e9 }, [], Buffer.from('x')]) {
