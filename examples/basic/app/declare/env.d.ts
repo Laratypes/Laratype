@@ -18,6 +18,10 @@ interface EnvVariables {
   AUTH_GOOGLE_CLIENT_ID: string | null;
   AUTH_GOOGLE_CLIENT_SECRET: string | null;
 
+  // The first admin (database/seeders/AdminSeeder.ts)
+  ADMIN_EMAIL: string | null;
+  ADMIN_PASSWORD: string | null;
+
   // Database
   DB_CONNECTION: string | null;
   DB_HOST: string | null;
