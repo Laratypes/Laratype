@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. D6 (request scope and scope bubbling) is proposed. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed. The other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. D6 (request scope and scope bubbling) is merged @ 43aa6683. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed. The other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -25,7 +25,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Decorators: @Inject and @Injectable](#decorators-inject-and-injectable) | merged ([#98](https://github.com/Laratypes/Laratype/issues/98)) |
 | [Vite plugin `laratype:di`](#vite-plugin-laratypedi) | merged ([#102](https://github.com/Laratypes/Laratype/issues/102)) |
 | [Resolution errors with fix hints](#resolution-errors-with-fix-hints) | merged ([#100](https://github.com/Laratypes/Laratype/issues/100)); no-metadata hint merged (PR [#294](https://github.com/Laratypes/Laratype/pull/294) @ 414a336); D10 (`requiredBy`, production/third-party wording, zero-length constructors) proposed: PR [#408](https://github.com/Laratypes/Laratype/pull/408) @ 612c5ee7 ([#298](https://github.com/Laratypes/Laratype/issues/298)) |
-| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe |
+| [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | merged @ 43aa6683 (PR [#327](https://github.com/Laratypes/Laratype/pull/327) → [#112](https://github.com/Laratypes/Laratype/issues/112), D6) |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries merged @ 714b11ba (PR [#362](https://github.com/Laratypes/Laratype/pull/362) → #114, D7); facades merged @ a6fb351; shared app-container lookup, facade re-set and a warning for fakes dropped at the boot: proposed: PR [#409](https://github.com/Laratypes/Laratype/pull/409) @ 2f2d792d (D11 [#318](https://github.com/Laratypes/Laratype/issues/318)), the `ContextApi`/http switch lands with #379/#400; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; dummy-hash key hardening and the one-class-per-format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
@@ -112,7 +112,7 @@ export class Container {
 ```
 
 ### Invariants
-- **Scopes in D1:** `transient` and `singleton`. `bind()` is transient unless `{ scope: 'singleton' }` is passed. The `request` scope is proposed in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) ([#112](https://github.com/Laratypes/Laratype/issues/112)). Final scope names: `singleton | request | transient`.
+- **Scopes in D1:** `transient` and `singleton`. `bind()` is transient unless `{ scope: 'singleton' }` is passed. The `request` scope is merged @ 43aa6683 in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) ([#112](https://github.com/Laratypes/Laratype/issues/112), D6). Final scope names: `singleton | request | transient`.
 - **Autowire:** `make(Cls)` with no binding builds the class from the deps lookup, so unregistered concrete classes need no registration. Autowired classes are **transient**, Laravel-style ([#112](https://github.com/Laratypes/Laratype/issues/112)). A singleton needs an explicit binding or `@Injectable({ scope })` ([#98](https://github.com/Laratypes/Laratype/issues/98)).
 - **Resolution order:** look up the binding through the parent chain. If none is found and the key is a class, autowire it. Otherwise throw.
 - **Singletons** are built by the container that **owns** the binding, so a child's overrides never leak into a shared instance. The first result is cached. Rebinding replaces both the binding and its cached instance.
@@ -423,14 +423,14 @@ export function Injectable(options?: InjectableOptions): (target: Function) => v
 - `Conflicting metadata for <C> constructor param #<i> \`<name>\`: transform says <A>, @Inject says <B>.` followed by a fix hint ([Resolution errors with fix hints](#resolution-errors-with-fix-hints)).
 - `@Inject() is only supported on constructor parameters (found on \`<method>\`).` This is thrown when the class is defined. Method injection is planned → [#158](https://github.com/Laratypes/Laratype/issues/158).
 
-Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and an unknown scope (`Injectable({ scope: 'session' })`). `Injectable({ scope: 'request' })` is accepted since D6 ([Request scope and scope bubbling](#request-scope-and-scope-bubbling), proposed).
+Type-only (`decorators.test.ts`): `Inject('name')` (a string key is not a token) and an unknown scope (`Injectable({ scope: 'session' })`). `Injectable({ scope: 'request' })` is accepted since D6 ([Request scope and scope bubbling](#request-scope-and-scope-bubbling), merged @ 43aa6683).
 
 ### Example
 [`examples/di/decorators.ts`](./examples/di/decorators.ts). SWC pipeline fixture: `packages/sauf/__tests__/di/fixtures/inject-core/`.
 
 ### Non-goals
 - No TC39 (stage 3) decorators: they have no parameter decorators.
-- The `request` scope is specified in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) (proposed, [#112](https://github.com/Laratypes/Laratype/issues/112)).
+- The `request` scope is specified in [Request scope and scope bubbling](#request-scope-and-scope-bubbling) (merged @ 43aa6683, [#112](https://github.com/Laratypes/Laratype/issues/112)).
 
 ### Open questions
 - Resolved: both are exported from `@laratype/core`, and the T1 fixture `inject-core` imports them from there ([#98 comment](https://github.com/Laratypes/Laratype/issues/98#issuecomment-6084336050)).
@@ -530,7 +530,7 @@ See the snapshots in [`errors.test.ts`](../../packages/core/__tests__/errors.tes
 ## Request scope and scope bubbling
 
 ### Status
-proposed: PR [#327](https://github.com/Laratypes/Laratype/pull/327) @ 3b2d2fe (D6 [#112](https://github.com/Laratypes/Laratype/issues/112)).
+merged @ 43aa6683 (PR [#327](https://github.com/Laratypes/Laratype/pull/327) → [#112](https://github.com/Laratypes/Laratype/issues/112), D6).
 
 ### Public API
 [`container.ts` @ 3b2d2fe](https://github.com/Laratypes/Laratype/blob/3b2d2fe506b4127f5c6edc7f09a4aa155c3450cf/packages/core/src/container.ts#L21-L22) (`Scope`), [`scoped()`](https://github.com/Laratypes/Laratype/blob/3b2d2fe506b4127f5c6edc7f09a4aa155c3450cf/packages/core/src/container.ts#L176-L181), [`createRequestScope()` and `dispose()`](https://github.com/Laratypes/Laratype/blob/3b2d2fe506b4127f5c6edc7f09a4aa155c3450cf/packages/core/src/container.ts#L235-L273) · [`Request.ts` @ 3b2d2fe](https://github.com/Laratypes/Laratype/blob/3b2d2fe506b4127f5c6edc7f09a4aa155c3450cf/packages/http/src/request/Request.ts#L356-L370) (`RequestKernel.boot()`) · [`settled()`](https://github.com/Laratypes/Laratype/blob/3b2d2fe506b4127f5c6edc7f09a4aa155c3450cf/packages/http/src/request/Request.ts#L372-L380) (`@internal`, tests only)
