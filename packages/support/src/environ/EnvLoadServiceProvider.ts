@@ -4,14 +4,39 @@ import { loadDefault, manifestEntry, peekAppManifest } from "../manifest/AppMani
 import { ServiceProvider } from "../ServiceProvider";
 import { validateEnv } from "./validateEnv";
 import { getProjectPath } from "../path-resolver/pathResolver";
-import { globSync } from "glob";
 import dotenv from "dotenv";
-import { existsSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { resolve } from "path";
 
+/** The `.env.*` files of `dir`, sorted by name (a directory name with glob metacharacters is just a name). */
+function envFilesIn(dir: string): string[] {
+  let entries: string[];
+
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    // A missing project directory, or one that is not a directory: no env file there
+    return [];
+  }
+
+  return entries
+    .filter((name) => {
+      if (!name.startsWith('.env.')) return false;
+
+      try {
+        return statSync(resolve(dir, name)).isFile();
+      } catch {
+        // A broken symlink: not a file to read
+        return false;
+      }
+    })
+    .sort()
+    .map((name) => resolve(dir, name));
+}
+
 /**
- * Loads the project's env file into `process.env`: `.env`, else `.env.local`, else the first `.env.*`. Values already
- * set are kept. Shared by `EnvLoadServiceProvider`, `PassportServiceProvider.register()` (which imports app/config/auth.ts,
+ * Loads the project's env file into `process.env`: `.env`, else `.env.local`, else the first `.env.*` in name order.
+ * Values already set are kept. Shared by `EnvLoadServiceProvider`, `PassportServiceProvider.register()` (which imports app/config/auth.ts,
  * a config that reads `Env.get()`, before the providers boot) and the `sauf` contract-tree scan, which reads the config
  * before the providers boot. Returns the file it loaded. With `projectDir` and no env file there, nothing is loaded:
  * dotenv's own fallback would read `.env` from the current directory, another project's.
@@ -23,9 +48,7 @@ export function loadEnv(projectDir?: string): string | undefined {
     '.env.local',
   ].map((file) => at(file)).filter((file) => existsSync(file));
 
-  const envFiles = globSync(at('.env.*'), {
-    windowsPathsNoEscape: true,
-  });
+  const envFiles = envFilesIn(projectDir ? projectDir : process.cwd());
 
   envFiles.forEach((file) => {
     if(!priorities.includes(file)) {
