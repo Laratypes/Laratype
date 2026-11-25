@@ -10,7 +10,7 @@ last-verified: 2026-10-12
 
 Constructor injection works without mandatory decorators. A build transform (oxc, before SWC) records each constructor's dependencies as lazy thunks. A container resolves them: concrete classes autowire, and interfaces or primitives go through a typed token. Service providers bind things into the container in two phases (`register()` → `boot()`).
 
-On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. D6 (request scope and scope bubbling) is merged @ 43aa6683. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed. The other sections are planned.
+On master: D1 (container, tokens, dependency metadata), D2 (deps registry), D3 (`@Inject` and `@Injectable`), D4 (ServiceProvider v2 and kernel boot), D5a (resolution errors with fix hints), T1 (the DI transform core), T2 (the `laratype:di` Vite plugin in `sauf dev`) and T3 (its snapshot and runtime tests) are merged. D6 (request scope and scope bubbling) is merged @ 43aa6683. The transform is not wired into `sauf build` yet; the framework package builds run it through the [Bun build plugin](#bun-build-plugin), merged @ a574d16c. The other sections are planned.
 
 Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/di/index.ts` and `packages/support/src/ServiceProvider.ts` at the SHAs below. Executable spec: `packages/core/__tests__/`, `packages/sauf/__tests__/di/` and `packages/support/__tests__/ServiceProvider.test.ts`.
 
@@ -28,7 +28,7 @@ Canonical API: the exports of `packages/core/src/index.ts`, `packages/sauf/src/d
 | [Request scope and scope bubbling](#request-scope-and-scope-bubbling) | merged @ 43aa6683 (PR [#327](https://github.com/Laratypes/Laratype/pull/327) → [#112](https://github.com/Laratypes/Laratype/issues/112), D6) |
 | [Boot-time graph diagnostics](#boot-time-graph-diagnostics) | planned → #113 |
 | [Container-backed registries and facades](#container-backed-registries-and-facades) | registries merged @ 714b11ba (PR [#362](https://github.com/Laratypes/Laratype/pull/362) → #114, D7); facades merged @ a6fb351; shared app-container lookup, facade re-set and a warning for fakes dropped at the boot: proposed: PR [#409](https://github.com/Laratypes/Laratype/pull/409) @ 2f2d792d (D11 [#318](https://github.com/Laratypes/Laratype/issues/318)), the `ContextApi`/http switch lands with #379/#400; `Hasher` (salted scrypt `make()`, plus `check()` / `needsRehash()` / `isHashed()`): proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async `makeAsync()` / `checkAsync()`: proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; `checkAsync()` also backs the dummy check of a login path that would otherwise skip scrypt (an unknown user, or a legacy or unparseable stored hash): proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; dummy-hash key hardening and the one-class-per-format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
-| [Bun build plugin](#bun-build-plugin) | proposed: PR #324 @ 6d0af35 |
+| [Bun build plugin](#bun-build-plugin) | merged @ a574d16c (PR [#324](https://github.com/Laratypes/Laratype/pull/324) → [#116](https://github.com/Laratypes/Laratype/issues/116), T4) |
 | [Method injection](#method-injection) | planned → #158 |
 | [Modules](#modules) | planned → #153 |
 
@@ -253,7 +253,7 @@ None of its own. Resolution errors come from the [Container](#container).
 ## DI transform
 
 ### Status
-merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126)). The framework package builds run it through the [Bun build plugin](#bun-build-plugin), proposed ([#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ 8dc389b (T1 [#101](https://github.com/Laratypes/Laratype/issues/101)). Snapshot and runtime tests merged @ d9e8df2 (T3 [#103](https://github.com/Laratypes/Laratype/issues/103)). The abstract-class flag is merged ([#101](https://github.com/Laratypes/Laratype/issues/101)). Wired into `sauf dev` by the [Vite plugin `laratype:di`](#vite-plugin-laratypedi), merged ([#102](https://github.com/Laratypes/Laratype/issues/102)). Not wired into `sauf build` yet (B2 [#126](https://github.com/Laratypes/Laratype/issues/126)). The framework package builds run it through the [Bun build plugin](#bun-build-plugin), merged @ a574d16c ([#116](https://github.com/Laratypes/Laratype/issues/116)).
 
 ### Public API
 [`transform.ts` @ 8dc389b](https://github.com/Laratypes/Laratype/blob/8dc389b41cc4f862a3ec2cfcce71e7ca14b9683d/packages/sauf/src/di/transform.ts#L1-L95)
@@ -741,7 +741,7 @@ export class Auth extends Facade { static readonly accessor: typeof AuthService;
 ## Bun build plugin
 
 ### Status
-proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/issues/116)).
+merged @ a574d16c (PR [#324](https://github.com/Laratypes/Laratype/pull/324) → [#116](https://github.com/Laratypes/Laratype/issues/116), T4).
 
 ### Public API
 [`sauf/src/di/bun.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/bun.ts), exported from [`sauf/src/di/index.ts` @ 6d0af35](https://github.com/Laratypes/Laratype/blob/6d0af353ee2f2e85904ae090368aa42c48471b85/packages/sauf/src/di/index.ts) next to the [Vite plugin](#vite-plugin-laratypedi) (internal to the repo: the `sauf` package entry does not export it).
