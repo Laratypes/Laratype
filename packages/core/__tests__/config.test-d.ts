@@ -109,6 +109,13 @@ describe('config() (K1 #152)', () => {
     expectTypeOf<ConfigValue<'constructor.ok', Reserved>>().toEqualTypeOf<undefined>()
     expectTypeOf<ConfigValue<'constructor', Record<string, unknown>>>().toEqualTypeOf<undefined>()
     expectTypeOf<ConfigValue<'constructor', unknown>>().toEqualTypeOf<undefined>()
+    // A reserved key below an `unknown` level (a key read through an index signature): the type kept splitting the
+    // path instead of answering `unknown` before the reserved segment
+    expectTypeOf<ConfigValue<'a.b.constructor', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'a.b.prototype', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'a.b.__proto__', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'a.constructor.b', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    expectTypeOf<ConfigValue<'a.b.constructor', unknown>>().toEqualTypeOf<undefined>()
   })
 
   test('without a registration, any path gives unknown', () => {

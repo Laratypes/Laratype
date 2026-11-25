@@ -1,3 +1,4 @@
+import { isStandardSchema } from '@laratype/contract'
 import type { StandardSchemaV1 } from '@laratype/contract'
 
 /** The env file: `app/config/env.ts`, which default-exports `defineEnv(schema)`. Not a config: `config()` skips it. */
@@ -7,9 +8,6 @@ export const ENV_CONFIG_NAME = 'env'
 export interface EnvDefinition<S extends StandardSchemaV1 = StandardSchemaV1> {
   readonly schema: S
 }
-
-const isStandardSchema = (value: unknown): value is StandardSchemaV1 =>
-  typeof (value as StandardSchemaV1 | null)?.['~standard']?.validate === 'function'
 
 /**
  * Declares the environment the app needs, with any Standard Schema (zod 4.6.6+, valibot, arktype, ...).

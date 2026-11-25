@@ -48,7 +48,9 @@ type Missing<T> = string extends keyof T ? undefined : number extends keyof T ? 
 export type ConfigValue<P extends string, T = AppConfigs> = P extends ReservedKey
   ? undefined
   : unknown extends T
-    ? unknown
+    ? P extends `${infer Head}.${infer Rest}`
+      ? Head extends ReservedKey ? undefined : ConfigValue<Rest, unknown>
+      : unknown
     : T extends null | undefined
       ? undefined
       : P extends LiteralKey<T>
