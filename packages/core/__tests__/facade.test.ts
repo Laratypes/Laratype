@@ -427,10 +427,10 @@ describe('setFacadeApplication() dropped fakes', () => {
     restore()
   })
 
-  it('prints <anonymous class> for an empty, null, undefined, NaN or infinite name', () => {
+  it('prints <anonymous class> for an empty, null, undefined, NaN, infinite, object or number name', () => {
     vi.stubGlobal('__PROD__', false)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    for (const name of ['', null, undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const name of ['', null, undefined, Number.NaN, Number.POSITIVE_INFINITY, {}, 42]) {
       warmFallback(warn)
       class Tok {}
       Object.defineProperty(Tok, 'name', { value: name })
@@ -446,6 +446,22 @@ describe('setFacadeApplication() dropped fakes', () => {
       delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED]
       warn.mockClear()
     }
+  })
+
+  it('prints a __proto__ label as a plain name, not a prototype key', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    class Tok {}
+    Object.defineProperty(Tok, 'name', { value: '__proto__' })
+    class TokFacade extends Facade {
+      static override readonly accessor = Tok
+    }
+    const restore = TokFacade.fake(new Tok())
+    expect(() => Facade.setFacadeApplication(new Container())).not.toThrow()
+    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes: __proto__.')
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+    restore()
   })
 
   it('escapes format and bidi characters in a token label and caps it at 100 characters', () => {
