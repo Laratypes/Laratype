@@ -1,5 +1,6 @@
 import { errors } from "@laratype/contract";
 import { checkOptionalParameter, getPattern, splitRoutingPath } from "hono/utils/url";
+import { camelize, InternalException, ModelBindingRegistry, peekAppManifest } from "@laratype/support";
 import type { BindableModelClass, Binder, Bindings } from "./proof";
 import { fail } from "./fail";
 
@@ -195,27 +196,128 @@ export const expandedPathWithoutParam = (path: string, param: string): string | 
   return undefined;
 };
 
+// ---- implicit model binding (H14 #163) --------------------------------------
+
+const NO_MODELS: ReadonlySet<string> = new Set();
+
 /**
- * Resolves the bindings of one route, each once per request: a model class through `findByRouteKey`, a resolver called
- * with the raw param. A key absent from `params` is an optional path param and gives `undefined`; a present one with
- * no match (`null` / `undefined`) is the 404.
+ * The implicit model keys of the app manifest (docs/v1/http.md › Model binding): `camelize(<file name>)` of every
+ * `models` entry, or an empty set without a manifest (a bare Hono app or a test mounts no implicit binding) and for a
+ * manifest whose scan failed. Names only: no model module is loaded here.
  */
-export const resolveBindings = async (
-  bindings: Bindings,
+export const manifestModelKeys = (): ReadonlySet<string> => {
+  const manifest = peekAppManifest();
+  if (manifest === undefined || manifest.error !== undefined) return NO_MODELS;
+  // A hand-edited or hostile manifest is read defensively: a non-array list, or an entry without a name, names no model
+  if (!Array.isArray(manifest.models)) return NO_MODELS;
+  const keys = manifest.models
+    .filter((entry): entry is { readonly name: string } => typeof (entry as { name?: unknown } | null)?.name === "string" && entry.name !== "")
+    .map((entry) => camelize(entry.name));
+  return keys.length ? new Set(keys) : NO_MODELS;
+};
+
+/** The path params of `path` that `models` registers, in path order and without repetitions: a route's implicit keys. */
+export const implicitParamNames = (path: string, models: ReadonlySet<string>): readonly string[] =>
+  [...pathParamNames(path)].filter((name) => models.has(name));
+
+/**
+ * The mount-time issue of one binder on a `.scopeBindings()` route (H14 #163), or `undefined` when it can scope: every
+ * binder must be a model class, and its `findByRouteKey` must take a `scope` second parameter. `Function.length` does
+ * not count a default or a rest parameter, so `(key, scope = {})` and `(...args)` are refused too: declare `scope` as a
+ * plain second parameter.
+ */
+export const scopedBinderIssue = (key: string, binder: Binder): string | undefined => {
+  if (!isModelClass(binder)) {
+    return `.scopeBindings(): \`${key}\` is bound by a resolver, and a resolver cannot be scoped: bind it as a model class, or drop .scopeBindings().`;
+  }
+  const lookup = (binder as { findByRouteKey: (...args: never[]) => unknown }).findByRouteKey;
+  if (lookup.length < 2) {
+    const model = binder.name || "the model";
+    return (
+      `model binding: \`${key}\` binds \`${model}\`, whose findByRouteKey() takes no \`scope\` parameter: a .scopeBindings() route resolves a child through its parent, ` +
+      `so declare \`scope\` as a plain second parameter of findByRouteKey (a default or rest parameter does not count; docs/v1/http.md › Model binding).`
+    );
+  }
+  return undefined;
+};
+
+/** The bindings `resolveRouteBindings()` reads: the route's explicit map, its implicit keys and whether it is scoped. */
+export interface RouteBindingInput {
+  /** The `r.bind()` binders of the route (its scopes' then its contract's), its path params only. */
+  readonly explicit: Bindings;
+  /** The path params the app's registered models bind, in path order. */
+  readonly implicit: readonly string[];
+  /** `r.scopeBindings()`: resolve in path order, passing each earlier model as the child's `scope`. */
+  readonly scoped: boolean;
+  /** The route's full path, for the path order of a scoped route. */
+  readonly path: string;
+};
+
+/**
+ * Resolves one route's bindings, each key once per request (docs/v1/http.md › Model binding): the implicit models of
+ * the app manifest first, in path order, then the explicit `r.bind()` entries, a key both name keeping its explicit
+ * binder and its position. A model class goes through `findByRouteKey` (its second argument is the models already
+ * resolved for earlier params on a `.scopeBindings()` route); a resolver is called with the raw param.
+ *
+ * An absent optional param binds `undefined` without a lookup. On a scoped route a param present after an absent bound
+ * parent is the 404 (the child cannot be proven to belong to that parent), and so is a miss (`null` / `undefined`).
+ * A registered model the database provider did not load, or one whose lookup cannot scope on a scoped route, is a
+ * configuration 500 (it cannot be known at mount: the classes load with the database, docs/v1/http.md › Model binding).
+ */
+export const resolveRouteBindings = async (
+  input: RouteBindingInput,
   params: Record<string, string>,
 ): Promise<Record<string, unknown>> => {
+  const entries = new Map<string, Binder>();
+  if (input.implicit.length) {
+    const registry = input.implicit.some((key) => !Object.hasOwn(input.explicit, key)) ? ModelBindingRegistry.current() : undefined;
+    const models = registry?.routeModels;
+    for (const key of input.implicit) {
+      // An explicit binder wins the key without a registry read, so a route that binds all its models needs no database
+      if (Object.hasOwn(input.explicit, key)) continue;
+      // Own key: a `toString` model must not read Object.prototype.toString
+      const model: unknown = models !== undefined && Object.hasOwn(models, key) ? models[key] : undefined;
+      if (typeof model !== "function" || typeof (model as { findByRouteKey?: unknown }).findByRouteKey !== "function") {
+        throw new InternalException(
+          `[@laratype/http] implicit model binding: \`${key}\` is a model of the app manifest, but no model class is loaded for it: ` +
+            `register DatabaseServiceProvider, or mount the contract from a .withoutImplicitBinding() builder`,
+        );
+      }
+      const issue = input.scoped ? scopedBinderIssue(key, model as Binder) : undefined;
+      if (issue !== undefined) throw new InternalException(`[@laratype/http] ${issue}`);
+      entries.set(key, model as Binder);
+    }
+  }
+  for (const [key, binder] of Object.entries(input.explicit)) entries.set(key, binder);
+
+  const order = input.scoped ? [...pathParamNames(input.path)] : [];
+  const ordered = input.scoped
+    ? new Map([...entries].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0])))
+    : entries;
+
   const resolved: [string, unknown][] = [];
+  const models = new Map<string, object>();
+  let absent = false;
   // In order: a miss stops the lookups after it, so a 404 never waits on (or runs) the rest of the bindings
-  for (const [key, binder] of Object.entries(bindings)) {
+  for (const [key, binder] of ordered) {
     // Own key: an absent optional param must not read a member of Object.prototype (`:constructor?`)
     const raw = Object.hasOwn(params, key) ? params[key] : undefined;
     if (raw === undefined) {
+      absent = true;
       resolved.push([key, undefined]);
       continue;
     }
-    const value = isModelClass(binder) ? await binder.findByRouteKey(raw) : await binder(raw);
+    // A child cannot be scoped by a parent the request did not carry: answering it would read another parent's row
+    if (input.scoped && absent) throw errors.notFound();
+    const scope = input.scoped
+      ? Object.freeze(Object.fromEntries(models)) as Readonly<Record<string, object>>
+      : undefined;
+    const value = isModelClass(binder)
+      ? await (scope === undefined ? binder.findByRouteKey(raw) : binder.findByRouteKey(raw, scope))
+      : await binder(raw);
     if (value === null || value === undefined) throw errors.notFound();
     resolved.push([key, value]);
+    if (input.scoped && isModelClass(binder)) models.set(key, value as object);
   }
   // fromEntries, not an assignment: a resolved key is always an own data property, never a prototype swap
   return Object.fromEntries(resolved);

@@ -10,6 +10,8 @@ export { ScanError, isTreeFile, listTreeFiles, scanFiles, scanTree } from "./sca
 export type { ContractTree, ScannedContract, ScannedFolder } from "./scan";
 export { emitApiIndex, emitTree, emitTypesFile } from "./emit";
 export type { EmitOptions, GeneratedFile } from "./emit";
+export { MODELS_FILE, emitModelsFile, modelKeys } from "./models";
+export type { ModelsFileOptions } from "./models";
 export { ApiGenerationError, generateApiFile } from "./api";
 export type { ApiFileOptions, ManifestEntry, ManifestError } from "./api";
 export { ConfigImportError, DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT, apiTreeConfig, isolatedImport, readApiTreeConfig, resolveApiTree } from "./config";

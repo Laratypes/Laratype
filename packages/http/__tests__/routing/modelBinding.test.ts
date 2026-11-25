@@ -9,7 +9,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, defineScope, endpoint } from '@laratype/contract'
 import type { ContractPrefix } from '@laratype/contract'
 import { Controller, RequestKernel, ResponseKernel, Route, defineMiddleware } from '../../src/index'
-import type { Ctx } from '../../src/index'
+import type { Binder, Ctx } from '../../src/index'
 import { expandedPathWithoutParam, pathParamNames } from '../../src/routing/api/bindings'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -339,8 +339,29 @@ describe('scope bindings', () => {
       r.contract(posts, ScopeController),
     ])).toThrow(
       '[@laratype/http] Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: ' +
-        "mount the contract from a builder that binds `user` too (a handler's types see only its own builder's bindings)",
+        "bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)",
     )
+  })
+
+  it('leaves a scope binding alone on a contract that has no such path param', () => {
+    // The scope is mounted at the root and binds `user` for the users contract; the health contract has no params,
+    // so its own builder (unbound) is not the conflict the check reports
+    const users = defineContract()({ show: endpoint.get('/:user').response(anything) })
+    const health = defineContract()({ index: endpoint.get('/').response(anything) })
+    const tree = defineApi({
+      users: { contract: users, path: '/api/users', scopes: [{ scope: root, dir: '' }] },
+      health: { contract: health, path: '/api/health', scopes: [{ scope: root, dir: '' }] },
+    })
+    class ShowController extends Controller {
+      show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params.user as User).id } }
+    }
+    class HealthController extends Controller {
+      index() { return {} }
+    }
+    expect(() => Route.api(tree, (r) => {
+      const bound = r.bind({ user: User })
+      return [bound.scope('', { policy: PostPolicy }), bound.contract(users, ShowController), r.contract(health, HealthController)]
+    })).not.toThrow()
   })
 
   it('a contract binding wins over the scope binding of the same key', async () => {
@@ -729,5 +750,38 @@ describe('the 0.5 model binding paths', () => {
     const raw = mount(Route.api(appApi, (r) => [r.contract(posts, NoBindings)]))
     expect(await (await raw.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7', post: 'hello' })
     expect(lookups).toEqual([])
+  })
+})
+
+describe('r.bind() snapshot and key normalization (H7 #118 follow-ups, H14 #163)', () => {
+  class SnapshotController extends Controller {
+    index() { return {} }
+    show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params.user as User).id } }
+    latest() { return {} }
+  }
+
+  it('keeps the checked values: a getter that throws on a second read cannot install another binder', async () => {
+    let reads = 0
+    const bindings = Object.defineProperty({}, 'user', {
+      enumerable: true,
+      get: () => {
+        reads += 1
+        if (reads > 1) throw new Error('the bindings map was read twice')
+        return User
+      },
+    }) as Record<string, Binder>
+    const routes = mount(Route.api(appApi, (r) => [r.bind(bindings).contract(posts, SnapshotController)]))
+    expect(reads).toBe(1)
+    expect(await (await routes.request('/api/users/7/posts/hello')).json()).toEqual({ user: '7' })
+  })
+
+  it('binds a numeric key under the string Hono and the objects use', async () => {
+    const numeric = defineContract()({ show: endpoint.get('/:123').response(anything) })
+    const numericApi = defineApi({ numeric: { contract: numeric, path: '/api/numeric', scopes: [] } })
+    class NumericController extends Controller {
+      show(ctx: { params: Record<string, unknown> }) { return { user: (ctx.params['123'] as User).id } }
+    }
+    const routes = mount(Route.api(numericApi, (r) => [r.bind({ 123: User }).contract(numeric, NumericController)]))
+    expect(await (await routes.request('/api/numeric/7')).json()).toEqual({ user: '7' })
   })
 })
