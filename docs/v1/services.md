@@ -195,7 +195,7 @@ An argument name or option flag starts with a letter or `_`, then letters, digit
 - Unknown arguments and options are commander's own errors; the wrapper adds no message.
 
 ### Example
-`examples/basic/app/src/console/commands/SendMail.ts` uses constructor DI and the typed signature:
+`examples/basic/app/console/commands/SendMail.ts` uses constructor DI and the typed signature:
 
 ```ts
 export default class SendMail extends Command<typeof SendMail.signature> {
