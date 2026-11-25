@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // B1 #125: a manifest scan error (one model name in both layouts) fails only the commands that need the app, with the
-// scan's message. `--help`, `types:generate` and `make:*` run and print it once as a warning. Runs the BUILT sauf
+// scan's message. `--help` and `make:*` run and print it once as a warning; `types:generate` fails with its model
+// diagnostic (H14 #420 CR: a scan failure must not look like "no models"). Runs the BUILT sauf
 // (`packages/sauf/dist`), like devSsr.test.ts: run `bun run build` first.
 
 const saufBin = fileURLToPath(new URL("../../dist/index.esm.js", import.meta.url));
@@ -60,7 +61,7 @@ afterAll(() => {
 });
 
 describe("sauf with a manifest scan error", () => {
-  it("--help, types:generate and make:* run and warn once", async () => {
+  it("--help and make:* run and warn once; types:generate fails with the model diagnostic", async () => {
     const [help, types, make] = await Promise.all([
       sauf("--help"),
       sauf("types:generate"),
@@ -70,9 +71,13 @@ describe("sauf with a manifest scan error", () => {
     expect(help.output).toContain("types:generate");
     expect(count(help.output, MESSAGE)).toBe(1);
 
-    expect(types.code, types.output).toBe(0);
-    expect(count(types.output, MESSAGE)).toBe(1);
-    expect(existsSync(join(project, ".laratype/api/index.gen.ts"))).toBe(true);
+    expect(types.code, types.output).toBe(1);
+    expect(types.output).toContain(
+      "[sauf types:generate] models/User is in both app/src/models/User.ts and app/models/User.ts: rename or remove one",
+    );
+    // A failed model scan writes no models file, and the index does not drop its import for a file that is not written
+    expect(existsSync(join(project, ".laratype/types/models.d.ts"))).toBe(false);
+    expect(existsSync(join(project, ".laratype/api/index.gen.ts"))).toBe(false);
 
     expect(make.code, make.output).toBe(0);
     expect(count(make.output, MESSAGE)).toBe(1);

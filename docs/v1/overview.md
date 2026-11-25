@@ -107,7 +107,7 @@ public/             static files (view.md › Serving a Vite SPA)
 resources/
   js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
-- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
+- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, `models.d.ts` (the app's `Register['models']`, H14 [#163](https://github.com/Laratypes/Laratype/issues/163)) next to them, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
 - **Discovery:** the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125); `virtual:laratype/app` in dev, `dist/app.manifest.js` in production) lists providers, configs, routes, commands, models, migrations, seeders, factories, modules and lang, each loaded lazily through a static specifier. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
 - **0.5 layout:** other apps keep their classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`) and their factories and seeders under `app/database/`; `examples/basic` used those paths until E3 [#135](https://github.com/Laratypes/Laratype/issues/135) moved it. Dropping the 0.5 paths and `getAppPath()` is follow-up [#419](https://github.com/Laratypes/Laratype/issues/419).
 

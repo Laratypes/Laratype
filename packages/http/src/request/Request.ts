@@ -18,8 +18,8 @@ import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
 import { interceptorName } from "../interceptor/defineInterceptor";
 import type { AnyInterceptor } from "../interceptor/defineInterceptor";
 import { mountCors } from "../middleware/cors";
-import { resolveBindings } from "../routing/api/bindings";
-import type { Bindings } from "../routing/api/proof";
+import { resolveRouteBindings } from "../routing/api/bindings";
+import type { RouteBindingInput } from "../routing/api/bindings";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -85,7 +85,8 @@ type PipeLineType = {
   handler: AnyTypedMiddleware,
 } | {
   type: 'bindings',
-  bindings: Bindings,
+  /** The route's explicit map, implicit keys, scoping and path (H7/H14). */
+  input: RouteBindingInput,
 } | {
   type: 'authorization',
   authorization: NonNullable<RouteParams["authorization"]>,
@@ -314,7 +315,7 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'bindings') {
-              bound = await resolveBindings(currentPipeline.bindings, requestInstance.param());
+              bound = await resolveRouteBindings(currentPipeline.input, requestInstance.param());
               return await next(arg);
             }
             if(currentPipelineType === 'request') {
@@ -344,8 +345,11 @@ export default class Request extends AppServiceProvider {
               // With no endpoint policy, at least one scope must allow explicitly: an ability(true) passes its scope
               // only, every scope falling through is the 403 (docs/v1/http.md › Authorization from the contract)
               let explicitlyAllowed = false;
+              // A scope hook gets a frozen snapshot: a mutation cannot change the endpoint policy's arguments or
+              // ctx.params, which keep reading the record. The record's prototype is not changed either.
+              const scopeBound = Object.freeze({ ...bound });
               for (const scope of scopes) {
-                const answer = await checks.check(container.make(scope), user, ability, bound);
+                const answer = await checks.check(container.make(scope), user, ability, scopeBound);
                 // false from before or the ability is the 403 at once; a null check (before fell through and the
                 // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
                 // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403
@@ -545,8 +549,16 @@ export default class Request extends AppServiceProvider {
             : { type: 'middleware' as const, handler: m }));
         }
         // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
-        if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
-          pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        if((routeOption.bindings && Object.keys(routeOption.bindings).length) || routeOption.implicitBindings?.length) {
+          pipelines.push({
+            type: 'bindings' as const,
+            input: {
+              explicit: routeOption.bindings ?? {},
+              implicit: routeOption.implicitBindings ?? [],
+              scoped: routeOption.scopedBindings === true,
+              path: routeOption.path,
+            },
+          });
         }
         // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403
         // must come before a 422 and neither may leak a resource (H8 #122)

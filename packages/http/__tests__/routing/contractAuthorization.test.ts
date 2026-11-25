@@ -8,7 +8,7 @@ import { ContextApi, HTTP_APP } from "@laratype/support";
 import { errors, defineApi, defineContract, defineScope, endpoint } from "@laratype/contract";
 import type { ContractPrefix } from "@laratype/contract";
 import { Controller, RequestKernel, ResponseKernel, Route, contractAuth, contractPolicies, defineMiddleware, registerContractAuth, registerContractPolicies } from "../../src/index";
-import type { AnyTypedMiddleware, ApiRoutes, ContractPolicyChecks } from "../../src/index";
+import type { AnyTypedMiddleware, ApiRoutes, ContractPolicyChecks, ControllerClass } from "../../src/index";
 
 const anything = { "~standard": { version: 1, vendor: "test", validate: (value: unknown) => ({ value }) } } as const;
 const requiresName = {
@@ -82,6 +82,13 @@ class PostController extends Controller {
 class CommentsController extends Controller {
   index() { return { comments: [] }; }
 }
+/** Reads `ctx.params` after the policy chain: a scope hook must not change what the handler sees (H14 #163). */
+class CapturingPostController extends Controller {
+  update(ctx: { params: Record<string, unknown> }) {
+    return { user: (ctx.params.user as BoundUser).id, post: (ctx.params.post as BoundPost).id };
+  }
+  open() { return { open: true }; }
+}
 
 interface Call {
   readonly level: "check" | "authorize";
@@ -110,15 +117,15 @@ const checks: ContractPolicyChecks = {
   },
 };
 
-const build = (middleware: AnyTypedMiddleware | undefined = undefined) => {
+const build = (middleware: AnyTypedMiddleware | undefined = undefined, controller: ControllerClass = PostController) => {
   const routes = Route.api(appApi, (r) => {
     const bound = r.bind({ user: BoundUser, post: BoundPost });
     return [
       r.bind({ user: BoundUser }).scope("", { policy: RootPolicy }),
       r.bind({ user: BoundUser }).scope("users/[user]", { policy: UserPolicy }),
       middleware === undefined
-        ? bound.contract(posts, PostController, { policy: PostPolicy })
-        : bound.middleware(middleware).contract(posts, PostController, { policy: PostPolicy }),
+        ? bound.contract(posts, controller, { policy: PostPolicy })
+        : bound.middleware(middleware).contract(posts, controller, { policy: PostPolicy }),
       r.bind({ user: BoundUser }).contract(comments, CommentsController),
     ];
   });
@@ -177,6 +184,34 @@ describe("the contract policy chain", () => {
     // H7 resolved each model once, and the same instances reach both levels
     expect(userLookups).toEqual(["7"]);
     expect(postLookups).toEqual(["9"]);
+  });
+
+  it("a scope hook gets a frozen snapshot: a mutation cannot change the endpoint policy's args or ctx.params (H14)", async () => {
+    // A frozen object: an ES module is strict, so an assignment throws instead of changing the record. This hook
+    // catches the throw, so the chain continues and the endpoint policy and handler read the original record.
+    const frozen: ContractPolicyChecks = {
+      async check(policy, user, ability, ...args) {
+        calls.push({ level: "check", policy, user, ability, args });
+        const record = args[0] as Record<string, unknown>;
+        expect(Object.isFrozen(record)).toBe(true);
+        expect(() => { record.post = { hijacked: true }; }).toThrow(TypeError);
+        expect(() => { record.injected = true; }).toThrow(TypeError);
+        return null;
+      },
+      async authorize(policy, user, ability, ...args) {
+        calls.push({ level: "authorize", policy, user, ability, args });
+        // The endpoint policy still gets the instance H7 resolved, not the attempted replacement
+        expect(args[0]).toBeInstanceOf(BoundPost);
+        expect((args[0] as BoundPost).id).toBe("9");
+      },
+    };
+    delete (globalThis as Record<symbol, unknown>)[slot];
+    registerContractPolicies(frozen);
+    const response = await update(build(undefined, CapturingPostController));
+    expect(response.status).toBe(200);
+    // ctx.params kept the resolved user and post: no `hijacked`, no `injected`
+    expect(await response.json()).toEqual({ user: "7", post: "9" });
+    expect(calls[1]!.args[0]).not.toHaveProperty("injected");
   });
 
   it("a scope denial is the derived 403: no inner scope, no endpoint policy, no handler", async () => {

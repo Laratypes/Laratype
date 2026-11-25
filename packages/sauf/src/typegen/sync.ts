@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:p
 import { DEFAULT_BASE, DEFAULT_OUT, DEFAULT_ROOT } from "./config";
 import { emitTree } from "./emit";
 import type { GeneratedFile } from "./emit";
+import { MODELS_FILE, emitModelsFile } from "./models";
 import { ScanError, scanTree } from "./scan";
 import type { ContractTree } from "./scan";
 
@@ -55,12 +56,15 @@ function checkOutDir(projectDir: string, root: string, outDir: string) {
 }
 
 /**
- * Removes the `$types.d.ts` files under `typesDir` that this run does not rewrite (a deleted folder), then the folders
- * left empty. Nothing else is touched, so other files under `--out` survive.
+ * Removes the `$types.d.ts` files under `typesDir` that this run does not rewrite (a deleted folder), and the generated
+ * `models.d.ts` itself when the project has no models, then the folders left empty. Only a `models.d.ts` at
+ * `typesDir/models.d.ts` is generated: a same-named file in a sub-folder is the app's and survives (H14 #420 CR).
+ * Nothing else is touched, so other files under `--out` survive.
  */
 function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[] {
   const removed: string[] = [];
   if (!existsSync(typesDir)) return removed;
+  const modelsFile = resolve(typesDir, MODELS_FILE);
   const walk = (dir: string): boolean => {
     let empty = true;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -68,7 +72,11 @@ function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[]
       if (entry.isDirectory()) {
         if (walk(path)) rmdirSync(path);
         else empty = false;
-      } else if (entry.isFile() && entry.name === "$types.d.ts" && !keep.has(resolve(path))) {
+      } else if (
+        entry.isFile() &&
+        (entry.name === "$types.d.ts" || (entry.name === MODELS_FILE && resolve(path) === modelsFile)) &&
+        !keep.has(resolve(path))
+      ) {
         rmSync(path);
         removed.push(path);
       } else {
@@ -217,11 +225,13 @@ export const resolveTreePaths = (options: GenerateOptions): TreePaths => {
   return { projectDir, root, outDir, base: options.base ?? DEFAULT_BASE };
 };
 
-/** Scans the tree and writes `<out>/types/**\/$types.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
+/** Scans the tree and writes `<out>/types/**\/$types.d.ts`, `<out>/types/models.d.ts` and `<out>/api/index.gen.ts` when their content changed. */
 export function writeTree({ projectDir, root, outDir, base }: TreePaths): SyncResult {
   // With `--root .` the output folder is inside the root: its generated files are not contracts
   const tree = scanTree(resolve(projectDir, root), base, [resolve(projectDir, outDir)]);
-  const files = emitTree(tree, { root, outDir });
+  // The models file belongs to the app, not the tree: one `Register['models']` for the whole project (H14 #163)
+  const models = emitModelsFile({ projectDir, outDir });
+  const files = [...emitTree(tree, { root, outDir, models: models.length > 0 }), ...models];
   // Check the output folders and every target before any write or stale-file delete, so a junction or symlink planted
   // under the output folder that points outside the project, a linked output folder that points inside it, or a
   // generated file that is itself a link, is refused with one diagnostic and nothing is touched.
