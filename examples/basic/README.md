@@ -26,11 +26,31 @@ The route surface:
 |---|---|
 | `GET /api/users`, `POST /api/users`, `GET /api/users/:id` | `auth: true` + `UserPolicy` (`index` / `store` / `show`) |
 | `GET /api/me` | `auth: true` |
-| `POST /api/register`, `POST /api/login`, `POST /api/login/manual`, `GET /api/callback`, `GET /api/google/callback` | public |
-| `POST /api/admin/register`, `POST /api/admin/login` | public (under the admin scope, `.public()`) |
+| `POST /api/register`, `POST /api/login`, `POST /api/login/manual`, `GET /api/callback`, `GET /api/google/callback` | public; the credential routes are rate-limited to 5 requests a minute per client |
+| `POST /api/admin/login` | public, rate-limited to 5 requests a minute per client |
+| `POST /api/admin/register` | `auth: 'admin'` + `AdminPolicy.register` (an existing admin creates admins) |
 | `GET /api/admin/me` | `auth: 'admin'` + `AdminPolicy` |
 | `GET /api/admin/admins/:admin` | `auth: 'admin'` + `AdminPolicy`, explicit `r.bind({ admin: ... })` |
 | `GET /api/greeting`, `GET /api/posts`, `POST /api/posts` | public |
+
+### The first admin
+
+There is no public admin signup: `POST /api/admin/register` needs an admin token, so a fresh database gets its first
+admin from `database/seeders/AdminSeeder.ts`. Set the credentials in the environment or an uncommitted `examples/basic/.env`
+(the seeder reads `ADMIN_EMAIL` and `ADMIN_PASSWORD`, it has no hard-coded account) and run it once:
+
+```
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=<a strong password>
+```
+
+```
+cd examples/basic
+bunx sauf db:seed --class AdminSeeder
+```
+
+The seeder hashes the password through `Admin.save()` and does nothing when that email already exists. `db:seed`
+without `--class` still runs `DatabaseSeeder` (the users/posts seeders) and creates no admin.
 
 Production build and start:
 ```
