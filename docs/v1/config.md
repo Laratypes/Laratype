@@ -18,18 +18,18 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); a reserved key below an `unknown` level proposed: PR <leader fills> @ 9b5a2c3d |
-| [Environment validation](#environment-validation) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); the env file order and the shared guard proposed: PR <leader fills> @ 9b5a2c3d |
+| [Config files and config()](#config-files-and-config) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); a reserved key below an `unknown` level proposed: PR <leader fills> @ 6f2f7423 |
+| [Environment validation](#environment-validation) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); the env file order and the shared guard proposed: PR <leader fills> @ 6f2f7423 |
 
 ---
 
 ## Config files and config()
 
 ### Status
-merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the reserved-key type below an `unknown` level is proposed: PR <leader fills> @ 9b5a2c3d (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the reserved-key type below an `unknown` level is proposed: PR <leader fills> @ 6f2f7423 (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/config.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/config/ConfigLoadServiceProvider.ts)
+[`core/src/config.ts` @ 6f2f7423](https://github.com/Laratypes/Laratype/blob/6f2f7423ec6ac52f6dbcc4aa271c38c77d01991f/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 6f2f7423](https://github.com/Laratypes/Laratype/blob/6f2f7423ec6ac52f6dbcc4aa271c38c77d01991f/packages/support/src/config/ConfigLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -81,10 +81,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the env file order and the shared `isStandardSchema` guard are proposed: PR <leader fills> @ 9b5a2c3d (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the env file order and the shared `isStandardSchema` guard are proposed: PR <leader fills> @ 6f2f7423 (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/env.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/environ/validateEnv.ts), [`support/src/environ/EnvLoadServiceProvider.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/environ/EnvLoadServiceProvider.ts)
+[`core/src/env.ts` @ 6f2f7423](https://github.com/Laratypes/Laratype/blob/6f2f7423ec6ac52f6dbcc4aa271c38c77d01991f/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 6f2f7423](https://github.com/Laratypes/Laratype/blob/6f2f7423ec6ac52f6dbcc4aa271c38c77d01991f/packages/support/src/environ/validateEnv.ts), [`support/src/environ/EnvLoadServiceProvider.ts` @ 6f2f7423](https://github.com/Laratypes/Laratype/blob/6f2f7423ec6ac52f6dbcc4aa271c38c77d01991f/packages/support/src/environ/EnvLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
