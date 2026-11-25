@@ -1,0 +1,10 @@
+# Build context for bench/Dockerfile (`docker build -f bench/Dockerfile .`).
+.git
+node_modules
+**/node_modules
+**/dist
+bench/out
+.bench-types
+.env
+.env.*
+*.log
