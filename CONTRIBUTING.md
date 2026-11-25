@@ -50,16 +50,27 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
+| Release note | `bun run release:changeset <pkg> <patch\|minor\|major> "<summary>"`, commit the `.changeset/*.md` it writes |
+| Release check | `bun run release:check` (fixed versions, alpha channel, private packages) |
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
 `.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on PRs from branches of this repo, on push to `master` and on manual `workflow_dispatch` runs; the pkg.pr.new app comments the install links on the PR. Changes that touch only `docs/**` or root-level `*.md` files get no preview.
 
+## Releases
+
+Versions are fixed: every public package publishes one version (`bun run release:check` enforces it). A PR that
+changes a published package adds a `.changeset/*.md` note with `bun run release:changeset <pkg> <bump> "<summary>"`.
+A maintainer runs `bun run release:version` on a `chore/release-<version>` branch, merges the version PR and pushes
+the `v<version>` tag, which is the release intent. The alpha line publishes under the `alpha` dist-tag; `latest` only
+moves on a stable version. Full procedure, the one-time npm/GitHub settings and the `v*` tag ruleset:
+[docs/v1/build.md › CI and release](docs/v1/build.md#ci-and-release).
+
 ## Branches and commits
 
 - **Branch:** `<type>/<id>-<slug>`, with type one of `feat | fix | refactor | perf | spike | test | docs | chore | build | ci`, e.g. `feat/c3-standard-schema-adapter`.
 - **Commit:** `<type>(<area>): <summary>`, with LF line endings (see [Line endings](#line-endings)).
-- Don't bump package versions; release PRs do that.
+- Don't bump package versions; release PRs do that (`bun run release:version`). Add a changeset for a change to a published package.
 
 ## Pull requests
 
