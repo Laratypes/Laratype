@@ -464,34 +464,66 @@ type IssueMessage = { readonly message: string; readonly cut: boolean };
 
 const RECEIVED = "received ";
 
+/** The message of an issue whose own message would still carry the submitted data (H31 #308). */
+const INVALID_VALUE = "Invalid value";
+
 /** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
 const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
 
 const SEPARATOR = /[\s,:]/;
 
 /**
- * `text` without the separators left before a cut tail: `, `, `: `, ` but `, in any mix. A loop over the end of the
- * string, not a regex: the message holds submitted data, and a pattern with overlapping alternatives backtracks.
+ * The submitted data of an issue, when it is a printable primitive. A zod `invalid_type` carries a type name
+ * (`received: "string"`), not the data, so it is never scrubbed.
+ */
+const printableReceived = (issue: LibraryIssue): string | undefined => {
+  if (issue.code === "invalid_type") return undefined;
+  const { received } = issue;
+  return ["string", "number", "boolean", "bigint"].includes(typeof received) ? String(received) : undefined;
+};
+
+/**
+ * `text` without the separators left before a cut tail: `, `, `: `, ` but `, in any mix. `but` is a word at the start of
+ * the text or after one of those separators (`Expected x,but` too), never inside one (`abut`). A loop over the end of
+ * the string, not a regex: the message holds submitted data, and a pattern with overlapping alternatives backtracks.
  */
 const trimSeparators = (text: string): string => {
   let end = text.length;
   for (;;) {
     while (end > 0 && SEPARATOR.test(text[end - 1]!)) end--;
-    if (end < 4 || !/\s/.test(text[end - 4]!) || text.slice(end - 3, end).toLowerCase() !== "but") return text.slice(0, end);
+    const but = end >= 3 && text.slice(end - 3, end).toLowerCase() === "but" && (end === 3 || SEPARATOR.test(text[end - 4]!));
+    if (!but) return text.slice(0, end);
     end -= 3;
   }
 };
 
+/** Whether `message` ends in a word character at `end`: the code point before it, a surrogate pair read whole. */
+const endsInWord = (message: string, end: number): boolean => {
+  if (end < 1) return false;
+  const low = message.charCodeAt(end - 1);
+  const start = low >= 0xdc00 && low <= 0xdfff && end > 1 ? end - 2 : end - 1;
+  return ENDS_IN_WORD.test(message.slice(start, end));
+};
+
+/** A spelling of the submitted value in a default message, with its whole `received <value>` tail folded once. */
+type ReceivedTail = { readonly value: string; readonly folded: string };
+
+/** The three spellings a default message gives the value, bare or quoted, each folded once per issue. */
+const receivedTails = (received: string): readonly ReceivedTail[] =>
+  [received, `'${received}'`, `"${received}"`].map((value) => ({ value, folded: `${RECEIVED}${value}`.toLowerCase() }));
+
 /**
- * The index of `received <value>` at the end of a message, as a word, the value bare or quoted, in any case. Taken
- * in the message itself, comparing lowercased copies only: lowercasing can change a string's length (`İ` becomes
- * two code units), so an index into the lowercased message would cut too early.
+ * The index of `received <value>` at the end of a message, as a word, the value bare or quoted, in any case. The message
+ * is folded once (`folded`) and compared by index, so no step copies it; `İ` folds to two code units, so a fold that
+ * changed the length falls back to folding the tail alone (H31 #308). `endsInWord` reads the code point before the
+ * candidate whole, so `𝐱received` stays one word.
  */
-const receivedAt = (message: string, received: string): number => {
-  for (const value of [received, `'${received}'`, `"${received}"`]) {
+const receivedAt = (message: string, folded: string, tails: readonly ReceivedTail[]): number => {
+  const sameLength = folded.length === message.length;
+  for (const { value, folded: tail } of tails) {
     const at = message.length - value.length - RECEIVED.length;
-    if (at < 0 || ENDS_IN_WORD.test(message.slice(0, at))) continue;
-    if (message.slice(at).toLowerCase() === `${RECEIVED}${value}`.toLowerCase()) return at;
+    if (at < 0 || endsInWord(message, at)) continue;
+    if (sameLength ? folded.startsWith(tail, at) : message.slice(at).toLowerCase() === tail) return at;
   }
   return -1;
 };
@@ -501,19 +533,26 @@ const receivedAt = (message: string, received: string): number => {
  * last: zod 3 and valibot end with the word `received` and the issue's `received`, in any case (`Invalid enum
  * value. Expected 'a' | 'b', received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email:
  * Received "a@b"`), cut with the separators before it; zod's unrecognized keys follow the first `": "`. A zod
- * `invalid_type` keeps its `received`, a type name. Any other message, the app's own included, is kept as it is.
- * `cut` tells whether a cut left nothing (`publicIssue` turns that into `Invalid value`), so a message the app wrote
- * empty is kept empty.
+ * `invalid_type` keeps its `received`, a type name. A translated or custom message can put the value anywhere
+ * (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`): the pipeline cannot locate it, so an issue that
+ * still repeats it answers the generic `Invalid value` rather than the value (H31 #308). Any other message, the app's
+ * own included, is kept as it is. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty
+ * cut into `Invalid value`), so a message the app wrote empty is kept empty.
  */
 const issueMessage = (issue: LibraryIssue): IssueMessage => {
-  const { message, code, received, keys } = issue;
+  const { message, keys } = issue;
   if (Array.isArray(keys) && keys.length > 0) {
     const at = message.indexOf(": ");
     if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
   }
-  if (code === "invalid_type" || !["string", "number", "boolean", "bigint"].includes(typeof received)) return { message, cut: false };
-  const at = receivedAt(message, String(received));
-  return at === -1 ? { message, cut: false } : { message: trimSeparators(message.slice(0, at)), cut: true };
+  const received = printableReceived(issue);
+  if (received === undefined) return { message, cut: false };
+  const folded = message.toLowerCase();
+  const at = receivedAt(message, folded, receivedTails(received));
+  if (at !== -1) return { message: trimSeparators(message.slice(0, at)), cut: true };
+  // The value in another position: fail closed. A value the message does not carry (an app's own message, a translated
+  // one that dropped it) leaves the message as written. An empty value matches every message, so it is not searched.
+  return received !== "" && folded.includes(received.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
@@ -529,7 +568,9 @@ export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; messag
 
 /**
  * The 422 of a contract route, `{ code: "VALIDATION_ERROR", message, errors }` (docs/v1/http.md › Exceptions), as a
- * Hono `HTTPException` that `Response.resolveException` sends as it is, until H5 #108 maps a thrown `ContractError`.
+ * Hono `HTTPException` that `Response.resolveException` sends as it is. Its body is built through the catalog's
+ * `errors.validation`, so the wire shape stays the catalog's (H5 #108 mapped thrown `ContractError`s; this path keeps
+ * the plain HTTP error answer).
  */
 const unprocessable = (issues: readonly StandardIssue[]) => {
   const error = errors.validation(toErrorBag(issues.map(publicIssue)));

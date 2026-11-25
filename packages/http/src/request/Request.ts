@@ -41,6 +41,17 @@ const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
+/**
+ * The query `processData` parsed for a request, for the contract input: one parse per request, shared by the 0.5
+ * `input()` and the endpoint's query schema (H31 #308). Hono's `query()` and `queries()` parse the URL on every call,
+ * and the kernel used to call both on a contract route.
+ */
+const parsedQueryOf = new WeakMap<HonoRequest, Record<string, string | string[]>>();
+
+/** The 0.5 `input()` query values: the first value of a repeated key, as `HonoRequest.query()` answered it. */
+const firstQueryValues = (query: Record<string, string | string[]>): Record<string, string> =>
+  Object.fromEntries(Object.entries(query).map(([key, value]) => [key, Array.isArray(value) ? value[0]! : value]));
+
 /** The own enumerable keys of an extension, symbol keys included: the keys `applyExtensions()` copies. */
 const extensionKeys = (ext: object): PropertyKey[] =>
   Reflect.ownKeys(ext).filter((key) => Object.prototype.propertyIsEnumerable.call(ext, key));
@@ -222,11 +233,14 @@ export default class Request extends AppServiceProvider {
 
   /**
    * The 0.5 `input()`: the query merged with the body (`readBody`: JSON by media type, else form fields). `body` is
-   * one `readBody()` already read, so the body is parsed once.
+   * one `readBody()` already read, so the body is parsed once; the query is parsed once here and shared with the
+   * contract input of the same request (H31 #308).
    */
   public static async processData(request: HonoRequest, body?: unknown) {
+    const query = readQuery(request);
+    parsedQueryOf.set(request, query);
     request.input = {
-      ...request.query(),
+      ...firstQueryValues(query),
       ...(body === undefined ? await readBody(request) : body) as Record<string, any>,
     }
     
@@ -517,8 +531,9 @@ export default class Request extends AppServiceProvider {
     return async (ctx: Context) => {
       const body = await readBody(ctx.req);
       const requestInstance = await this.processData(ctx.req, body);
-      // A contract route's raw input: Hono builds a new params object per call; the query is read for a schema only
-      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && readQuery(ctx.req), body } };
+      // A contract route's raw input: Hono builds a new params object per call; the query is the one `processData`
+      // parsed, so a contract route parses the URL once (H31 #308)
+      const contract = endpoint && { endpoint, input: { params: ctx.req.param(), query: endpoint.def.query && parsedQueryOf.get(ctx.req), body } };
       const transformedRequest = this.transformRequest(requestInstance, routeOption);
       // For request.ip() (A5 #288, H30 #299). Non-enumerable, so logging or serializing the request doesn't copy the
       // Hono context, and the adapter's getConnInfo still reads the request's own context

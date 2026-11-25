@@ -3,6 +3,7 @@
 import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { HonoRequest } from 'hono/request'
 import { bodyLimit } from 'hono/body-limit'
 import { validator } from 'hono/validator'
 import type { MiddlewareHandler } from 'hono'
@@ -66,6 +67,17 @@ describe('a contract route', () => {
     expect(await (await app().request('/api/users/7/posts?page=2')).json()).toEqual({ query: { page: 2 } })
     expect(await (await app().request('/api/users/7/posts')).json()).toEqual({ query: { page: 1 } })
     expect(await (await app().request('/api/users/7/posts?tag=a&tag=b')).json()).toEqual({ query: { page: 1, tag: ['a', 'b'] } })
+  })
+
+  it('parses the query once per request (H31 #308)', async () => {
+    quiet()
+    const queries = vi.spyOn(HonoRequest.prototype, 'queries')
+    const query = vi.spyOn(HonoRequest.prototype, 'query')
+    const response = await app().request('/api/users/7/posts?page=2&tag=a&tag=b')
+    expect(response.status).toBe(200)
+    // the contract input and the 0.5 input() share one parse: Hono's query() and queries() parse the URL on every call
+    expect(queries).toHaveBeenCalledTimes(1)
+    expect(query).not.toHaveBeenCalled()
   })
 
   it('passes the body output, and keeps query and body apart', async () => {
@@ -171,15 +183,33 @@ describe('a contract route', () => {
     [{ message: 'Invalid email: Received "SECRET"', received: '"secret"' }, 'Invalid email'],
     // nothing left once the value is cut
     [{ message: 'Received "secret"', received: '"secret"' }, 'Invalid value'],
-    // "received" inside a word is not the tail, whole code points and combining marks included
-    [{ message: 'Field unreceived 5', received: 5 }, 'Field unreceived 5'],
-    [{ message: '𝐱received 5', received: 5 }, '𝐱received 5'],
-    [{ message: 'e\u0301received 5', received: 5 }, 'e\u0301received 5'],
+    // "received" inside a word is not the tail, and a value the message does not carry leaves it
+    [{ message: 'Field unreceived 5', received: 7 }, 'Field unreceived 5'],
+    [{ message: '𝐱received 5', received: 7 }, '𝐱received 5'],
+    [{ message: 'e\u0301received 5', received: 7 }, 'e\u0301received 5'],
+    // a value the message carries anywhere is dropped, word boundary or not (H31 #308)
+    [{ message: 'Field unreceived 5', received: 5 }, 'Invalid value'],
     // every separator before the tail goes
     [{ message: 'Invalid: but received "x"', received: '"x"' }, 'Invalid'],
     [{ message: 'Expected x,  but  :, received 5', received: 5 }, 'Expected x'],
-    // "but" only as a word
-    [{ message: 'Expected abut received 5', received: 5 }, 'Expected abut'],
+    // "but" is a word after any separator, not only a space
+    [{ message: 'Expected x,but received 7', received: 7 }, 'Expected x'],
+    // a cut that leaves only `but` says nothing
+    [{ message: 'but received 7', received: 7 }, 'Invalid value'],
+    // a translated default message that repeats the value: the pipeline cannot locate it, so the generic message
+    [{ message: "Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'", received: 'secret' }, 'Invalid value'],
+    // a translated message that does not repeat the value is kept
+    [{ message: 'Ungültiger Enum-Wert.', received: 'secret' }, 'Ungültiger Enum-Wert.'],
+    // an empty value matches every message: it is not searched
+    [{ message: 'Ungültiger Enum-Wert.', received: '' }, 'Ungültiger Enum-Wert.'],
+    // a zod invalid_type keeps its type name, even when the message repeats it
+    [{ message: 'Invalid input: expected string, received string', code: 'invalid_type', received: 'string' }, 'Invalid input: expected string, received string'],
+    // a value that is not a printable primitive (an object, null) is no data to look for
+    [{ message: 'Invalid value', received: { secret: 'detail' } }, 'Invalid value'],
+    [{ message: 'Invalid value', received: null }, 'Invalid value'],
+    [{ message: 'Invalid value', received: NaN }, 'Invalid value'],
+    // lone surrogates and control characters in the message never throw
+    [{ message: 'Bad \uD800\u0007 value', received: 'secret' }, 'Bad \uD800\u0007 value'],
     // unrecognized keys with nothing before them
     [{ message: ': a', keys: ['a'] }, 'Invalid value'],
     // ... and with blank separators before them
@@ -245,6 +275,11 @@ describe('the body by media type (H26 #287)', () => {
     'application/json;charset=UTF-8',
     // OWS before the `;`, as RFC 9110 §8.3.1 allows
     'application/json ; charset=utf-8',
+    // an empty parameter list, `_` in a parameter name, a quoted `;` in a value, `+` in the vendor subtype (H31 #308)
+    'application/json;',
+    'application/json; a_b=c',
+    'application/json; a="x;y"',
+    'application/vnd.a+b+json',
     'application/vnd.api+json',
     // a digit in the vendor prefix: Hono's own regex misses it (#287)
     'application/vnd.github.v3+json',
@@ -270,6 +305,17 @@ describe('the body by media type (H26 #287)', () => {
     const encoded = await app.request('/users', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=grace&user.age=45' })
     expect(encoded.status).toBe(201)
     expect(validated()).toEqual({ name: 'grace', user: { age: '45' } })
+  })
+
+  it('keeps a leading-space urlencoded key whole (H31 #308, the #340 read)', async () => {
+    quiet()
+    // The pipeline reads the whole body with arrayBuffer(), so no chunk boundary can drop the leading whitespace
+    class Echo extends LaratypeRequest {}
+    class Controllers extends Controller { store(req: Echo) { return req.input() } }
+    const app = bootApp()
+    app.post('/echo', RequestKernel.handle({ method: 'post', path: '/echo', request: Echo, controller: [Controllers, 'store'] }))
+    const response = await app.request('/echo', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: ' a=1' })
+    expect(await response.json()).toEqual({ ' a': '1' })
   })
 
   it('a multipart file field is a web File', async () => {
