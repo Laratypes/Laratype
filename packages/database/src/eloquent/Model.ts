@@ -1,4 +1,4 @@
-import { Hash } from "@laratype/support";
+import { Hash, isTrustedHash, type TrustedHash } from "@laratype/support";
 import {
   BaseEntity,
   type ColumnType,
@@ -9,6 +9,7 @@ import {
   type FindOptionsWhere,
   Raw,
   type SaveOptions,
+  type UpdateResult,
 } from "typeorm";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
@@ -29,6 +30,12 @@ export type PrimaryKeyValue = string | number | bigint;
 
 /** A model class: the instance type its statics return, plus the TypeORM `BaseEntity` statics they call. */
 export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & typeof BaseEntity;
+
+/**
+ * The write input of `save()`, `update()` and `updateFor()`: a plain row where the credential column may also be a
+ * `Hash.trusted()` value, stored as it is instead of being hashed again (docs/v1/database.md › Model).
+ */
+export type TrustedInput<T> = DeepPartial<{ [K in keyof T]: T[K] | TrustedHash }>;
 
 /** The drivers whose route-key time range the lookup knows; any other driver takes the strict common range. */
 type RouteKeyDriver = "mysql" | "postgres" | "mssql" | "unknown";
@@ -368,16 +375,48 @@ const findOneByRouteKey = <T extends BaseEntity>(
   return model.findOne(options) as Promise<T | null>;
 };
 
-const cast = (input: Record<string, any>, passwordField: string) => {
+/**
+ * The credential value of one write: a `Hash.trusted()` value is stored as it is, every other value is hashed with
+ * `Hash.makeAsync()` (scrypt on the libuv pool), even a string that looks like a hash, so request input never chooses
+ * the stored credential. The facade call keeps a custom Hasher's async fallback.
+ */
+const castPassword = async (model: string, key: string, value: unknown): Promise<string> => {
+  if (isTrustedHash(value)) return value.hash;
+  if (typeof value !== "string") {
+    throw new TypeError(
+      `[@laratype/database] ${model} credential cast: "${key}" takes a string or Hash.trusted(hash), got ${valueType(value)}`,
+    );
+  }
+  return Hash.makeAsync(value);
+};
+
+const cast = async (model: string, input: Record<string, any>, passwordField: string): Promise<Record<string, any>> => {
   const result: Record<string, any> = {};
   for (const key in input) {
-    result[key] = input[key];
-    // A value that is already a hash is stored as it is, not hashed again
-    if (key === passwordField && !Hash.isHashed(input[key])) {
-      result[key] = Hash.make(input[key]);
+    const value = input[key];
+    // A TrustedHash only means something for the credential column; anywhere else it would reach TypeORM as an object
+    if (key !== passwordField && isTrustedHash(value)) {
+      throw new TypeError(
+        `[@laratype/database] ${model} credential cast: Hash.trusted() is only for the "${passwordField}" column, not "${key}"`,
+      );
     }
+    result[key] = key === passwordField ? await castPassword(model, key, value) : value;
   }
   return result;
+}
+
+/** Whether a where object, an array of them, or a nested relation object names the credential column. */
+const carriesPassword = (where: unknown, passwordField: string, seen: WeakSet<object>): boolean => {
+  if (Array.isArray(where)) {
+    if (seen.has(where)) return false;
+    seen.add(where);
+    return where.some((entry) => carriesPassword(entry, passwordField, seen));
+  }
+  if (where === null || typeof where !== "object") return false;
+  if (seen.has(where)) return false;
+  seen.add(where);
+  if (Object.prototype.hasOwnProperty.call(where, passwordField)) return true;
+  return Object.values(where).some((value) => carriesPassword(value, passwordField, seen));
 }
 
 const fillableGuard = (input: Record<string, any>, fillable: string[]) => {
@@ -545,60 +584,77 @@ export default class Model extends BaseEntity {
    */
   static save<T extends BaseEntity>(
     this: ModelClass<T>,
-    entities: DeepPartial<T>[],
+    entities: Array<DeepPartial<T> | TrustedInput<T>>,
     options?: SaveOptions,
   ): Promise<T[]>;
   /**
    * Saves a given entity in the database.
    * If entity does not exist in the database then inserts, otherwise updates.
    */
-  static save<T extends BaseEntity>(this: ModelClass<T>, entity: DeepPartial<T>, options?: SaveOptions): Promise<T>;
+  static save<T extends BaseEntity>(
+    this: ModelClass<T>,
+    entity: DeepPartial<T> | TrustedInput<T>,
+    options?: SaveOptions,
+  ): Promise<T>;
 
-  static save(data: any, options?: SaveOptions) {
+  static async save(data: any, options?: SaveOptions) {
     if(Array.isArray(data)) {
       const input: Record<string, any>[] = [];
-      data.forEach(item => {
-        const castedItem = cast(fillableGuard(item, this.fillable), this.passwordField);
-        input.push(castedItem);
-      });
+      // Sequential: each derivation costs 16 MiB, so an array must not queue one per row at once
+      for (const item of data) {
+        input.push(await cast(this.name, fillableGuard(item, this.fillable), this.passwordField));
+      }
       return super.save(input, options);
     }
 
-    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
+    const input = await cast(this.name, fillableGuard(data, this.fillable), this.passwordField);
     return super.save(input, options);
   }
 
-  static update(criteria: any, data: any) {
-    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
-    
+  static update<T extends BaseEntity>(
+    this: ModelClass<T>,
+    criteria: any,
+    data: DeepPartial<T> | TrustedInput<T>,
+  ): Promise<UpdateResult>;
+
+  static async update(criteria: any, data: any): Promise<UpdateResult> {
+    const input = await cast(this.name, fillableGuard(data, this.fillable), this.passwordField);
+
     return super.update(criteria, input);
   }
 
   /**
    * Updates the given model with provided data.
    */
-  static updateFor<T extends BaseEntity>(this: ModelClass<T>, model: T, data: DeepPartial<T>): Promise<T>;
+  static updateFor<T extends BaseEntity>(
+    this: ModelClass<T>,
+    model: T,
+    data: DeepPartial<T> | TrustedInput<T>,
+  ): Promise<T>;
 
-  static updateFor(model: any, data: any) {
-    const input = cast(fillableGuard(data, this.fillable), this.passwordField);
+  static async updateFor(model: any, data: any) {
+    const input = await cast(this.name, fillableGuard(data, this.fillable), this.passwordField);
     for (const field in input) {
       if(Object.prototype.hasOwnProperty.call(model, field)) {
         model[field] = input[field];
       }
     }
 
-    return model.save().then(() => model);
+    await model.save();
+    return model;
   }
 
   /**
-   * Finds first entity that matches given conditions.
+   * Finds first entity that matches given conditions. A where object, an array of where objects or a nested relation
+   * object that names the credential column rejects: a salted hash never matches in a query.
    */
   static findOneBy<T extends BaseEntity>(this: ModelClass<T>, where: FindOptionsWhere<T>): any;
-  
+
   // Not cast: a salted password hash never matches in a where clause; check it with Hash.check() after the lookup
-  static findOneBy(where: any) {
-    // A 0.5 caller's { email, password } would put a plain password in the SQL parameters and never match a hash
-    if (where && typeof where === 'object' && Object.prototype.hasOwnProperty.call(where, this.passwordField)) {
+  static async findOneBy(where: any): Promise<any> {
+    // A 0.5 caller's { email, password }, an array of conditions or a nested where would put a plain password in the
+    // SQL parameters and never match a hash
+    if (carriesPassword(where, this.passwordField, new WeakSet())) {
       throw new Error(
         "[@laratype/database] findOneBy() cannot look a user up by password: look the user up without it, then check the password with Hash.check()",
       );
