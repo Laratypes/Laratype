@@ -56,13 +56,15 @@ function checkOutDir(projectDir: string, root: string, outDir: string) {
 }
 
 /**
- * Removes the `$types.d.ts` files under `typesDir` that this run does not rewrite (a deleted folder), and the
- * `models.d.ts` of a project without models, then the folders left empty. Nothing else is touched, so other files under
- * `--out` survive.
+ * Removes the `$types.d.ts` files under `typesDir` that this run does not rewrite (a deleted folder), and the generated
+ * `models.d.ts` itself when the project has no models, then the folders left empty. Only a `models.d.ts` at
+ * `typesDir/models.d.ts` is generated: a same-named file in a sub-folder is the app's and survives (H14 #420 CR).
+ * Nothing else is touched, so other files under `--out` survive.
  */
 function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[] {
   const removed: string[] = [];
   if (!existsSync(typesDir)) return removed;
+  const modelsFile = resolve(typesDir, MODELS_FILE);
   const walk = (dir: string): boolean => {
     let empty = true;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -70,7 +72,11 @@ function removeStaleTypes(typesDir: string, keep: ReadonlySet<string>): string[]
       if (entry.isDirectory()) {
         if (walk(path)) rmdirSync(path);
         else empty = false;
-      } else if (entry.isFile() && (entry.name === "$types.d.ts" || entry.name === MODELS_FILE) && !keep.has(resolve(path))) {
+      } else if (
+        entry.isFile() &&
+        (entry.name === "$types.d.ts" || (entry.name === MODELS_FILE && resolve(path) === modelsFile)) &&
+        !keep.has(resolve(path))
+      ) {
         rmSync(path);
         removed.push(path);
       } else {

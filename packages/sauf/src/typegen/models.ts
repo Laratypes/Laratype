@@ -28,7 +28,14 @@ export interface ModelsFileOptions {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const stripExtension = (path: string) => path.replace(/\.[cm]?[jt]s$/, "");
+
+/**
+ * The model's module path in the generated import: `.ts` / `.js` stay extension-less (the project's tsc resolves them
+ * like any app import), while `.mts` becomes `.mjs` and `.mjs` keeps its extension: TypeScript resolves an
+ * extension-less import to neither `.mts` nor `.mjs` (H14 #420 CR).
+ */
+const modelSpecifier = (path: string) =>
+  path.endsWith(".mts") ? `${path.slice(0, -".mts".length)}.mjs` : path.endsWith(".mjs") ? path : path.replace(/\.[cm]?[jt]s$/, "");
 
 /** The keys of the app's models, checked and sorted: `{ key, path }`, with `__proto__` and collisions refused. */
 export function modelKeys(entries: readonly ScannedEntry[]): { readonly key: string; readonly path: string }[] {
@@ -55,26 +62,27 @@ export function modelKeys(entries: readonly ScannedEntry[]): { readonly key: str
 }
 
 /**
- * `models.d.ts` for the app's model files, or nothing when the project has none (the writer removes a stale file).
- * Imports are extension-less, so the project's tsc resolves each module as it does any other app import; the
- * identifiers are `M0`, `M1`, ... in key order, so no model file name can make the file collide or not parse.
+ * `models.d.ts` for the app's model files, or nothing when the project has none (the writer removes a stale file). A
+ * manifest scan failure fails the run with its diagnostic instead: returning an empty list would delete the last good
+ * file and drop its `index.gen.ts` import (H14 #420 CR). Imports use the module extension a `.mts` / `.mjs` model
+ * needs; the identifiers are `M0`, `M1`, ... in key order, so no model file name can make the file collide or not
+ * parse.
  */
 export function emitModelsFile({ projectDir, outDir }: ModelsFileOptions): GeneratedFile[] {
   let entries: ScannedEntry[];
   try {
     entries = scanModels(projectDir);
   } catch (error) {
-    // A manifest scan error (one model name in both layouts) is reported once by the command's manifest load (the dev
-    // manifest plugin in `sauf dev`); a folder whose model list is ambiguous has no keys to write. The typegen's own
-    // errors (a camelize collision, `__proto__`) still fail.
-    if (error instanceof ManifestScanError) return [];
+    // A manifest scan error (one model name in both layouts) must fail the command with its diagnostic, never look
+    // like "no models": the types would silently disappear until the duplicate is fixed.
+    if (error instanceof ManifestScanError) throw new ScanError(error.message);
     throw error;
   }
   const models = modelKeys(entries);
   if (models.length === 0) return [];
   const from = posix.join(outDir.replace(/\\/g, "/"), "types");
   const specifier = (path: string) => {
-    const relative = posix.relative(from, stripExtension(path.replace(/\\/g, "/")));
+    const relative = posix.relative(from, modelSpecifier(path.replace(/\\/g, "/")));
     return relative.startsWith(".") ? relative : `./${relative}`;
   };
   const imports = models.map((model, index) => `import type M${index} from ${quote(specifier(model.path))}`);
