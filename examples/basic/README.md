@@ -52,6 +52,9 @@ bunx sauf db:seed --class AdminSeeder
 The seeder hashes the password through `Admin.save()` and does nothing when that email already exists. `db:seed`
 without `--class` still runs `DatabaseSeeder` (the users/posts seeders) and creates no admin.
 
+`ADMIN_PASSWORD` must be 8 to 128 characters (the register and login bounds). Remove `ADMIN_PASSWORD` from `.env`
+after seeding: the account keeps its hash, and nothing else reads the plain value.
+
 Production build and start:
 ```
 cd examples/basic
