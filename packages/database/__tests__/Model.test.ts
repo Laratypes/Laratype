@@ -111,9 +111,15 @@ describe('Model password cast', () => {
       { user: { email: 'ada@example.com', password: 'secret' } },
       [{ user: { password: 'secret' } }],
       { email: 'ada@example.com', password: undefined },
+      // JSON.parse() makes __proto__ an own data key, and its object is walked like any other nested where
+      JSON.parse('{"__proto__":{"password":"secret"}}'),
     ]) {
       await expect(User.findOneBy(where as any)).rejects.toThrow(message)
     }
+    // A non-enumerable own password key is refused too
+    const hidden: any = { email: 'ada@example.com' }
+    Object.defineProperty(hidden, 'password', { value: 'secret', enumerable: false })
+    await expect(User.findOneBy(hidden)).rejects.toThrow(message)
     expect(lookups).toEqual([])
   })
 
@@ -142,8 +148,12 @@ describe('Model password cast', () => {
     }
     await expect(User.update({ email: 'ada@example.com' }, { password: 1 as any }))
       .rejects.toThrow('credential cast')
+    const row: any = Object.assign(new User(), { id: 1, email: 'ada@example.com', password: 'old' })
+    row.save = async () => row
+    await expect(User.updateFor(row, { password: 1 as any })).rejects.toThrow('credential cast')
     expect(saved).toEqual([])
     expect(updates).toEqual([])
+    expect(row.password).toBe('old')
   })
 
   it('hashes an array sequentially and writes nothing when one item fails', async () => {
@@ -172,10 +182,11 @@ describe('Model password cast', () => {
     expect(saved).toEqual([])
   })
 
-  it('hashes off the event loop: a timer ticks before save() settles', async () => {
+  it('hashes save(), update() and updateFor() off the event loop', async () => {
     const { User } = model()
     const syncScrypt = vi.spyOn(crypto, 'scryptSync')
     const syncMake = vi.spyOn(Hash, 'make')
+    const makeAsync = vi.spyOn(Hash, 'makeAsync')
     const tick = new Promise((resolve) => setTimeout(resolve, 0))
     let settled = false
     const saving = User.save({ email: 'ada@example.com', password: 'secret' }).finally(() => {
@@ -184,6 +195,11 @@ describe('Model password cast', () => {
     await tick
     expect(settled).toBe(false)
     await saving
+    await User.update({ email: 'ada@example.com' }, { password: 'secret' })
+    const row: any = Object.assign(new User(), { id: 1, email: 'ada@example.com', password: 'old' })
+    row.save = async () => row
+    await User.updateFor(row, { password: 'secret' })
+    expect(makeAsync).toHaveBeenCalledTimes(3)
     expect(syncScrypt).not.toHaveBeenCalled()
     expect(syncMake).not.toHaveBeenCalled()
   })
