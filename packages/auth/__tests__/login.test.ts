@@ -492,4 +492,29 @@ describe('PassportGuard.verifyLocal()', () => {
     )
     expect(use).not.toHaveBeenCalled()
   })
+
+  it('fails boot on a guard/model passwordField mismatch, as attempt() does', () => {
+    const { User } = fakeModel([], { declared: 'pass' })
+    const guard = new PassportGuard('web', configOf(User, { passwordField: 'password' }).guards.web as any)
+    const use = vi.fn()
+    expect(() => guard.register({ use } as any, undefined)).toThrow(
+      '[@laratype/auth] User hashes "pass", not the guard\'s passwordField "password": set static passwordField on the model, or use the same name in options.',
+    )
+    expect(use).not.toHaveBeenCalled()
+
+    const { User: Default } = fakeModel([], { declared: 'password' })
+    const defaultGuard = new PassportGuard('web', configOf(Default, { passwordField: 'pass' }).guards.web as any)
+    expect(() => defaultGuard.register({ use } as any, undefined)).toThrow(
+      '[@laratype/auth] User hashes "password", not the guard\'s passwordField "pass"',
+    )
+  })
+
+  it('keeps boot working for a provider with no declared passwordField', () => {
+    // A 0.5 model that does not extend v1 Model has no static passwordField: the option is the only source
+    class Plain {}
+    const guard = new PassportGuard('web', configOf(Plain, { passwordField: 'pass' }).guards.web as any)
+    const use = vi.fn()
+    guard.register({ use } as any, undefined)
+    expect(use).toHaveBeenCalledTimes(1)
+  })
 })
