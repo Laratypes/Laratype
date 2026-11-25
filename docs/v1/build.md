@@ -25,7 +25,7 @@ v1 has one plugin chain for `sauf dev`, `sauf build` and tests, so DI metadata a
 | [Testing preset](#testing-preset) | planned → #131 |
 | [Browser targets and budgets](#browser-targets-and-budgets) | planned → #132 |
 | [Bun DI plugin](#bun-di-plugin) | proposed: PR #324 @ 6d0af35 |
-| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed: PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ d8ca303c → [#190](https://github.com/Laratypes/Laratype/issues/190) |
+| [CI and release](#ci-and-release) | partly merged ([#189](https://github.com/Laratypes/Laratype/issues/189)); B15 proposed: PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ 78e081a9 → [#190](https://github.com/Laratypes/Laratype/issues/190) |
 | [Type-performance benchmark](#type-performance-benchmark) | proposed: PR [#360](https://github.com/Laratypes/Laratype/pull/360) @ e7cbc00 |
 
 ---
@@ -239,7 +239,7 @@ proposed: PR #324 @ 6d0af35 (T4 [#116](https://github.com/Laratypes/Laratype/iss
 ## CI and release
 
 ### Status
-B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ d8ca303c: the fixed-version
+B15 ([#190](https://github.com/Laratypes/Laratype/issues/190)) is proposed in PR [#421](https://github.com/Laratypes/Laratype/pull/421) @ 78e081a9: the fixed-version
 release tool (`scripts/release/`), the `v*`-tag publish workflow inside the `npm-release` environment, and the `alpha`
 dist-tag.
 Its Done-when needs the user (one alpha publish from CI, the npm trusted publishers, deleting `NPM_TOKEN`), so the PR
@@ -316,8 +316,13 @@ rule; what remains of B14 is workflow hardening. Dependabot version updates: pro
   only admins can create, move or delete one.
 - **Trusted publishers** for every public package: npmjs.com › *package* › Settings › Trusted publishing › GitHub
   Actions: organization/user `Laratypes`, repository `Laratype`, workflow file `release-npm.yml`, environment
-  `npm-release`. The 10 existing packages can be configured now; `@laratype/client`, `@laratype/contract` and
-  `@laratype/core` only after their first publish (the page exists only once the package does).
+  `npm-release`. A connection created after 2026-09-03 allows only `npm stage publish` by default, so tick
+  **Allowed actions › npm publish** for every package; otherwise the workflow's direct `npm publish` is rejected.
+  Leave **npm dist-tag** off: the workflow passes the dist-tag to `npm publish --tag` and never calls `npm dist-tag`
+  (the optional `npm dist-tag add` after the first publish runs under your own npm login, not this connection). A
+  connection cannot be edited after it is created, so a wrong setting means delete and recreate it. The 10 existing
+  packages can be configured now; `@laratype/client`, `@laratype/contract` and `@laratype/core` only after their first
+  publish (the page exists only once the package does).
 - **First publish of the three new packages** (OIDC cannot create a package): after the first version PR is merged, on
   that commit, with an npm account that can publish the `@laratype` scope:
   ```sh
