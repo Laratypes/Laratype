@@ -9,8 +9,5 @@ export default defineConfig({
   },
   test: {
     alias: entries,
-    coverage: {
-      include: ['packages/*/src/**'],
-    }
   },
 })
