@@ -6,7 +6,8 @@
   "workspaces": {
     "packages": [
       "packages/*",
-      "examples/*"
+      "examples/*",
+      "bench"
     ],
     "catalog": {
       "vite": "^7.1.9",
@@ -27,6 +28,8 @@
     "url": "git+https://github.com/Laratypes/Laratype.git"
   },
   "scripts": {
+    "bench": "bun bench/run.mjs",
+    "bench:smoke": "bun bench/run.mjs --smoke",
     "bench:types": "node scripts/bench-types/run.mjs",
     "build": "bun bun.build.js",
     "build:type": "tsc -p tsconfig.build.json && rollup -c rollup.dts.config.js",
