@@ -1,6 +1,6 @@
 import { ENV_CONFIG_NAME } from "@laratype/core";
 import type { EnvDefinition } from "@laratype/core";
-import { validate } from "@laratype/contract";
+import { isStandardSchema, validate } from "@laratype/contract";
 import type { StandardIssue } from "@laratype/contract";
 
 /** One failing variable. The message is fixed: schema text may quote a value (see `validateEnv`). */
@@ -67,7 +67,7 @@ const nameOf = (issue: StandardIssue, env: Readonly<Record<string, string | unde
  * message are printed. An error the schema throws (a transform's `new URL(value)`) is replaced for the same reason.
  */
 export const validateEnv = async (definition: EnvDefinition, source: Readonly<Record<string, string | undefined>>): Promise<void> => {
-  if (typeof definition?.schema?.["~standard"]?.validate !== "function") {
+  if (!isStandardSchema(definition?.schema)) {
     throw new TypeError(NOT_DEFINE_ENV);
   }
   // A copy: a schema that transforms its input never changes process.env
