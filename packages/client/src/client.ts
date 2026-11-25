@@ -313,8 +313,9 @@ const preflight = (url: string, init: ClientRequest["init"], path: string): void
  * `buildUrl` only sees the route path; the result is then joined to `baseUrl`'s path with the server's `joinPath`, so
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
- * Headers: `options.headers` (a value is copied at createClient, a function is called, and awaited, at each call),
- * overridden by the call's own `headers`; then `content-type: application/json` for a body when neither sets one.
+ * Headers: `options.headers` (a value is copied at createClient, a function is called, and awaited, at each call; a
+ * reassigned `options.headers` rejects the call), overridden by the call's own `headers`; then
+ * `content-type: application/json` for a body when neither sets one.
  * `options.credentials` is set when given, and `init.redirect` is set on every call, from `options.redirect`, default
  * `"manual"`; `onRequest` can still override it.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
@@ -355,6 +356,11 @@ const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlS
   const headersOption = options.headers;
   const fixedHeaders = typeof headersOption === "function" ? undefined : new Headers(headersOption);
   return async (method, path, input = {}) => {
+    // #326: a reassigned options.headers would send something other than the snapshot (a logout, a new token) with no
+    // error. Fail closed instead; in-place mutation of a copied value is the documented, undetected case.
+    if (options.headers !== headersOption) {
+      fail("options.headers was replaced after createClient: use the headers function form, or create a new client");
+    }
     const { baseUrl, fetch: injected, credentials, redirect = "manual", onRequest, onResponse } = options;
     const [origin, basePath] = split(baseUrl ?? "");
     const built = buildUrl(path, { params: input.params, query: input.query });
@@ -383,14 +389,13 @@ const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlS
     const { signal } = input;
     throwIfAborted(signal);
     let headers: Headers;
-    if (fixedHeaders) {
+    if (typeof headersOption === "function") {
+      // called on the options object, so a method-style `headers()` sees `this`, and may return undefined
+      headers = new Headers(await headersOption.call(options));
+      throwIfAborted(signal);
+    } else {
       // a copy per call: onRequest may change it, and a call never sees another one's headers
       headers = new Headers(fixedHeaders);
-    } else {
-      // called on the options object, so a method-style `headers()` sees `this`, and may return undefined
-      const defaults = options.headers;
-      headers = new Headers(typeof defaults === "function" ? await defaults.call(options) : undefined);
-      throwIfAborted(signal);
     }
     for (const [key, value] of Object.entries(input.headers ?? {})) {
       if (value !== undefined) headers.set(key, value);

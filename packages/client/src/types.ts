@@ -338,6 +338,10 @@ export interface ClientOptions<Hd extends HeadersInit = HeadersInit> {
    * headers schema requires them. A function is called (and awaited) at each call, so it can return a fresh auth token;
    * it may be async and may return `undefined` (no default headers for that call). Its headers are known only when it
    * runs, so it provides none to the types.
+   *
+   * The option is read once at `createClient`: reassigning it (to another value or function, or from absent) rejects
+   * every call, since the types and the snapshot would no longer match what is sent. Mutating a value in place is not
+   * detected. Recreate the client, or use the function form, to change headers.
    */
   headers?: Hd | (() => HeadersInit | undefined | Promise<HeadersInit | undefined>);
   /**

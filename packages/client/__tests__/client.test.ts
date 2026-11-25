@@ -161,12 +161,41 @@ describe('createClient', () => {
     await api.users.index()
     options.baseUrl = 'https://b.example'
     headers.authorization = 'Bearer new'
-    options.headers = { authorization: 'Bearer replaced' }
     options.fetch = second.fetch
     await api.users.index()
     expect(first.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://a.example/api/users', 'Bearer old']])
-    // the value was copied at createClient: the mutation and the replacement change nothing; baseUrl and fetch are live
+    // the value was copied at createClient: mutating it in place changes nothing (undetected); baseUrl and fetch are live
     expect(second.calls.map((c) => [c.url, c.headers.authorization])).toEqual([['https://b.example/api/users', 'Bearer old']])
+  })
+
+  it('rejects a call when options.headers is replaced after createClient, whatever the new form (#326)', async () => {
+    const replacement =
+      '[@laratype/client] options.headers was replaced after createClient: use the headers function form, or create a new client'
+
+    const value = fakeFetch()
+    const valueOptions: ClientOptions = { fetch: value.fetch, headers: { authorization: 'Bearer old' } }
+    const valueApi = createClient(appApi, valueOptions)
+    await valueApi.users.index()
+    valueOptions.headers = {}
+    await expect(valueApi.users.index()).rejects.toThrow(replacement)
+    expect(value.fetch).toHaveBeenCalledTimes(1)
+
+    // absent at createClient, then a function: the types still claim nothing, so it is refused too
+    const absent = fakeFetch()
+    const absentOptions: ClientOptions = { fetch: absent.fetch }
+    const absentApi = createClient(appApi, absentOptions)
+    absentOptions.headers = () => ({ authorization: 'Bearer new' })
+    await expect(absentApi.users.index()).rejects.toThrow(replacement)
+    expect(absent.fetch).not.toHaveBeenCalled()
+
+    // one function replaced by another: the captured function keeps its own `this` and closure, so the new one is refused
+    const changed = fakeFetch()
+    const changedOptions: ClientOptions = { fetch: changed.fetch, headers: () => ({ authorization: 'Bearer a' }) }
+    const changedApi = createClient(appApi, changedOptions)
+    await changedApi.users.index()
+    changedOptions.headers = () => ({ authorization: 'Bearer b' })
+    await expect(changedApi.users.index()).rejects.toThrow(replacement)
+    expect(changed.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('copies a headers object, a pairs array and a Headers at createClient; the function form stays live (#326)', async () => {
