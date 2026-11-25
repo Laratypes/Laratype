@@ -3,4 +3,5 @@ export default [
   './vitest.typecheck.config.ts',
   './vitest.examples.config.ts',
   './vitest.fullstack-vue.config.ts',
+  './vitest.bench.config.ts',
 ]

@@ -7,11 +7,17 @@
  * always runs on Node (never on the Bun under test), so the generator is constant. Output is a JSON + Markdown report
  * under bench/out (gitignored).
  *
+ * **Run it only in bench/Dockerfile or the `bench` GitHub workflow, never on a developer machine.** The pure helpers
+ * (flags, report, wire fixtures, commit fallback) live in bench/lib and are covered by `bench/__tests__`.
+ *
  * Usage: bun bench/run.mjs [--apps ...] [--runtimes node,bun] [--scenario name] [--connections 50] [--duration 10]
  *        [--warmup 2] [--smoke] [--node <path>] [--bun <path>] [--out <dir>] [--allow-node-mismatch]
  *
- * `BENCH_NODE` / `BENCH_BUN` set the runtime binaries without a flag; `BENCH_ALLOW_NODE_MISMATCH=1` is the env form of
- * `--allow-node-mismatch`. `--smoke` also honours `--apps` / `--runtimes` and always uses a 1 s autocannon run.
+ * Every flag has a `BENCH_*` environment variable (the CI dispatch inputs): `BENCH_APPS`, `BENCH_RUNTIMES`,
+ * `BENCH_SCENARIO`, `BENCH_CONNECTIONS`, `BENCH_DURATION`, `BENCH_WARMUP`, `BENCH_OUT`, `BENCH_NODE`, `BENCH_BUN`.
+ * `BENCH_ALLOW_NODE_MISMATCH=1` is the env form of `--allow-node-mismatch`, and `BENCH_GIT_SHA` / `BENCH_GIT_BRANCH` /
+ * `BENCH_GIT_DIRTY=1` replace git metadata when the build context has no `.git` (the Docker image). Flags win over the
+ * environment. `--smoke` also honours `--apps` / `--runtimes` and always uses a 1 s autocannon run.
  */
 import { spawn, spawnSync, execFile } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -22,69 +28,35 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scenarios, skipped } from './scenarios.mjs'
+import { parseArgs, usageLines, UsageError } from './lib/args.mjs'
+import { resolveGitInfo } from './lib/git-info.mjs'
+import { buildReport, markdown, reportBaseName, round } from './lib/report.mjs'
+import { autocannonArgs, requestFor, responseMatches } from './lib/wire.mjs'
 
 const require = createRequire(import.meta.url)
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
 const execFileP = promisify(execFile)
 
-const APPS = ['laratype', 'hono', 'express', 'fastify']
-const RUNTIMES = ['node', 'bun']
-const LABELS = { laratype: 'Laratype', hono: 'Hono', express: 'Express', fastify: 'Fastify' }
-
-const opts = {
-  apps: [...APPS],
-  runtimes: [...RUNTIMES],
-  scenario: null,
-  connections: 50,
-  duration: 10,
-  warmup: 2,
-  smoke: false,
-  out: path.join(here, 'out'),
-  node: process.env.BENCH_NODE || 'node',
-  bun: process.env.BENCH_BUN || 'bun',
-  allowNodeMismatch: process.env.BENCH_ALLOW_NODE_MISMATCH === '1',
-}
-
 const usage = () => {
-  console.error('usage: bun bench/run.mjs [--apps a,b] [--runtimes node,bun] [--scenario name] [--connections n]')
-  console.error('       [--duration s] [--warmup s] [--smoke] [--node path] [--bun path] [--out dir] [--allow-node-mismatch]')
+  for (const line of usageLines) console.error(line)
 }
 
-for (let i = 0; i < process.argv.length - 2; i++) {
-  const arg = process.argv[i + 2]
-  const value = () => {
-    const next = process.argv[i + 3]
-    if (next === undefined || next.startsWith('--')) fail(`bench: ${arg} needs a value`)
-    i++
-    return next
-  }
-  if (arg === '--smoke') opts.smoke = true
-  else if (arg === '--apps') opts.apps = value().split(',').filter(Boolean)
-  else if (arg === '--runtimes') opts.runtimes = value().split(',').filter(Boolean)
-  else if (arg === '--scenario') opts.scenario = value()
-  else if (arg === '--connections') opts.connections = Number(value())
-  else if (arg === '--duration') opts.duration = Number(value())
-  else if (arg === '--warmup') opts.warmup = Number(value())
-  else if (arg === '--out') opts.out = path.resolve(value())
-  else if (arg === '--node') opts.node = value()
-  else if (arg === '--bun') opts.bun = value()
-  else if (arg === '--allow-node-mismatch') opts.allowNodeMismatch = true
-  else if (arg === '--help' || arg === '-h') {
-    usage()
-    process.exit(0)
-  } else fail(`bench: unknown argument ${arg}`)
+let opts
+try {
+  opts = parseArgs(process.argv.slice(2), { env: process.env, defaultOut: path.join(here, 'out') })
+} catch (error) {
+  if (!(error instanceof UsageError)) throw error
+  console.error(error.message)
+  usage()
+  process.exit(1)
 }
+if (opts.help) {
+  usage()
+  process.exit(0)
+}
+opts.out = path.resolve(opts.out)
 
-for (const app of opts.apps) if (!APPS.includes(app)) fail(`bench: unknown app ${app} (${APPS.join(', ')})`)
-for (const runtime of opts.runtimes) if (!RUNTIMES.includes(runtime)) fail(`bench: unknown runtime ${runtime}`)
-for (const [name, value] of [['--connections', opts.connections], ['--duration', opts.duration], ['--warmup', opts.warmup]]) {
-  if (!Number.isFinite(value) || value < 0) fail(`bench: ${name} needs a non-negative number`)
-}
-if (opts.smoke) {
-  opts.duration = 1
-  opts.warmup = 0
-}
 const selected = opts.scenario ? scenarios.filter((scenario) => scenario.name === opts.scenario) : scenarios
 if (selected.length === 0) fail(`bench: unknown scenario ${opts.scenario} (${scenarios.map((s) => s.name).join(', ')})`)
 
@@ -102,17 +74,14 @@ function capture(command, args) {
   return result.stdout.trim()
 }
 
-function gitInfo() {
-  try {
-    return {
-      sha: capture('git', ['rev-parse', 'HEAD']),
-      branch: capture('git', ['rev-parse', '--abbrev-ref', 'HEAD']),
-      dirty: capture('git', ['status', '--porcelain']).length > 0,
-    }
-  } catch {
-    return { sha: 'unknown', branch: 'unknown', dirty: true }
-  }
-}
+const readGitInfo = () => ({
+  sha: capture('git', ['rev-parse', 'HEAD']),
+  branch: capture('git', ['rev-parse', '--abbrev-ref', 'HEAD']),
+  dirty: capture('git', ['status', '--porcelain']).length > 0,
+})
+
+// The Docker build context has no .git: CI passes the checked-out commit as BENCH_GIT_* (bench/README.md).
+const commit = resolveGitInfo(process.env, readGitInfo)
 
 const packageVersion = (rel) => JSON.parse(readFileSync(path.join(root, rel), 'utf8')).version
 
@@ -151,7 +120,7 @@ const autocannonBin = path.resolve(
 if (!existsSync(autocannonBin)) fail(`bench: cannot find the autocannon CLI at ${autocannonBin}`)
 
 const frameworkVersions = {
-  laratype: `${packageVersion('packages/http/package.json')} (workspace packages/http; v1 API on ${gitInfo().sha})`,
+  laratype: `${packageVersion('packages/http/package.json')} (workspace packages/http; v1 API on ${commit.sha})`,
   hono: installedVersion('hono'),
   '@hono/node-server': installedVersion('@hono/node-server'),
   express: installedVersion('express'),
@@ -296,10 +265,15 @@ const bodyFile = (scenario) => {
 
 function runAutocannon(scenario, port, duration) {
   return new Promise((resolve, reject) => {
-    const url = `http://127.0.0.1:${port}${scenario.path}`
-    const args = [autocannonBin, '-c', String(opts.connections), '-d', String(duration), '-p', '1', '-j', '-m', scenario.method]
-    if (scenario.body) args.push('-H', 'content-type: application/json', '-i', bodyFile(scenario))
-    args.push(url)
+    const args = [
+      autocannonBin,
+      ...autocannonArgs(scenario, {
+        port,
+        connections: opts.connections,
+        duration,
+        bodyFile: scenario.body ? bodyFile(scenario) : undefined,
+      }),
+    ]
     const child = spawn(opts.node, args, {
       cwd: root,
       env: { ...process.env, NODE_ENV: 'production' },
@@ -389,8 +363,6 @@ function startRssSampler(pid) {
   }
 }
 
-const round = (value, digits = 1) => (Number.isFinite(value) ? Number(value.toFixed(digits)) : null)
-
 function commandLine(state) {
   return [state.command.command, ...state.command.args].join(' ')
 }
@@ -435,14 +407,6 @@ async function measure(app, runtime, scenario) {
   }
 }
 
-function requestFor(scenario, port) {
-  const headers = scenario.body ? { 'content-type': 'application/json' } : {}
-  return [
-    `http://127.0.0.1:${port}${scenario.path}`,
-    { method: scenario.method, headers, body: scenario.body ? JSON.stringify(scenario.body) : undefined },
-  ]
-}
-
 async function smoke() {
   const failures = []
   let checks = 0
@@ -458,7 +422,7 @@ async function smoke() {
             const [url, init] = requestFor(scenario, boot.port)
             const response = await fetch(url, init)
             const text = await response.text()
-            const ok = response.status === scenario.expectedStatus && text === scenario.expectedBody
+            const ok = responseMatches(scenario, response.status, text)
             checks++
             const suffix = repeats > 1 ? ` #${attempt}` : ''
             if (ok) {
@@ -497,74 +461,6 @@ async function smoke() {
   console.log(`\nSMOKE PASSED: ${checks} checks across ${opts.apps.length * opts.runtimes.length} app/runtime combinations`)
 }
 
-function formatBytes(bytes) {
-  return bytes === null || bytes === undefined ? '—' : `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-function markdown(report) {
-  const lines = []
-  const runs = report.runs
-  const columns = runs.map((run) => `${LABELS[run.app]} · ${run.runtime}`)
-  const scenarioNames = scenarios.map((scenario) => scenario.name)
-  const cell = (run, name, read) => {
-    const scenario = run.scenarios.find((candidate) => candidate.name === name)
-    return scenario && scenario.status === 'ok' ? read(scenario) : '—'
-  }
-  const metricTable = (title, read) => {
-    lines.push(`### ${title}`)
-    lines.push('')
-    lines.push(`| Scenario | ${columns.join(' | ')} |`)
-    lines.push(`|---|${columns.map(() => '---:').join('|')}|`)
-    for (const name of scenarioNames) {
-      lines.push(`| ${name} | ${runs.map((run) => cell(run, name, read)).join(' | ')} |`)
-    }
-    lines.push('')
-  }
-
-  lines.push('# Laratype phase-1 runtime benchmark')
-  lines.push('')
-  lines.push(`**Commit:** \`${report.commit.sha}\`${report.commit.dirty ? ' (dirty working tree)' : ''} on \`${report.commit.branch}\`  `)
-  lines.push(`**Date:** ${report.generatedAt}  `)
-  lines.push(`**Machine:** ${report.machine.cpu}, ${report.machine.cores} cores, ${(report.machine.memoryBytes / 1024 ** 3).toFixed(1)} GiB, ${report.machine.platform} ${report.machine.release} (${report.machine.arch})  `)
-  lines.push(`**Runtimes:** Node ${report.runtimes.node}${report.runtimes.bun ? `, Bun ${report.runtimes.bun}` : ''}  `)
-  lines.push(`**Versions:** ${Object.entries(report.versions).map(([name, version]) => `${name} ${version}`).join(', ')}  `)
-  lines.push(`**Settings:** ${report.settings.connections} connections, ${report.settings.durationSec} s measured, ${report.settings.warmupSec} s warm-up discarded, pipelining ${report.settings.pipelining}, keep-alive on, host 127.0.0.1, one server process at a time.`)
-  lines.push('')
-  lines.push('**Phase 1 uses a hand-written Laratype production entry over `@hono/node-server` / `Bun.serve`, not `sauf build`** (B4 #128 / B6 #130 were unmerged at run time). The entry overrides only `RequestKernel.resolveRequest()` to drop the per-request `console.log` (`packages/http/src/request/Request.ts:599-600`); no other kernel method is overridden. Laratype\'s production-mode output validation is off (`NODE_ENV=production`).')
-  lines.push('')
-  lines.push('Every server binds `127.0.0.1`. Express keeps its default `etag` and disables `x-powered-by`; Fastify runs with `logger: false`; Hono and Laratype log nothing.')
-  lines.push('')
-  metricTable('Requests per second (higher is better)', (scenario) => `${scenario.requestsPerSec}`)
-  metricTable('p50 latency, ms (lower is better)', (scenario) => `${scenario.latencyMs.p50}`)
-  metricTable('p99 latency, ms (lower is better)', (scenario) => `${scenario.latencyMs.p99}`)
-  lines.push('### Cold start and memory')
-  lines.push('')
-  lines.push('| App | Runtime | Cold start, ms | RSS idle | RSS under load | Status |')
-  lines.push('|---|---|---:|---:|---:|---|')
-  for (const run of runs) {
-    lines.push(`| ${LABELS[run.app]} | ${run.runtime} | ${run.coldStartMs ?? '—'} | ${formatBytes(run.rss.idleBytes)} | ${formatBytes(run.rss.underLoadMaxBytes)} | ${run.status} |`)
-  }
-  lines.push('')
-  lines.push('### Skipped')
-  lines.push('')
-  for (const item of report.skipped) lines.push(`- **${item.scenario}**: ${item.reason}`)
-  lines.push('')
-  const failed = runs.flatMap((run) => run.scenarios.filter((scenario) => scenario.status !== 'ok').map((scenario) => ({ run, scenario })))
-  if (failed.length > 0) {
-    lines.push('### Failures')
-    lines.push('')
-    for (const { run, scenario } of failed) lines.push(`- ${LABELS[run.app]} · ${run.runtime} · ${scenario.name}: ${scenario.error ?? 'failed'}`)
-    lines.push('')
-  }
-  lines.push('### Notes')
-  lines.push('')
-  lines.push('- `validation-422` answers 422 by design, so its autocannon `non2xx` count equals its response count; it is not an error.')
-  lines.push('- Express/Fastify on Bun run through Bun\'s node:http compatibility layer, their only Bun path; Hono/Laratype use `Bun.serve`.')
-  lines.push('- RSS is the child pid\'s OS value (`/proc/<pid>/status` on Linux, `tasklist` on Windows, `ps` on macOS), sampled every 500 ms.')
-  lines.push('- The bench resolves its own `@hono/node-server` (2.1.6, patched for GHSA-rmxm-3fg6-px4f); the root workspace (1.19.1) and `sauf` (1.19.6) entries are pre-existing and untouched by this benchmark.')
-  return lines.join('\n')
-}
-
 async function benchmark() {
   const runs = []
   for (const app of opts.apps) {
@@ -591,12 +487,8 @@ async function benchmark() {
     }
   }
 
-  const commit = gitInfo()
-  const report = {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+  const report = buildReport({
     commit,
-    phase: '1 (hand-written Laratype production entry, not sauf build)',
     machine,
     runtimes: { node: nodeVersion, bun: bunVersion },
     versions: frameworkVersions,
@@ -615,10 +507,9 @@ async function benchmark() {
     },
     skipped,
     runs,
-  }
+  })
   mkdirSync(opts.out, { recursive: true })
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const base = path.join(opts.out, `${commit.sha.slice(0, 12)}-${stamp}`)
+  const base = path.join(opts.out, reportBaseName(report.commit.sha, report.generatedAt))
   writeFileSync(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`)
   writeFileSync(`${base}.md`, `${markdown(report)}\n`)
   console.log(`\nbench: wrote ${base}.json\nbench: wrote ${base}.md`)
