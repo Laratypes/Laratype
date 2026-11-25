@@ -8,13 +8,13 @@ last-verified: 2026-10-09
 
 # Auth (`@laratype/auth`), skeleton
 
-> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed), [Policies and gates](#policies-and-gates) (proposed) and [Authentication from the contract](#authentication-from-the-contract) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
+> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed), [Policies and gates](#policies-and-gates) (proposed) and [Authentication from the contract](#authentication-from-the-contract) (merged) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
 
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
-| [Authentication from the contract](#authentication-from-the-contract) | proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 → #120 |
-| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121; route integration: PR [#416](https://github.com/Laratypes/Laratype/pull/416) → #122 |
+| [Authentication from the contract](#authentication-from-the-contract) | merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414)) → #120 |
+| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121; route integration: merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416)) → #122 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async password check proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; composite-key rehash and login timing proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d; dummy-hash key hardening and the Hasher format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
@@ -26,7 +26,7 @@ last-verified: 2026-10-09
 proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
-[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([`Register.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/Register.ts)).
+[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414); [`Register.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/Register.ts)).
 
 ```ts
 // @laratype/auth
@@ -34,7 +34,7 @@ export interface Register {}
 
 export type RegisteredUser<R = Register> = R extends { user: infer U extends Model } ? U : Model;
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
-// A2 #120, proposed: PR #414 @ 52a21000: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
+// A2 #120, merged @ 7040fd07: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
 export type GuardUser<A extends true | GuardName = true> = ...;
 ```
 
@@ -97,7 +97,7 @@ export class AuthVerification {
 ## Authentication from the contract
 
 ### Status
-proposed: PR [#414](https://github.com/Laratypes/Laratype/pull/414) @ 52a21000 ([#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 52a21000](https://github.com/Laratypes/Laratype/blob/52a21000ad3e3ac5c525837ea6d19c8f1c332836/packages/http/src/routing/api/contractAuth.ts).
+merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414), [#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/http/src/routing/api/contractAuth.ts).
 
 ### Public API
 
@@ -165,7 +165,7 @@ The app writes `Register` once (auth.md › Typed Register): `guards: { web: tru
 ## Policies and gates
 
 ### Status
-proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: proposed: PR [#416](https://github.com/Laratypes/Laratype/pull/416) @ f3c8a8d9 ([#122](https://github.com/Laratypes/Laratype/issues/122), H8), specified in [http.md › Authorization from the contract](./http.md#authorization-from-the-contract); this section also states the shared policy-method shape and the scope hook's asymmetry under [Invariants](#invariants-1).
+proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416), [#122](https://github.com/Laratypes/Laratype/issues/122), H8), specified in [http.md › Authorization from the contract](./http.md#authorization-from-the-contract); this section also states the shared policy-method shape and the scope hook's asymmetry under [Invariants](#invariants-1).
 
 ### Public API
 [`Policy.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.

@@ -1,7 +1,7 @@
 // H6 #117: typed middleware with context extension (docs/v1/http.md › Typed middleware)
 // The 0.5 response kernel reads controller metadata until H4 #107
 import 'reflect-metadata'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Route, defineMiddleware, isTypedMiddleware, response } from '../../src/index'
@@ -27,11 +27,6 @@ const mount = (routes: ApiRoutes) => {
 }
 
 const json = async (app: Hono, path: string) => (await app.request(path)).json()
-
-beforeAll(() => {
-  // RequestKernel.boot() sets this in an app
-  globalThis.__laratype_route_model_bindings = {}
-})
 
 describe('defineMiddleware', () => {
   it('builds a frozen value that isTypedMiddleware tells from a 0.5 class', () => {
