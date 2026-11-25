@@ -105,6 +105,18 @@ describe('DatabaseServiceProvider fills routeModels (H14 #163)', () => {
     )
   })
 
+  it('fails boot with the ModelError for a null default export, before the 0.5 maps read it', async () => {
+    // Without the implicit check first, `flattenModels` returns [null] and `null.name` throws a raw TypeError
+    Config.setConfigs({ database: { default: 'mysql', connections: { mysql: { type: 'mysql', host: 'localhost', database: 'test' } } } })
+    setAppManifest(manifest(entry('User', { default: null })))
+    const provider = new DatabaseServiceProvider(new Container({ deps: depsRegistry }))
+    const failure = await provider.boot().catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(ModelError)
+    expect((failure as ModelError).message).toBe(
+      '[@laratype/database] app/models/User.ts has no default export: a model file exports its model class as the default export for implicit binding',
+    )
+  })
+
   it('fills the v1 map from the same manifest pass that fills the 0.5 maps', async () => {
     Config.setConfigs({ database: { default: 'mysql', connections: { mysql: { type: 'mysql', host: 'localhost', database: 'test' } } } })
     setAppManifest(manifest(entry('User'), entry('Post', { default: Post })))

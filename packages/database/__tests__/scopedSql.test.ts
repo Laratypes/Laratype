@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DataSource, EntitySchema } from 'typeorm'
 import { format } from 'mysql2'
 import Model from '../src/eloquent/Model'
+import ModelError from '../src/exceptions/ModelError'
 
 class RtUser extends Model {
   declare id: number
@@ -18,6 +19,42 @@ class RtPost extends Model {
   declare slug: string
   declare title: string
   /** The relation's join column: TypeORM maps `where: { user: ... }` to this database column. */
+  declare user: RtUser
+}
+
+/** A parent whose route key is unique over `(tenantId, code)`, the composite relation case (H14 #420 CR). */
+class RtTenant extends Model {
+  declare id: number
+  declare tenantId: number
+  declare code: string
+}
+
+class RtTenantPost extends Model {
+  static override readonly routeKeyName = 'slug'
+  declare id: number
+  declare slug: string
+  declare tenantId: number
+  declare code: string
+  declare parent: RtTenant
+}
+
+/** A relation declared inside an embedded class: TypeORM stores it at `ownership.user`, not `user` (H14 #420 CR). */
+class RtOwnership {
+  declare user: RtUser
+}
+
+class RtOwner extends Model {
+  static override readonly routeKeyName = 'slug'
+  declare id: number
+  declare slug: string
+  declare ownership: RtOwnership
+}
+
+class RtProtoChild extends Model {
+  static override readonly routeKeyName = 'slug'
+  declare id: number
+  declare slug: string
+  declare tenant: RtTenant
   declare user: RtUser
 }
 
@@ -47,6 +84,75 @@ const postSchema = new EntitySchema({
   },
 })
 
+const tenantSchema = new EntitySchema({
+  name: 'RtTenant',
+  target: RtTenant,
+  columns: {
+    id: { type: Number, primary: true },
+    tenantId: { type: Number },
+    code: { type: String },
+  },
+  uniques: [{ columns: ['tenantId', 'code'] }],
+})
+
+const tenantPostSchema = new EntitySchema({
+  name: 'RtTenantPost',
+  target: RtTenantPost,
+  columns: {
+    id: { type: Number, primary: true },
+    slug: { type: String },
+    tenantId: { type: Number },
+    code: { type: String },
+  },
+  relations: {
+    // Two join columns: `tenantId` alone does not identify the parent
+    parent: {
+      type: 'many-to-one',
+      target: 'RtTenant',
+      joinColumn: [
+        { name: 'tenantId', referencedColumnName: 'tenantId' },
+        { name: 'code', referencedColumnName: 'code' },
+      ],
+    },
+  },
+})
+
+const ownershipSchema = new EntitySchema({
+  name: 'RtOwnership',
+  columns: {
+    id: { type: Number, primary: true },
+  },
+  relations: {
+    user: { type: 'many-to-one', target: 'RtUser', joinColumn: { name: 'userId', referencedColumnName: 'id' } },
+  },
+})
+
+const ownerSchema = new EntitySchema({
+  name: 'RtOwner',
+  target: RtOwner,
+  columns: {
+    id: { type: Number, primary: true },
+    slug: { type: String },
+  },
+  embeddeds: {
+    ownership: { schema: ownershipSchema, prefix: 'own' },
+  },
+})
+
+const protoChildSchema = new EntitySchema({
+  name: 'RtProtoChild',
+  target: RtProtoChild,
+  columns: {
+    id: { type: Number, primary: true },
+    slug: { type: String },
+  },
+  relations: {
+    // A relation named `__proto__` next to an ordinary one, from real metadata (H14 #420 CR)
+    ['__proto__']: { type: 'many-to-one', target: 'RtTenant', joinColumn: { name: 'protoTenantId', referencedColumnName: 'id' } },
+    user: { type: 'many-to-one', target: 'RtUser', joinColumn: { name: 'userId', referencedColumnName: 'id' } },
+  },
+})
+
 interface RecordedQuery {
   readonly sql: string
   readonly parameters: unknown[]
@@ -61,20 +167,21 @@ beforeAll(async () => {
     host: 'localhost',
     username: 'bench',
     database: 'bench',
-    entities: [userSchema, postSchema],
+    entities: [userSchema, postSchema, tenantSchema, tenantPostSchema, ownershipSchema, ownerSchema, protoChildSchema],
     synchronize: false,
   })
   // No connect: metadata only (the protected method the CLI/ORM uses internally)
   await (dataSource as unknown as { buildMetadatas(): Promise<void> }).buildMetadatas()
 
-  const repository = dataSource.getRepository(RtPost)
-  const findOne = async (options: unknown) => {
-    const builder = repository.createQueryBuilder('rtPost').setFindOptions(options as never)
-    const [sql, parameters] = builder.getQueryAndParameters()
-    queries.push({ sql, parameters })
-    return null
-  }
-  ;[RtPost, RtUser].forEach((entity) => {
+  // One `findOne` stub per entity: the repository's own metadata resolves the where keys, and the alias stays `rtPost`
+  ;[RtPost, RtUser, RtTenantPost, RtTenant, RtOwner, RtProtoChild].forEach((entity) => {
+    const repository = dataSource.getRepository(entity)
+    const findOne = async (options: unknown) => {
+      const builder = repository.createQueryBuilder('rtPost').setFindOptions(options as never)
+      const [sql, parameters] = builder.getQueryAndParameters()
+      queries.push({ sql, parameters })
+      return null
+    }
     ;(entity as unknown as { getRepository: () => unknown }).getRepository = () => ({
       metadata: dataSource.getMetadata(entity),
       manager: repository.manager,
@@ -121,5 +228,51 @@ describe('Model.findByRouteKey scoped SQL (H14 #163)', () => {
       '[@laratype/database] RtUser relation "posts" is not a many-to-one or an owning one-to-one relation: .scopeBindings() needs the side that holds the join column',
     )
     expect(queries).toHaveLength(0)
+  })
+
+  it('refuses a composite relation before any query: two parents sharing the first component cannot scope it', async () => {
+    queries.length = 0
+    // The parent is unique over (tenantId, code): filtering tenantId alone would let one tenant's code answer the other
+    const tenantA = Object.assign(new RtTenant(), { id: 1, tenantId: 7, code: 'A' })
+    const tenantB = Object.assign(new RtTenant(), { id: 2, tenantId: 7, code: 'B' })
+    for (const parent of [tenantA, tenantB]) {
+      const failure = await RtTenantPost.findByRouteKey('hello', { parent }).catch((error: unknown) => error)
+      expect(failure, `${parent.code}`).toBeInstanceOf(ModelError)
+      expect((failure as ModelError).message).toBe(
+        '[@laratype/database] RtTenantPost relation "parent" has a composite join column: .scopeBindings() needs a single-column relation',
+      )
+    }
+    expect(queries).toHaveLength(0)
+    // The single-column case keeps scoping the lookup
+    await RtPost.findByRouteKey('hello', { user: Object.assign(new RtUser(), { id: 7 }) })
+    expect(queries).toHaveLength(1)
+    expect(queries[0]!.sql).toContain('`rtPost`.`userId` = ?')
+  })
+
+  it('refuses a relation declared inside an embedded before any query', async () => {
+    // RtOwner's relation is `ownership.user`: `join.propertyName` is only `user`, which TypeORM's find options reject
+    queries.length = 0
+    const failure = await RtOwner.findByRouteKey('hello', { user: Object.assign(new RtUser(), { id: 7 }) }).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(ModelError)
+    expect((failure as ModelError).message).toBe(
+      '[@laratype/database] RtOwner relation "user" is declared inside the embedded "ownership": .scopeBindings() needs a relation on the model itself',
+    )
+    expect(queries).toHaveLength(0)
+  })
+
+  it('refuses a __proto__ relation, and keeps an ordinary relation on the same model scoped', async () => {
+    queries.length = 0
+    const tenant = Object.assign(new RtTenant(), { id: 1, tenantId: 7, code: 'A' })
+    const failure = await RtProtoChild.findByRouteKey('hello', { tenant }).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(ModelError)
+    expect((failure as ModelError).message).toBe(
+      '[@laratype/database] RtProtoChild relation `__proto__` cannot scope a lookup: every object reads it as its prototype, so the condition would be dropped',
+    )
+    expect(queries).toHaveLength(0)
+    // The ordinary relation still becomes a condition on the join column
+    await RtProtoChild.findByRouteKey('hello', { user: Object.assign(new RtUser(), { id: 7 }) })
+    expect(queries).toHaveLength(1)
+    expect(queries[0]!.sql).toContain('`rtPost`.`userId` = ?')
+    expect(queries[0]!.parameters).toEqual(['hello', 7])
   })
 })
