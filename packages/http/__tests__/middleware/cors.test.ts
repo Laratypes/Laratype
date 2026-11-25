@@ -230,8 +230,8 @@ describe("CORS headers on error responses", () => {
     expect(allowOrigin(response)).toBe(APP);
   });
 
-  it("the 429 of the contract's throttle keeps them (#319)", async () => {
-    const app = bootApp();
+  it("the 429 of the contract's throttle keeps them, and Retry-After once exposed (#319)", async () => {
+    const app = bootApp({ cors: corsConfig({ exposeHeaders: ["X-Request-Id", "Retry-After"] }) });
     // The env of a request from `address`, read by the registered getter
     const client = (address: string) => ({ address });
     const first = await app.request("/api/posts/limited", { headers: { Origin: APP } }, client("203.0.113.20"));
@@ -240,6 +240,11 @@ describe("CORS headers on error responses", () => {
     expect(limited.status).toBe(429);
     expect(allowOrigin(limited)).toBe(APP);
     expect(limited.headers.get("Retry-After")).not.toBeNull();
+    // A browser hides Retry-After unless it is exposed; the config lists it here
+    expect(limited.headers.get("Access-Control-Expose-Headers")).toBe("X-Request-Id,Retry-After");
+    expect(limited.headers.get("Vary")).toContain("Origin");
+    expect(limited.headers.get("Cache-Control")).toBe("no-store");
+    expect(await limited.json()).toEqual({ code: "TOO_MANY_REQUESTS", message: "Too Many Requests." });
   });
 });
 

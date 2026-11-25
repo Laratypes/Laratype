@@ -46,6 +46,8 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Contract tests | `bunx vitest run packages/contract` |
 | Client tests | `bunx vitest run packages/client` |
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
+| Release note (published change) | `bun run release:changeset <pkg> <patch\|minor\|major> "<summary>"` |
+| Release check | `bun run release:check` |
 
 CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
 
@@ -73,6 +75,11 @@ The detailed conventions (style, types, naming, errors, comments, tests) are in 
 **Commits.** `<type>(<area>): <summary>`, LF line endings (see below).
 
 **PRs.** Follow `.github/pull_request_template.md` and fill every section. Title `<type>(<area>): <ID> <summary>`. Copy the labels and milestone from the issue, without priority or size labels. Use `Closes #N` only when every Done-when item is checked, otherwise `Refs #N`. Spike PRs stay draft and are never merged. The user merges with a merge commit and deletes the branch.
+
+**Releases.** Versions are fixed across the public packages. A PR that changes a published package adds a
+`.changeset/*.md` note with `bun run release:changeset`; the maintainer runs `bun run release:version` on the release
+branch, and a pushed `v<version>` tag is the release intent ([docs/v1/build.md › CI and release](docs/v1/build.md#ci-and-release)).
+Agents never push the tag or publish.
 
 ### Stacked PRs
 

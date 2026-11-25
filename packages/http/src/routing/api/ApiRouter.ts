@@ -28,7 +28,7 @@ import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
 import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
 import { fail } from "./fail";
-import { throttled } from "./throttle";
+import { MemoryThrottleStore, MIN_WINDOWS_PER_PREFIX, throttled } from "./throttle";
 import { contractAuth } from "./contractAuth";
 import { contractPolicies } from "./contractPolicies";
 import type { ContractPolicyChecks } from "./contractPolicies";
@@ -761,6 +761,12 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
     // The auth factory @laratype/auth registers on import (A2 #120). Read once: the slot is untrusted (a value that
     // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
     const auth = contractAuth();
+    // The counters of this mount, one store per mount (#319): two apps, or two test mounts, never share a window. The
+    // cache (#166) replaces the store later; injection is deferred to it (docs/v1/http.md › Rate limiting › Store).
+    // One client has one window per throttled route, so the prefix cap must exceed this mount's throttled-route count:
+    // otherwise visiting every route once evicts its own blocked window. The floor bounds a small mount's prefix.
+    const throttledRoutes = this.routes.filter((route) => route.throttle !== undefined).length;
+    const throttleStore = new MemoryThrottleStore(undefined, Math.max(MIN_WINDOWS_PER_PREFIX, throttledRoutes + 1));
     // The policy checks @laratype/auth registers on import (H8 #122), read once for the same reason. A route whose
     // resolved authorize is true fails mount() when they are missing: authorize requires auth, so a valid contract
     // reaches this only with a @laratype/auth that registers both.
@@ -778,7 +784,7 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
       const kernel = RequestKernel.handle(routeParams(route, prepared, checks));
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229). An ad-hoc
       // route has no contract, so it has no throttle either.
-      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel) : kernel;
+      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel, throttleStore) : kernel;
       const domain = route.domain;
       return [route, domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next())] as const;
     });

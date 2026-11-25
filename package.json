@@ -33,7 +33,11 @@
     "check:dist": "node scripts/check-dist.mjs",
     "check:pkg": "node scripts/check-packages.mjs",
     "check:lint": "biome ci --diagnostic-level=error",
-    "iv": "node ./scripts/incrementalVersion.js",
+    "release:changeset": "node scripts/release/cli.js changeset",
+    "release:check": "node scripts/release/cli.js check",
+    "release:pre": "node scripts/release/cli.js pre",
+    "release:pre-exit": "node scripts/release/cli.js pre-exit",
+    "release:version": "node scripts/release/cli.js version",
     "test": "vitest",
     "test:di": "vitest run packages/sauf/__tests__/di"
   },
@@ -41,7 +45,6 @@
     "@hono/node-server": "^1.4.1",
     "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*",
-    "commander": "^14.0.1",
     "deepmerge": "^4.3.1"
   },
   "devDependencies": {
