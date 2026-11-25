@@ -231,6 +231,15 @@ const errors = {
   scopeNoJoinColumn: (model: string, relation: string): string =>
     `[@laratype/database] ${model} relation ${formatValue(relation)} has no join column: .scopeBindings() needs the`
     + " owning side of a relation to the parent",
+  scopeComposite: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} has a composite join column: .scopeBindings()`
+    + " needs a single-column relation",
+  scopeEmbedded: (model: string, relation: string, embedded: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} is declared inside the embedded ${formatValue(embedded)}:`
+    + " .scopeBindings() needs a relation on the model itself",
+  scopeProto: (model: string): string =>
+    `[@laratype/database] ${model} relation \`__proto__\` cannot scope a lookup: every object reads it as its prototype,`
+    + " so the condition would be dropped",
   scopeAmbiguous: (model: string, parent: string, relations: string[]): string =>
     `[@laratype/database] ${model} has ${relations.length} relations to ${parent} (${relations.join(", ")}):`
     + ` .scopeBindings() cannot choose one; keep a single relation to ${parent}`,
@@ -397,11 +406,13 @@ interface ScopeCondition {
  * child must relate to its immediate parent (the last entry, path order); an earlier parent adds a condition only when
  * exactly one usable relation exists, and is skipped otherwise (each level was already scoped by its own parent).
  * For the immediate parent, more than one usable relation, a relation that is not many-to-one or an owning one-to-one,
- * a relation with no join column and a parent property that is not loaded are configuration errors (a lookup that
- * silently ignored the parent would read another parent's row, and one that picked a relation would choose a tenant for
- * the app). A parent key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value
- * must be scalar, so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is
- * refused).
+ * a relation with no join column, a relation with a composite join column, a relation declared inside an embedded and a
+ * parent property that is not loaded are configuration errors (a lookup that silently ignored the parent would read
+ * another parent's row, and one that picked a relation would choose a tenant for the app). A relation named `__proto__`
+ * is refused for every parent: the where dictionary would read it as its prototype and drop the filter. An earlier
+ * parent is transitive: it adds a condition only when it has one usable relation, and is skipped otherwise. A parent
+ * key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar,
+ * so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is refused).
  */
 const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: Readonly<Record<string, object>>): ScopeCondition[] | undefined => {
   const conditions: ScopeCondition[] = [];
@@ -440,10 +451,34 @@ const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: R
       continue;
     }
     const relation = usable[0]!;
+    // A relation declared inside an embedded class lives at `embedded.property`: `join.propertyName` drops the
+    // embedded path, so the where key TypeORM receives is not a property of the child (it throws
+    // EntityPropertyNotFoundError). This PR builds flat joins only; the immediate parent is a configuration error and
+    // an earlier one is transitive.
+    const embedded = relation.embeddedMetadata?.propertyName;
+    if (embedded !== undefined) {
+      if (index === immediate) {
+        throw new ModelError(errors.scopeEmbedded(metadata.targetName, relation.propertyName, embedded));
+      }
+      continue;
+    }
+    // A relation over `(tenantId, code)` filtered by `tenantId` alone is not a scope: two parents that share the first
+    // component would answer the same lookup. Refuse it rather than reading another parent's row.
+    if ((relation.joinColumns?.length ?? 0) > 1) {
+      if (index === immediate) {
+        throw new ModelError(errors.scopeComposite(metadata.targetName, relation.propertyName));
+      }
+      continue;
+    }
     const join = relation.joinColumns?.[0];
     const referenced = join?.referencedColumn;
     if (join === undefined || referenced === undefined) {
       throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
+    }
+    // A `__proto__` relation (or join column) would become the where dictionary's prototype, dropping the parent
+    // filter (fail-open). It is never a usable scope, for the immediate or an earlier parent.
+    if (relation.propertyName === "__proto__" || join.propertyName === "__proto__") {
+      throw new ModelError(errors.scopeProto(metadata.targetName));
     }
     if (properties.has(join.propertyName)) {
       // Two scope entries resolved to the same relation: the later value would overwrite the earlier in the where. The
@@ -501,7 +536,9 @@ const targetName = (target: unknown): string => {
  * and no parent value (a string with quotes, an object a hostile transformer hydrated) can become SQL text.
  */
 const scopeWhere = (conditions: readonly ScopeCondition[]): Record<string, ReturnType<typeof Raw>> => {
-  const where: Record<string, ReturnType<typeof Raw>> = {};
+  // Null prototype: every condition becomes an own data property, so a `__proto__` key can never be lost to the
+  // prototype setter. `scopeConditions` refuses such a relation, and this keeps the writer fail-closed anyway.
+  const where: Record<string, ReturnType<typeof Raw>> = Object.create(null);
   conditions.forEach((condition, index) => {
     where[condition.property] = Raw((aliasPath) => `${aliasPath} = :scope${index}`, { [`scope${index}`]: condition.value });
   });

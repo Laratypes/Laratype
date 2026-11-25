@@ -99,6 +99,9 @@ export default class DatabaseServiceProvider extends ServiceProvider {
       // The model files of the app manifest (docs/v1/build.md › Plugin chain)
       const modelEntries = appManifest().models;
       const instances = await Promise.all(modelEntries.map(entry => entry.load()));
+      // Validate the v1 implicit map before `flattenModels` and the 0.5 maps read the modules: a file whose default
+      // export is `null` would throw a raw TypeError there, instead of the documented boot ModelError (H14 #420 CR)
+      const routeModels = implicitRouteModels(modelEntries, instances);
       const models = this.flattenModels(instances);
       if (!this.app.has(ModelBindingRegistry)) this.app.singleton(ModelBindingRegistry);
       const registry = this.app.make(ModelBindingRegistry);
@@ -111,7 +114,7 @@ export default class DatabaseServiceProvider extends ServiceProvider {
 
       // The v1 implicit map `Route.api` reads (H14 #163): the manifest's files, not the 0.5 class names, so the path
       // param is exactly the key `sauf types:generate` writes into `.laratype/types/models.d.ts`
-      registry.routeModels = implicitRouteModels(modelEntries, instances);
+      registry.routeModels = routeModels;
 
       this.dataSource = new DataSource({
         ...connectionDefault,
