@@ -19,6 +19,15 @@ const NODE_ENV_NAME = /^[A-Za-z0-9_-]+$/;
 /** Whether `name` is one of the template names, in any case. */
 const isTemplateEnvFile = (name: string): boolean => TEMPLATE_ENV_FILES.includes(name.toLowerCase());
 
+/** A regular file at `file`: a directory or a broken symlink named like one is not an env file. */
+const isEnvFile = (file: string): boolean => {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+};
+
 /** The `.env.*` files of `dir`, sorted by name, templates left out (a directory name with glob metacharacters is just a name). */
 function envFilesIn(dir: string): string[] {
   let entries: string[];
@@ -64,13 +73,14 @@ export function loadEnv(projectDir?: string): string | undefined {
   const mode = nodeEnv !== undefined && NODE_ENV_NAME.test(nodeEnv) && !isTemplateEnvFile(`.env.${nodeEnv}`)
     ? `.env.${nodeEnv}`
     : undefined;
-  const priorities = [
-    '.env',
-    '.env.local',
-    ...(mode === undefined ? [] : [mode]),
-  ].map((file) => at(file)).filter((file) => existsSync(file));
+  const priorities = ['.env', '.env.local'].map((file) => at(file)).filter((file) => existsSync(file));
+  if (mode !== undefined) {
+    // A directory named `.env.<NODE_ENV>` is not an env file (the name-ordered fallback below skips it too)
+    const modePath = at(mode);
+    if (isEnvFile(modePath)) priorities.push(modePath);
+  }
 
-  const envFiles = envFilesIn(projectDir ? projectDir : process.cwd());
+  const envFiles = envFilesIn(projectDir ?? process.cwd());
 
   envFiles.forEach((file) => {
     if(!priorities.includes(file)) {

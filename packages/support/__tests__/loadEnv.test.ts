@@ -127,6 +127,8 @@ describe('loadEnv', () => {
     expect(loadEnv(project)).toBeUndefined()
 
     writeFileSync(join(project, '.env.development'), 'H1_FILES_ONLY=file\n')
+    // NODE_ENV names the directory: it is skipped, not returned as the loaded file
+    process.env.NODE_ENV = 'production'
     expect(loadEnv(project)).toBe(join(project, '.env.development'))
     expect(process.env.H1_FILES_ONLY).toBe('file')
   })
