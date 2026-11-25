@@ -47,7 +47,7 @@ These match [AGENTS.md](AGENTS.md#commands).
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
 | Client tests | `bunx vitest run packages/client` |
-| Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
+| Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every test project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Dist check | `bun run build && bun run check:dist` (lands with B13 #193) |
 | DI transform tests | `CI=true bun run test:di` (lands with T3 #199). `CI=true` makes a missing snapshot fail instead of being written. |
 | Release note | `bun run release:changeset <pkg> <patch\|minor\|major> "<summary>"`, commit the `.changeset/*.md` it writes |

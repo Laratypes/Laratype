@@ -45,7 +45,7 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Declarations | `bun run build:type` |
 | Contract tests | `bunx vitest run packages/contract` |
 | Client tests | `bunx vitest run packages/client` |
-| Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
+| Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every test project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
 | Release note (published change) | `bun run release:changeset <pkg> <patch\|minor\|major> "<summary>"` |
 | Release check | `bun run release:check` |
 
