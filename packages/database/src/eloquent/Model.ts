@@ -407,18 +407,17 @@ const cast = async (model: string, input: Record<string, any>, passwordField: st
 
 /** Whether a where object, an array of them, or a nested relation object names the credential column. */
 const carriesPassword = (where: unknown, passwordField: string, seen: WeakSet<object>): boolean => {
-  if (Array.isArray(where)) {
-    if (seen.has(where)) return false;
-    seen.add(where);
-    return where.some((entry) => carriesPassword(entry, passwordField, seen));
-  }
   if (where === null || typeof where !== "object") return false;
-  // A relation's where is a plain object (or a null-prototype map); a Date, a Buffer or a FindOperator is a value
-  const prototype = Object.getPrototypeOf(where);
-  if (prototype !== Object.prototype && prototype !== null) return false;
   if (seen.has(where)) return false;
   seen.add(where);
+  // Any object with an own credential key is refused, a class instance included (the 0.5 top-level check did too)
   if (Object.prototype.hasOwnProperty.call(where, passwordField)) return true;
+  if (Array.isArray(where)) {
+    return where.some((entry) => carriesPassword(entry, passwordField, seen));
+  }
+  // Recurse only into a relation's plain object (or null-prototype map): a Date, a Buffer or a FindOperator is a value
+  const prototype = Object.getPrototypeOf(where);
+  if (prototype !== Object.prototype && prototype !== null) return false;
   return Object.values(where).some((value) => carriesPassword(value, passwordField, seen));
 }
 

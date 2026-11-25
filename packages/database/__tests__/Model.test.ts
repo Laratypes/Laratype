@@ -123,6 +123,18 @@ describe('Model password cast', () => {
     expect(lookups).toEqual([])
   })
 
+  it('refuses a credential key on a class instance, at the top level and inside an array', async () => {
+    const { User, lookups } = model()
+    class Where {
+      email = 'ada@example.com'
+      password = 'secret'
+    }
+    const message = 'findOneBy() cannot look a user up by password'
+    await expect(User.findOneBy(new Where() as any)).rejects.toThrow(message)
+    await expect(User.findOneBy([new Where()] as any)).rejects.toThrow(message)
+    expect(lookups).toEqual([])
+  })
+
   it('queries a nested or cyclic where that does not carry the password', async () => {
     const { User, lookups } = model()
     await expect(User.findOneBy({ user: { email: 'ada@example.com' } } as any)).resolves.toBeNull()
