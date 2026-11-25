@@ -19,15 +19,17 @@ export const AdminProfile = z.object({
   age: z.number(),
 });
 
+// bcrypt reads at most 72 bytes and hashes the whole value, so an unbounded password is a cheap way to burn server
+// time; `min(1)` only keeps the empty field out (a login may be shorter than a new password).
 export const LoginBody = z.object({
   email: z.string(),
-  password: z.string(),
+  password: z.string().min(1).max(128),
 });
 
 /** The 0.5 `CreateUserRequest` / `CreateAdminRequest` fields (the models ignore `name`). */
 export const RegisterBody = z.object({
-  email: z.string(),
-  password: z.string().min(8),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
   name: z.string(),
   firstName: z.string(),
   lastName: z.string(),

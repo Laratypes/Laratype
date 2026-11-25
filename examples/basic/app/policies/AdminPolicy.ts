@@ -15,6 +15,11 @@ export default class AdminPolicy {
     return true;
   }
 
+  /** Any authenticated Admin may create an admin; `before` still refuses a User actor. */
+  public register(actor: User | Admin): boolean {
+    return actor instanceof Admin;
+  }
+
   public before(actor: User | Admin, ability: string): boolean | null {
     if (actor instanceof User) return false;
     return null;

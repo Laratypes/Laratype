@@ -3,7 +3,10 @@ import { defineContract, endpoint } from "@laratype/contract";
 import { RegisterBody, AdminProfile } from "../_schemas";
 import type { Prefix } from "./$types";
 
-/** Public signup: `.public()` opts out of the admin scope's auth (the 0.5 route had no guard). */
+/**
+ * Admin-only: the admin scope supplies `auth: 'admin'` and the endpoint runs `AdminPolicy.register`, so an existing
+ * Admin creates the next one. A fresh database gets its first admin from `database/seeders/AdminSeeder.ts`.
+ */
 export default defineContract<Prefix>()({
-  register: endpoint.post("/").public().body(RegisterBody).response(AdminProfile),
+  register: endpoint.post("/").authorize().body(RegisterBody).response(AdminProfile),
 });

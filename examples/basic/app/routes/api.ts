@@ -39,7 +39,7 @@ export const apiRoutes = Route.api(appApi, (r) => [
   r.bind({ admin: adminByRouteKey }).contract(adminsContract, AdminHomeController, { policy: AdminPolicy }),
   r.contract(adminLoginContract, AdminLoginController),
   r.contract(adminMeContract, AdminHomeController, { policy: AdminPolicy }),
-  r.contract(adminRegisterContract, AdminRegisterController),
+  r.contract(adminRegisterContract, AdminRegisterController, { policy: AdminPolicy }),
   r.contract(callbackContract, LoginController, { endpoints: { handleGoogleLogin: (r) => r.middleware(GoogleAuthentication) } }),
   r.contract(googleCallbackContract, LoginController, { endpoints: { handleGoogleCallback: (r) => r.middleware(GoogleAuthentication) } }),
   r.contract(greetingContract, GreetingController),
