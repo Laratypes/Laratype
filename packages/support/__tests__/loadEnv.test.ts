@@ -22,6 +22,7 @@ describe('loadEnv', () => {
       'H1_PRECEDENCE',
       'H1_LOCAL_WINS',
       'H1_MODE_ORDER',
+      'H1_CWD_MODE',
       'H1_FILES_ONLY',
     ]) delete process.env[name]
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
@@ -92,6 +93,14 @@ describe('loadEnv', () => {
     writeFileSync(join(project, '.env.development'), 'H1_MODE_ORDER=development\n')
     expect(loadEnv(project)).toBe(join(project, '.env.development'))
     expect(process.env.H1_MODE_ORDER).toBe('development')
+  })
+
+  it('finds a .env.<mode> without a projectDir, in the current directory', () => {
+    const project = tmp()
+    writeFileSync(join(project, '.env.staging'), 'H1_CWD_MODE=staging\n')
+    vi.spyOn(process, 'cwd').mockReturnValue(project)
+    expect(loadEnv()).toBe(join(project, '.env.staging'))
+    expect(process.env.H1_CWD_MODE).toBe('staging')
   })
 
   it('reads files only: a directory named .env.<mode> is not an env file', () => {

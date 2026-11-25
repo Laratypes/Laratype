@@ -5,8 +5,8 @@ import { ServiceProvider } from "../ServiceProvider";
 import { validateEnv } from "./validateEnv";
 import { getProjectPath } from "../path-resolver/pathResolver";
 import dotenv from "dotenv";
-import { existsSync, readdirSync, statSync } from "fs";
-import { resolve } from "path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 
 /** The `.env.*` files of `dir`, sorted by name (a directory name with glob metacharacters is just a name). */
 function envFilesIn(dir: string): string[] {
