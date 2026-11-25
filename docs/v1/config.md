@@ -2,8 +2,8 @@
 area: config
 packages: ["@laratype/core", "@laratype/support"]
 issues: [152]
-verified-against: Laratype@24b46ab (+ PR #300 @ 25d57c9; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
-last-verified: 2026-10-25
+verified-against: Laratype@af0177b4 (+ this PR's head per section; 0.5 state checked on 256a743 and v0.5.4 @ 053be38)
+last-verified: 2026-11-25
 ---
 
 # Config and env
@@ -18,18 +18,18 @@ Typed configuration files, `config()` with dot-path inference, and an environmen
 
 | Section | Status |
 |---|---|
-| [Config files and config()](#config-files-and-config) | proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 4c107ab |
-| [Environment validation](#environment-validation) | proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 4c107ab |
+| [Config files and config()](#config-files-and-config) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); a reserved key below an `unknown` level proposed: PR <leader fills> @ 9b5a2c3d |
+| [Environment validation](#environment-validation) | merged ([#405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22); the env file order and the shared guard proposed: PR <leader fills> @ 9b5a2c3d |
 
 ---
 
 ## Config files and config()
 
 ### Status
-proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 4c107ab (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the reserved-key type below an `unknown` level is proposed: PR <leader fills> @ 9b5a2c3d (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/config.ts` @ 4c107ab](https://github.com/Laratypes/Laratype/blob/4c107ab29b7295a90bd44352e179ed2da10902ab/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 4c107ab](https://github.com/Laratypes/Laratype/blob/4c107ab29b7295a90bd44352e179ed2da10902ab/packages/support/src/config/ConfigLoadServiceProvider.ts)
+[`core/src/config.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/core/src/config.ts), [`ConfigLoadServiceProvider.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/config/ConfigLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -52,7 +52,7 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
   ```
   Without a registration, any string path is accepted and the value is `unknown`, but a reserved key is `undefined`.
 - **Paths:** the first segment is the file name: `config('database.default')` reads `default` of `app/config/database.ts`. 0.5's single file reads as `config('config.<key>')`.
-- **Typing:** `defineConfig` keeps literal values (`'mysql'`, `3306`), so driver names are typed. A path stops at arrays, functions and classes, and after 8 levels. An optional key, or a key read through an index signature, adds `| undefined`. A key that contains a dot ends a path. The reserved keys `constructor`, `prototype` and `__proto__` are never declared paths, and `ConfigValue` types them as `undefined`.
+- **Typing:** `defineConfig` keeps literal values (`'mysql'`, `3306`), so driver names are typed. A path stops at arrays, functions and classes, and after 8 levels. An optional key, or a key read through an index signature, adds `| undefined`. A key that contains a dot ends a path. The reserved keys `constructor`, `prototype` and `__proto__` are never declared paths, and `ConfigValue` types them as `undefined`, at any depth and even below a key typed `unknown` (an index signature, or an unregistered config).
 - **Lookup:** at each level, the whole rest of the path as a key first, then the segment before the first dot. Own data properties are values, and so is a getter, own or inherited (`URL.host` on an instance): `ConfigPath` types a class instance's members (`config('mail.url.host')` is `string`). A getter is app code: it runs when the path reads it, and an error it throws propagates. A data property above the object (a method such as `URL.prototype.toString`, or a class's prototype constant) is never read, so `config('app.url.toString')` is `undefined` even though the type still lists it as a function leaf, like `config('mail.transport')` (an own function). The keys `constructor`, `prototype` and `__proto__` never name a value (as a whole path or a segment) — `ConfigPath` leaves them out and `ConfigValue` types them as `undefined` — nor does an `Object.prototype` member; a path that is not a string is a miss (`undefined`), so app code on it never runs. A key missing at run time gives `undefined`.
 - **Boot:** `ConfigLoadServiceProvider` (after `EnvLoadServiceProvider`) imports `app/config/config.ts` first, fills 0.5's `Config.get()`, then imports the other config files together, in parallel, and fills the store in file order. A failing file fails the boot with the first failure in file order, not the first to settle; every other file settles before the failure is raised, so a file that never settles hangs the boot. `config()` is sync, so a config file (or a module it imports) can't call `config()` at load time. A config file must not depend on another config file at load time either: the others load in parallel, and only `config.ts` is guaranteed to load first. `app/config/config.ts` stays required.
 - The store is kept on `globalThis` (`__laratype_configs`), like `HTTP_APP`, until the `@laratype` packages are real externals ([#188](https://github.com/Laratypes/Laratype/issues/188)).
@@ -81,10 +81,10 @@ export const setConfigs: (configs: Readonly<Record<string, unknown>>) => void
 ## Environment validation
 
 ### Status
-proposed: PR [#405](https://github.com/Laratypes/Laratype/pull/405) @ 4c107ab (K1 [#152](https://github.com/Laratypes/Laratype/issues/152), K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
+merged ([PR #405](https://github.com/Laratypes/Laratype/pull/405) @ 77abca22) for K1 [#152](https://github.com/Laratypes/Laratype/issues/152); the env file order and the shared `isStandardSchema` guard are proposed: PR <leader fills> @ 9b5a2c3d (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)).
 
 ### Public API
-[`core/src/env.ts` @ 4c107ab](https://github.com/Laratypes/Laratype/blob/4c107ab29b7295a90bd44352e179ed2da10902ab/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 4c107ab](https://github.com/Laratypes/Laratype/blob/4c107ab29b7295a90bd44352e179ed2da10902ab/packages/support/src/environ/validateEnv.ts)
+[`core/src/env.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/core/src/env.ts), [`support/src/environ/validateEnv.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/environ/validateEnv.ts), [`support/src/environ/EnvLoadServiceProvider.ts` @ 9b5a2c3d](https://github.com/Laratypes/Laratype/blob/9b5a2c3d248027936a6fd9f3763c7a6caec64f2f/packages/support/src/environ/EnvLoadServiceProvider.ts)
 
 ```ts
 // @laratype/core
@@ -93,6 +93,7 @@ export interface EnvDefinition<S extends StandardSchemaV1 = StandardSchemaV1> { 
 export const defineEnv: <S extends StandardSchemaV1>(schema: S) => EnvDefinition<S>
 
 // @laratype/support
+export const loadEnv: (projectDir?: string) => string | undefined   // the one file loaded, or undefined when nothing loads
 export interface EnvIssue { readonly name: string; readonly message: string }
 export class EnvValidationError extends Error {
   readonly name: 'EnvValidationError'
@@ -101,11 +102,12 @@ export class EnvValidationError extends Error {
 ```
 
 ### Invariants
-- **Schema:** any Standard Schema (zod 4.6.6+, valibot, arktype, ...), validated with `@laratype/contract`'s `validate`, sync or async.
+- **Schema:** any Standard Schema (zod 4.6.6+, valibot, arktype, ...), validated with `@laratype/contract`'s `validate`, sync or async. The guard is `@laratype/contract`'s `isStandardSchema` ([contract.md › Standard Schema types](./contract.md#standard-schema-types)): an object or callable schema whose `~standard.validate` is a function.
 - **File (Q18):** `app/config/env.ts` default-exports `defineEnv(schema)`. The manifest already collects it with the configs; no build change.
-- **Boot:** `EnvLoadServiceProvider` loads the env file (`.env`, ...) with or without an app manifest — a CLI helper or a unit test still gets its `.env` — then validates a copy of `process.env` with the schema, before any config file loads. `app/config/auth.ts` is the exception: `PassportServiceProvider.register()` loads it (and the env file) before the providers boot, so a value it reads has not been validated yet, but an invalid env still fails the boot ([auth.md › Guards in the container](./auth.md#guards-in-the-container)). An app without `env.ts`, or without a manifest, is not validated; a manifest with a scan error still fails the boot. The schema's output is not written back: `process.env` keeps its strings.
+- **Env file order (K4):** `loadEnv` reads one file into `process.env`, keeping the values already set, in this order: `.env`, `.env.local`, `.env.<NODE_ENV>` when `NODE_ENV` matches `^[A-Za-z0-9_-]+$` and that file exists, then the first other `.env.*` file in name order. The template names `.env.example`, `.env.sample`, `.env.template` and `.env.dist` are never loaded, whatever their case (`.env.EXAMPLE` included): a project that ships only templates loads nothing, and the boot goes on. `NODE_ENV` is joined into a path only when it matches that pattern, so an empty value, or one with `/`, `\`, `..` or NUL, is ignored (the order goes on with the name-ordered fallback) and can never read a file outside the project directory.
+- **Boot:** `EnvLoadServiceProvider` loads the env file (the order above) with or without an app manifest — a CLI helper or a unit test still gets its `.env` — then validates a copy of `process.env` with the schema, before any config file loads. `app/config/auth.ts` is the exception: `PassportServiceProvider.register()` loads it (and the env file) before the providers boot, so a value it reads has not been validated yet, but an invalid env still fails the boot ([auth.md › Guards in the container](./auth.md#guards-in-the-container)). An app without `env.ts`, or without a manifest, is not validated; a manifest with a scan error still fails the boot. The schema's output is not written back: `process.env` keeps its strings.
 - **Error (Q19):** an invalid env throws one `EnvValidationError` listing every failing variable once (its name + a fixed message), and boot fails. The vendor issues are not kept.
-- **Values are never printed:** a failing line is the variable's name and `does not match the schema`; no text from the schema is printed. A schema transforms its input before a check (lowercase, `decodeURIComponent`, base64) and a validator then quotes that transformed value, which no redaction of the raw env value can catch, so no validator text is trusted. An error the schema throws (a transform's `new URL(value)`) is replaced by one that withholds its name and message and has no `cause`. The printed name is the issue's first path segment (`path[0]`, and `path[0].key` when the segment is an object) — the only schema-derived text printed; a dotted name (`db.password`) is one variable name. A path is app data, not env data, but a schema that re-keys by a value (`path: [value]`) would print that value, so the name is printed only when it is a variable of the environment, or a name the schema declares: a key of the issues it reports for an empty object, which holds no env value (a missing variable). Any other path, and issues with no path, share the `(environment)` line.
+- **Values are never printed:** a failing line prints the variable's name — the issue's first path segment — and `does not match the schema`; it never prints a value, and no text from the schema is printed. A schema transforms its input before a check (lowercase, `decodeURIComponent`, base64) and a validator then quotes that transformed value, which no redaction of the raw env value can catch, so no validator text is trusted. An error the schema throws (a transform's `new URL(value)`) is replaced by one that withholds its name and message and has no `cause`. The printed name is the issue's first path segment (`path[0]`, and `path[0].key` when the segment is an object) — the only schema-derived text printed; a dotted name (`db.password`) is one variable name. A path is app data, not env data, but a schema that re-keys by a value (`path: [value]`) would print that value, so the name is printed only when it is a variable of the environment, or a name the schema declares: a key of the issues it reports for an empty object, which holds no env value (a missing variable). Any other path, and issues with no path, share the `(environment)` line.
 - **Breaking change (0.5):** an `app/config/env.ts` that is a plain 0.5 config (a default-exported object, not `defineEnv(schema)`) no longer boots: that file is the env file (Q18), so `EnvLoadServiceProvider` throws `TypeError: ... must default-export defineEnv(schema) (a 0.5 config named env: rename the file, e.g. app/config/environment.ts)`. Migration: rename the file, for example to `app/config/environment.ts`; the manifest collects it as a config, and the app adds it to the config `declare module` to type `config('environment.<key>')`.
 
 ### Diagnostics
