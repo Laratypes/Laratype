@@ -27,7 +27,7 @@ container.instance(HTTP_APP, app)
 container.scoped(ScopedService)
 
 /**
- * RequestKernel.resolveRequest() prints one `console.log(method - url)` per request (Request.ts:587-588). Fairness
+ * RequestKernel.resolveRequest() prints one `console.log(method - url)` per request (Request.ts:599-600). Fairness
  * rule: logging is off everywhere, and a stdout write per request would dominate the measurement. This is the only
  * kernel method the bench overrides; the framework opt-out is a follow-up issue.
  */

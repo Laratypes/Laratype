@@ -78,7 +78,7 @@ metadata the build transform would emit by hand (`__laratype_deps`, one request-
 scope (`container.scoped`) only on `/api/scoped`, and skips the SQLite scenario.
 
 The only framework override is `BenchRequestKernel.resolveRequest() {}`: the stock method prints one
-`console.log(method - url)` per request (`packages/http/src/request/Request.ts:587-588`), which would break the logging
+`console.log(method - url)` per request (`packages/http/src/request/Request.ts:599-600`), which would break the logging
 rule and dominate the measurement. No other kernel method is overridden. A framework opt-out is a follow-up issue.
 
 ## Adding a scenario or framework

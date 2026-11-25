@@ -530,7 +530,7 @@ function markdown(report) {
   lines.push(`**Versions:** ${Object.entries(report.versions).map(([name, version]) => `${name} ${version}`).join(', ')}  `)
   lines.push(`**Settings:** ${report.settings.connections} connections, ${report.settings.durationSec} s measured, ${report.settings.warmupSec} s warm-up discarded, pipelining ${report.settings.pipelining}, keep-alive on, host 127.0.0.1, one server process at a time.`)
   lines.push('')
-  lines.push('**Phase 1 uses a hand-written Laratype production entry over `@hono/node-server` / `Bun.serve`, not `sauf build`** (B4 #128 / B6 #130 were unmerged at run time). The entry overrides only `RequestKernel.resolveRequest()` to drop the per-request `console.log` (`packages/http/src/request/Request.ts:587-588`); no other kernel method is overridden. Laratype\'s production-mode output validation is off (`NODE_ENV=production`).')
+  lines.push('**Phase 1 uses a hand-written Laratype production entry over `@hono/node-server` / `Bun.serve`, not `sauf build`** (B4 #128 / B6 #130 were unmerged at run time). The entry overrides only `RequestKernel.resolveRequest()` to drop the per-request `console.log` (`packages/http/src/request/Request.ts:599-600`); no other kernel method is overridden. Laratype\'s production-mode output validation is off (`NODE_ENV=production`).')
   lines.push('')
   lines.push('Every server binds `127.0.0.1`. Express keeps its default `etag` and disables `x-powered-by`; Fastify runs with `logger: false`; Hono and Laratype log nothing.')
   lines.push('')
