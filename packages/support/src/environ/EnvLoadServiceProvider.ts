@@ -3,7 +3,6 @@ import type { EnvDefinition } from "@laratype/core";
 import { loadDefault, manifestEntry, peekAppManifest } from "../manifest/AppManifest";
 import { ServiceProvider } from "../ServiceProvider";
 import { validateEnv } from "./validateEnv";
-import { getProjectPath } from "../path-resolver/pathResolver";
 import dotenv from "dotenv";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -57,7 +56,9 @@ function envFilesIn(dir: string): string[] {
  * would read `.env` from the current directory, another project's.
  */
 export function loadEnv(projectDir?: string): string | undefined {
-  const at = (file: string) => (projectDir ? resolve(projectDir, file) : getProjectPath(file, false));
+  // `projectDir` when given, else the current directory (the project's own); `process.cwd()` is the one source, so a
+  // caller that changes it (a CLI helper, a test) reads the files there
+  const at = (file: string) => resolve(projectDir ?? process.cwd(), file);
   const nodeEnv = process.env.NODE_ENV;
   // Never join NODE_ENV into a path unless it is one plain segment: `.env.../x` or `.env.\0` is a path never built
   const mode = nodeEnv !== undefined && NODE_ENV_NAME.test(nodeEnv) && !isTemplateEnvFile(`.env.${nodeEnv}`)
@@ -78,6 +79,8 @@ export function loadEnv(projectDir?: string): string | undefined {
   });
 
   const path = priorities[0];
+  // Nothing to load (no env file, or only templates) is not an error, and dotenv's own fallback (the current
+  // directory's `.env`, another project's with a projectDir) never runs
   if (path === undefined) return undefined;
 
   dotenv.config({
