@@ -3,24 +3,32 @@ import { createClient } from "@laratype/client";
 import type { ClientOf } from "@laratype/client";
 import { appApi } from "$api";
 import { UserDto } from "../app/api/users";
+import { swapMemoryAuth, type MemoryAuth } from "./support/auth";
 import { bootExample, type BootedExample } from "./support/boot";
 
-// E1 #111: the same users cases through @laratype/client (docs/v1/client.md › createClient and Result union). The
-// client is built from the generated appApi only (contracts, never routes), and its fetch drives the example's Hono
-// app in process, as the PM decision on #111 records.
+// E1 #111 + E3 #135: the same users cases through @laratype/client (docs/v1/client.md › createClient and Result union).
+// The client is built from the generated appApi only (contracts, never routes), and its fetch drives the example's Hono
+// app in process. The users contract declares auth, so the client sends a real JWT (support/auth.ts).
 
 let example: BootedExample;
+let memory: MemoryAuth;
 let api: ClientOf<typeof appApi>;
+let anonymous: ClientOf<typeof appApi>;
 
 beforeAll(async () => {
   example = await bootExample();
-  api = createClient(appApi, {
+  memory = swapMemoryAuth(example.container);
+  const headers = { authorization: `Bearer ${await memory.issue("web", memory.user(1))}` };
+  const options = {
     baseUrl: "http://localhost",
-    fetch: (url, init) => example.app.request(url, init),
-  });
+    fetch: (url: string, init?: RequestInit) => example.app.request(url, init),
+  };
+  api = createClient(appApi, { ...options, headers });
+  anonymous = createClient(appApi, options);
 });
 
 afterAll(async () => {
+  memory.restore();
   await example.stop();
 });
 
@@ -31,6 +39,16 @@ describe("users.index", () => {
     if (!result.ok) return;
     expect(result.status).toBe(200);
     expect(result.data).toEqual({ data: expect.any(Array) });
+  });
+
+  it("resolves the declared 401 branch without a token", async () => {
+    const result = await anonymous.users.index();
+    expect(result.ok).toBe(false);
+    expect(result.unexpected).toBeUndefined();
+    if (result.ok || result.unexpected) return;
+    expect(result.status).toBe(401);
+    expect(result.code).toBe("UNAUTHORIZED");
+    expect(result.error.message).toBe("Unauthenticated.");
   });
 });
 
