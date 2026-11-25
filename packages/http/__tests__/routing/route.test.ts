@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { setConfigs } from '@laratype/core'
 import { defineApi, defineContract, endpoint, buildUrl } from '@laratype/contract'
+import { Model } from '@laratype/database'
 import { Controller, Route, redirect, route } from '../../src/index'
 import { resetRouteRegistry } from '../../src/routing/routeUrl'
 
@@ -224,6 +225,76 @@ describe('route()', () => {
     mount()
     expect(() => route('users.posts.show', { user: {} as never, post: 1 })).toThrow(
       new TypeError('[@laratype/http] route: param "user" got an object that is not a model (no getRouteKey())'),
+    )
+  })
+
+  it('takes a Date or boolean getRouteKey() (H14 #163, the model base returns both)', () => {
+    class DatedUser {
+      getRouteKey() {
+        return new Date('2024-01-02T03:04:05.000Z')
+      }
+    }
+    class FlaggedUser {
+      getRouteKey() {
+        return true
+      }
+    }
+    mount()
+    // ISO 8601 is the form findByRouteKey() converts back (database.md › BindableModel › Key conversion)
+    expect(route('users.posts.show', { user: new DatedUser(), post: 2 })).toBe(
+      '/api/users/2024-01-02T03%3A04%3A05.000Z/posts/2',
+    )
+    expect(route('users.posts.show', { user: new FlaggedUser(), post: 2 })).toBe('/api/users/true/posts/2')
+  })
+
+  it('refuses a getRouteKey() that is not a route key value', () => {
+    class WeirdUser {
+      getRouteKey(): unknown {
+        return { id: 1 }
+      }
+    }
+    mount()
+    expect(() => route('users.posts.show', { user: new WeirdUser() as never, post: 1 })).toThrow(
+      new TypeError('[@laratype/http] route: param "user" has a getRouteKey() that is not a string, number, bigint, boolean or Date'),
+    )
+  })
+
+  it('refuses a getRouteKey() that is an invalid Date, never a RangeError', () => {
+    class InvalidDateUser {
+      getRouteKey() {
+        return new Date(Number.NaN)
+      }
+    }
+    mount()
+    expect(() => route('users.posts.show', { user: new InvalidDateUser(), post: 1 })).toThrow(
+      new TypeError('[@laratype/http] route: param "user" has a getRouteKey() that returns an invalid Date'),
+    )
+  })
+
+  it('a real Model instance builds the URL of its route key (issue #163 added task)', () => {
+    // DB1's getRouteKey() returns `string | number | bigint | boolean | Date`; route() converts it
+    class DbUser extends Model {
+      declare readonly id: number
+      declare readonly slug: string
+    }
+    Object.defineProperty(DbUser, 'routeKeyName', { value: 'slug' })
+    ;(DbUser as unknown as { getRepository: () => unknown }).getRepository = () => ({
+      metadata: {
+        targetName: 'DbUser',
+        primaryColumns: [{ propertyName: 'id' }],
+        columns: [
+          { propertyName: 'id', propertyPath: 'id', type: Number },
+          { propertyName: 'slug', propertyPath: 'slug', type: String },
+        ],
+      },
+      manager: { connection: { driver: { options: { type: 'mysql' } } } },
+    })
+    mount()
+    const user = Object.assign(new DbUser(), { id: 1, slug: 'ada lovelace' })
+    expect(route('users.posts.show', { user, post: 2 })).toBe('/api/users/ada%20lovelace/posts/2')
+    // The same URL the key alone builds
+    expect(route('users.posts.show', { user: user.getRouteKey(), post: 2 })).toBe(
+      route('users.posts.show', { user, post: 2 }),
     )
   })
 })

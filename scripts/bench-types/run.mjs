@@ -30,6 +30,10 @@ const tscLabel = path.relative(root, tscPath).replaceAll('\\', '/')
  * `app-api-<group>` modules); `routes` adds `Route.api`/`r.contract()`, so the route proof is the difference
  * between the two. Sizes 100 / 500 / 1000 are recorded; the route proof is also measured at 50.
  */
+/**
+ * @typedef {{ scenario: string, endpoints: number, entry: string, globals: boolean, models?: boolean }} BenchCase
+ */
+/** @type {readonly BenchCase[]} */
 const CASES = [
   { scenario: 'app', endpoints: 100, entry: 'client.ts', globals: false },
   { scenario: 'app', endpoints: 500, entry: 'client.ts', globals: false },
@@ -40,6 +44,8 @@ const CASES = [
   { scenario: 'controllers', endpoints: 1000, entry: 'controllers.ts', globals: true },
   { scenario: 'routes', endpoints: 50, entry: 'routes.ts', globals: true },
   { scenario: 'routes', endpoints: 500, entry: 'routes.ts', globals: true },
+  // H14 #163: the same 500-endpoint route proof with 10 registered models (an implicit `Register['models']` map)
+  { scenario: 'routes-models', endpoints: 500, entry: 'routes.ts', globals: true, models: true },
 ]
 
 /** Mirrors tsconfig.app.json (paths, strict, decorators); keep the two in sync. */
@@ -111,12 +117,12 @@ const tail = (output) => output.split(/\r?\n/).filter(Boolean).slice(-30).join('
 
 /**
  * Generates one case and writes its tsconfig. Returns the tsconfig path and contract count.
- * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean }} testCase
+ * @param {BenchCase} testCase
  * @param {string} runRoot
  */
 const writeCase = (testCase, runRoot) => {
   const dir = path.join(runRoot, `${testCase.scenario}-${testCase.endpoints}`)
-  const { contractCount, files } = generateFixture(testCase.endpoints)
+  const { contractCount, files } = generateFixture(testCase.endpoints, { models: testCase.models === true })
   for (const [relative, content] of files) {
     const target = path.join(dir, relative)
     mkdirSync(path.dirname(target), { recursive: true })
@@ -135,7 +141,7 @@ const writeCase = (testCase, runRoot) => {
 
 /**
  * Runs tsc on one case. Returns the result, or `undefined` after printing why the run failed.
- * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean }} testCase
+ * @param {{ scenario: string, endpoints: number, entry: string, globals: boolean, models?: boolean }} testCase
  * @param {string} tsconfig @param {number} contractCount
  */
 const measure = (testCase, tsconfig, contractCount) => {
