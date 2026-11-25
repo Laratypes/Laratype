@@ -7,6 +7,7 @@ import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { emitModelsFile, generateTypes, modelKeys, syncContractTree } from '../../src/typegen'
 import type { GenerateResult } from '../../src/typegen'
+import { runTypesGenerate } from '../../src/commands/types/generate'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const repo = fileURLToPath(new URL('../../../../', import.meta.url)).replace(/\\/g, '/')
@@ -114,25 +115,36 @@ describe('models.d.ts (H14 #163)', () => {
     const stale = copy(scanDir)
     const first = syncContractTree({ projectDir: stale })!
     expect(first.files.map((f) => f.path)).toContain('.laratype/types/models.d.ts')
+    // A hand-kept models.d.ts below types/ is not the generated file and survives (H14 #420 CR)
+    mkdirSync(join(stale, '.laratype/types/manual'), { recursive: true })
+    const manual = join(stale, '.laratype/types/manual/models.d.ts')
+    writeFileSync(manual, 'manual')
     rmSync(join(stale, 'app/models'), { recursive: true, force: true })
     rmSync(join(stale, 'app/src/models'), { recursive: true, force: true })
     const second = syncContractTree({ projectDir: stale })!
     expect(second.files.map((f) => f.path)).not.toContain('.laratype/types/models.d.ts')
     expect(second.changed).toContain('.laratype/types/models.d.ts')
     expect(existsSync(join(stale, '.laratype/types/models.d.ts'))).toBe(false)
+    expect(readFileSync(manual, 'utf8')).toBe('manual')
     rmSync(scanDir, { recursive: true, force: true })
   })
 
-  it('a manifest scan error in the models folders writes no models file and keeps the tree files', () => {
+  it('a manifest scan error fails the run with its diagnostic and keeps the last models.d.ts', async () => {
     const errorDir = makeProject('manifest-error')
     const project = copy(errorDir)
-    // The same model name in both layouts: the manifest scan (and scanModels) refuses it
+    // A good run first, so there is a generated file to keep
+    await generateTypes({ projectDir: project }, ts)
+    const modelsFile = join(project, '.laratype/types/models.d.ts')
+    const before = readFileSync(modelsFile, 'utf8')
+    // The same model name in both layouts: scanModels refuses it
     mkdirSync(join(project, 'app/src/models'), { recursive: true })
     writeFileSync(join(project, 'app/src/models/User.ts'), 'export default class User {}\n')
-    const result = syncContractTree({ projectDir: project })!
-    expect(result.files.map((f) => f.path)).not.toContain('.laratype/types/models.d.ts')
-    expect(result.files.map((f) => f.path)).toContain('.laratype/types/app/api/$types.d.ts')
-    expect(existsSync(join(project, '.laratype/types/models.d.ts'))).toBe(false)
+    const diagnostic = 'models/User is in both app/src/models/User.ts and app/models/User.ts: rename or remove one'
+    // The dev scan and the command both fail with the manifest diagnostic; neither deletes or rewrites the file
+    expect(() => syncContractTree({ projectDir: project })).toThrow(diagnostic)
+    await expect(runTypesGenerate(project, { root: 'app/api', base: '/api' })).rejects.toThrow(diagnostic)
+    expect(readFileSync(modelsFile, 'utf8')).toBe(before)
+    expect(readFileSync(join(project, '.laratype/api/index.gen.ts'), 'utf8')).toContain("import type {} from '../types/models'")
     rmSync(errorDir, { recursive: true, force: true })
   })
 
@@ -144,6 +156,24 @@ describe('models.d.ts (H14 #163)', () => {
     const [file] = emitModelsFile({ projectDir: quoted, outDir: '.laratype' })
     expect(file!.content).toContain("'v1.0': typeof M0;")
     rmSync(quoteDir, { recursive: true, force: true })
+  })
+
+  it('maps a .mts import to .mjs, keeps .mjs, and leaves .ts / .js extension-less', () => {
+    const extDir = makeProject('module-ext')
+    const project = join(extDir, 'project')
+    mkdirSync(join(project, 'app/models'), { recursive: true })
+    writeFileSync(join(project, 'app/models/Alpha.mts'), 'export default class Alpha {}\n')
+    writeFileSync(join(project, 'app/models/Beta.mjs'), 'export default class Beta {}\n')
+    writeFileSync(join(project, 'app/models/Delta.js'), 'export default class Delta {}\n')
+    writeFileSync(join(project, 'app/models/Gamma.ts'), 'export default class Gamma {}\n')
+    const [file] = emitModelsFile({ projectDir: project, outDir: '.laratype' })
+    const content = file!.content
+    // Keys sort: alpha, beta, delta, gamma
+    expect(content).toContain("import type M0 from '../../app/models/Alpha.mjs'")
+    expect(content).toContain("import type M1 from '../../app/models/Beta.mjs'")
+    expect(content).toContain("import type M2 from '../../app/models/Delta'")
+    expect(content).toContain("import type M3 from '../../app/models/Gamma'")
+    rmSync(extDir, { recursive: true, force: true })
   })
 
   it('refuses two files whose names camelize to the same key, and a __proto__ key', () => {
