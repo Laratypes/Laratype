@@ -3,8 +3,10 @@
 node_modules
 **/node_modules
 **/dist
+dist_tmp
 bench/out
 .bench-types
+examples/laratype-test
 .env
 .env.*
 *.log
