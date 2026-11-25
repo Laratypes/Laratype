@@ -16,10 +16,14 @@ permissions:
   contents: read
   id-token: write
 
-# One release at a time; a queued release waits instead of being cancelled mid-publish
+# One release at a time: a queued release waits, and the running one is never cancelled mid-publish.
+# `queue: max` keeps every pending run; the default `queue: single` keeps one and a newer pending release replaces it,
+# so a third tag would drop the second. `queue: max` with `cancel-in-progress: true` is a validation error, so it stays
+# false.
 concurrency:
   group: npm-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   publish:

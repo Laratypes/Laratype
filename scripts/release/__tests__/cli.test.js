@@ -18,7 +18,10 @@ const roots = [];
 function makeTree({ version = "0.5.4", pre = true, base = "1.0.0" } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "laratype-release-cli-"));
   roots.push(root);
-  writeFileSync(path.join(root, "package.json"), `${JSON.stringify({ version, private: true }, null, 2)}\n`);
+  writeFileSync(
+    path.join(root, "package.json"),
+    `${JSON.stringify({ type: "module", version, private: true }, null, 2)}\n`,
+  );
   /** @type {Array<[string, string, boolean]>} */
   const packageEntries = [
     ["http", "@laratype/http", false],
