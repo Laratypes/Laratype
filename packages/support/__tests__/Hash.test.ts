@@ -2,7 +2,7 @@
 import crypto from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Container, Facade } from '@laratype/core'
-import { Hash, Hasher } from '@laratype/support'
+import { Hash, Hasher, isTrustedHash } from '@laratype/support'
 
 /** sha256('secret') as 0.5 stored it. */
 const SHA256_SECRET = '2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b'
@@ -182,6 +182,74 @@ describe('Hasher async methods', () => {
     expect(await new Upper().makeAsync('secret')).toBe('SECRET')
     // The base checkAsync only understands the format the base make() writes
     expect(await new Upper().checkAsync('secret', 'SECRET')).toBe(false)
+  })
+})
+
+describe('Hash.trusted()', () => {
+  const hasher = new Hasher()
+
+  it('accepts a current scrypt hash and a 0.5 sha256 hash, and freezes the value', () => {
+    const scrypt = hasher.make('secret')
+    for (const hashed of [scrypt, SHA256_SECRET]) {
+      const trusted = hasher.trusted(hashed)
+      expect(trusted.hash).toBe(hashed)
+      expect(isTrustedHash(trusted)).toBe(true)
+      expect(Object.isFrozen(trusted)).toBe(true)
+    }
+    expect(Hash.trusted(scrypt).hash).toBe(scrypt)
+  })
+
+  it('refuses a plain password, a foreign-cost hash and a non-string', () => {
+    const [, , , salt, key] = hasher.make('secret').split('$')
+    const foreign = `$scrypt$N=32768,r=8,p=1$${salt}$${key}`
+    for (const value of ['hunter2', foreign, 'secret', '', SHA256_SECRET.toUpperCase()]) {
+      expect(() => hasher.trusted(value))
+        .toThrow("[@laratype/support] Hash.trusted() takes a hash this Hasher's check() can verify.")
+    }
+    for (const value of [undefined, null, 1, {}, [], { hash: 'x' }, { length: 1e9 }, NaN, Infinity]) {
+      expect(() => hasher.trusted(value as any)).toThrow('Hash.trusted() takes a password hash')
+    }
+    // A long, unicode, control-character or lone-surrogate string is not a stored hash either
+    for (const value of ['a'.repeat(1_000_000), 'pässwörd', '\u0000\u0001', '\uD800']) {
+      expect(() => hasher.trusted(value)).toThrow(/check\(\) can verify/)
+    }
+  })
+
+  it('isTrustedHash takes only an own brand and an own string hash', () => {
+    const trusted = hasher.trusted(hasher.make('secret'))
+    expect(isTrustedHash(trusted)).toBe(true)
+    // A JSON-shaped object cannot carry the symbol brand; a string key with the brand's name is not one
+    expect(isTrustedHash({ hash: trusted.hash, 'laratype.hash.trusted': true })).toBe(false)
+    expect(isTrustedHash({ hash: trusted.hash })).toBe(false)
+    // An inherited brand is not an own property, and the hash must be an own string
+    expect(isTrustedHash(Object.create(trusted))).toBe(false)
+    expect(isTrustedHash(Object.freeze({ [Symbol.for('laratype.hash.trusted')]: true, hash: 1 }))).toBe(false)
+    // A hostile Proxy is a false, never a throw
+    const hostile = new Proxy({}, {
+      getOwnPropertyDescriptor: () => {
+        throw new Error('trap')
+      },
+    })
+    expect(isTrustedHash(hostile)).toBe(false)
+  })
+
+  it('follows isHashed() on a custom Hasher', () => {
+    class Upper extends Hasher {
+      override make(value: string) {
+        return `upper:${value}`
+      }
+      override check(value: string, hashed: string) {
+        return hashed === `upper:${value}`
+      }
+      override isHashed(value: string) {
+        return typeof value === 'string' && value.startsWith('upper:')
+      }
+    }
+    const custom = new Upper()
+    expect(custom.trusted('upper:secret').hash).toBe('upper:secret')
+    // The custom format owns its accepted hashes: the base scrypt and 0.5 formats are not trusted there
+    expect(() => custom.trusted(hasher.make('secret'))).toThrow()
+    expect(() => custom.trusted(SHA256_SECRET)).toThrow()
   })
 })
 
