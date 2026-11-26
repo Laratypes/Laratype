@@ -186,6 +186,27 @@ describe('a contract route', () => {
     expect(text).not.toContain('s3cr3t')
   })
 
+  it('searches invalid_type messages, keeping a type name (H31 #308)', async () => {
+    quiet()
+    // a custom error map can echo the submitted value on invalid_type: it is scrubbed like any other code
+    const echoed = serveBody(z.object({ n: z.number({ error: (issue) => `${String(issue.input)} is not a number` }) }))
+    const response = await echoed.request('/scrub', json({ n: 'secret123' }))
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual({ n: ['Invalid value'] })
+    expect(text).not.toContain('secret123')
+    // zod's default invalid_type messages name a type, not the submitted value: they are kept
+    const zodTypes = serveBody(z.object({ n: z.number(), s: z.number() }))
+    const kept = await zodTypes.request('/scrub', json({ n: 'string', s: 'number' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({
+      n: ['Invalid input: expected number, received string'],
+      s: ['Invalid input: expected number, received string'],
+    })
+    // valibot's default invalid_type message is kept too, its quoted type name included
+    const valibotTypes = serveBody(v.object({ n: v.number() }))
+    const vKept = await valibotTypes.request('/scrub', json({ n: 'string' }))
+    expect(JSON.parse(await vKept.text()).errors).toEqual({ n: ['Invalid type: Expected number but received "string"'] })
+  })
+
   it('scrubs a refine message that echoes the submitted input', async () => {
     quiet()
     const name = z.string().refine((value) => value === 'ada', { error: (issue) => `Unknown name '${String(issue.input)}'` })
@@ -243,6 +264,35 @@ describe('a contract route', () => {
     expect(response.status).toBe(422)
     expect(JSON.parse(text).errors).toEqual({ 'tags.1': ['Invalid value'] })
     expect(text).not.toContain('s3cr3t')
+  })
+
+  it('bounds the leaf walk on a 100k-element array under max(2)', async () => {
+    quiet()
+    const tags = z.array(z.string()).max(2, { error: (issue) => `Too many tags: ${String(Array.isArray(issue.input) ? issue.input.length : 0)}` })
+    const served = serveBody(z.object({ tags }))
+    const response = await served.request('/scrub', json({ tags: Array.from({ length: 100_000 }, () => 'x') }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ tags: ['Invalid value'] })
+    expect(text.length).toBeLessThan(1_000)
+  })
+
+  it('bounds the leaf enumeration of a 300k array and a 100k-key object', () => {
+    // Structural only, no wall clock: the array is read by at most 51 indices, the object by at most 51 own keys
+    const array = Array.from({ length: 300_000 }, () => 'x')
+    const arraySpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const fromArray = publicIssue({ code: 'too_big', message: 'Too many tags', path: ['tags'] }, { tags: array })
+    const indexReads = arraySpy.mock.calls.filter(([, key]) => /^\d+$/.test(String(key))).length
+    arraySpy.mockRestore()
+    expect(fromArray).toEqual({ path: ['tags'], message: 'Invalid value' })
+    expect(indexReads).toBeLessThanOrEqual(51)
+    const object = Object.fromEntries(Array.from({ length: 100_000 }, (_, index) => [`k${index}`, 'x']))
+    const objectSpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const fromObject = publicIssue({ code: 'custom', message: 'Passwords do not match', path: [] }, object)
+    const keyReads = objectSpy.mock.calls.length
+    objectSpy.mockRestore()
+    expect(fromObject).toEqual({ path: [], message: 'Invalid value' })
+    expect(keyReads).toBeLessThanOrEqual(51)
   })
 
   it('searches the printable leaves of an object at the path', async () => {

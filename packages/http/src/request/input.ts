@@ -473,6 +473,37 @@ const INVALID_VALUE = "Invalid value";
 /** The shortest submitted value a message is searched for: a 1-2 character value leaks next to nothing, and searching it would turn the common "too short" messages generic. */
 const SEARCH_MIN = 3;
 
+/**
+ * The type names a default `invalid_type` message mentions as text (`Invalid input: expected number, received
+ * string`): a search form equal to one of them is never searched or cut, so a message that names only the type is kept
+ * while a custom map that echoes the submitted value is scrubbed.
+ */
+const TYPE_NAMES = new Set([
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "object",
+  "array",
+  "null",
+  "undefined",
+  "date",
+  "symbol",
+  "function",
+  "nan",
+  "int",
+  "integer",
+  "float",
+]);
+
+/** Whether a form is a type name, case-insensitive, bare or quoted (valibot's `received` adds quotes). */
+const isTypeName = (form: string): boolean => {
+  const lower = form.trim().toLowerCase();
+  if (TYPE_NAMES.has(lower)) return true;
+  const quoted = lower.length >= 2 && ((lower.startsWith('"') && lower.endsWith('"')) || (lower.startsWith("'") && lower.endsWith("'")));
+  return quoted && TYPE_NAMES.has(lower.slice(1, -1));
+};
+
 /** The path segments never followed: they name a prototype, not data (`__proto__`, `constructor` and `prototype`). */
 const UNSAFE_PATH = new Set(["__proto__", "constructor", "prototype"]);
 
@@ -510,21 +541,13 @@ const valueAtPath = (input: unknown, path: readonly PropertyKey[]): { readonly f
   return { found: true, value: current };
 };
 
-/** Own string-keyed data property values, without a getter, a refused key or an array's own `length` (not submitted data). */
-const ownDataValues = (value: object): unknown[] => {
-  const values: unknown[] = [];
-  for (const key of Object.getOwnPropertyNames(value)) {
-    if (UNSAFE_PATH.has(key) || (Array.isArray(value) && key === "length")) continue;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor !== undefined && "value" in descriptor) values.push(descriptor.value);
-  }
-  return values;
-};
-
 /**
- * The printable leaves of an object or array at the path, read with `ownDataValues` (own data only, no getter, no
- * prototype key, a `File` skipped), at most `MAX_LEAF_DEPTH` levels deep and `MAX_LEAVES` leaves. `bounded` says the
- * walk stopped before it covered the value: an unread leaf could be in the message, so the issue fails closed.
+ * The printable leaves of an object or array at the path, read under the path walk's rules (own data only, no getter,
+ * no `File`, no unsafe key), at most `MAX_LEAF_DEPTH` levels deep. The enumeration itself is bounded: an array is read
+ * by its first `MAX_LEAVES + 1` indices, an object by its first `MAX_LEAVES + 1` own keys (`for...in` with an own-key
+ * check, so the prototype's keys are skipped), so a large body cannot make the 422 path walk every element. `bounded`
+ * says the walk stopped before it covered the value or crossed the bound: an unread leaf could be in the message, so
+ * the issue fails closed.
  */
 const leafValues = (value: object): { readonly leaves: string[]; readonly bounded: boolean } => {
   const leaves: string[] = [];
@@ -537,14 +560,43 @@ const leafValues = (value: object): { readonly leaves: string[]; readonly bounde
       return;
     }
     if (current === null || typeof current !== "object" || isFile(current)) return;
-    const children = ownDataValues(current);
-    if (children.length === 0) return;
-    if (depth >= MAX_LEAF_DEPTH) {
-      bounded = true;
+    if (Array.isArray(current)) {
+      // Own `length` through its descriptor: no getter, and an array with more elements than the bound is closed
+      const length: unknown = Object.getOwnPropertyDescriptor(current, "length")?.value;
+      if (typeof length !== "number" || length === 0) return;
+      if (depth >= MAX_LEAF_DEPTH) {
+        bounded = true;
+        return;
+      }
+      if (length > MAX_LEAVES) bounded = true;
+      const limit = Math.min(length, MAX_LEAVES + 1);
+      for (let index = 0; index < limit; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, String(index));
+        if (descriptor !== undefined && "value" in descriptor) visit(descriptor.value, depth + 1);
+        if (bounded) return;
+      }
       return;
     }
-    for (const child of children) {
-      visit(child, depth + 1);
+    if (depth >= MAX_LEAF_DEPTH) {
+      // Stop at the first own key: an object with only inherited keys is empty for this walk, so it is not bounded
+      for (const key in current) {
+        if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
+        bounded = true;
+        return;
+      }
+      return;
+    }
+    let seen = 0;
+    for (const key in current) {
+      if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
+      seen++;
+      if (seen > MAX_LEAVES) {
+        bounded = true;
+        return;
+      }
+      if (UNSAFE_PATH.has(key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor !== undefined && "value" in descriptor) visit(descriptor.value, depth + 1);
       if (bounded) return;
     }
   };
@@ -601,19 +653,23 @@ const receivedAt = (message: string, folded: string, tails: readonly ReceivedTai
 /**
  * The printable spellings a message can give the submitted value: the value itself, and for a string its trimmed form
  * (a trim transform makes a translated message quote the trimmed value). A spelling shorter than `SEARCH_MIN` is left
- * out of the search (the exact `received <value>` tail is still cut with it).
+ * out of the search but its exact `received <value>` tail is still cut; a type name is left out of both, so a default
+ * `invalid_type` message keeps its text.
  */
 const searchForms = (value: unknown): readonly string[] => {
   const text = printable(value);
   if (text === undefined) return [];
   const forms = typeof value === "string" && value.trim() !== text ? [text, value.trim()] : [text];
-  return forms.filter((form) => form.length >= SEARCH_MIN);
+  return forms.filter((form) => form.length >= SEARCH_MIN && !isTypeName(form));
 };
 
-/** The `received <value>` tails of a submitted value, raw and trimmed, each bare and quoted. */
+/**
+ * The `received <value>` tails of a submitted value, raw and trimmed, each bare and quoted. A type name has no tail, so
+ * a default `invalid_type` message (`... received string`) keeps its text; a quoted spelling of one is a type name too.
+ */
 const submissionTails = (value: unknown): readonly ReceivedTail[] => {
   const text = printable(value);
-  if (text === undefined) return [];
+  if (text === undefined || isTypeName(text)) return [];
   const values = typeof value === "string" && text.trim() !== text ? [text, text.trim()] : [text];
   return values.flatMap(receivedTails);
 };
@@ -640,15 +696,16 @@ const scrub = (message: string, forms: readonly string[], tails: readonly Receiv
 /**
  * An issue's message without the submitted data, which would reach proxy and client logs. The submitted data is the raw
  * request input at the issue's path (`input`: the query or body slot a contract route validated, the `all()` object for
- * a 0.5 request class), read by `valueAtPath`. Its printable value is searched for every issue code except
- * `invalid_type` (a type name, not the data): an exact `received <value>` tail is cut, the trimmed prefix is searched
- * again, and a message that still carries the value answers `Invalid value`. Default messages put the value last (`Invalid
- * enum value. Expected 'a' | 'b', received 'c'`, valibot's `... but received 5`), and a translated or custom message can
- * put it anywhere (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`). An object or array at the path is
- * searched through its printable leaves, so an object-level message (`Passwords don't match`) is kept unless a leaf
- * appears in it or the walk hits its bound. A path that does not resolve falls back to the library's printable
- * `received` (zod 3, valibot), then keeps the message. `cut` tells whether the message was not kept whole
- * (`publicIssue` turns an empty cut into `Invalid value`), so a message the app wrote empty is kept empty.
+ * a 0.5 request class), read by `valueAtPath`. Its printable value is searched for every issue code, `invalid_type`
+ * included, with a form equal to a type name skipped (`Invalid input: expected number, received string` is kept): an
+ * exact `received <value>` tail is cut, the trimmed prefix is searched again, and a message that still carries the
+ * value answers `Invalid value`. Default messages put the value last (`Invalid enum value. Expected 'a' | 'b', received
+ * 'c'`, valibot's `... but received 5`), and a translated or custom message can put it anywhere (`Ungültiger Enum-Wert.
+ * Erwartet 'a' | 'b', erhalten 'secret'`). An object or array at the path is searched through its printable leaves, so
+ * an object-level message (`Passwords don't match`) is kept unless a leaf appears in it or the walk hits its bound. A
+ * path that does not resolve falls back to the library's printable `received` (zod 3, valibot), then keeps the
+ * message. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut into `Invalid value`),
+ * so a message the app wrote empty is kept empty.
  */
 const issueMessage = (issue: LibraryIssue, input: unknown): IssueMessage => {
   const { message, keys } = issue;
@@ -656,7 +713,6 @@ const issueMessage = (issue: LibraryIssue, input: unknown): IssueMessage => {
     const at = message.indexOf(": ");
     if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
   }
-  if (issue.code === "invalid_type") return { message, cut: false };
   const found = valueAtPath(input, issuePath(issue));
   if (found.found) {
     if (printable(found.value) !== undefined) {
