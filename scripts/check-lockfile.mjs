@@ -110,7 +110,10 @@ export function checkLockfile(options = {}) {
     throw new Error(`cannot read ${path.relative(targetRoot, lockPath)}: ${error instanceof Error ? error.message : String(error)}`)
   }
 
-  for (const [index, line] of lock.split(/\r?\n/).entries()) {
+  // A registry "resolved" URL is the one HTTPS form that is allowed; check those separately
+  // below, then scan the rest of the lock for non-registry sources.
+  const sourceText = lock.replace(/"resolved"\s*:\s*"https:\/\/registry\.npmjs\.org\/[^"]*"/g, '"resolved":"<registry>"')
+  for (const [index, line] of sourceText.split(/\r?\n/).entries()) {
     const match = line.match(NON_REGISTRY_SOURCE)
     if (match) errors.push(`bun.lock:${index + 1}: non-registry source "${match[0]}"`)
   }
