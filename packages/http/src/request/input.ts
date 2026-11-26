@@ -456,8 +456,8 @@ export const readBody = async (request: HonoRequest): Promise<unknown> => {
 export const readQuery = (request: HonoRequest): Record<string, string | string[]> =>
   Object.fromEntries(Object.entries(request.queries()).map(([key, values]) => [key, values.length === 1 ? values[0]! : values]));
 
-/** The fields of zod and valibot issues that hold submitted data. */
-type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
+/** The fields of zod and valibot issues that hold submitted data: `received` (zod 3, valibot), `input` (zod 4) and zod's `keys`. */
+type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly input?: unknown; readonly keys?: unknown };
 
 /** An issue's message, and whether cutting the submitted data out of it shortened it. */
 type IssueMessage = { readonly message: string; readonly cut: boolean };
@@ -472,15 +472,31 @@ const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
 
 const SEPARATOR = /[\s,:]/;
 
+/** The printable form of a submitted value: a string, number, boolean or bigint, never an object or a symbol. */
+const printable = (value: unknown): string | undefined =>
+  ["string", "number", "boolean", "bigint"].includes(typeof value) ? String(value) : undefined;
+
 /**
- * The submitted data of an issue, when it is a printable primitive. A zod `invalid_type` carries a type name
- * (`received: "string"`), not the data, so it is never scrubbed.
+ * The submitted data of an issue, when the pipeline can see it. A zod `invalid_type` carries a type name
+ * (`received: "string"` in zod 3, valibot's `received` too), not the data, so it is never scrubbed. zod 4 carries no
+ * `received`: its `invalid_value` (an enum or a literal) holds the submitted value as `input`, which the adapter asks
+ * zod to report (`reportInput`, `@laratype/contract`'s `validate`). Other zod 4 codes carry `input` as well, but their
+ * messages are schema text and bounds, not the value: a `too_small` input `"a"` would match the letter in an app's
+ * `Name too short`, so only `invalid_value` is searched (H31 #308).
  */
-const printableReceived = (issue: LibraryIssue): string | undefined => {
+const submittedValue = (issue: LibraryIssue): string | undefined => {
   if (issue.code === "invalid_type") return undefined;
-  const { received } = issue;
-  return ["string", "number", "boolean", "bigint"].includes(typeof received) ? String(received) : undefined;
+  const received = printable(issue.received);
+  if (received !== undefined) return received;
+  return issue.code === "invalid_value" ? printable(issue.input) : undefined;
 };
+
+/**
+ * An `invalid_value` whose input is not a printable primitive (`null` and a missing value excluded): its message could
+ * embed the value (a translated error map with `JSON.stringify(input)`), and the pipeline cannot search for it.
+ */
+const unsearchableValue = (issue: LibraryIssue): boolean =>
+  issue.code === "invalid_value" && issue.input !== undefined && issue.input !== null && printable(issue.input) === undefined;
 
 /**
  * `text` without the separators left before a cut tail: `, `, `: `, ` but `, in any mix. `but` is a word at the start of
@@ -532,12 +548,13 @@ const receivedAt = (message: string, folded: string, tails: readonly ReceivedTai
  * An issue's message without the submitted data, which would reach proxy and client logs. Default messages put it
  * last: zod 3 and valibot end with the word `received` and the issue's `received`, in any case (`Invalid enum
  * value. Expected 'a' | 'b', received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email:
- * Received "a@b"`), cut with the separators before it; zod's unrecognized keys follow the first `": "`. A zod
- * `invalid_type` keeps its `received`, a type name. A translated or custom message can put the value anywhere
- * (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`): the pipeline cannot locate it, so an issue that
- * still repeats it answers the generic `Invalid value` rather than the value (H31 #308). Any other message, the app's
- * own included, is kept as it is. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty
- * cut into `Invalid value`), so a message the app wrote empty is kept empty.
+ * Received "a@b"`), cut with the separators before it, and the trimmed prefix is searched for the value again; zod's
+ * unrecognized keys follow the first `": "`. A zod `invalid_type` keeps its `received`, a type name. A translated or
+ * custom message can put the value anywhere (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`): the
+ * pipeline cannot locate it, so an issue that still repeats it answers the generic `Invalid value` rather than the
+ * value (H31 #308); zod 4's `invalid_value` has the value as `input` for that search. Any other message, the app's own
+ * included, is kept as it is. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut into
+ * `Invalid value`), so a message the app wrote empty is kept empty.
  */
 const issueMessage = (issue: LibraryIssue): IssueMessage => {
   const { message, keys } = issue;
@@ -545,14 +562,22 @@ const issueMessage = (issue: LibraryIssue): IssueMessage => {
     const at = message.indexOf(": ");
     if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
   }
-  const received = printableReceived(issue);
-  if (received === undefined) return { message, cut: false };
+  const submitted = submittedValue(issue);
+  if (submitted === undefined) {
+    // A zod 4 invalid_value whose input is an object or array could be embedded in the message: no message carries an
+    // object as text the pipeline can search for, so it fails closed rather than risk it
+    return unsearchableValue(issue) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
+  }
   const folded = message.toLowerCase();
-  const at = receivedAt(message, folded, receivedTails(received));
-  if (at !== -1) return { message: trimSeparators(message.slice(0, at)), cut: true };
+  const at = receivedAt(message, folded, receivedTails(submitted));
+  if (at !== -1) {
+    const prefix = trimSeparators(message.slice(0, at));
+    // The prefix can still carry the value: `Value secret is forbidden, received secret` keeps it before the tail
+    return submitted !== "" && prefix.toLowerCase().includes(submitted.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message: prefix, cut: true };
+  }
   // The value in another position: fail closed. A value the message does not carry (an app's own message, a translated
   // one that dropped it) leaves the message as written. An empty value matches every message, so it is not searched.
-  return received !== "" && folded.includes(received.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
+  return submitted !== "" && folded.includes(submitted.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
 };
 
 /** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */

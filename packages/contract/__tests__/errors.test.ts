@@ -166,6 +166,8 @@ describe('isContractError', () => {
     ['a code that is not a string', { code: 404 }],
     ['a null body', { body: null }],
     ['an array body', { body: ['x'] }],
+    // a null-prototype array is still an array: its indices would go on the wire as the body (H33 #313)
+    ['a null-prototype array body', { body: Object.setPrototypeOf(['x'], null) }],
     ['a string body', { body: 'x' }],
     // H33 #313: a Map, Date or class instance spreads to nothing, so the wire body would lose it: not a contract error
     ['a Map body', { body: new Map() }],

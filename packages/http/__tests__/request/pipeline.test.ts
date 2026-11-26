@@ -136,6 +136,42 @@ describe('a contract route', () => {
     expect(JSON.parse(text).errors.draft).toEqual(['Invalid option: expected one of "yes"|"no"'])
   })
 
+  it('scrubs a real zod 4 enum message that echoes the submitted input (H31 #308)', async () => {
+    quiet()
+    // zod 4's invalid_value carries no `received`: the translated error map gets the submitted value as `input`
+    const role = z.enum(['admin', 'user'], {
+      error: (issue) => `Ungültiger Enum-Wert. Erwartet 'admin' | 'user', erhalten '${String(issue.input)}'`,
+    })
+    const accounts = defineContract()({ store: endpoint.post('/').body(z.object({ role })) })
+    class Accounts { store() {} }
+    const served = bootApp()
+    Route.api(defineApi({ accounts: { contract: accounts, path: '/accounts', scopes: [] } }), (r) => [r.contract(accounts, Accounts)]).mount(served)
+    const response = await served.request('/accounts', json({ role: 's3cr3t' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ role: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+    // an input the pipeline cannot search for (an object): fail closed, the message could embed it
+    const object = await served.request('/accounts', json({ role: { secret: 's3cr3t' } }))
+    const objectText = await object.text()
+    expect(object.status).toBe(422)
+    expect(JSON.parse(objectText).errors).toEqual({ role: ['Invalid value'] })
+    expect(objectText).not.toContain('s3cr3t')
+    // a default message names the allowed options, not the value: it is kept
+    const plain = defineContract()({ store: endpoint.post('/').body(z.object({ role: z.enum(['admin', 'user']) })) })
+    class Plain { store() {} }
+    const plainServed = bootApp()
+    Route.api(defineApi({ plain: { contract: plain, path: '/plain', scopes: [] } }), (r) => [r.contract(plain, Plain)]).mount(plainServed)
+    const kept = await plainServed.request('/plain', json({ role: 's3cr3t' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({ role: ['Invalid option: expected one of "admin"|"user"'] })
+    // a very long submitted value is searched in linear time, and the generic answer stays small
+    const long = await served.request('/accounts', json({ role: 'x'.repeat(10_000) }))
+    const longText = await long.text()
+    expect(long.status).toBe(422)
+    expect(JSON.parse(longText).errors).toEqual({ role: ['Invalid value'] })
+    expect(longText.length).toBeLessThan(1_000)
+  })
+
   it('an error thrown inside a schema is a generic 500, not a 422', async () => {
     const errors = quiet()
     const failure = new Error('db at 10.0.0.7 refused')
@@ -200,6 +236,31 @@ describe('a contract route', () => {
     [{ message: "Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'", received: 'secret' }, 'Invalid value'],
     // a translated message that does not repeat the value is kept
     [{ message: 'Ungültiger Enum-Wert.', received: 'secret' }, 'Ungültiger Enum-Wert.'],
+    // a tail cut can leave the value in the prefix: the trimmed prefix is searched too (H31 #308)
+    [{ message: 'Value secret is forbidden, received secret', received: 'secret' }, 'Invalid value'],
+    // ... while a clean prefix, such as `Expected a`, is kept
+    [{ message: 'Expected a, received "x"', received: '"x"' }, 'Expected a'],
+    // zod 4's invalid_value carries the submitted value as `input`, not `received`: a translated message that
+    // repeats it is the generic message (H31 #308)
+    [{ code: 'invalid_value', message: "Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'", input: 'secret' }, 'Invalid value'],
+    // ... its default message names only the allowed options, so it is kept
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: 'secret' }, 'Invalid option: expected one of "a"|"b"'],
+    // ... an input the pipeline cannot search for (an object or array) fails closed
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: { secret: 'x' } }, 'Invalid value'],
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: ['secret'] }, 'Invalid value'],
+    // ... while a missing value (no input) keeps the message
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"' }, 'Invalid option: expected one of "a"|"b"'],
+    // ... and so does a null input: `null` is not searched for either
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: null }, 'Invalid option: expected one of "a"|"b"'],
+    // an object input is never walked, only its type read: a `{ length: 1e9 }`-style one included
+    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: { length: 1e9 } }, 'Invalid value'],
+    // a printable input is searched like `received`: NaN, Infinity, `__proto__` and a lone surrogate are just text
+    [{ code: 'invalid_value', message: 'Ungültiger Wert: NaN', input: NaN }, 'Invalid value'],
+    [{ code: 'invalid_value', message: 'Ungültiger Wert: Infinity', input: Infinity }, 'Invalid value'],
+    [{ code: 'invalid_value', message: 'Ungültiger Wert: __proto__', input: '__proto__' }, 'Invalid value'],
+    [{ code: 'invalid_value', message: 'Bad \uD800\u0007 value: \uD800', input: '\uD800' }, 'Invalid value'],
+    // another zod 4 code's `input` is not searched: its message is schema text (here the input `a` is a letter of it)
+    [{ code: 'too_small', message: 'Name too short', input: 'a' }, 'Name too short'],
     // an empty value matches every message: it is not searched
     [{ message: 'Ungültiger Enum-Wert.', received: '' }, 'Ungültiger Enum-Wert.'],
     // a zod invalid_type keeps its type name, even when the message repeats it

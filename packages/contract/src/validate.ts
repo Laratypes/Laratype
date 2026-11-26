@@ -45,10 +45,15 @@ export const validate = async <S extends StandardSchemaV1>(schema: S, value: unk
 
 /**
  * zod 4 (what v1 ships) and 3.25+ (the same `safeParseAsync` path), told by their Standard Schema vendor, not by
- * duck-typing a method name.
+ * duck-typing a method name. `reportInput` (zod 4.6) keeps the submitted value on each issue as `input`, the field the
+ * 422 of `@laratype/http` searches a translated message for (H31 [#308](https://github.com/Laratypes/Laratype/issues/308));
+ * zod 3.25 ignores it.
  */
 type Zod = StandardSchemaV1 & {
-  safeParseAsync(value: unknown): Promise<{ success: true; data: unknown } | { success: false; error: { issues: StandardIssue[] } }>;
+  safeParseAsync(
+    value: unknown,
+    params?: { readonly reportInput?: boolean },
+  ): Promise<{ success: true; data: unknown } | { success: false; error: { issues: StandardIssue[] } }>;
 };
 
 const isZod = (schema: StandardSchemaV1): schema is Zod =>
@@ -56,10 +61,11 @@ const isZod = (schema: StandardSchemaV1): schema is Zod =>
 
 /**
  * zod's `~standard.validate` runs the schema sync, then again async when a refinement or a transform is async or
- * throws, so its side effects would run twice. `safeParseAsync` runs it once; its issues are the ones `validate` gives.
+ * throws, so its side effects would run twice. `safeParseAsync` runs it once; its issues are the ones `validate` gives,
+ * plus `input` when zod reports it.
  */
 const zodResult = async (schema: Zod, value: unknown): Promise<StandardResult<unknown>> => {
-  const parsed = await schema.safeParseAsync(value);
+  const parsed = await schema.safeParseAsync(value, { reportInput: true });
   return parsed.success ? { value: parsed.data } : { issues: parsed.error.issues };
 };
 
