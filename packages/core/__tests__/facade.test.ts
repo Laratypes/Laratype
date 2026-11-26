@@ -133,6 +133,21 @@ describe('Facade', () => {
     expect(() => Name.value()).toThrow(/^No binding for InjectionToken\(name\)\./)
   })
 
+  it('does not see a request scope from handler code: a scoped accessor throws', () => {
+    class Scoped {
+      make(value: string) { return `scoped:${value}` }
+    }
+    class ScopedFacade extends Facade {
+      static override readonly accessor = Scoped
+      static run(value: string) { return this.root().make(value) }
+    }
+    const app = new Container().scoped(Scoped)
+    Facade.setFacadeApplication(app)
+    app.createRequestScope()
+    // Facades resolve from the app container, not the request scope: this is the documented limit (D12 #337)
+    expect(() => ScopedFacade.run('x')).toThrow('Cannot resolve Scoped: it is request-scoped but no request scope is active.')
+  })
+
   it('sees app.swap() at once, since it resolves on every call', () => {
     const app = new Container().bind(Greeter, Hello)
     Facade.setFacadeApplication(app)
@@ -220,6 +235,17 @@ describe('appContainer', () => {
     expect(peekAppContainer()).toBe(outer)
     expect(Count.next()).toBe(42)
     expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the app container a warning adapter set meanwhile, not the dropped fallback', () => {
+    vi.stubGlobal('__PROD__', false)
+    const app = new Container()
+    vi.spyOn(console, 'warn').mockImplementation(() => {
+      Facade.setFacadeApplication(app)
+    })
+    expect(appContainer()).toBe(app)
+    expect(Facade.getFacadeApplication()).toBe(app)
+    expect(peekAppContainer()).toBe(app)
   })
 
   it('does not warn in production', () => {
@@ -381,13 +407,13 @@ describe('setFacadeApplication() dropped fakes', () => {
     restore()
   })
 
-  it('warns without throwing when a class token name is not a string', () => {
+  it('prints <anonymous class> when a class token name is not a string', () => {
     vi.stubGlobal('__PROD__', false)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     warmFallback(warn)
-    class Tok {
-      static name() {}
-    }
+    class Tok {}
+    // A `static name()` method (or any non-string name) is not the class name: print the placeholder, not its source.
+    Object.defineProperty(Tok, 'name', { value: () => 'Tok' })
     class TokFacade extends Facade {
       static override readonly accessor = Tok
     }
@@ -396,8 +422,121 @@ describe('setFacadeApplication() dropped fakes', () => {
     expect(() => Facade.setFacadeApplication(app)).not.toThrow()
     expect(peekAppContainer()).toBe(app)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes')
+    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes: <anonymous class>.')
+    expect(String(warn.mock.calls[0]![0])).not.toContain('() =>')
     restore()
+  })
+
+  it('prints <anonymous class> for an empty, null, undefined, NaN, infinite, object or number name', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const name of ['', null, undefined, Number.NaN, Number.POSITIVE_INFINITY, {}, 42]) {
+      warmFallback(warn)
+      class Tok {}
+      Object.defineProperty(Tok, 'name', { value: name })
+      class TokFacade extends Facade {
+        static override readonly accessor = Tok
+      }
+      const restore = TokFacade.fake(new Tok())
+      Facade.setFacadeApplication(new Container())
+      expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes: <anonymous class>.')
+      Facade.setFacadeApplication(undefined)
+      restore()
+      // The once flag is per process: clear it for the next label
+      delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED]
+      warn.mockClear()
+    }
+  })
+
+  it('prints a __proto__ label as a plain name, not a prototype key', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    class Tok {}
+    Object.defineProperty(Tok, 'name', { value: '__proto__' })
+    class TokFacade extends Facade {
+      static override readonly accessor = Tok
+    }
+    const restore = TokFacade.fake(new Tok())
+    expect(() => Facade.setFacadeApplication(new Container())).not.toThrow()
+    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes: __proto__.')
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+    restore()
+  })
+
+  it('escapes format and bidi characters in a token label and caps it at 100 characters', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    class Tok {}
+    Object.defineProperty(Tok, 'name', { value: 'A\u202eB\u200eC\u200fD\u061cE\u0007F\\G' })
+    class TokFacade extends Facade {
+      static override readonly accessor = Tok
+    }
+    const restore = TokFacade.fake(new Tok())
+    Facade.setFacadeApplication(new Container())
+    const message = String(warn.mock.calls[0]![0])
+    expect(message).toContain('A\\u202eB\\u200eC\\u200fD\\u061cE\\u0007F\\\\G')
+    restore()
+
+    // 200 characters after escaping are cut to 100 plus the ellipsis
+    delete (globalThis as { [FAKES_DROPPED]?: true })[FAKES_DROPPED]
+    Facade.setFacadeApplication(undefined)
+    warn.mockClear()
+    class Long {}
+    Object.defineProperty(Long, 'name', { value: 'L'.repeat(200) })
+    class LongFacade extends Facade {
+      static override readonly accessor = Long
+    }
+    const restoreLong = LongFacade.fake(new Long())
+    Facade.setFacadeApplication(new Container())
+    expect(String(warn.mock.calls[0]![0])).toContain(`unrestored fakes: ${'L'.repeat(100)}…`)
+    expect(String(warn.mock.calls[0]![0])).not.toContain('L'.repeat(101))
+    restoreLong()
+  })
+
+  it('keeps a lone surrogate in a token label without throwing', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    class Tok {}
+    Object.defineProperty(Tok, 'name', { value: 'Sur\uD800rogate' })
+    class TokFacade extends Facade {
+      static override readonly accessor = Tok
+    }
+    const restore = TokFacade.fake(new Tok())
+    expect(() => Facade.setFacadeApplication(new Container())).not.toThrow()
+    expect(String(warn.mock.calls[0]![0])).toContain('Sur\uD800rogate')
+    restore()
+  })
+
+  it('names an InjectionToken fake the way the container does', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    const LABEL = token<object>('label')
+    class LabelFacade extends Facade {
+      static override readonly accessor = LABEL
+    }
+    const restore = LabelFacade.fake({})
+    Facade.setFacadeApplication(new Container())
+    expect(String(warn.mock.calls[0]![0])).toContain('unrestored fakes: InjectionToken(label).')
+    restore()
+  })
+
+  it('sets the once flag after the warning prints, so a throwing warn does not silence the next drop', () => {
+    vi.stubGlobal('__PROD__', false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warmFallback(warn)
+    warn.mockImplementationOnce(() => { throw new Error('warn failed') })
+    const first = Count.fake(Object.assign(new Counter(), { count: 9 }))
+    expect(() => Facade.setFacadeApplication(new Container())).toThrow('warn failed')
+    // The flag was not set by the failed warning: the next drop warns again
+    Facade.setFacadeApplication(undefined)
+    Count.fake(Object.assign(new Counter(), { count: 19 }))
+    Facade.setFacadeApplication(new Container())
+    expect(warn).toHaveBeenCalledTimes(2)
+    first()
   })
 
   it('warns without throwing when a token cannot be printed', () => {

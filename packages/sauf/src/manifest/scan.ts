@@ -166,6 +166,42 @@ function scanDir(ctx: ScanContext, projectDir: string, dir: string, kind: Manife
 /** Each list of skipped symlinks once per process: `sauf dev` scans again on every load of the manifest. */
 const warned = new Set<string>();
 
+/** Prints the symlinks a scan did not follow, once per list (the dev manifest and the type scan share the wording). */
+const warnSkipped = (ctx: ScanContext) => {
+  if (ctx.skipped.length) {
+    const message = `[laratype:manifest] symlinks not followed: ${ctx.skipped.join(", ")}`;
+    if (!warned.has(message)) {
+      warned.add(message);
+      Console.warn(message);
+    }
+  }
+};
+
+/**
+ * The `models` kind of the manifest only (docs/v1/http.md › Model binding, H14 #163): the same folders, extensions,
+ * skips and duplicate rule as `scanManifest`, for `sauf types:generate`'s `models.d.ts`. Names only.
+ */
+export function scanModels(projectDir: string): ScannedEntry[] {
+  const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
+  const entries = scanKind(ctx, projectDir, "models");
+  warnSkipped(ctx);
+  return entries;
+}
+
+/** The entries of one kind across its folders, with the duplicate-name refusal (a kind found in both layouts). */
+function scanKind(ctx: ScanContext, projectDir: string, kind: ManifestKind): ScannedEntry[] {
+  const entries: ScannedEntry[] = [];
+  for (const dir of MANIFEST_DIRS[kind]) {
+    for (const entry of scanDir(ctx, projectDir, dir, kind)) {
+      // Lookups by name would pick one silently
+      const other = entries.find((e) => e.name === entry.name);
+      if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
+      entries.push(entry);
+    }
+  }
+  return entries;
+}
+
 /**
  * Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a name found
  * twice in a kind: in both layouts, or `User.ts` next to `User.mjs`. A `User.js` next to `User.ts` is tsc's output
@@ -176,27 +212,34 @@ export function scanManifest(projectDir: string): ScannedManifest {
   const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
   const kinds = {} as Record<ManifestKind, ScannedEntry[]>;
   for (const kind of Object.keys(MANIFEST_DIRS) as ManifestKind[]) {
-    const entries: ScannedEntry[] = [];
-    for (const dir of MANIFEST_DIRS[kind]) {
-      for (const entry of scanDir(ctx, projectDir, dir, kind)) {
-        // Lookups by name would pick one silently
-        const other = entries.find((e) => e.name === entry.name);
-        if (other) throw new ManifestScanError(`${kind}/${entry.name} is in both ${other.path} and ${entry.path}: rename or remove one`);
-        entries.push(entry);
-      }
-    }
-    kinds[kind] = entries;
+    kinds[kind] = scanKind(ctx, projectDir, kind);
   }
-  if (ctx.skipped.length) {
-    const message = `[laratype:manifest] symlinks not followed: ${ctx.skipped.join(", ")}`;
-    if (!warned.has(message)) {
-      warned.add(message);
-      Console.warn(message);
-    }
-  }
+  warnSkipped(ctx);
   const providers = kinds.configs.find((e) => e.name === PROVIDERS_NAME);
   kinds.configs = kinds.configs.filter((e) => e !== providers);
   return { providers, kinds };
+}
+
+/**
+ * Whether a project-relative file is a model module the manifest and the type scan read: a top-level module file of a
+ * `models` folder (not a helper in a sub-folder, a declaration, a test or spec). A new or deleted one changes
+ * `.laratype/types/models.d.ts` (H14 #163).
+ */
+export function inModelsDir(relativePath: string): boolean {
+  const path = relativePath.replace(/\\/g, "/");
+  const base = path.split("/").pop() ?? "";
+  return MANIFEST_DIRS.models.some(
+    (dir) =>
+      path.startsWith(`${dir}/`) &&
+      path.slice(dir.length + 1).split("/").length === 1 &&
+      isModuleFile(base, KIND_EXTENSIONS.models),
+  );
+}
+
+/** Whether `file` (absolute) is a model module the type scan reads, with the same project-relative guard as `isManifestFile`. */
+export function isModelFile(projectDir: string, file: string): boolean {
+  const rel = relative(projectDir, resolve(file));
+  return !rel.startsWith("..") && !isAbsolute(rel) && inModelsDir(rel.replace(/\\/g, "/"));
 }
 
 /** Whether a project-relative file is one the scan reads: a module file where `MANIFEST_DIRS` look, at the depth they look. */

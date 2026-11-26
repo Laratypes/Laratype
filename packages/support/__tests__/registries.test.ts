@@ -45,6 +45,20 @@ describe('ModelBindingRegistry', () => {
     })
   })
 
+  it('does not read the container of a finished request (D11 #318)', () => {
+    const app = new Container()
+    Facade.setFacadeApplication(app)
+    const request = new Container()
+    let requestRegistry: ModelBindingRegistry | undefined
+    ContextApi.run({ container: request } as any, () => {
+      expect(ModelBindingRegistry.container()).toBe(request)
+      requestRegistry = ModelBindingRegistry.current()
+    })
+    // Outside the request the store is empty: the app container answers, not the finished request's scope
+    expect(ModelBindingRegistry.container()).toBe(app)
+    expect(ModelBindingRegistry.current()).not.toBe(requestRegistry)
+  })
+
   it('current() binds one registry per container', () => {
     Facade.setFacadeApplication(new Container())
     expect(ModelBindingRegistry.current()).toBe(ModelBindingRegistry.current())
@@ -52,5 +66,7 @@ describe('ModelBindingRegistry', () => {
     expect(registry.bindings).toEqual({})
     expect(registry.paramModelMap).toEqual({})
     expect(registry.models).toEqual({})
+    // The v1 implicit map (H14 #163) starts empty, next to the 0.5 ones
+    expect(registry.routeModels).toEqual({})
   })
 })

@@ -2,8 +2,8 @@ import { PassportStrategy, type Strategy } from "@laratype/auth";
 import { type LaratypeConfig as Config, Env } from "@laratype/support";
 import GoogleStrategy from 'passport-google-oidc';
 import LocalStrategy from 'passport-local';
-import User from "../src/models/User";
-import Admin from "../src/models/Admin";
+import User from "../models/User";
+import Admin from "../models/Admin";
 
 /** The environment names the process declares, ignoring an empty one (`Env.get()` returns its default for `''`). */
 const environmentNames = () =>

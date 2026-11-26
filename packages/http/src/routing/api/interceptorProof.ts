@@ -1,4 +1,4 @@
-import type { AnyEndpoint } from "@laratype/contract";
+import type { AnyEndpoint, RootContext } from "@laratype/contract";
 import type { AnyInterceptor, Intercepted } from "../../interceptor/defineInterceptor";
 import type { Ctx, EndpointKey, Provided, ReturnMismatch } from "./proof";
 
@@ -24,16 +24,16 @@ type EndpointPinned<A> = A extends {
  * One interceptor against one endpoint. The result check comes first (the Done-when: the contract response is the final
  * type), then what `next()` promises to the interceptor, then the ctx it reads (extensions and bound models included).
  */
-type Issue<N extends string, E extends AnyEndpoint, Path extends string, A, X extends object, B> =
+type Issue<N extends string, E extends AnyEndpoint, Path extends string, A, X extends object, B, Off extends boolean> =
   EndpointPinned<A> extends infer P
     ? P extends { endpoint: infer IE extends AnyEndpoint; requires: infer IReq extends object }
       ? [Intercepted<IE>] extends [Intercepted<E>]
         ? [Intercepted<E>] extends [Intercepted<IE>]
-          ? [Provided<E, Path, X, B>] extends [Ctx<IE, IReq>]
+          ? [Provided<E, Path, X, B, RootContext, Off>] extends [Ctx<IE, IReq>]
             ? never
             : {
                 [K in `${N}: interceptor does not accept the handler's ctx`]: {
-                  route_provides: Provided<E, Path, X, B>;
+                  route_provides: Provided<E, Path, X, B, RootContext, Off>;
                   interceptor_requires: Ctx<IE, IReq>;
                 };
               }
@@ -50,10 +50,10 @@ type Issue<N extends string, E extends AnyEndpoint, Path extends string, A, X ex
     : never;
 
 /** Every endpoint of the contract against every interceptor of the builder: a union of issues, `never` when none. */
-type Issues<N extends string, C, Path extends string, I extends readonly AnyInterceptor[], X extends object, B> = {
+type Issues<N extends string, C, Path extends string, I extends readonly AnyInterceptor[], X extends object, B, Off extends boolean> = {
   [K in EndpointKey<C>]: C[K] extends infer E extends AnyEndpoint
     ? I[number] extends infer A
-      ? Issue<`${N}.${K}`, E, Path, A, X, B>
+      ? Issue<`${N}.${K}`, E, Path, A, X, B, Off>
       : never
     : never;
 }[EndpointKey<C>];
@@ -66,7 +66,8 @@ export type InterceptorIssues<
   I extends readonly AnyInterceptor[],
   X extends object,
   B,
-> = [Issues<N, C, Path, I, X, B>] extends [never] ? unknown : UnionToIntersection<Issues<N, C, Path, I, X, B>>;
+  Off extends boolean = false,
+> = [Issues<N, C, Path, I, X, B, Off>] extends [never] ? unknown : UnionToIntersection<Issues<N, C, Path, I, X, B, Off>>;
 
 /**
  * One endpoint callback's interceptor against the endpoint it is registered for: the result checks only. The callback

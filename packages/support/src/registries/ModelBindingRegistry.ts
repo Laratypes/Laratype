@@ -1,4 +1,3 @@
-import { Facade } from "@laratype/core";
 import type { Container } from "@laratype/core";
 import ContextApi from "../context/ContextApi";
 
@@ -19,6 +18,13 @@ export default class ModelBindingRegistry {
   /** Model class name → model class: the app's TypeORM entities (the old `__laratype_db.models`). */
   public models: Record<string, any> = {};
 
+  /**
+   * @internal The v1 implicit bindings (docs/v1/http.md › Model binding, H14 #163): path param → model class, keyed by
+   * `camelize(<manifest model file name>)`. `DatabaseServiceProvider` fills it from the app manifest; a route step reads
+   * it once per request. Not public API.
+   */
+  public routeModels: Record<string, unknown> = {};
+
   /** The request's registry, else the app container's (the facade application `Serve` sets). */
   static current(): ModelBindingRegistry {
     const app = ModelBindingRegistry.container();
@@ -28,9 +34,9 @@ export default class ModelBindingRegistry {
     return app.make(ModelBindingRegistry);
   }
 
-  /** The container `current()` resolves from: the current request's scope, else the facade application. */
+  /** The container `current()` resolves from: the current request's scope, else the app container. */
   static container(): Container {
-    return ContextApi.getContainer() ?? Facade.getFacadeApplication();
+    return ContextApi.getContainer();
   }
 
 }
