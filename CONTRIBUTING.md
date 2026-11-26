@@ -115,5 +115,6 @@ After the parent PR merges:
   Read every lifecycle entry in the reviewed tree (`git show <sha>:<package.json>`), not only the entries the diff changes, then diff every file they call with the same command, with the file in place of `<paths>`: a branch can set `"postinstall": "bun scripts/setup.ts"` and add `scripts/setup.ts`, or change the script behind an entry it leaves untouched, and no path pattern above matches the script.
 
   These files run with secrets or steer what agents do: CodeRabbit's config steers the review that gates merges, and a malicious workflow was pushed to this repo in 2026-10.
+- **CI checks the lockfile.** `bun run check:lockfile` fails a `bun.lock` entry with a non-registry source or a missing `sha512-` integrity, and any new `trustedDependencies` entry or install script outside the allowlist in `scripts/check-lockfile.mjs`. Update the allowlist in the same PR and have it reviewed; CI installs with `--ignore-scripts`, so dependency lifecycle scripts never run there.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.
 - Don't add workflows that use secrets, or trigger `workflow_dispatch` runs, without the maintainer's approval.

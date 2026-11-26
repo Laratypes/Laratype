@@ -46,10 +46,11 @@ Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; t
 | Contract tests | `bunx vitest run packages/contract` |
 | Client tests | `bunx vitest run packages/client` |
 | Full suite | `bun run test --run`, the same run as `bunx vitest run` in CI: every workspace project, including the `types` project and the `docs/v1/examples` type-check. Run `bun run build` first: `sauf/__tests__/devSsr` runs the built sauf CLI and `sauf/__tests__/di/plugin` resolves `@laratype/core` from its `dist`. |
+| Lockfile sources and install scripts | `bun run check:lockfile` |
 | Release note (published change) | `bun run release:changeset <pkg> <patch\|minor\|major> "<summary>"` |
 | Release check | `bun run release:check` |
 
-CI (`.github/workflows/ci.yml`) runs the build, the declarations, the dist and package checks and the full test suite on every PR, whatever its base, and on push to `master`.
+CI (`.github/workflows/ci.yml`) runs the build, the declarations, the lockfile sources and install-script check, the dist and package checks, the full test suite and `bun audit --audit-level=high` on every PR, whatever its base, and on push to `master`. `.github/workflows/audit.yml` runs the same audit weekly.
 
 `.github/workflows/pkg-preview.yml` publishes a [pkg.pr.new](https://pkg.pr.new) preview of every public package on PRs from branches of this repo, on push to `master` and on manual `workflow_dispatch` runs; the pkg.pr.new app comments the install links on the PR. Changes that touch only `docs/**` or root-level `*.md` files get no preview.
 
