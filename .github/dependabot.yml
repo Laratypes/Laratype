@@ -1,6 +1,7 @@
 # Dependabot version updates (B27 #364, docs/v1/build.md › CI and release). Security updates and alerts are
-# enabled in the repo settings; this file adds weekly version updates. Every PR goes through the normal review
-# (CodeRabbit, leader, security for lockfile and lifecycle-script changes) and is never auto-merged.
+# enabled in the repo settings; this file adds weekly version updates. Every PR goes through CI, the leader read
+# and security for any bun.lock or lifecycle-script change. CodeRabbit skips Dependabot PRs and bun.lock
+# (.coderabbit.yaml). No PR is auto-merged.
 version: 2
 updates:
   # Workspace dependencies: bun.lock covers the root, packages/* and examples/*
@@ -21,10 +22,8 @@ updates:
     commit-message:
       prefix: "build(deps)"
 
-  # Most actions are pinned by SHA with a `# vX.Y.Z` comment, and Dependabot bumps both together. Some still use
-  # a tag until B14 #189 pins them (actions/checkout@v4 in three workflows, actions/dependency-review-action@v4);
-  # Dependabot bumps the tag. The composite action in .github/setup-bun is not under .github/workflows, so it is
-  # listed as its own directory.
+  # Every action is pinned by a commit SHA with a `# vX.Y.Z` comment, and Dependabot bumps both together.
+  # The composite action in .github/setup-bun is not under .github/workflows, so it is listed as its own directory.
   - package-ecosystem: "github-actions"
     directories:
       - "/"

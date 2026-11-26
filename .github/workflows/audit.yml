@@ -1,0 +1,29 @@
+# Weekly dependency audit (B14 #189). It fails red on a high/critical advisory in bun.lock.
+# There is deliberately no auto-issue step, so a scheduled run never needs a write token: no
+# `issues: write`, no `pull-requests: write`, and no secret. A delayed or overlapping run cancels.
+name: 'Dependency audit'
+on:
+  schedule:
+    # Monday 03:17 UTC: a quiet slot, and 17 past the hour avoids the top-of-hour scheduler backlog.
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit bun.lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup bun
+        uses: ./.github/setup-bun
+      - name: Audit
+        run: bun audit --audit-level=high
