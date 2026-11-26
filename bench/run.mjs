@@ -7,8 +7,10 @@
  * always runs on Node (never on the Bun under test), so the generator is constant. Output is a JSON + Markdown report
  * under bench/out (gitignored).
  *
- * **Run it only in bench/Dockerfile or the `bench` GitHub workflow, never on a developer machine.** The pure helpers
- * (flags, report, wire fixtures, commit fallback) live in bench/lib and are covered by `bench/__tests__`.
+ * **Run it only in bench/Dockerfile or the `bench` GitHub workflow, never on a developer machine.** The runner
+ * refuses to start unless `LARATYPE_BENCH_CONTAINER=1` is set (bench/Dockerfile does it; there is no override). The
+ * pure helpers (flags, report, wire fixtures, commit fallback, the container guard) live in bench/lib and are covered
+ * by `bench/__tests__`.
  *
  * Usage: bun bench/run.mjs [--apps ...] [--runtimes node,bun] [--scenario name] [--connections 50] [--duration 10]
  *        [--warmup 2] [--smoke] [--node <path>] [--bun <path>] [--out <dir>] [--allow-node-mismatch]
@@ -32,6 +34,17 @@ import { parseArgs, usageLines, UsageError } from './lib/args.mjs'
 import { resolveGitInfo } from './lib/git-info.mjs'
 import { buildReport, markdown, reportBaseName, round } from './lib/report.mjs'
 import { autocannonArgs, requestFor, responseMatches } from './lib/wire.mjs'
+import { assertContainer, ContainerError } from './lib/container.mjs'
+
+// Before parsing a flag, picking a port or spawning anything: refuse a host run (a local run has frozen a machine).
+// bench/Dockerfile sets the marker; the bench workflow runs that image, so it inherits it too.
+try {
+  assertContainer(process.env)
+} catch (error) {
+  if (!(error instanceof ContainerError)) throw error
+  console.error(error.message)
+  process.exit(1)
+}
 
 const require = createRequire(import.meta.url)
 const here = path.dirname(fileURLToPath(import.meta.url))

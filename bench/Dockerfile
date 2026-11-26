@@ -22,6 +22,10 @@ RUN bun --version && node --version
 RUN bun install --ignore-scripts --frozen-lockfile
 RUN bun run build
 
+# Container-only guard: bench/run.mjs refuses to start unless this marker is set (bench/lib/container.mjs). There is no
+# override, so a host `bun run bench` or `bun run bench:smoke` prints one refusal line and exits 1.
+ENV LARATYPE_BENCH_CONTAINER=1
+
 # The runner writes the JSON + Markdown report here. Mount a host directory over /out; the workflow uploads it.
 ENV BENCH_OUT=/out
 
