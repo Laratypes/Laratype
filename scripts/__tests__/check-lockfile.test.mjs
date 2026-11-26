@@ -48,6 +48,12 @@ describe('check:lockfile', () => {
     expect(result.errors.join('\n')).toContain('non-registry source')
   })
 
+  it('passes a resolved URL on registry.npmjs.org', () => {
+    const result = checkLockfile(fixture('resolved-npm', { untrustedOutput: '' }))
+    expect(result.errors).toEqual([])
+    expect(result.ok).toBe(true)
+  })
+
   it('fails a package entry without a sha512 integrity', () => {
     const result = checkLockfile(fixture('no-integrity', { untrustedOutput: '' }))
     expect(result.ok).toBe(false)
