@@ -266,7 +266,8 @@ const assertNoGetBody = (method: string, hasBody: boolean, path: string): void =
  * Chrome < 98), where an abort would otherwise be the status-0 result with `error: undefined`; the Fetch Standard's
  * `AbortError` stands in for it.
  */
-const abortReason = (signal: AbortSignal): unknown => signal.reason ?? new DOMException("This operation was aborted", "AbortError");
+const abortReason = (signal: AbortSignal): unknown =>
+  signal.reason === undefined ? new DOMException("This operation was aborted", "AbortError") : signal.reason;
 
 /**
  * A call aborted before `fetch` (while the headers function or `onRequest` ran): the status-0 result fetch would give,
@@ -279,7 +280,7 @@ const throwIfAborted = (signal: AbortSignal | null | undefined): void => {
 /** Whether the body was read or locked (a reader taken), so the client can't read it. */
 const bodyTaken = (response: Response): boolean => response.bodyUsed || !!response.body?.locked;
 
-/** Whether a request body is a stream, which `fetch` needs `duplex: "half"` for, and a probe Request would lock. */
+/** Whether a request body is a stream, which `fetch` needs `duplex: "half"` for, and a probe Request would take. */
 const isStreamBody = (body: unknown): boolean => {
   if (typeof body !== "object" || body === null) return false;
   const stream = body as { getReader?: unknown; pipeTo?: unknown };
@@ -290,14 +291,21 @@ const isStreamBody = (body: unknown): boolean => {
  * What `fetch` would refuse, checked after `onRequest` and before it is called (#315): one `new Request`, as `fetch`
  * builds it, so an invalid method or body rejects with a message that names the path instead of coming back as the
  * status-0 result. The caller's body is never taken by the probe: constructing a `Request` with a `ReadableStream`
- * locks it, so a stream body is left out and its rule (`duplex: "half"`) is checked by hand. A GET or HEAD body keeps
- * the client's own `a <METHOD> request cannot have a body` diagnostic.
+ * takes it, so a stream body is left out and its rules are checked by hand (`duplex: "half"`, no `keepalive`, and a
+ * `mode` of `same-origin` or `cors`). A GET or HEAD body keeps the client's own `a <METHOD> request cannot have a body`
+ * diagnostic.
  */
 const preflight = (url: string, init: ClientRequest["init"], path: string): void => {
   assertNoGetBody(init.method ?? "GET", init.body != null, path);
   const stream = isStreamBody(init.body);
-  if (stream && (init as RequestInit & { duplex?: unknown }).duplex !== "half") {
-    fail(`the request body is a stream, which needs duplex: "half": "${path}"`);
+  if (stream) {
+    if ((init as RequestInit & { duplex?: unknown }).duplex !== "half") {
+      fail(`the request body is a stream, which needs duplex: "half": "${path}"`);
+    }
+    if (init.keepalive) fail(`the request body is a stream, which cannot use keepalive: "${path}"`);
+    if (init.mode !== undefined && init.mode !== "same-origin" && init.mode !== "cors") {
+      fail(`the request body is a stream, which needs mode: "same-origin" or "cors": "${path}"`);
+    }
   }
   const probeInit: RequestInit & { duplex?: string } = { ...init, body: stream ? undefined : init.body };
   try {
@@ -321,8 +329,9 @@ const preflight = (url: string, init: ClientRequest["init"], path: string): void
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
  * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body, after
  * releasing what it can. One pre-flight `Request` then rejects what `fetch` would refuse (an invalid method, a stream
- * without `duplex: "half"`) instead of letting it look like a network failure. A call aborted before `fetch` is a
- * `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest` once aborted.
+ * without `duplex: "half"`, with `keepalive`, or with a mode other than `same-origin` or `cors`) instead of letting it
+ * look like a network failure. A call aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither
+ * the headers function nor `onRequest` once aborted.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a

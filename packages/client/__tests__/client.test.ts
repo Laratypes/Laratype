@@ -802,6 +802,146 @@ describe('options and hooks', () => {
     expect(seen).toEqual([{ locked: false, text: 'hello' }])
   })
 
+  it('a valid stream body stays unread and unlocked through preflight (#315)', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode('hello'))
+        controller.close()
+      },
+    })
+    const getReader = vi.spyOn(stream, 'getReader')
+    const fetch = vi.fn<FetchLike>(async (_input, init) => {
+      expect((init.body as ReadableStream<Uint8Array>).locked).toBe(false)
+      return new Response('{}', { status: 200 })
+    })
+    const api = createClient(appApi, {
+      fetch,
+      onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half' }),
+    })
+    await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'T' } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(stream.locked).toBe(false)
+    expect(getReader).not.toHaveBeenCalled()
+    expect(await new Response(stream).text()).toBe('hello')
+  })
+
+  it('a stream with keepalive or no-cors rejects before fetch and stays unread and unlocked (#315)', async () => {
+    const { fetch } = fakeFetch()
+    const cases = [
+      {
+        name: 'keepalive',
+        patch: { keepalive: true },
+        message: '[@laratype/client] the request body is a stream, which cannot use keepalive: "/api/users"',
+      },
+      {
+        name: 'no-cors',
+        patch: { mode: 'no-cors' },
+        message: '[@laratype/client] the request body is a stream, which needs mode: "same-origin" or "cors": "/api/users"',
+      },
+    ]
+    for (const { name, patch, message } of cases) {
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const getReader = vi.spyOn(stream, 'getReader')
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half' }, patch),
+      })
+      await expect(api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(message)
+      expect(stream.locked, name).toBe(false)
+      expect(getReader, name).not.toHaveBeenCalled()
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('stream preflight checks edge values for keepalive and mode without taking the body (#315)', async () => {
+    const rejectedKeepalive = [true, 1, {}, 'yes', 'x'.repeat(10_000), '\ud800\u0000', Infinity]
+    for (const keepalive of rejectedKeepalive) {
+      const { fetch } = fakeFetch()
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half', keepalive }),
+      })
+      await expect(api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(/cannot use keepalive/)
+      expect(stream.locked).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+    }
+
+    const allowedKeepalive = [false, null, undefined, 0, '', NaN]
+    for (const keepalive of allowedKeepalive) {
+      const { fetch } = fakeFetch()
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half', keepalive }),
+      })
+      await api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(stream.locked).toBe(false)
+    }
+
+    const rejectedModes = ['no-cors', 'navigate', 'bad', '', 'x'.repeat(10_000), '\ud800', '\u0000', 1, null, {}, NaN, Infinity]
+    for (const mode of rejectedModes) {
+      const { fetch } = fakeFetch()
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half', mode }),
+      })
+      await expect(api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })).rejects.toThrow(/needs mode: "same-origin" or "cors"/)
+      expect(stream.locked).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+    }
+
+    for (const mode of [undefined, 'same-origin', 'cors']) {
+      const { fetch } = fakeFetch()
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => Object.assign(init, { body: stream, duplex: 'half', mode }),
+      })
+      await api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } })
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(stream.locked).toBe(false)
+    }
+
+    for (const { name, define, message } of [
+      {
+        name: 'inherited keepalive',
+        define: (init: ClientRequest['init']) => Object.setPrototypeOf(init, { keepalive: true }),
+        message: /cannot use keepalive/,
+      },
+      {
+        name: 'non-enumerable keepalive',
+        define: (init: ClientRequest['init']) => Object.defineProperty(init, 'keepalive', { value: true }),
+        message: /cannot use keepalive/,
+      },
+      {
+        name: 'inherited mode',
+        define: (init: ClientRequest['init']) => Object.setPrototypeOf(init, { mode: 'no-cors' }),
+        message: /needs mode: "same-origin" or "cors"/,
+      },
+      {
+        name: 'non-enumerable mode',
+        define: (init: ClientRequest['init']) => Object.defineProperty(init, 'mode', { value: 'no-cors' }),
+        message: /needs mode: "same-origin" or "cors"/,
+      },
+    ]) {
+      const { fetch } = fakeFetch()
+      const stream = new ReadableStream<Uint8Array>({ start: (controller) => controller.close() })
+      const api = createClient(appApi, {
+        fetch,
+        onRequest: ({ init }) => {
+          Object.assign(init, { body: stream, duplex: 'half' })
+          define(init)
+        },
+      })
+      await expect(api.users.store({ body: { name: 'A', email: 'a' }, headers: { 'x-tenant': 't' } }), name).rejects.toThrow(message)
+      expect(stream.locked, name).toBe(false)
+      expect(fetch, name).not.toHaveBeenCalled()
+    }
+  })
+
   it('the request is frozen: onRequest changes the init, not the url or the init object', async () => {
     const { fetch } = fakeFetch()
     const api = createClient(appApi, {
@@ -852,6 +992,33 @@ describe('options and hooks', () => {
     controller.abort()
     const real = await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
     expect((real as { error?: unknown }).error).toBe(controller.signal.reason)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('an abort with an explicit null reason keeps null, before fetch and after onRequest (#315)', async () => {
+    const { fetch } = fakeFetch()
+    const controller = new AbortController()
+    controller.abort(null)
+    const before = await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
+    expect(before).toEqual({ ok: false, unexpected: true, status: 0, error: null, response: undefined })
+
+    const after = await createClient(appApi, { fetch, onRequest: ({ init }) => void (init.signal = controller.signal) }).users.index()
+    expect(after).toEqual({ ok: false, unexpected: true, status: 0, error: null, response: undefined })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('abort keeps every supplied reason other than undefined, including edge values (#315)', async () => {
+    const { fetch } = fakeFetch()
+    const prototypeReason = Object.create(null) as Record<string, unknown>
+    Object.defineProperty(prototypeReason, '__proto__', { value: 'secret', enumerable: false })
+    const reasons = [false, 0, NaN, Infinity, { secret: true }, { length: 1e9 }, prototypeReason, 'x'.repeat(10_000), '\ud800\u0000']
+    for (const reason of reasons) {
+      const controller = new AbortController()
+      controller.abort(reason)
+      const result = await createClient(appApi, { fetch }).users.index({ signal: controller.signal })
+      expect(result).toMatchObject({ ok: false, unexpected: true, status: 0, response: undefined })
+      expect((result as { error?: unknown }).error).toBe(reason)
+    }
     expect(fetch).not.toHaveBeenCalled()
   })
 
