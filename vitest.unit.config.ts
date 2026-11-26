@@ -1,5 +1,5 @@
 import { configDefaults, mergeConfig } from 'vitest/config'
-import config from './vitest.config'
+import config from './vitest.shared'
 
 export default mergeConfig(config, {
   test: {

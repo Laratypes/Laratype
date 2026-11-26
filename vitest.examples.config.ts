@@ -3,7 +3,7 @@ import { Compiler, type Options } from "@swc/core";
 import type { Plugin } from "vite";
 import { configDefaults, mergeConfig } from "vitest/config";
 import { entries } from "./scripts/alias";
-import config from "./vitest.config";
+import config from "./vitest.shared";
 import { laratypeManifest } from "./packages/sauf/src/manifest";
 import { laratypeDi } from "./packages/sauf/src/di/plugin";
 
