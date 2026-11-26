@@ -47,7 +47,7 @@
     "test:di": "vitest run packages/sauf/__tests__/di"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.6",
+    "@hono/node-server": "^2.1.7",
     "@laratype/console": "workspace:*",
     "@laratype/support": "workspace:*",
     "deepmerge": "^4.3.1"

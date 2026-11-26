@@ -12,7 +12,7 @@ Thank you for considering contributing to Laratype! This guide covers setup, com
 
 ## Setup
 
-You need Node 20.17 (see [`.node-version`](.node-version)) and [bun](https://bun.com/docs/installation).
+You need Node 22.23.5 (see [`.node-version`](.node-version)) and [bun](https://bun.com/docs/installation).
 
 1. Fork the repository on GitHub and clone your fork:
 
