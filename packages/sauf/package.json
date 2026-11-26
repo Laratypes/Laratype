@@ -42,7 +42,7 @@
     "oxc-parser": "^0.102.0",
     "tsc-alias": "^1.8.16",
     "vite": "^7.1.9",
-    "@hono/node-server": "^2.1.6",
+    "@hono/node-server": "^2.1.7",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-replace": "^6.0.3",
     "@rollup/plugin-terser": "^0.4.4",
