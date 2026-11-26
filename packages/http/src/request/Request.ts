@@ -493,11 +493,13 @@ export default class Request extends AppServiceProvider {
       if(typeof rules?.["~standard"]?.validate !== "function") {
         throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)`);
       }
-      // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only
-      const result = await validate(rules, requestInstance.all());
+      // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only. The
+      // scrubber gets the same object the schema validated, so an issue's path resolves to the submitted value (H31 #308)
+      const input = requestInstance.all();
+      const result = await validate(rules, input);
       if(!result.ok) {
         throw new ValidationException({
-          errors: result.issues.map(publicIssue),
+          errors: result.issues.map((issue) => publicIssue(issue, input)),
         })
       }
       requestInstance.validated = () => result.value

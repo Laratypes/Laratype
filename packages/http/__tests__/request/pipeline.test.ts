@@ -14,6 +14,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { Ctx } from '../../src/index'
+import { publicIssue } from '../../src/request/input'
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. Middleware is
  * mounted with `app.use()` before the kernel, the only place a `bodyLimit` keeps its 413. */
@@ -136,40 +137,190 @@ describe('a contract route', () => {
     expect(JSON.parse(text).errors.draft).toEqual(['Invalid option: expected one of "yes"|"no"'])
   })
 
+  /** A contract route whose body is `body`, mounted at `/scrub`. */
+  const serveBody = (body: unknown) => {
+    const contract = defineContract()({ store: endpoint.post('/').body(body as never) })
+    class Scrub { store() {} }
+    const served = bootApp()
+    Route.api(defineApi({ scrub: { contract, path: '/scrub', scopes: [] } }), (r) => [r.contract(contract, Scrub)]).mount(served)
+    return served
+  }
+
+  /** A Standard Schema whose validate returns `issues` as they are, for issue-shape edge cases. */
+  const issuesSchema = (issues: readonly object[]) =>
+    ({ '~standard': { version: 1, vendor: 'other', validate: () => ({ issues }) } }) as const
+
   it('scrubs a real zod 4 enum message that echoes the submitted input (H31 #308)', async () => {
     quiet()
     // zod 4's invalid_value carries no `received`: the translated error map gets the submitted value as `input`
     const role = z.enum(['admin', 'user'], {
       error: (issue) => `Ungültiger Enum-Wert. Erwartet 'admin' | 'user', erhalten '${String(issue.input)}'`,
     })
-    const accounts = defineContract()({ store: endpoint.post('/').body(z.object({ role })) })
-    class Accounts { store() {} }
-    const served = bootApp()
-    Route.api(defineApi({ accounts: { contract: accounts, path: '/accounts', scopes: [] } }), (r) => [r.contract(accounts, Accounts)]).mount(served)
-    const response = await served.request('/accounts', json({ role: 's3cr3t' }))
+    const served = serveBody(z.object({ role }))
+    const response = await served.request('/scrub', json({ role: 's3cr3t' }))
     const text = await response.text()
     expect(response.status).toBe(422)
     expect(JSON.parse(text).errors).toEqual({ role: ['Invalid value'] })
     expect(text).not.toContain('s3cr3t')
-    // an input the pipeline cannot search for (an object): fail closed, the message could embed it
-    const object = await served.request('/accounts', json({ role: { secret: 's3cr3t' } }))
-    const objectText = await object.text()
-    expect(object.status).toBe(422)
-    expect(JSON.parse(objectText).errors).toEqual({ role: ['Invalid value'] })
-    expect(objectText).not.toContain('s3cr3t')
     // a default message names the allowed options, not the value: it is kept
-    const plain = defineContract()({ store: endpoint.post('/').body(z.object({ role: z.enum(['admin', 'user']) })) })
-    class Plain { store() {} }
-    const plainServed = bootApp()
-    Route.api(defineApi({ plain: { contract: plain, path: '/plain', scopes: [] } }), (r) => [r.contract(plain, Plain)]).mount(plainServed)
-    const kept = await plainServed.request('/plain', json({ role: 's3cr3t' }))
+    const plain = serveBody(z.object({ role: z.enum(['admin', 'user']) }))
+    const kept = await plain.request('/scrub', json({ role: 's3cr3t' }))
     expect(JSON.parse(await kept.text()).errors).toEqual({ role: ['Invalid option: expected one of "admin"|"user"'] })
     // a very long submitted value is searched in linear time, and the generic answer stays small
-    const long = await served.request('/accounts', json({ role: 'x'.repeat(10_000) }))
+    const long = await served.request('/scrub', json({ role: 'x'.repeat(10_000) }))
     const longText = await long.text()
     expect(long.status).toBe(422)
     expect(JSON.parse(longText).errors).toEqual({ role: ['Invalid value'] })
     expect(longText.length).toBeLessThan(1_000)
+  })
+
+  it('scrubs a real zod 4 email message that echoes the submitted input (invalid_format)', async () => {
+    quiet()
+    const email = z.email({ error: (issue) => `Bad email: '${String(issue.input)}'` })
+    const served = serveBody(z.object({ user: z.object({ email }) }))
+    const response = await served.request('/scrub', json({ user: { email: 'nope@s3cr3t' } }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    // the nested path resolves through the body: `user.email`
+    expect(JSON.parse(text).errors).toEqual({ 'user.email': ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('scrubs a refine message that echoes the submitted input', async () => {
+    quiet()
+    const name = z.string().refine((value) => value === 'ada', { error: (issue) => `Unknown name '${String(issue.input)}'` })
+    const served = serveBody(z.object({ name }))
+    const response = await served.request('/scrub', json({ name: 'grace' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ name: ['Invalid value'] })
+    expect(text).not.toContain('grace')
+  })
+
+  it('searches the trimmed form of a string a transform produced', async () => {
+    quiet()
+    // `trim()` makes the refine's message quote `grace`, while the body holds `  grace  `: both forms are searched
+    const nick = z.string().trim().refine((value) => value === 'ada', { error: (issue) => `Unknown nick '${String(issue.input)}'` })
+    const served = serveBody(z.object({ nick }))
+    const response = await served.request('/scrub', json({ nick: '  grace  ' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ nick: ['Invalid value'] })
+    expect(text).not.toContain('grace')
+  })
+
+  it('does not search a submitted value shorter than 3 characters', async () => {
+    quiet()
+    // a 1-2 character value leaks next to nothing, and searching it would turn the "too short" messages generic
+    const plain = serveBody(z.object({ name: z.string().min(5) }))
+    const response = await plain.request('/scrub', json({ name: 'a' }))
+    expect(JSON.parse(await response.text()).errors).toEqual({ name: ['Too small: expected string to have >=5 characters'] })
+    const translated = serveBody(z.object({ name: z.string().min(5, { error: (issue) => `Too short: '${String(issue.input)}'` }) }))
+    const short = await translated.request('/scrub', json({ name: 'a' }))
+    expect(JSON.parse(await short.text()).errors).toEqual({ name: ["Too short: 'a'"] })
+    // 3 characters are searched
+    const longer = await translated.request('/scrub', json({ name: 'abc' }))
+    expect(JSON.parse(await longer.text()).errors).toEqual({ name: ['Invalid value'] })
+  })
+
+  it('scrubs a valibot message that echoes the submitted input', async () => {
+    quiet()
+    const name = v.pipe(v.string(), v.check((value) => value.length > 10, (issue) => `Weak '${issue.received}'`))
+    const served = serveBody(v.object({ name }))
+    const response = await served.request('/scrub', json({ name: 's3cr3t' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ name: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('resolves an array index path', async () => {
+    quiet()
+    const tags = z.object({ tags: z.array(z.string().max(4, { error: (issue) => `Bad tag '${String(issue.input)}'` })) })
+    const served = serveBody(tags)
+    const response = await served.request('/scrub', json({ tags: ['okay', 's3cr3t'] }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ 'tags.1': ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('searches the printable leaves of an object at the path', async () => {
+    quiet()
+    // a message that embeds the object as JSON carries a leaf: the issue fails closed
+    const user = z.object({ password: z.string(), confirm: z.string() })
+      .refine(() => false, { error: (issue) => `Mismatch: ${JSON.stringify(issue.input)}` })
+    const encoded = await serveBody(z.object({ user })).request('/scrub', json({ user: { password: 's3cr3t', confirm: 'other' } }))
+    const encodedText = await encoded.text()
+    expect(JSON.parse(encodedText).errors).toEqual({ user: ['Invalid value'] })
+    expect(encodedText).not.toContain('s3cr3t')
+    // an object-level message that does not carry a leaf is kept
+    const mismatch = z.object({ password: z.string(), confirm: z.string() }).refine(() => false, { error: 'Passwords do not match' })
+    const kept = await serveBody(mismatch).request('/scrub', json({ password: 's3cr3t', confirm: 'other' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({ '': ['Passwords do not match'] })
+    // the leaf walk fails closed when its bound is hit, and its depth bound
+    const deep = await serveBody(issuesSchema([{ message: 'Nested too deep', path: [] }]))
+      .request('/scrub', json({ a: { b: { c: { d: 'plain' } } } }))
+    expect(JSON.parse(await deep.text()).errors).toEqual({ '': ['Invalid value'] })
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`k${index}`, 'leaf']))
+    const wide = await serveBody(issuesSchema([{ message: 'Too many leaves', path: [] }])).request('/scrub', json(many))
+    expect(JSON.parse(await wide.text()).errors).toEqual({ '': ['Invalid value'] })
+  })
+
+  it('never follows __proto__, constructor or prototype', async () => {
+    quiet()
+    // own data keys of the body: a walk that followed them would find s3cr3t and scrub the message
+    const issues = [
+      { message: "Ungültig: 's3cr3t'", path: ['__proto__', 'value'] },
+      { message: "Ungültig: 's3cr3t'", path: ['constructor', 'value'] },
+      { message: "Ungültig: 's3cr3t'", path: ['prototype', 'value'] },
+    ]
+    const response = await serveBody(issuesSchema(issues)).request('/scrub', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"__proto__":{"value":"s3cr3t"},"constructor":{"value":"s3cr3t"},"prototype":{"value":"s3cr3t"}}',
+    })
+    expect(JSON.parse(await response.text()).errors).toEqual({
+      '__proto__.value': ["Ungültig: 's3cr3t'"],
+      'constructor.value': ["Ungültig: 's3cr3t'"],
+      'prototype.value': ["Ungültig: 's3cr3t'"],
+    })
+  })
+
+  it('never invokes a getter on the input', () => {
+    let invoked = 0
+    const input: Record<string, unknown> = {}
+    Object.defineProperty(input, 'user', { enumerable: true, value: {} })
+    Object.defineProperty(input.user as object, 'email', { enumerable: true, get() { invoked++; return 's3cr3t' } })
+    expect(publicIssue({ message: "Bad email 's3cr3t'", path: ['user', 'email'], code: 'invalid_format' }, input)).toEqual({
+      path: ['user', 'email'],
+      message: "Bad email 's3cr3t'",
+    })
+    expect(invoked).toBe(0)
+  })
+
+  it('treats a multipart File at the path as non-printable', async () => {
+    quiet()
+    const form = new FormData()
+    form.append('avatar', new File(['s3cr3t'], 's3cr3t.txt'))
+    const response = await serveBody(issuesSchema([{ message: 'Invalid file: s3cr3t', path: ['avatar'] }]))
+      .request('/scrub', { method: 'POST', body: form })
+    // the File's name and bytes are never read: the message is kept as the app wrote it
+    expect(JSON.parse(await response.text()).errors).toEqual({ avatar: ['Invalid file: s3cr3t'] })
+  })
+
+  it('scrubs a query issue against the query input', async () => {
+    quiet()
+    const draft = z.enum(['yes', 'no'], { error: (issue) => `Ungültig: '${String(issue.input)}'` })
+    const contract = defineContract()({ store: endpoint.post('/').query(z.object({ draft })).response(z.unknown(), 201) })
+    class Drafts { store() { return {} } }
+    const served = bootApp()
+    Route.api(defineApi({ drafts: { contract, path: '/drafts', scopes: [] } }), (r) => [r.contract(contract, Drafts)]).mount(served)
+    const response = await served.request('/drafts?draft=s3cr3t', json({}))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ draft: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
   })
 
   it('an error thrown inside a schema is a generic 500, not a 422', async () => {
@@ -224,7 +375,9 @@ describe('a contract route', () => {
     [{ message: '𝐱received 5', received: 7 }, '𝐱received 5'],
     [{ message: 'e\u0301received 5', received: 7 }, 'e\u0301received 5'],
     // a value the message carries anywhere is dropped, word boundary or not (H31 #308)
-    [{ message: 'Field unreceived 5', received: 5 }, 'Invalid value'],
+    [{ message: 'Field unreceived 500', received: 500 }, 'Invalid value'],
+    // a 1-2 character value is not searched: the common "too short" messages would turn generic
+    [{ message: 'Ungültiger Wert: 5', received: 5 }, 'Ungültiger Wert: 5'],
     // every separator before the tail goes
     [{ message: 'Invalid: but received "x"', received: '"x"' }, 'Invalid'],
     [{ message: 'Expected x,  but  :, received 5', received: 5 }, 'Expected x'],
@@ -240,27 +393,6 @@ describe('a contract route', () => {
     [{ message: 'Value secret is forbidden, received secret', received: 'secret' }, 'Invalid value'],
     // ... while a clean prefix, such as `Expected a`, is kept
     [{ message: 'Expected a, received "x"', received: '"x"' }, 'Expected a'],
-    // zod 4's invalid_value carries the submitted value as `input`, not `received`: a translated message that
-    // repeats it is the generic message (H31 #308)
-    [{ code: 'invalid_value', message: "Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'", input: 'secret' }, 'Invalid value'],
-    // ... its default message names only the allowed options, so it is kept
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: 'secret' }, 'Invalid option: expected one of "a"|"b"'],
-    // ... an input the pipeline cannot search for (an object or array) fails closed
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: { secret: 'x' } }, 'Invalid value'],
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: ['secret'] }, 'Invalid value'],
-    // ... while a missing value (no input) keeps the message
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"' }, 'Invalid option: expected one of "a"|"b"'],
-    // ... and so does a null input: `null` is not searched for either
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: null }, 'Invalid option: expected one of "a"|"b"'],
-    // an object input is never walked, only its type read: a `{ length: 1e9 }`-style one included
-    [{ code: 'invalid_value', message: 'Invalid option: expected one of "a"|"b"', input: { length: 1e9 } }, 'Invalid value'],
-    // a printable input is searched like `received`: NaN, Infinity, `__proto__` and a lone surrogate are just text
-    [{ code: 'invalid_value', message: 'Ungültiger Wert: NaN', input: NaN }, 'Invalid value'],
-    [{ code: 'invalid_value', message: 'Ungültiger Wert: Infinity', input: Infinity }, 'Invalid value'],
-    [{ code: 'invalid_value', message: 'Ungültiger Wert: __proto__', input: '__proto__' }, 'Invalid value'],
-    [{ code: 'invalid_value', message: 'Bad \uD800\u0007 value: \uD800', input: '\uD800' }, 'Invalid value'],
-    // another zod 4 code's `input` is not searched: its message is schema text (here the input `a` is a letter of it)
-    [{ code: 'too_small', message: 'Name too short', input: 'a' }, 'Name too short'],
     // an empty value matches every message: it is not searched
     [{ message: 'Ungültiger Enum-Wert.', received: '' }, 'Ungültiger Enum-Wert.'],
     // a zod invalid_type keeps its type name, even when the message repeats it
@@ -270,10 +402,10 @@ describe('a contract route', () => {
     [{ message: 'Invalid value', received: null }, 'Invalid value'],
     [{ message: 'Invalid value', received: NaN }, 'Invalid value'],
     // Infinity is printable like any number, and a prototype-looking string is just data to search for
-    [{ message: 'Invalid value', received: Infinity }, 'Invalid value'],
+    [{ message: 'Ungültiger Wert: Infinity', received: Infinity }, 'Invalid value'],
     [{ message: 'Ungültiger Wert: __proto__', received: '__proto__' }, 'Invalid value'],
-    // a lone surrogate is a string value like any other: no throw, and it is dropped when the message carries it
-    [{ message: 'Ungültiger Wert: \uD800', received: '\uD800' }, 'Invalid value'],
+    // a lone surrogate of 3 code units is a string value like any other: no throw, and it is dropped when the message carries it
+    [{ message: 'Ungültiger Wert: \uD800\uD800\uD800', received: '\uD800\uD800\uD800' }, 'Invalid value'],
     // lone surrogates and control characters in the message never throw
     [{ message: 'Bad \uD800\u0007 value', received: 'secret' }, 'Bad \uD800\u0007 value'],
     // unrecognized keys with nothing before them
@@ -290,7 +422,8 @@ describe('a contract route', () => {
     class Mails { send() {} }
     const served = bootApp()
     Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
-    const response = await served.request('/mails', json({ email: 'x' }))
+    // the issue path does not resolve in the body: the library's `received` is the fallback
+    const response = await served.request('/mails', json({}))
     expect((await response.json()).errors).toEqual({ email: [message] })
   })
 
@@ -606,6 +739,16 @@ describe('a 0.5 request class', () => {
       { path: ['role'], message: 'Invalid option: expected one of "admin"|"user"' },
       { path: ['name'], message: 'Invalid input: expected string, received undefined' },
     ])
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('scrubs a translated message against the request input (H31 #308)', async () => {
+    quiet()
+    const role = z.enum(['admin', 'user'], { error: (issue) => `Ungültig '${String(issue.input)}'` })
+    const response = await post(() => z.object({ role }), { role: 's3cr3t' })
+    expect(response.status).toBe(422)
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual([{ path: ['role'], message: 'Invalid value' }])
     expect(text).not.toContain('s3cr3t')
   })
 

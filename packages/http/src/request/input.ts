@@ -456,16 +456,29 @@ export const readBody = async (request: HonoRequest): Promise<unknown> => {
 export const readQuery = (request: HonoRequest): Record<string, string | string[]> =>
   Object.fromEntries(Object.entries(request.queries()).map(([key, values]) => [key, values.length === 1 ? values[0]! : values]));
 
-/** The fields of zod and valibot issues that hold submitted data: `received` (zod 3, valibot), `input` (zod 4) and zod's `keys`. */
-type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly input?: unknown; readonly keys?: unknown };
+/** The fields of zod and valibot issues that hold submitted data: `received` (zod 3, valibot) and zod's `keys`. */
+type LibraryIssue = StandardIssue & { readonly code?: unknown; readonly received?: unknown; readonly keys?: unknown };
 
 /** An issue's message, and whether cutting the submitted data out of it shortened it. */
 type IssueMessage = { readonly message: string; readonly cut: boolean };
+
+/** What a 422 may carry of an issue: `{ path, message }` only. */
+type PublicIssue = { readonly path: PropertyKey[]; readonly message: string };
 
 const RECEIVED = "received ";
 
 /** The message of an issue whose own message would still carry the submitted data (H31 #308). */
 const INVALID_VALUE = "Invalid value";
+
+/** The shortest submitted value a message is searched for: a 1-2 character value leaks next to nothing, and searching it would turn the common "too short" messages generic. */
+const SEARCH_MIN = 3;
+
+/** The path segments never followed: they name a prototype, not data (`__proto__`, `constructor` and `prototype`). */
+const UNSAFE_PATH = new Set(["__proto__", "constructor", "prototype"]);
+
+/** The depth and leaf bounds of the printable leaves read through an object or array at the path (security round). */
+const MAX_LEAF_DEPTH = 3;
+const MAX_LEAVES = 50;
 
 /** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
 const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
@@ -476,27 +489,68 @@ const SEPARATOR = /[\s,:]/;
 const printable = (value: unknown): string | undefined =>
   ["string", "number", "boolean", "bigint"].includes(typeof value) ? String(value) : undefined;
 
+/** A multipart body's `File`: not printable, and its contents are never read. */
+const isFile = (value: object): boolean => typeof File !== "undefined" && value instanceof File;
+
 /**
- * The submitted data of an issue, when the pipeline can see it. A zod `invalid_type` carries a type name
- * (`received: "string"` in zod 3, valibot's `received` too), not the data, so it is never scrubbed. zod 4 carries no
- * `received`: its `invalid_value` (an enum or a literal) holds the submitted value as `input`, which the adapter asks
- * zod to report (`reportInput`, `@laratype/contract`'s `validate`). Other zod 4 codes carry `input` as well, but their
- * messages are schema text and bounds, not the value: a `too_small` input `"a"` would match the letter in an app's
- * `Name too short`, so only `invalid_value` is searched (H31 #308).
+ * The raw value at an issue's path, from own data properties only: `Object.getOwnPropertyDescriptor` is read and only
+ * its `value` used, so a getter is never invoked; the prototype chain is never followed, and `__proto__`, `constructor`
+ * and `prototype` are refused by name; an array is walked by its index keys like any other object. `found` is false
+ * when the path does not resolve, so the issue can fall back to the library's `received` or keep its message.
  */
-const submittedValue = (issue: LibraryIssue): string | undefined => {
-  if (issue.code === "invalid_type") return undefined;
-  const received = printable(issue.received);
-  if (received !== undefined) return received;
-  return issue.code === "invalid_value" ? printable(issue.input) : undefined;
+const valueAtPath = (input: unknown, path: readonly PropertyKey[]): { readonly found: boolean; readonly value: unknown } => {
+  let current: unknown = input;
+  for (const segment of path) {
+    if (typeof segment === "string" && UNSAFE_PATH.has(segment)) return { found: false, value: undefined };
+    if (current === null || typeof current !== "object") return { found: false, value: undefined };
+    const descriptor = Object.getOwnPropertyDescriptor(current, segment);
+    if (descriptor === undefined || !("value" in descriptor)) return { found: false, value: undefined };
+    current = descriptor.value;
+  }
+  return { found: true, value: current };
+};
+
+/** Own string-keyed data property values, without a getter, a refused key or an array's own `length` (not submitted data). */
+const ownDataValues = (value: object): unknown[] => {
+  const values: unknown[] = [];
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (UNSAFE_PATH.has(key) || (Array.isArray(value) && key === "length")) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor !== undefined && "value" in descriptor) values.push(descriptor.value);
+  }
+  return values;
 };
 
 /**
- * An `invalid_value` whose input is not a printable primitive (`null` and a missing value excluded): its message could
- * embed the value (a translated error map with `JSON.stringify(input)`), and the pipeline cannot search for it.
+ * The printable leaves of an object or array at the path, read with `ownDataValues` (own data only, no getter, no
+ * prototype key, a `File` skipped), at most `MAX_LEAF_DEPTH` levels deep and `MAX_LEAVES` leaves. `bounded` says the
+ * walk stopped before it covered the value: an unread leaf could be in the message, so the issue fails closed.
  */
-const unsearchableValue = (issue: LibraryIssue): boolean =>
-  issue.code === "invalid_value" && issue.input !== undefined && issue.input !== null && printable(issue.input) === undefined;
+const leafValues = (value: object): { readonly leaves: string[]; readonly bounded: boolean } => {
+  const leaves: string[] = [];
+  let bounded = false;
+  const visit = (current: unknown, depth: number): void => {
+    const text = printable(current);
+    if (text !== undefined) {
+      if (leaves.length >= MAX_LEAVES) bounded = true;
+      else leaves.push(text);
+      return;
+    }
+    if (current === null || typeof current !== "object" || isFile(current)) return;
+    const children = ownDataValues(current);
+    if (children.length === 0) return;
+    if (depth >= MAX_LEAF_DEPTH) {
+      bounded = true;
+      return;
+    }
+    for (const child of children) {
+      visit(child, depth + 1);
+      if (bounded) return;
+    }
+  };
+  visit(value, 0);
+  return { leaves, bounded };
+};
 
 /**
  * `text` without the separators left before a cut tail: `, `, `: `, ` but `, in any mix. `but` is a word at the start of
@@ -545,44 +599,85 @@ const receivedAt = (message: string, folded: string, tails: readonly ReceivedTai
 };
 
 /**
- * An issue's message without the submitted data, which would reach proxy and client logs. Default messages put it
- * last: zod 3 and valibot end with the word `received` and the issue's `received`, in any case (`Invalid enum
- * value. Expected 'a' | 'b', received 'c'`, `Invalid type: Expected string but received 5`, `Invalid email:
- * Received "a@b"`), cut with the separators before it, and the trimmed prefix is searched for the value again; zod's
- * unrecognized keys follow the first `": "`. A zod `invalid_type` keeps its `received`, a type name. A translated or
- * custom message can put the value anywhere (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`): the
- * pipeline cannot locate it, so an issue that still repeats it answers the generic `Invalid value` rather than the
- * value (H31 #308); zod 4's `invalid_value` has the value as `input` for that search. Any other message, the app's own
- * included, is kept as it is. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut into
- * `Invalid value`), so a message the app wrote empty is kept empty.
+ * The printable spellings a message can give the submitted value: the value itself, and for a string its trimmed form
+ * (a trim transform makes a translated message quote the trimmed value). A spelling shorter than `SEARCH_MIN` is left
+ * out of the search (the exact `received <value>` tail is still cut with it).
  */
-const issueMessage = (issue: LibraryIssue): IssueMessage => {
+const searchForms = (value: unknown): readonly string[] => {
+  const text = printable(value);
+  if (text === undefined) return [];
+  const forms = typeof value === "string" && value.trim() !== text ? [text, value.trim()] : [text];
+  return forms.filter((form) => form.length >= SEARCH_MIN);
+};
+
+/** The `received <value>` tails of a submitted value, raw and trimmed, each bare and quoted. */
+const submissionTails = (value: unknown): readonly ReceivedTail[] => {
+  const text = printable(value);
+  if (text === undefined) return [];
+  const values = typeof value === "string" && text.trim() !== text ? [text, text.trim()] : [text];
+  return values.flatMap(receivedTails);
+};
+
+/**
+ * A message with the submitted value removed: an exact `received <value>` tail is cut with the separators before it, and
+ * the trimmed prefix is searched again; a message that still carries one of `forms` anywhere answers `Invalid value`
+ * (case-folded), rather than the value (H31 #308). `tails` holds the submitted value's spellings and the library's own
+ * `received` ones (zod 3, valibot default messages), while `forms` holds the value only: a library's `received` can be a
+ * derived value (valibot's min length `received 1`), not the submitted data to search for.
+ */
+const scrub = (message: string, forms: readonly string[], tails: readonly ReceivedTail[]): IssueMessage => {
+  const folded = message.toLowerCase();
+  const at = receivedAt(message, folded, tails);
+  if (at !== -1) {
+    const prefix = trimSeparators(message.slice(0, at));
+    const prefixFolded = prefix.toLowerCase();
+    // The prefix can still carry the value: `Value secret is forbidden, received secret` keeps it before the tail
+    return forms.some((form) => prefixFolded.includes(form.toLowerCase())) ? { message: INVALID_VALUE, cut: true } : { message: prefix, cut: true };
+  }
+  return forms.some((form) => folded.includes(form.toLowerCase())) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
+};
+
+/**
+ * An issue's message without the submitted data, which would reach proxy and client logs. The submitted data is the raw
+ * request input at the issue's path (`input`: the query or body slot a contract route validated, the `all()` object for
+ * a 0.5 request class), read by `valueAtPath`. Its printable value is searched for every issue code except
+ * `invalid_type` (a type name, not the data): an exact `received <value>` tail is cut, the trimmed prefix is searched
+ * again, and a message that still carries the value answers `Invalid value`. Default messages put the value last (`Invalid
+ * enum value. Expected 'a' | 'b', received 'c'`, valibot's `... but received 5`), and a translated or custom message can
+ * put it anywhere (`Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'`). An object or array at the path is
+ * searched through its printable leaves, so an object-level message (`Passwords don't match`) is kept unless a leaf
+ * appears in it or the walk hits its bound. A path that does not resolve falls back to the library's printable
+ * `received` (zod 3, valibot), then keeps the message. `cut` tells whether the message was not kept whole
+ * (`publicIssue` turns an empty cut into `Invalid value`), so a message the app wrote empty is kept empty.
+ */
+const issueMessage = (issue: LibraryIssue, input: unknown): IssueMessage => {
   const { message, keys } = issue;
   if (Array.isArray(keys) && keys.length > 0) {
     const at = message.indexOf(": ");
     if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
   }
-  const submitted = submittedValue(issue);
-  if (submitted === undefined) {
-    // A zod 4 invalid_value whose input is an object or array could be embedded in the message: no message carries an
-    // object as text the pipeline can search for, so it fails closed rather than risk it
-    return unsearchableValue(issue) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
+  if (issue.code === "invalid_type") return { message, cut: false };
+  const found = valueAtPath(input, issuePath(issue));
+  if (found.found) {
+    if (printable(found.value) !== undefined) {
+      return scrub(message, searchForms(found.value), [...submissionTails(found.value), ...submissionTails(issue.received)]);
+    }
+    if (found.value !== null && typeof found.value === "object" && !isFile(found.value)) {
+      const { leaves, bounded } = leafValues(found.value);
+      if (bounded) return { message: INVALID_VALUE, cut: true };
+      const folded = message.toLowerCase();
+      return leaves.flatMap(searchForms).some((leaf) => folded.includes(leaf.toLowerCase()))
+        ? { message: INVALID_VALUE, cut: true }
+        : { message, cut: false };
+    }
   }
-  const folded = message.toLowerCase();
-  const at = receivedAt(message, folded, receivedTails(submitted));
-  if (at !== -1) {
-    const prefix = trimSeparators(message.slice(0, at));
-    // The prefix can still carry the value: `Value secret is forbidden, received secret` keeps it before the tail
-    return submitted !== "" && prefix.toLowerCase().includes(submitted.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message: prefix, cut: true };
-  }
-  // The value in another position: fail closed. A value the message does not carry (an app's own message, a translated
-  // one that dropped it) leaves the message as written. An empty value matches every message, so it is not searched.
-  return submitted !== "" && folded.includes(submitted.toLowerCase()) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
+  if (printable(issue.received) !== undefined) return scrub(message, searchForms(issue.received), submissionTails(issue.received));
+  return { message, cut: false };
 };
 
-/** What a 422 may carry of an issue: `{ path, message }` only, never the library's `input`, `received` or `keys`. */
-export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; message: string } => {
-  const { message, cut } = issueMessage(issue);
+/** What a 422 may carry of an issue: `{ path, message }` only, never the library's `received` or `keys`. */
+export const publicIssue = (issue: StandardIssue, input: unknown): PublicIssue => {
+  const { message, cut } = issueMessage(issue, input);
   return {
     path: issuePath(issue),
     // A message a cut left with nothing (`Received "x"`, `: a`, `" : a"`) has only the data to show: a generic one. A
@@ -597,8 +692,8 @@ export const publicIssue = (issue: StandardIssue): { path: PropertyKey[]; messag
  * `errors.validation`, so the wire shape stays the catalog's (H5 #108 mapped thrown `ContractError`s; this path keeps
  * the plain HTTP error answer).
  */
-const unprocessable = (issues: readonly StandardIssue[]) => {
-  const error = errors.validation(toErrorBag(issues.map(publicIssue)));
+const unprocessable = (issues: readonly PublicIssue[]) => {
+  const error = errors.validation(toErrorBag(issues));
   return new HTTPException(422, { res: Response.json({ code: error.code, ...error.body }, { status: 422 }) });
 };
 
@@ -625,7 +720,11 @@ export const validateInput = async (endpoint: AnyEndpoint, input: RawInput): Pro
   const query = await validateSlot(endpoint.def.query, input.query);
   const body = await validateSlot(endpoint.def.body, input.body);
   if (!query.ok || !body.ok) {
-    throw unprocessable([...(query.ok ? [] : query.issues), ...(body.ok ? [] : body.issues)]);
+    // Each slot's issues are scrubbed against the slot's own raw input: a query issue's path is in the query, a body issue's in the body
+    throw unprocessable([
+      ...(query.ok ? [] : query.issues.map((issue) => publicIssue(issue, input.query))),
+      ...(body.ok ? [] : body.issues.map((issue) => publicIssue(issue, input.body))),
+    ]);
   }
   return { query: query.value, body: body.value };
 };
