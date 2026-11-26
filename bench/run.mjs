@@ -17,7 +17,8 @@
  *
  * Every flag has a `BENCH_*` environment variable (the CI dispatch inputs): `BENCH_APPS`, `BENCH_RUNTIMES`,
  * `BENCH_SCENARIO`, `BENCH_CONNECTIONS`, `BENCH_DURATION`, `BENCH_WARMUP`, `BENCH_OUT`, `BENCH_NODE`, `BENCH_BUN`.
- * `BENCH_ALLOW_NODE_MISMATCH=1` is the env form of `--allow-node-mismatch`, and `BENCH_GIT_SHA` / `BENCH_GIT_BRANCH` /
+ * `BENCH_ALLOW_NODE_MISMATCH=1` is the env form of `--allow-node-mismatch`, which records a Node other than the
+ * bench's Node 22.23.5 (the bench/Dockerfile pin) instead of failing. `BENCH_GIT_SHA` / `BENCH_GIT_BRANCH` /
  * `BENCH_GIT_DIRTY=1` replace git metadata when the build context has no `.git` (the Docker image). Flags win over the
  * environment. `--smoke` also honours `--apps` / `--runtimes` and always uses a 1 s autocannon run.
  */
@@ -35,6 +36,7 @@ import { resolveGitInfo } from './lib/git-info.mjs'
 import { buildReport, markdown, reportBaseName, round } from './lib/report.mjs'
 import { autocannonArgs, requestFor, responseMatches } from './lib/wire.mjs'
 import { assertContainer, ContainerError } from './lib/container.mjs'
+import { EXPECTED_NODE_VERSION, nodeVersionMismatch } from './lib/node.mjs'
 
 // Before parsing a flag, picking a port or spawning anything: refuse a host run (a local run has frozen a machine).
 // bench/Dockerfile sets the marker; the bench workflow runs that image, so it inherits it too.
@@ -110,10 +112,10 @@ function installedVersion(name) {
 
 const nodeVersion = capture(opts.node, ['--version'])
 const bunVersion = opts.runtimes.includes('bun') ? capture(opts.bun, ['--version']) : null
-const expectedNode = readFileSync(path.join(root, '.node-version'), 'utf8').trim()
+const expectedNode = EXPECTED_NODE_VERSION
 
-if (nodeVersion !== `v${expectedNode}`) {
-  const message = `bench: Node ${nodeVersion} does not match .node-version (v${expectedNode})`
+if (nodeVersionMismatch(nodeVersion)) {
+  const message = `bench: Node ${nodeVersion} does not match the bench's Node v${expectedNode} (bench/Dockerfile)`
   if (!opts.allowNodeMismatch) fail(`${message}; pass --allow-node-mismatch to run anyway (recorded in the report)`)
   console.warn(`${message}; continuing because --allow-node-mismatch is set`)
 }

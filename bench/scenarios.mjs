@@ -60,6 +60,6 @@ export const scenarios = Object.freeze([
 export const skipped = Object.freeze([
   Object.freeze({
     scenario: 'sqlite-read',
-    reason: 'No v1 database API on master (DB1 #145 planned); Node 20.17 has no node:sqlite and bun:sqlite is Bun-only. Phase 2 with DB1.',
+    reason: 'No v1 database API on master (DB1 #145 planned); node:sqlite is experimental and bun:sqlite is Bun-only. Phase 2 with DB1.',
   }),
 ])

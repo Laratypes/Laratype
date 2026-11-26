@@ -7,7 +7,7 @@ const report = buildReport({
   generatedAt,
   commit: { sha: '0123456789abcdef0123456789abcdef01234567', branch: 'build/b26-bench-phase1', dirty: false },
   machine: { platform: 'linux', release: '6.8.0', arch: 'x64', cpu: 'Test CPU', cores: 8, memoryBytes: 16 * 1024 ** 3 },
-  runtimes: { node: 'v20.17.0', bun: '1.3.14' },
+  runtimes: { node: 'v22.23.5', bun: '1.3.14' },
   versions: { hono: '4.13.17', express: '5.3.0' },
   settings: {
     connections: 50,
@@ -86,7 +86,7 @@ describe('markdown', () => {
     expect(text).toContain('# Laratype phase-1 runtime benchmark')
     expect(text).toContain('**Commit:** `0123456789abcdef0123456789abcdef01234567` on `build/b26-bench-phase1`')
     expect(text).not.toContain('dirty working tree')
-    expect(text).toContain('**Runtimes:** Node v20.17.0, Bun 1.3.14')
+    expect(text).toContain('**Runtimes:** Node v22.23.5, Bun 1.3.14')
     expect(text).toContain('Test CPU, 8 cores, 16.0 GiB, linux 6.8.0 (x64)')
     expect(text).toContain('Generated in `bench/Dockerfile`')
   })
