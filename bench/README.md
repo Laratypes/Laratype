@@ -4,8 +4,10 @@ Dev-only benchmark of the v1 request path: Laratype v1 against Hono (its own bas
 private workspace; nothing here is published, and no `@laratype/*` package depends on it.
 
 > **Do not run this on a developer machine.** It starts real app servers and an autocannon load generator, which has
-> frozen a local Windows machine. Run it in Docker locally, or in the `bench` GitHub workflow. The only safe local
-> command is the pure unit project: `bunx vitest run --project bench`.
+> frozen a local Windows machine. Run it in Docker locally, or in the `bench` GitHub workflow. The runner enforces
+> this: `bench/run.mjs` refuses to start unless it runs inside the image built from `bench/Dockerfile`, so the `bench`
+> and `bench:smoke` scripts exit 1 on a host (no override). The only safe local command is the pure unit project:
+> `bunx vitest run --project bench`.
 
 **Phase 1 covers scenarios 1–5 and skips the SQLite read (6) in every app**: there is no v1 database API on master
 (DB1 #145 is planned), Node 20.17 has no `node:sqlite`, and `bun:sqlite` is Bun-only. The report says so. NestJS,
@@ -48,22 +50,30 @@ app/runtime). Use it through Docker, not on the host:
 docker run --rm -v "$PWD/bench/out:/out" laratype-bench bun run bench:smoke
 ```
 
+Both scripts are container commands: `bench/Dockerfile` sets `LARATYPE_BENCH_CONTAINER=1` and `bench/run.mjs` checks it
+before parsing any flag or picking a port. On a host, `bun run bench` (or `bench:smoke`) prints one line
+(`bench/run.mjs runs only inside bench/Dockerfile ...; see bench/README.md`) and exits 1; there is no override flag.
+
 ## The `bench` workflow
 
 `.github/workflows/bench.yml` builds the same image and runs it on a GitHub runner; it is the validation path for this
 change (the first CI run is the validation, no local benchmark run is).
 
-- **On a pull request:** add the `bench` label. The job runs only for that label (`pull_request`, never
-  `pull_request_target`), with `contents: read`, no secrets and a 60-minute timeout. Re-add the label to rerun; a new
-  run cancels the previous one. Only users with triage/write access can label.
-- **On master:** Actions › `bench` › Run workflow. The optional inputs are apps, runtimes, measured duration and
-  connections; they reach the container as environment only.
+- **On a pull request:** add the `bench` label. A `pull_request` workflow runs from the PR's merge ref, so a
+  `bench.yml` added in the PR already runs on `labeled` for that PR, before merge (a fork PR may need a maintainer's
+  approval before GitHub runs its workflows). The job runs only for the `bench` label (`pull_request`, never
+  `pull_request_target`), with `contents: read`, no secrets and a 60-minute timeout. Re-add the label to rerun. Only a
+  new `bench` label add cancels the bench that is running: any other label starts a run in its own concurrency group
+  whose job is skipped by the `if`, so it cannot cancel the bench. Only users with triage/write access can label.
+- **On master (after merge):** Actions › `bench` › Run workflow. `workflow_dispatch` only lists a file that is on the
+  default branch, so this button appears once `bench.yml` is on `master`. The optional inputs are apps, runtimes,
+  measured duration and connections; they reach the container as environment only.
 - The JSON + Markdown report is uploaded as the `bench-report` artifact, and the Markdown is appended to the job
   summary. A report of a failed run is still uploaded, if one was written.
 
-GitHub only starts `pull_request` workflows whose file exists on the default branch, and the Actions "Run workflow"
-button only lists the default branch. Until this file is on `master`, a maintainer can dispatch it on the branch with
-`gh workflow run bench.yml --ref build/b26-bench-phase1` (agents never trigger a run).
+So the first run needs no merge: add the `bench` label on this PR. Only `workflow_dispatch` needs the file on the
+default branch. There is no branch-dispatch fallback: `gh workflow run bench.yml --ref <branch>` is not a supported
+path. Agents never add the label and never trigger a run.
 
 ## Unit tests (safe locally)
 
@@ -76,7 +86,8 @@ bunx vitest run --project bench
 This runs in about a second and is part of `bun run test --run`. The project only collects `bench/__tests__/**`; the
 unit project excludes `bench/**`. No package script starts the benchmark from the test path: `bench` and `bench:smoke`
 are explicit container commands, and the `vitest.bench.config.ts` project imports only `bench/lib/*` and
-`bench/scenarios.mjs`.
+`bench/scenarios.mjs`. The container guard is a pure function too: `bench/__tests__/container.test.mjs` checks the
+`LARATYPE_BENCH_CONTAINER` marker, the exact refusal line and that no other value passes; it never spawns `run.mjs`.
 
 ## Scenarios (same bytes in all four apps)
 
