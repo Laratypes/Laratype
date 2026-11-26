@@ -9,15 +9,17 @@ import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBi
 import { FormValidation } from "@laratype/validation";
 import type { MiddlewareClass } from "../routing/api/types";
 import { Container, depsRegistry } from "@laratype/core";
-import { validate } from "@laratype/contract";
+import { errors, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
 import { isTypedMiddleware, middlewareName } from "../middleware/defineMiddleware";
 import type { AnyTypedMiddleware } from "../middleware/defineMiddleware";
+import { interceptorName } from "../interceptor/defineInterceptor";
+import type { AnyInterceptor } from "../interceptor/defineInterceptor";
 import { mountCors } from "../middleware/cors";
-import { resolveBindings } from "../routing/api/bindings";
-import type { Bindings } from "../routing/api/proof";
+import { resolveRouteBindings } from "../routing/api/bindings";
+import type { RouteBindingInput } from "../routing/api/bindings";
 
 /** The Hono variable holding the request scope of the app container, set by `RequestKernel.boot()`. */
 const CONTAINER = "laratype.container";
@@ -43,6 +45,24 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const extensionKeys = (ext: object): PropertyKey[] =>
   Reflect.ownKeys(ext).filter((key) => Object.prototype.propertyIsEnumerable.call(ext, key));
 
+/**
+ * A frozen copy of an extension's own enumerable keys at `next()` (security review B on #352): the values the request
+ * will apply, whatever the middleware does to the object afterward (or a Proxy to its ownKeys). Each key is a data
+ * property on a null prototype, so an own `__proto__` key stays a field and no setter runs.
+ */
+const snapshotExtension = (ext: object): object => {
+  const snapshot: Record<PropertyKey, unknown> = Object.create(null);
+  for (const key of extensionKeys(ext)) {
+    Object.defineProperty(snapshot, key, {
+      value: (ext as Record<PropertyKey, unknown>)[key],
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+  }
+  return Object.freeze(snapshot);
+};
+
 /** The ctx keys of a contract route an extension cannot replace: the validated input and the pinned endpoint. */
 const RESERVED_EXTENSION_KEYS: ReadonlySet<string> = new Set(["query", "body", "endpoint"]);
 
@@ -65,7 +85,14 @@ type PipeLineType = {
   handler: AnyTypedMiddleware,
 } | {
   type: 'bindings',
-  bindings: Bindings,
+  /** The route's explicit map, implicit keys, scoping and path (H7/H14). */
+  input: RouteBindingInput,
+} | {
+  type: 'authorization',
+  authorization: NonNullable<RouteParams["authorization"]>,
+} | {
+  type: 'interceptors',
+  handler: readonly AnyInterceptor[],
 } | {
   type: 'request',
   handler: RequestSupport,
@@ -249,8 +276,8 @@ export default class Request extends AppServiceProvider {
   /**
    * Rejects an extension key that would replace something the route owns (docs/v1/http.md › Typed middleware ›
    * Diagnostics): `query`, `body` and `endpoint` of a contract route, whose ctx keeps the validated input and the pinned
-   * endpoint, and a request method on a route without a contract, whose extensions are applied onto the 0.5 request
-   * object (`next({ param })` would replace `request.param`).
+   * endpoint, and any member of the request the handler gets on a route without a contract, a method or a data field
+   * (`next({ param })` would replace `request.param`, and a custom request class may add fields).
    */
   private static checkExtension(ext: object, name: string, request: RequestSupport, contract: boolean): void {
     for (const key of extensionKeys(ext)) {
@@ -260,9 +287,9 @@ export default class Request extends AppServiceProvider {
             `[@laratype/http] typed middleware ${name} passed ${key} to next(): \`${key}\` is reserved on a contract route (the validated query and body, and the endpoint)`,
           );
         }
-      } else if (typeof (request as unknown as Record<PropertyKey, unknown>)[key] === "function") {
+      } else if (key in request) {
         throw new TypeError(
-          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a method of the request, and the extension would replace it`,
+          `[@laratype/http] typed middleware ${name} passed ${String(key)} to next(): it is a member of the 0.5 request, and the extension would replace it`,
         );
       }
     }
@@ -288,7 +315,7 @@ export default class Request extends AppServiceProvider {
           if (currentPipeline) {
             const currentPipelineType = currentPipeline.type;
             if(currentPipelineType === 'bindings') {
-              bound = await resolveBindings(currentPipeline.bindings, requestInstance.param());
+              bound = await resolveRouteBindings(currentPipeline.input, requestInstance.param());
               return await next(arg);
             }
             if(currentPipelineType === 'request') {
@@ -308,6 +335,45 @@ export default class Request extends AppServiceProvider {
                 return await handler(requestInstance, ContextApi.getModelBindings())
               }
               return await next(arg);
+            }
+            else if(currentPipelineType === 'authorization') {
+              const { ability, scopes, policy, models, checks } = currentPipeline.authorization;
+              // The guard's user, never the ctx extension: a route middleware may replace `ctx.user`, but the policies
+              // must run as the principal the auth capability authenticated (A2 #120, H8 #122)
+              const user = ContextApi.getUser();
+              const container = Request.container();
+              // With no endpoint policy, at least one scope must allow explicitly: an ability(true) passes its scope
+              // only, every scope falling through is the 403 (docs/v1/http.md › Authorization from the contract)
+              let explicitlyAllowed = false;
+              // A scope hook gets a frozen snapshot: a mutation cannot change the endpoint policy's arguments or
+              // ctx.params, which keep reading the record. The record's prototype is not changed either.
+              const scopeBound = Object.freeze({ ...bound });
+              for (const scope of scopes) {
+                const answer = await checks.check(container.make(scope), user, ability, scopeBound);
+                // false from before or the ability is the 403 at once; a null check (before fell through and the
+                // ability matches no method) passes the scope and continues. Anything else that is not a tagged true —
+                // a bare boolean from an older @laratype/auth registered on the slot, or an unknown tag — is the 403
+                // too: a denial must never become the allow of a route with no endpoint policy
+                if (answer === null) continue;
+                if (answer?.answer !== true) throw errors.forbidden();
+                // Only a scope's before(true) is the admin bypass: it allows the request and skips the remaining inner
+                // scopes and the endpoint policy. An ability(true) passes this scope only and the chain continues.
+                if (answer.by === "before") return await next(arg);
+                if (answer.by !== "ability") throw errors.forbidden();
+                explicitlyAllowed = true;
+              }
+              if (policy !== undefined) {
+                // The endpoint policy's arguments: the endpoint's own bound models, in path order. A binding the request
+                // did not carry (an absent optional param, or a key the contract does not bind) is undefined. Read own
+                // keys only: an unbound param named `constructor`, `toString` or `hasOwnProperty` must not pass an
+                // Object.prototype member to the policy as if it were a bound model
+                const args = models.map((key) => Object.hasOwn(bound, key) ? bound[key] : undefined);
+                await checks.authorize(container.make(policy), user, ability, ...args);
+                return await next(arg);
+              }
+              // No endpoint policy: a scope's ability(true) allows, and every scope falling through is the 403
+              if (explicitlyAllowed) return await next(arg);
+              throw errors.forbidden();
             }
             else if(currentPipelineType === "policies") {
               const policyHandler = currentPipeline.handler;
@@ -358,11 +424,35 @@ export default class Request extends AppServiceProvider {
                   if(!isObject(ext)) {
                     throw new TypeError(`[@laratype/http] typed middleware ${name} passed ${typeof ext} to next(): pass an object of context keys, or call next()`);
                   }
-                  this.checkExtension(ext, name, requestInstance, routeOption.endpoint !== undefined);
-                  extensions.push(ext);
+                  // Snapshot before the rest of the pipeline runs: a middleware that mutates the extension after next()
+                  // (or a Proxy that changes its ownKeys) must not change what the handler ctx gets (security review B)
+                  const extension = snapshotExtension(ext);
+                  this.checkExtension(extension, name, requestInstance, routeOption.endpoint !== undefined);
+                  extensions.push(extension);
                 }
                 return await next(arg);
               });
+            }
+            else if(currentPipelineType === 'interceptors') {
+              // The chain wraps the handler (H11 #138): the first registered is outermost, next() runs the rest once.
+              // `handlerArg` is the ctx the request step built; nothing between this step and the controller writes it.
+              const chain = currentPipeline.handler;
+              let at = 0;
+              const run = async (): Promise<unknown> => {
+                const interceptor = chain[at++];
+                if(!interceptor) return await next(arg);
+                const name = interceptorName(interceptor);
+                let called = false;
+                const handle = interceptor.handle as unknown as (ctx: unknown, next: () => Promise<unknown>) => unknown;
+                return await handle(handlerArg, async () => {
+                  if(called) {
+                    throw new TypeError(`[@laratype/http] interceptor ${name} called next() more than once`);
+                  }
+                  called = true;
+                  return await run();
+                });
+              };
+              return await run();
             }
             else {
               // Constructor DI (H21 #269): the middleware comes from the request's container, as the controller does
@@ -459,13 +549,30 @@ export default class Request extends AppServiceProvider {
             : { type: 'middleware' as const, handler: m }));
         }
         // After the route middleware and before the policies: a 404 here means the policy never runs (H7 #118)
-        if(routeOption.bindings && Object.keys(routeOption.bindings).length) {
-          pipelines.push({ type: 'bindings' as const, bindings: routeOption.bindings });
+        if((routeOption.bindings && Object.keys(routeOption.bindings).length) || routeOption.implicitBindings?.length) {
+          pipelines.push({
+            type: 'bindings' as const,
+            input: {
+              explicit: routeOption.bindings ?? {},
+              implicit: routeOption.implicitBindings ?? [],
+              scoped: routeOption.scopedBindings === true,
+              path: routeOption.path,
+            },
+          });
+        }
+        // The contract policies run on the models the bindings step resolved, before the query/body validation: a 403
+        // must come before a 422 and neither may leak a resource (H8 #122)
+        if(routeOption.authorization) {
+          pipelines.push({ type: 'authorization' as const, authorization: routeOption.authorization });
         }
         if(routeOption.can?.length) {
           pipelines.push(...routeOption.can.map(c => ({ type: 'policies' as const, handler: c })));
         }
         pipelines.push({ type: 'request' as const, handler: transformedRequest, contract });
+        // After validation and bindings, before the handler (H11 #138): a cache hit still validates the request
+        if(routeOption.endpoint && routeOption.interceptors?.length) {
+          pipelines.push({ type: 'interceptors' as const, handler: routeOption.interceptors });
+        }
         pipelines.push({ type: 'controller' as const, handler: 'controller' });
 
         try {

@@ -7,12 +7,35 @@ import { fail, isFailureStatus } from "./internal";
 // ---- options ----------------------------------------------------------------
 
 /**
- * Guard names usable in `auth: '<guard>'`. Empty until the app augments it:
+ * Guard names usable in `auth: '<guard>'` for a contract-only app. Empty until the app augments it:
  * `declare module '@laratype/contract' { interface GuardRegistry { api: true } }`.
  */
 export interface GuardRegistry {}
 
-export type GuardName = keyof GuardRegistry & string;
+/**
+ * The link `@laratype/auth` fills from the app's `Register` (A2 #120), by module augmentation:
+ * `interface AuthRegisterLink { user: User; guards: { web: RegisteredUser; admin: Admin } }`.
+ * Empty without auth, so the contract stays browser-pure and never imports it.
+ */
+export interface AuthRegisterLink {}
+
+type LinkedUser = AuthRegisterLink extends { user: infer U } ? U : unknown;
+type LinkedGuards = AuthRegisterLink extends { guards: infer G } ? G : {};
+
+/** Guard names of a contract-only app (`GuardRegistry`) or of an auth app (`AuthRegisterLink`). */
+export type GuardName = (keyof GuardRegistry & string) | (keyof LinkedGuards & string);
+
+/**
+ * The user type of the auth an endpoint resolves to (A2 #120): the default user for `true`, the guard's user for
+ * `'<guard>'`, and `never` when the endpoint is public. `unknown` without either registry.
+ */
+export type GuardUser<A = AuthOption> = A extends true
+  ? LinkedUser
+  : A extends string
+    ? A extends keyof LinkedGuards
+      ? LinkedGuards[A]
+      : LinkedUser
+    : never;
 
 /** `true` uses the default guard, a string a named guard. */
 export type AuthOption = true | GuardName;

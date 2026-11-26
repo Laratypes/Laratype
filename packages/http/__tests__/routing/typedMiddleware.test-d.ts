@@ -301,7 +301,7 @@ describe('withoutMiddleware', () => {
       index(ctx: Ctx<typeof posts.index, { user: User }>) { void ctx.user }
       destroy() {}
     }
-    // @ts-expect-error posts.index: handler requires `user`, route does not provide it (add middleware / .bind())
+    // @ts-expect-error posts.index: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)
     Route.api(appApi, (r) => [r.middleware(auth).withoutMiddleware(auth).contract(posts, NeedsUser)])
   })
 })
@@ -314,9 +314,9 @@ describe('a missing middleware is reported at r.contract()', () => {
 
   test('the proof names the endpoint and the missing key', () => {
     expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsUser, { policy: undefined }>>().toHaveProperty(
-      'posts.index: handler requires `user`, route does not provide it (add middleware / .bind())',
+      'posts.index: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)',
     )
-    // @ts-expect-error posts.index: handler requires `user`, route does not provide it (add middleware / .bind())
+    // @ts-expect-error posts.index: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)
     Route.api(appApi, (r) => [r.contract(posts, NeedsUser)])
   })
 
@@ -325,7 +325,7 @@ describe('a missing middleware is reported at r.contract()', () => {
       index(ctx: Ctx<typeof posts.index, { user: User }>) { void ctx.user }
       destroy() {}
     }
-    // @ts-expect-error posts.index: handler requires `user`, route does not provide it (add middleware / .bind())
+    // @ts-expect-error posts.index: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)
     Route.api(appApi, (r) => [r.contract(posts, Declared)])
   })
 })

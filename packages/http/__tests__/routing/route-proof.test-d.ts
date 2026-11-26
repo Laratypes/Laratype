@@ -140,11 +140,12 @@ describe('failure modes, by their diagnosis', () => {
 
   test('a requirement the route does not provide', () => {
     class NeedsUser extends Controller {
-      index() { return [] as Post[] }
+      index(ctx: Ctx<typeof posts.index, { user: User }>) { void ctx.user }
       show() { return { id: 1, title: '' } }
-      destroy(ctx: Ctx<typeof posts.destroy, { user: User }>) { void ctx }
+      destroy() {}
     }
-    expectTypeOf<Proof<NeedsUser>>().toHaveProperty('users.posts.destroy: handler requires `user`, route does not provide it (add middleware / .bind())')
+    const noAuth = 'users.posts.index: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope)'
+    expectTypeOf<Proof<NeedsUser>>().toHaveProperty(noAuth)
     class NeedsPost extends PostController {
       async show(ctx: Ctx<typeof posts.show, { params: { post: PostModel } }>) { return ctx.params.post }
     }
@@ -152,11 +153,17 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<NeedsPost>>().toHaveProperty('users.posts.show: `params.post` provided by the route does not match the handler (missing .bind()?)')
     type NeedsComment = With<{ show(ctx: Ctx<typeof posts.show, { params: { comment: string } }>): Post }>
     expectTypeOf<Proof<NeedsComment>>().toHaveProperty('users.posts.show: handler requires `params.comment`, route does not provide it (add middleware / .bind())')
-    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsUser, { policy: typeof PostPolicy }>>().toHaveProperty(
-      'users.posts.destroy: handler requires `user`, route does not provide it (add middleware / .bind())',
-    )
-    // @ts-expect-error users.posts.destroy: handler requires `user`
+    expectTypeOf<RouteProof<typeof appApi, typeof posts, NeedsUser, { policy: typeof PostPolicy }>>().toHaveProperty(noAuth)
+    // @ts-expect-error users.posts.index: handler requires `user`, route has no auth
     Route.api(appApi, (r) => [r.contract(posts, NeedsUser, { policy: PostPolicy })])
+  })
+
+  test("a handler's user of another type than the guard's", () => {
+    class OtherUser { declare readonly name: string }
+    type WrongUser = With<{ destroy(ctx: Ctx<typeof posts.destroy, { user: OtherUser }>): void }>
+    expectTypeOf<Proof<WrongUser>>().toHaveProperty(
+      "users.posts.destroy: `user` of the ctx does not match the guard's user type (the auth capability's guard)",
+    )
   })
 
   test('a provided value of the wrong type', () => {

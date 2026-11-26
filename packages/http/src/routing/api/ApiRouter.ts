@@ -7,6 +7,8 @@ import RequestKernel from "../../request/Request";
 import type { KernelRouteParams, RouteParams } from "../../contracts/Route";
 import { isTypedMiddleware } from "../../middleware/defineMiddleware";
 import type { MiddlewareItem } from "../../middleware/defineMiddleware";
+import { isInterceptor } from "../../interceptor/defineInterceptor";
+import type { AnyInterceptor } from "../../interceptor/defineInterceptor";
 import type {
   AdHocMethod,
   AdHocRouteEntry,
@@ -24,9 +26,12 @@ import type {
 } from "./types";
 import type { Bindings, Binder } from "./proof";
 import { UNENFORCED_NOTICE } from "./types";
-import { checkBindingMap, copyBindingMap, expandedPathWithoutParam, nonTrailingOptionalParamNames, pathParamNames } from "./bindings";
+import { copyBindingMap, expandedPathWithoutParam, implicitParamNames, manifestModelKeys, nonTrailingOptionalParamNames, pathParamNames, scopedBinderIssue } from "./bindings";
 import { fail } from "./fail";
-import { throttled } from "./throttle";
+import { MemoryThrottleStore, MIN_WINDOWS_PER_PREFIX, throttled } from "./throttle";
+import { contractAuth } from "./contractAuth";
+import { contractPolicies } from "./contractPolicies";
+import type { ContractPolicyChecks } from "./contractPolicies";
 import { registerRoutes } from "../routeUrl";
 
 /** A 0.5 `Middleware` class (or a constructable function) or a `defineMiddleware()` value; anything else fails the request. */
@@ -37,30 +42,78 @@ const checkMiddleware = (middleware: unknown): void => {
   fail(`r.middleware(): ${String(middleware)} is not middleware (a 0.5 Middleware class or defineMiddleware(...))`);
 };
 
-/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B>`. */
+/** A `defineInterceptor()` value's failure message (the `at` prefix names where it was registered). */
+const interceptorValue = (value: unknown): string =>
+  `${describeValue(value)} is not an interceptor (a defineInterceptor(...) value)`;
+
+/** A `defineInterceptor()` value; anything else would fail when the request reaches the step (H11 #138). */
+const checkInterceptor = (interceptor: unknown): void => {
+  if (isInterceptor(interceptor)) return;
+  fail(`r.interceptor(): ${interceptorValue(interceptor)}`);
+};
+
+/** A value for a message without trusting its `toString` (a null-prototype object or a revoked Proxy would throw). */
+const describeValue = (value: unknown): string => {
+  try {
+    return String(value);
+  } catch {
+    return typeof value;
+  }
+};
+
+/** Runtime `r`; its types come from `ApiRouteBuilder<A, M, B, I, Off>`. */
 class RouteBuilder {
   /** `entries`: the API tree's, so `r.contract()` can name the contract in its errors. */
   constructor(
     readonly stack: readonly MiddlewareItem[] = [],
     private readonly entries: readonly TreeEntry[] = [],
     readonly bindings: Bindings = {},
+    readonly interceptors: readonly AnyInterceptor[] = [],
+    /** `.withoutImplicitBinding()` (H14 #163): the contracts mounted here bind no registered model. */
+    readonly implicitBinding: boolean = true,
+    /** `.scopeBindings()` (H14 #163): the contracts mounted here resolve a child model through its parent. */
+    readonly scopedBindings: boolean = false,
   ) {}
 
   middleware(...middleware: MiddlewareItem[]) {
     middleware.forEach(checkMiddleware);
-    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings);
+    return new RouteBuilder([...this.stack, ...middleware], this.entries, this.bindings, this.interceptors, this.implicitBinding, this.scopedBindings);
   }
 
   /** Drops every middleware of `middleware` from the stack: the same value only, as in the 0.5 `withoutMiddleware`. */
   withoutMiddleware(...middleware: MiddlewareItem[]) {
-    return new RouteBuilder(this.stack.filter((item) => !middleware.includes(item)), this.entries, this.bindings);
+    return new RouteBuilder(
+      this.stack.filter((item) => !middleware.includes(item)),
+      this.entries,
+      this.bindings,
+      this.interceptors,
+      this.implicitBinding,
+      this.scopedBindings,
+    );
+  }
+
+  /** Interceptors around the handlers of what this builder mounts (H11 #138): first registered is outermost. */
+  interceptor(...interceptors: AnyInterceptor[]) {
+    interceptors.forEach(checkInterceptor);
+    return new RouteBuilder(this.stack, this.entries, this.bindings, [...this.interceptors, ...interceptors], this.implicitBinding, this.scopedBindings);
   }
 
   /** Binds path params for what this builder mounts (H7 #118): a later call wins a key it binds again. */
   bind(bindings: Record<string, Binder>) {
-    checkBindingMap(bindings);
-    // A spread, not Object.assign: a spread defines own data properties, so no setter (an inherited one included) runs
-    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...bindings }));
+    // The checked snapshot is what the builder keeps: a getter or a Proxy that answers another binder on a second read
+    // cannot store something the check never saw, and a key the check read is never dropped (H7 #118 follow-up)
+    const checked = copyBindingMap(bindings);
+    return new RouteBuilder(this.stack, this.entries, Object.freeze({ ...this.bindings, ...checked }), this.interceptors, this.implicitBinding, this.scopedBindings);
+  }
+
+  /** The contracts mounted from the returned builder bind no registered model (H14 #163): a param stays a string. */
+  withoutImplicitBinding() {
+    return new RouteBuilder(this.stack, this.entries, this.bindings, this.interceptors, false, this.scopedBindings);
+  }
+
+  /** The contracts mounted from the returned builder resolve each child model through its parent (H14 #163). */
+  scopeBindings() {
+    return new RouteBuilder(this.stack, this.entries, this.bindings, this.interceptors, this.implicitBinding, true);
   }
 
   contract(contract: object, controller: ControllerClass, options?: ContractRouteOptions<object>): MountedContract<object> {
@@ -70,13 +123,32 @@ class RouteBuilder {
     const { copy, issue } = copyOptions(options);
     const names = mountedEntries(this.entries, contract).map((e) => e.name);
     if (issue !== undefined && names.length) fail(`contract "${names.join('", "')}": ${issue}`);
-    const mounted = Object.freeze({ kind: "contract" as const, contract, controller, middleware: this.stack, bindings: this.bindings, options: copy });
+    const mounted = Object.freeze({
+      kind: "contract" as const,
+      contract,
+      controller,
+      middleware: this.stack,
+      interceptors: this.interceptors,
+      bindings: this.bindings,
+      implicitBinding: this.implicitBinding,
+      scopedBindings: this.scopedBindings,
+      options: copy,
+    });
     return mounted;
   }
 
   scope(dir: string, options: ScopeRouteOptions): MountedScope {
     if (typeof options?.policy !== "function") fail(`r.scope('${dir}') needs { policy }`);
-    return Object.freeze({ kind: "scope", dir, policy: options.policy, middleware: this.stack, bindings: this.bindings });
+    // A scope carries no implicit opt-out or scoping: another builder's proof cannot see it (docs/v1/http.md › Model
+    // binding › Scopes), so `.withoutImplicitBinding()` / `.scopeBindings()` apply to the contracts they mount
+    return Object.freeze({
+      kind: "scope",
+      dir,
+      policy: options.policy,
+      middleware: this.stack,
+      interceptors: this.interceptors,
+      bindings: this.bindings,
+    });
   }
 
   get(path: string, handler: MountedRoute["handler"]) { return this.route("get", path, handler); }
@@ -89,6 +161,10 @@ class RouteBuilder {
   private route(method: AdHocMethod, path: string, handler: MountedRoute["handler"], routeName?: string): MountedRoute {
     if (typeof path !== "string" || !path.startsWith("/")) fail(`r.${method}('${String(path)}'): the path must start with "/"`);
     if (typeof handler !== "function") fail(`r.${method}('${path}') needs a handler function`);
+    // An interceptor wraps a contract route's handler and its response type; an ad-hoc route has neither (H11 #138)
+    if (this.interceptors.length) {
+      fail(`r.${method}('${path}'): interceptors need a contract route (there is no endpoint response type to check)`);
+    }
     const route = {
       kind: "route" as const,
       method,
@@ -160,6 +236,21 @@ const copyOptions = (options: unknown): { copy: ContractRouteOptions<object> | u
   return { copy: Object.freeze(copy) as ContractRouteOptions<object>, issue };
 };
 
+/**
+ * A frozen copy of a mounted item's interceptors (H11 #138), checked as `r.interceptor()` checks its arguments: a
+ * hand-built item (or a value mutated after `r.contract()`) cannot install something the request would crash on. An
+ * omitted list is empty, as for `bindings`.
+ */
+const copyInterceptors = (at: string, value: unknown): readonly AnyInterceptor[] => {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) fail(`${at}: interceptors must be an array of defineInterceptor(...) values`);
+  const list = value as readonly unknown[];
+  for (const interceptor of list) {
+    if (!isInterceptor(interceptor)) fail(`${at}: ${interceptorValue(interceptor)}`);
+  }
+  return Object.freeze([...list]) as readonly AnyInterceptor[];
+};
+
 /** The tree entries a mounted contract names: by its tree node (one), or by the contract value (every entry holding it). */
 const mountedEntries = (entries: readonly TreeEntry[], contract: unknown) =>
   entries.filter((e) => e.node === contract || e.entry.contract === contract);
@@ -220,6 +311,9 @@ const hostname = (c: Context) => {
 const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRouteItem[]): { routes: RouteEntry[]; adHoc: AdHocRouteEntry[] } => {
   if (!Array.isArray(items)) fail("the routes callback must return an array of r.contract(), r.scope() and ad-hoc routes (r.get(), ...)");
 
+  // The app manifest's model keys, read once per Route.api: the path params a route binds implicitly (H14 #163)
+  const modelKeys = manifestModelKeys();
+
   const scopeDirs = new Map<string, boolean>();
   for (const { entry } of entries) for (const { scope, dir } of entry.scopes) scopeDirs.set(dir, scope.authorize === true || scopeDirs.get(dir) === true);
 
@@ -236,7 +330,8 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       // the check never saw. Only an omitted `bindings` defaults to the empty map: a null one is not a map and is refused
       const scopeBindings = item.bindings;
       const bindings = copyBindingMap(scopeBindings === undefined ? {} : scopeBindings);
-      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, bindings }));
+      const interceptors = copyInterceptors(`scope "${item.dir}"`, item.interceptors);
+      scopes.set(item.dir, Object.freeze({ kind: "scope" as const, dir: item.dir, policy: item.policy, middleware: item.middleware, interceptors, bindings }));
     } else if (item?.kind === "contract") {
       const contract = item.contract;
       const matched = mountedEntries(entries, contract);
@@ -260,7 +355,19 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
       // a binder the check never saw. An omitted `bindings` is the empty map; a null one is refused
       const itemBindings = item.bindings;
       const bindings = copyBindingMap(itemBindings === undefined ? {} : itemBindings);
-      const stored = Object.freeze({ kind: "contract" as const, contract, controller, middleware: item.middleware, bindings, options });
+      const interceptors = copyInterceptors(`contract "${names.join('", "')}"`, item.interceptors);
+      const stored = Object.freeze({
+        kind: "contract" as const,
+        contract,
+        controller,
+        middleware: item.middleware,
+        interceptors,
+        bindings,
+        // An item built by hand (typed as MountedContract) may omit them: the builder defaults are on (H14 #163)
+        implicitBinding: item.implicitBinding !== false,
+        scopedBindings: item.scopedBindings === true,
+        options,
+      });
       for (const name of names) contracts.set(name, stored);
     } else if (item?.kind === "route") {
       adHoc.push(adHocEntry(item));
@@ -292,17 +399,24 @@ const plan = (api: unknown, entries: readonly TreeEntry[], items: readonly ApiRo
           `declare .response(schema, ${decorated}) on the endpoint, or drop the decorator`,
       );
     }
-    const endpointMiddleware = endpointStack(mounted.options, key, route.name);
+    const endpointHooks = endpointPipeline(mounted.options, key, route.name);
     const scopeItems = entry.scopes.map(({ dir }) => scopes.get(dir)).filter((s): s is MountedScope => s !== undefined);
+    const implicitBindings = mounted.implicitBinding === false ? [] : implicitParamNames(route.path, modelKeys);
+    const scopedBindings = mounted.scopedBindings === true;
     checkScopeBindings(name, scopeItems, mounted, route.path);
     return Object.freeze({
       ...route,
       controller: Object.freeze([mounted.controller, key] as const),
       // One builder can mount a scope and a contract: each middleware runs once, at its first position
-      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointMiddleware])]),
+      middleware: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.middleware), ...mounted.middleware, ...endpointHooks.middleware])]),
+      // Same rule for interceptors: scope (outer to inner), contract, then endpoint; first position wins
+      interceptors: Object.freeze([...new Set([...scopeItems.flatMap((s) => s.interceptors), ...mounted.interceptors, ...endpointHooks.interceptors])]),
       policies: Object.freeze(scopeItems.map((s) => Object.freeze({ dir: s.dir, policy: s.policy }))),
       policy: mounted.options?.policy,
       bindings: routeBindings(scopeItems, mounted, route.path),
+      implicitBindings: Object.freeze(implicitBindings),
+      implicitBinding: mounted.implicitBinding !== false,
+      scopedBindings,
       unenforced: unenforcedCaps(route),
       domain: undefined,
     });
@@ -325,7 +439,9 @@ const routeBindings = (scopes: readonly MountedScope[], mounted: MountedContract
 /**
  * Rejects a scope binding the handler proof cannot see (docs/v1/http.md › Model binding › Scopes): the proof runs per
  * `r.contract()` call with the mounting builder's bindings only, so a route whose contract builder does not bind the
- * key would give the handler a model where its types say string. The first conflict in route order is reported.
+ * key would give the handler a model where its types say string. The first conflict in route order is reported. A key
+ * the route binds implicitly is provided by the proof (H14 #163), but the scope binder would still replace it at
+ * runtime, so the contract builder must bind it explicitly too.
  */
 const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mounted: MountedContract<object>, path: string): void => {
   const names = pathParamNames(path);
@@ -334,16 +450,41 @@ const checkScopeBindings = (name: string, scopes: readonly MountedScope[], mount
       if (!names.has(key) || Object.hasOwn(mounted.bindings ?? {}, key)) continue;
       fail(
         `scope "${scope.dir}" binds \`${key}\`, but contract "${name}" is mounted from a builder that does not bind it: ` +
-          `mount the contract from a builder that binds \`${key}\` too (a handler's types see only its own builder's bindings)`,
+          `bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)`,
       );
     }
   }
 };
 
 /**
+ * The mount-time checks of one key's Hono optional-param layout (H7 #118), shared by `r.bind()` and the implicit
+ * bindings (H14 #163): `at` is the `r.bind():` or `model binding:` prefix, and each case gets the fix that works.
+ */
+const checkOptionalLayout = (
+  at: string,
+  key: string,
+  path: string,
+  fixes: { readonly dropped: string; readonly expansion: string },
+): void => {
+  const expansion = expandedPathWithoutParam(path, key);
+  if (expansion === undefined) return;
+  if (pathParamNames(expansion).has(key)) {
+    fail(
+      `${at} \`${key}\` is a param of ${path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
+        `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ${fixes.dropped}`,
+    );
+  }
+  fail(
+    `${at} \`${key}\` is a required param of ${path} that Hono's optional-param expansion leaves out of a registration: ` +
+      `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ${fixes.expansion}`,
+  );
+};
+
+/**
  * Rejects a binding key that no endpoint the binding applies to declares: `routeBindings()` drops it, so a typo (or a
  * path the parser cannot read) would otherwise pass silently. A key only some endpoints of a contract declare stays
- * valid: `routeBindings()` limits it to the routes that have the param.
+ * valid: `routeBindings()` limits it to the routes that have the param. The implicit bindings (H14 #163) and a
+ * `.scopeBindings()` route's model binders get the same fail-closed checks.
  */
 const checkBindingKeys = (
   routes: readonly RouteEntry[],
@@ -371,20 +512,47 @@ const checkBindingKeys = (
     // drop a param whose placeholder is in the registration (a static segment after an optional one): the helper follows
     // the router's param count, and each case gets the fix that works.
     for (const key of Object.keys(route.bindings)) {
-      const expansion = expandedPathWithoutParam(route.path, key);
-      if (expansion === undefined) continue;
-      if (pathParamNames(expansion).has(key)) {
+      checkOptionalLayout("r.bind():", key, route.path, {
+        dropped: "Fix: drop the `?` of the optional params, or move the static segment before them.",
+        expansion: `Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
+      });
+    }
+    // The implicit keys: only the ones no explicit binder already checked, with their own wording and fix (H14 #163)
+    for (const key of route.implicitBindings) {
+      if (Object.hasOwn(route.bindings, key)) continue;
+      if (key === "__proto__") {
         fail(
-          `r.bind(): \`${key}\` is a param of ${route.path} that Hono's RegExpRouter drops from a registration's handler map (a static segment follows an optional param): ` +
-            `Hono also registers \`${expansion}\`, where the handler receives no \`${key}\` even when the request carries it, so the binding would give \`undefined\`. ` +
-            `Fix: drop the \`?\` of the optional params, or move the static segment before them.`,
+          "model binding: `__proto__` cannot be an implicit model key: every object reads it as its prototype, and Hono drops a `:__proto__` path param, " +
+            "so the binding would be dropped. Fix: rename the model file.",
         );
       }
-      fail(
-        `r.bind(): \`${key}\` is a required param of ${route.path} that Hono's optional-param expansion leaves out of a registration: ` +
-          `Hono also registers \`${expansion}\`, where its router passes no \`${key}\` to the handler, so the binding would give \`undefined\` where the proof promises a model. ` +
-          `Fix: move \`${key}\` before the optional params, or drop their \`?\`.`,
-      );
+      const implicitMidPath = misnamed.has(key)
+        ? `model binding: \`${key}\` binds \`:${key}?\` in ${route.path}, where Hono registers it as \`${key}?\`: ` +
+          "it expands only a path that ends with an optional param, so the implicit binding would never run. Fix: make the optional param the last segment, " +
+          "drop the `?`, or mount the contract with .withoutImplicitBinding()."
+        : undefined;
+      if (implicitMidPath !== undefined) fail(implicitMidPath);
+      checkOptionalLayout("model binding:", key, route.path, {
+        dropped:
+          "Fix: drop the `?` of the optional params, move the static segment before them, or mount the contract with .withoutImplicitBinding().",
+        expansion: `Fix: move \`${key}\` before the optional params, drop their \`?\`, or mount the contract with .withoutImplicitBinding().`,
+      });
+    }
+    // A scoped route resolves every child through a model: an explicit resolver cannot be scoped, and a model's lookup
+    // must take the `scope` parameter (its absence cannot be simulated). A digit-only key is refused too: the scope is
+    // built as an object, where integer-like keys sort first, so such a key would break the path order.
+    if (route.scopedBindings) {
+      for (const key of new Set([...Object.keys(route.bindings), ...route.implicitBindings])) {
+        if (/^\d+$/.test(key)) {
+          fail(
+            `route "${route.name}": .scopeBindings() cannot bind the numeric param "${key}" (a numeric key breaks the path order of the scope)`,
+          );
+        }
+      }
+      for (const [key, binder] of Object.entries(route.bindings)) {
+        const issue = scopedBinderIssue(key, binder);
+        if (issue !== undefined) fail(issue);
+      }
     }
     const forContract = contractParams.get(name) ?? new Set<string>();
     for (const key of names) forContract.add(key);
@@ -466,7 +634,8 @@ const checkOptions = (names: readonly string[], contract: object, options: Contr
   if (options?.policy !== undefined && typeof options.policy !== "function") fail(`${at}: { policy } must be a policy class`);
   // As the route proof does, and as a scope with `authorize` needs its r.scope() policy: an endpoint with its own
   // .authorize() needs the contract's policy. This fires when the flag is true at runtime; the route proof is stricter on
-  // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's (running it is A3 #121)
+  // purpose and wants a policy for any boolean `.authorize(flag)`. Its methods are the type check's; the kernel runs it
+  // for every route whose resolved authorize is true (H8 #122)
   const contractKeys = contractEndpoints(contract as AnyContract);
   if (options?.policy === undefined) {
     const authorized = contractKeys.find(([, e]) => e.def.authorize === true);
@@ -497,29 +666,30 @@ const isCallback = (value: unknown) => {
   return rest.startsWith("(");
 };
 
-/** The middleware of one endpoint's `endpoints` callback, run on a fresh builder. */
-const endpointStack = (options: ContractRouteOptions<object> | undefined, key: string, name: string): readonly MiddlewareItem[] => {
+/** The middleware and interceptors of one endpoint's `endpoints` callback, run on a fresh builder. */
+const endpointPipeline = (
+  options: ContractRouteOptions<object> | undefined,
+  key: string,
+  name: string,
+): { middleware: readonly MiddlewareItem[]; interceptors: readonly AnyInterceptor[] } => {
+  const empty = { middleware: [] as const, interceptors: [] as const };
   const endpoints = options?.endpoints as Record<string, (r: RouteBuilder) => unknown> | undefined;
   // Own keys only: an endpoint named toString must not pick up Object.prototype.toString
-  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return [];
+  if (endpoints === undefined || !Object.hasOwn(endpoints, key)) return empty;
   const callback = endpoints[key]!;
   const built = callback(new RouteBuilder());
   if (!(built instanceof RouteBuilder)) fail(`${name}: endpoints.${key} must return the builder it gets, (r) => r.middleware(...)`);
-  return (built as RouteBuilder).stack;
+  return { middleware: (built as RouteBuilder).stack, interceptors: (built as RouteBuilder).interceptors };
 };
 
 /**
- * What the router does not enforce yet for a route: its resolved `auth` / `authorize` (#105, #121) and the
- * validation of its headers schema (query and body are validated, #106; `throttle` is enforced by `mount()`, #229).
+ * What the router does not enforce yet for a route: the verification of its headers schema (query and body are
+ * validated, #106; `throttle` is enforced by `mount()`, #229; `auth` since A2 #120, `authorize` since H8 #122).
  * The one place that decides it: the mount warning and `sauf route:list` both read `RouteEntry.unenforced`.
  */
 const unenforcedCaps = (route: ApiRoute): readonly UnenforcedCap[] => {
   const { headers } = route.endpoint.def;
-  return Object.freeze([
-    ...(route.auth ? (["auth"] as const) : []),
-    ...(route.authorize ? (["authorize"] as const) : []),
-    ...(headers ? (["validation"] as const) : []),
-  ]);
+  return Object.freeze(headers ? (["validation"] as const) : []);
 };
 
 /**
@@ -611,10 +781,31 @@ const registrationOrder = <T extends { readonly path: string }>(routes: readonly
   });
 };
 
+/**
+ * The contract policy chain of a route whose resolved `authorize` is true (H8 #122): the scopes outer to inner, the
+ * endpoint policy, the key as the ability and the endpoint's own bound path params in order (the endpoint policy's
+ * arguments; a scope hook gets the whole resolved record). `undefined` for every other route, so nothing runs on a
+ * public or `.authorize(false)` route, an ad-hoc route or a 0.5 route.
+ */
+const routeAuthorization = (route: RouteEntry, checks: ContractPolicyChecks) => {
+  if (!route.authorize) return undefined;
+  return Object.freeze({
+    ability: route.controller[1],
+    scopes: Object.freeze(route.policies.map((mounted) => mounted.policy)),
+    policy: route.policy,
+    models: Object.freeze([...pathParamNames(route.endpoint.def.path)]),
+    checks,
+  });
+};
+
 /** What `RequestKernel` runs for a route: its controller method, or the handler of an ad-hoc route. */
-const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => {
+const routeParams = (
+  route: RouteEntry | AdHocRouteEntry,
+  prepend: readonly MiddlewareItem[] = [],
+  checks?: ContractPolicyChecks,
+): KernelRouteParams => {
   if (route.controller === undefined) {
-    return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...route.middleware] };
+    return { method: route.method, path: route.path, modelBinding: false, handler: route.handler, middleware: [...prepend, ...route.middleware] };
   }
   return {
     method: route.method,
@@ -625,8 +816,12 @@ const routeParams = (route: RouteEntry | AdHocRouteEntry): KernelRouteParams => 
     // The route's declared errors, derived ones included: the dev/test undeclared-error check reads them (X3 #157)
     errors: route.errors,
     controller: route.controller as unknown as RouteParams["controller"],
-    middleware: [...route.middleware],
+    middleware: [...prepend, ...route.middleware],
+    interceptors: [...route.interceptors],
     bindings: route.bindings,
+    implicitBindings: route.implicitBindings,
+    scopedBindings: route.scopedBindings,
+    ...(checks === undefined ? {} : { authorization: routeAuthorization(route, checks) }),
   };
 };
 
@@ -664,12 +859,33 @@ export class ApiRoutes<A = unknown, M extends readonly ApiRouteItem[] = readonly
    */
   mount(app: Hono): (RouteEntry | AdHocRouteEntry)[] {
     warnUnenforced(this.routes);
+    // The auth factory @laratype/auth registers on import (A2 #120). Read once: the slot is untrusted (a value that
+    // is not a function is "not imported"), and every route with a resolved auth fails mount() without it.
+    const auth = contractAuth();
+    // The counters of this mount, one store per mount (#319): two apps, or two test mounts, never share a window. The
+    // cache (#166) replaces the store later; injection is deferred to it (docs/v1/http.md › Rate limiting › Store).
+    // One client has one window per throttled route, so the prefix cap must exceed this mount's throttled-route count:
+    // otherwise visiting every route once evicts its own blocked window. The floor bounds a small mount's prefix.
+    const throttledRoutes = this.routes.filter((route) => route.throttle !== undefined).length;
+    const throttleStore = new MemoryThrottleStore(undefined, Math.max(MIN_WINDOWS_PER_PREFIX, throttledRoutes + 1));
+    // The policy checks @laratype/auth registers on import (H8 #122), read once for the same reason. A route whose
+    // resolved authorize is true fails mount() when they are missing: authorize requires auth, so a valid contract
+    // reaches this only with a @laratype/auth that registers both.
+    const policies = contractPolicies();
     // Every handler is built (and its throttle checked) before the first one is registered: no half-mounted app
     const handlers = registrationOrder<RouteEntry | AdHocRouteEntry>([...this.routes, ...this.adHoc]).map((route) => {
-      const kernel = RequestKernel.handle(routeParams(route));
+      const prepared = route.controller !== undefined && route.auth !== undefined
+        ? auth
+          ? [auth(route.auth)]
+          : fail(`${route.name}: the contract declares auth, but @laratype/auth is not imported.`)
+        : [];
+      const checks = route.controller !== undefined && route.authorize
+        ? policies ?? fail(`${route.name}: the contract declares authorize, but @laratype/auth is not imported.`)
+        : undefined;
+      const kernel = RequestKernel.handle(routeParams(route, prepared, checks));
       // The contract's rate limit runs before the route middleware, with no middleware of its own (#229). An ad-hoc
       // route has no contract, so it has no throttle either.
-      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel) : kernel;
+      const handle = route.controller !== undefined && route.throttle ? throttled(route, route.throttle, kernel, throttleStore) : kernel;
       const domain = route.domain;
       return [route, domain === undefined ? handle : async (c: Context, next: Next) => (hostname(c) === domain ? handle(c, next) : next())] as const;
     });

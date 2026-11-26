@@ -1,30 +1,101 @@
 name: 'Publish Packages'
+
 on:
+  # The maintainer pushes v<version> after merging the "Version packages" PR; the tag is the release intent, so a
+  # commit that lands on master alone never publishes. workflow_dispatch is the manual fallback and must run from
+  # master (checked below); an agent never triggers it.
+  push:
+    tags: [ 'v*' ]
   workflow_dispatch:
 
-# npm trusted publishing for the release (B15 #190, docs/v1/build.md › CI and release): the job
-# authenticates with a GitHub OIDC token, which npm exchanges for a short-lived publish token, and
-# `--provenance` signs the statement the same way. No registry credential is configured; `contents: read`
-# is all the checkout uses.
-# A trusted publisher can only be configured on a package that already exists on npm, so the first publish
-# of a new package (`@laratype/client`, `@laratype/contract`, `@laratype/core`) stays manual.
+# npm trusted publishing for the release (B15 #190, docs/v1/build.md › CI and release): the job authenticates with
+# a GitHub OIDC token, which npm exchanges for a short-lived publish token, and `--provenance` signs the statement
+# the same way. No registry credential is configured, so there is no secret to exfiltrate; `contents: read` is all
+# the checkout uses.
 permissions:
   contents: read
   id-token: write
+
+# One release at a time: a queued release waits, and the running one is never cancelled mid-publish.
+# `queue: max` keeps every pending run; the default `queue: single` keeps one and a newer pending release replaces it,
+# so a third tag would drop the second. `queue: max` with `cancel-in-progress: true` is a validation error, so it stays
+# false.
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   publish:
     name: Publish to npm registry
     runs-on: ubuntu-latest
-    # The user configures this environment's required reviewers in the repo settings, and the npm trusted
-    # publisher of each package (repo Laratypes/Laratype, workflow file release-npm.yml, environment
-    # npm-release), so a publish waits for a reviewer and npm accepts only this job's OIDC token.
+    # Required reviewers are configured in the repository settings, and the npm trusted publisher of each package
+    # points at this environment (repo Laratypes/Laratype, workflow release-npm.yml, environment npm-release), so
+    # npm accepts only this job's OIDC token and a publish waits for a reviewer.
     environment: npm-release
     steps:
-      # Nothing below needs git auth; keep the token out of .git/config while pack and publish run
+      # A manual dispatch may only run from refs/heads/master. This is the first step so a non-master dispatch
+      # fails before the checkout and before setup-bun runs `bun install` (which runs lifecycle scripts).
+      - name: Refuse a non-master dispatch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master'
+        shell: bash
+        run: |
+          echo "::error::manual publish must run from refs/heads/master, not $GITHUB_REF"
+          exit 1
+
+      # Nothing below needs git auth; keep the token out of .git/config while pack and publish run.
+      # Full history is for the tag ancestry check.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # The ref checks need no dependency install, so they run right after checkout and before setup-bun (which runs
+      # `bun install`, with lifecycle scripts) while `id-token: write` is live. Both paths check the ref first: a push
+      # must be a tag starting with `v` whose commit is an ancestor of origin/master, a dispatch must be
+      # refs/heads/master at its current tip. Only after that is the version read from the commit object with
+      # JSON.parse (never `require`, which resolves a symlink and can execute a `.js` target), shape-checked,
+      # compared with the tag and written to the step output. Context values arrive as env, never interpolated.
+      - name: Check the release ref
+        id: release_ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            test "$REF_TYPE" = "tag" || {
+              echo "::error::unexpected push ref $REF in the release workflow"; exit 1; }
+            case "$REF_NAME" in
+              v*) ;;
+              *) echo "::error::tag $REF_NAME does not start with v"; exit 1 ;;
+            esac
+            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+            git merge-base --is-ancestor "$SHA" refs/remotes/origin/master || {
+              echo "::error::tag $REF_NAME is not an ancestor of origin/master"; exit 1; }
+          else
+            test "$REF" = "refs/heads/master" || {
+              echo "::error::manual publish must run from refs/heads/master, not $REF"; exit 1; }
+            git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+            test "$SHA" = "$(git rev-parse refs/remotes/origin/master)" || {
+              echo "::error::manual publish must run from the tip of origin/master"; exit 1; }
+          fi
+
+          # The commit object, not the worktree: a symlinked package.json is the target path text, so JSON.parse
+          # fails closed instead of running the target. The semver shape is enforced here, before GITHUB_OUTPUT.
+          version=$(git show "$SHA:packages/laratype/package.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=JSON.parse(s).version;if(typeof v!=="string"||!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(v))process.exit(1);process.stdout.write(v)})')
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            test "$REF_NAME" = "v$version" || {
+              echo "::error::tag $REF_NAME does not match the tree version $version"; exit 1; }
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Setup bun
         uses: ./.github/setup-bun
@@ -34,12 +105,28 @@ jobs:
         with:
           node-version: 24
 
-      # Pinned to an exact release (>= 11.5.1, at least two weeks old when pinned) instead of a range, so a
-      # newly published npm can't run in the release job before anyone has seen it
+      # Pinned to an exact release (>= 11.5.1, at least two weeks old when pinned) instead of a range, so a newly
+      # published npm can't run in the release job before anyone has seen it
       - name: Upgrade npm
         run: |
           npm install -g 'npm@11.21.0'
           npm --version
+
+      # `check --publish` validates the fixed versions, the alpha channel, pre.json and the private-package rule;
+      # dist-tag derives alpha/latest from the version, never chosen by hand. The version is the ref step's output
+      # (read from the commit object); there is no second read and no `require`.
+      - name: Resolve release
+        id: release
+        shell: bash
+        env:
+          VERSION: ${{ steps.release_ref.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          node scripts/release/cli.js check --version "$VERSION" --publish
+          dist_tag=$(node scripts/release/cli.js dist-tag "$VERSION")
+
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: bun run build
@@ -52,6 +139,9 @@ jobs:
       # A public package is every packages/*/package.json without "private": true.
       - name: Publish
         shell: bash
+        env:
+          VERSION: ${{ steps.release_ref.outputs.version }}
+          DIST_TAG: ${{ steps.release.outputs.dist_tag }}
         run: |
           set -euo pipefail
 
@@ -69,6 +159,11 @@ jobs:
             if [ "$(node -p "require('./$pkg_json').private === true")" = "true" ]; then
               echo "Skipping $name@$version: private package"
               continue
+            fi
+
+            if [ "$version" != "$VERSION" ]; then
+              echo "::error::$name@$version does not match the release version $VERSION"
+              exit 1
             fi
 
             # A re-run, or a release where some packages were already published, skips those versions
@@ -93,9 +188,9 @@ jobs:
               exit 1
             fi
 
-            echo "Publishing $name@$version from $(basename "$tarball")"
-            npm publish "$tarball" --provenance --access public
+            echo "Publishing $name@$version from $(basename "$tarball") with dist-tag $DIST_TAG"
+            npm publish "$tarball" --provenance --access public --tag "$DIST_TAG"
             published=$((published + 1))
           done
 
-          echo "Published $published package(s), skipped $skipped already on npm"
+          echo "Published $published package(s) with dist-tag $DIST_TAG, skipped $skipped already on npm"

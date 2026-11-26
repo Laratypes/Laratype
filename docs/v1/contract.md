@@ -23,7 +23,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 | [defineApi and route names](#defineapi-and-route-names) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); generated `appApi` merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); entry `dirs` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); entry path shape check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; root brand, `isApiRoot`/`isApiNode` and entry `scopes: [{ scope, dir }]` proposed: PR [#310](https://github.com/Laratypes/Laratype/pull/310) @ cb9a5fe; forged endpoint re-checks in `apiPaths`/`apiRoutes` proposed: PR [#401](https://github.com/Laratypes/Laratype/pull/401) @ 61e6da36 (C11 [#293](https://github.com/Laratypes/Laratype/issues/293)) |
 | [API type projection](#api-type-projection) | merged @ e2eac4b; nested tree and derived errors merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Contract folder tree](#contract-folder-tree) | `ContractPrefix` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); scan and generated files merged ([#133](https://github.com/Laratypes/Laratype/issues/133)); root config key and dev runtime scan merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); production tree source merged ([#125](https://github.com/Laratypes/Laratype/issues/125)); watch merged @ 8ad92ae9 ([#142](https://github.com/Laratypes/Laratype/issues/142)) |
-| [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies planned → #105, #121 |
+| [Folder scopes](#folder-scopes) | `defineScope` merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `r.scope()` merged ([#104](https://github.com/Laratypes/Laratype/issues/104)); policies run: merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416), #122) |
 | [Capabilities and derived errors](#capabilities-and-derived-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
 | [Domain errors](#domain-errors) | merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `isContractError` and the mapping to responses proposed: PR #307 @ 1d24eb0 (#108) |
 | [URL builder](#url-builder) | `buildUrl` merged ([#109](https://github.com/Laratypes/Laratype/issues/109)); regex params, wildcard segments, flat query types, the plain-object query and the router-agreement check on a sent split proposed: PR [#398](https://github.com/Laratypes/Laratype/pull/398) @ b16f92d1 ([#253](https://github.com/Laratypes/Laratype/issues/253)); other-host check proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the one origin rule shared with the client proposed: PR [#401](https://github.com/Laratypes/Laratype/pull/401) @ 61e6da36 (C11 [#293](https://github.com/Laratypes/Laratype/issues/293)); the server `route()` helper proposed: PR [#391](https://github.com/Laratypes/Laratype/pull/391) @ 952dae91 ([#162](https://github.com/Laratypes/Laratype/issues/162)) |
@@ -696,7 +696,7 @@ export type ScopePrefix = ContractPrefix<'/api/users/:user', [typeof import('../
 ## Folder scopes
 
 ### Status
-`defineScope` is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts the policy, and a missing one is a compile and runtime error. Running policies is planned → [#105](https://github.com/Laratypes/Laratype/issues/105) (H2), [#121](https://github.com/Laratypes/Laratype/issues/121) (A3).
+`defineScope` is merged ([#228](https://github.com/Laratypes/Laratype/issues/228)). `r.scope()` is merged ([#104](https://github.com/Laratypes/Laratype/issues/104), H1): it mounts the policy, and a missing one is a compile and runtime error. Running policies is merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416), [#122](https://github.com/Laratypes/Laratype/issues/122), H8): the scope policy and the endpoint policy run, outer to inner, after the bindings and before validation ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
 
 ### Public API
 [`packages/contract/src/contract.ts`](../../packages/contract/src/contract.ts) · [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
@@ -729,7 +729,7 @@ export default defineScope<ScopePrefix>()({ auth: true, authorize: true })
 - Runtime, prefixed `[@laratype/contract] `: `defineScope: unknown option "<option>"`, `defineScope: authorize must be a boolean`, and the shared option checks (see [defineContract](#definecontract)).
 
 ### Design (non-binding)
-- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })`, the folder written as in the entry's `{ scope, dir }` ([http.md › Router v2](./http.md#router-v2)). A missing policy is a compile error in `Route.api` and a runtime error (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The policy is recorded on the routes; running it is planned → [#105](https://github.com/Laratypes/Laratype/issues/105), [#121](https://github.com/Laratypes/Laratype/issues/121).
+- **Policy:** a scope with `authorize` needs a policy mounted on the server with `r.scope('<folder>', { policy })`, the folder written as in the entry's `{ scope, dir }` ([http.md › Router v2](./http.md#router-v2)). A missing policy is a compile error in `Route.api` and a runtime error (merged, [#104](https://github.com/Laratypes/Laratype/issues/104)). The policy is recorded on the routes and runs for every route whose resolved `authorize` is true (merged @ eef408a8, PR [#416](https://github.com/Laratypes/Laratype/pull/416), H8 [#122](https://github.com/Laratypes/Laratype/issues/122); [http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
 
 ### Acceptance
 [#228 Done when](https://github.com/Laratypes/Laratype/issues/228) · [#104 Done when](https://github.com/Laratypes/Laratype/issues/104)
@@ -739,14 +739,20 @@ export default defineScope<ScopePrefix>()({ auth: true, authorize: true })
 ## Capabilities and derived errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the contract types and their runtime resolution. Server side: [#120](https://github.com/Laratypes/Laratype/issues/120) (auth), [#105](https://github.com/Laratypes/Laratype/issues/105) (authorize), [#229](https://github.com/Laratypes/Laratype/issues/229) (throttle), [#106](https://github.com/Laratypes/Laratype/issues/106) (422), [#108](https://github.com/Laratypes/Laratype/issues/108) (thrown errors).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): the contract types and their runtime resolution. The A2 #120 additions (`AuthRegisterLink`, the linked half of `GuardName` and `GuardUser`) are merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414)). Server side: [#120](https://github.com/Laratypes/Laratype/issues/120) (auth), [#122](https://github.com/Laratypes/Laratype/issues/122) (authorize), [#229](https://github.com/Laratypes/Laratype/issues/229) (throttle), [#106](https://github.com/Laratypes/Laratype/issues/106) (422), [#108](https://github.com/Laratypes/Laratype/issues/108) (thrown errors).
 
 ### Public API
 [`packages/contract/src/capabilities.ts`](../../packages/contract/src/capabilities.ts)
 
+The A2 #120 additions (`AuthRegisterLink`, `LinkedUser`, `LinkedGuards`, `GuardUser` and the linked half of `GuardName`) are merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414); [`capabilities.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/contract/src/capabilities.ts)). `GuardRegistry`, `AuthOption` and the rest of `GuardName` are merged as before.
+
 ```ts
-export interface GuardRegistry {}                     // augmented by the app: declare module '@laratype/contract' { interface GuardRegistry { api: true } }
-export type GuardName = keyof GuardRegistry & string;
+export interface GuardRegistry {}                     // augmented by a contract-only app: declare module '@laratype/contract' { interface GuardRegistry { api: true } }
+export interface AuthRegisterLink {}                   // A2 #120, merged @ 7040fd07; empty, @laratype/auth augments it from the app's Register
+export type GuardName = (keyof GuardRegistry & string) | (AuthRegisterLink extends { guards: infer G } ? keyof G & string : never);   // the GuardRegistry half is merged (#228); the A2 half is merged @ 7040fd07
+type LinkedUser = AuthRegisterLink extends { user: infer U } ? U : unknown;                    // A2 #120, merged @ 7040fd07
+type LinkedGuards = AuthRegisterLink extends { guards: infer G } ? G : {};                     // A2 #120, merged @ 7040fd07
+export type GuardUser<A = AuthOption> = A extends true ? LinkedUser : A extends string ? (A extends keyof LinkedGuards ? LinkedGuards[A] : LinkedUser) : never;   // A2 #120, merged @ 7040fd07
 export type AuthOption = true | GuardName;
 export type Duration = number | `${number}${"s" | "m" | "h" | "d"}`;   // a number is seconds
 export interface ThrottleOptions { readonly limit: number; readonly per: Duration }
@@ -801,10 +807,10 @@ Inheritance runs scope → nested scope → contract → endpoint:
 | `authorize` | scope, endpoint | every level runs, outer to inner, then the endpoint | `.authorize(false)` |
 
 ### Invariants
-- **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names are the keys of `GuardRegistry`, an empty interface the app augments ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract); A1 [#119](https://github.com/Laratypes/Laratype/issues/119) will feed it from the auth `Register`). A 401 can only come from `auth`; it can't be declared directly.
+- **`auth`:** `true` uses the default guard and `'<guard>'` a named guard. Guard names come from `GuardRegistry` (a contract-only app) and from `@laratype/auth`'s `Register['guards']` through the empty `AuthRegisterLink` that auth augments on import (A2 [#120](https://github.com/Laratypes/Laratype/issues/120)); `GuardUser<A>` gives the guard's user, and the route proof adds it to `ctx.user` ([auth.md › Authentication from the contract](./auth.md#authentication-from-the-contract)). A 401 can only come from `auth`; it can't be declared directly. The contract stays browser-pure: it imports nothing from auth.
 - **`authorize`:** `authorize: true` on a [scope](#folder-scopes), or `.authorize()` on an endpoint. It requires `auth` at the same level or an outer one, because a policy checks a signed-in user.
 - **`.public()` under a scope with `authorize`** is a compile error, unless the endpoint also has `.authorize(false)`: `.public().authorize(false)` runs no guard and no policy.
-- **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)). `per` is a number of seconds or a string such as `'30s'`, `'1m'`, `'1h'` or `'1d'`, from 1 second to `Number.MAX_SAFE_INTEGER` ms (`'0s'`, `0.5`, `NaN` and `Infinity` are rejected; proposed: PR [#305](https://github.com/Laratypes/Laratype/pull/305) @ 21161f2).
+- **`throttle`:** `.throttle({ limit, per })` ([http.md › Rate limiting](./http.md#rate-limiting)). `per` is a number of seconds or a string such as `'30s'`, `'1m'`, `'1h'` or `'1d'`, from 1 second to `Number.MAX_SAFE_INTEGER` ms (`'0s'`, `0.5`, `NaN` and `Infinity` are rejected; merged @ 9934cf2d (PR [#305](https://github.com/Laratypes/Laratype/pull/305))).
 - **`throws`:** `.throws(...errors)` on an endpoint, and `throws: [...]` in the options of a contract or a scope ([Domain errors](#domain-errors)). Built-in catalog errors are accepted.
 - **Opt-outs are endpoint methods:** `.public()`, `.throttle(false)` and `.authorize(false)`. A contract or a scope never removes a capability it inherits. A contract that must be public as a whole sits outside the authenticated scope.
 - **`.authorize(false)`** skips every inherited `authorize` check for that endpoint, and its derived 403 goes away.

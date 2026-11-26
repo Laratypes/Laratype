@@ -40,7 +40,7 @@ jobs:
       - name: Build
         run: bun run build && bun run build:type
 
-      # Every public package. pkg-pr-new skips "private": true ones (broadcast, i18n, mail, schedule, storage, ts-gen)
+      # Every public package. pkg-pr-new skips "private": true ones (broadcast, mail, schedule, storage, ts-gen)
       # and non-directories (packages/global.d.ts); check:pkg in ci.yml fails a public package that has no dist.
       # --bun packs with `bun pm pack`, which resolves the `catalog:` specifiers that npm pack leaves as-is
       # Peers are packed as plain versions, never preview URLs: install a package's workspace peers' previews in the same command

@@ -8,13 +8,13 @@ last-verified: 2026-10-09
 
 # Auth (`@laratype/auth`), skeleton
 
-> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed) and [Policies and gates](#policies-and-gates) (proposed) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
+> **Skeleton.** Every section but [Guards in the container](#guards-in-the-container) (merged), [Typed Register](#typed-register) (proposed), [Policies and gates](#policies-and-gates) (proposed) and [Authentication from the contract](#authentication-from-the-contract) (merged) is planned. `@laratype/auth` on master is the 0.5 package: guards in `packages/auth/src/guard` and `passport`, policies in `packages/auth/src/policies`, and gates in `packages/auth/src/gate`. This file lists the planned work and a short, non-binding design so that agents don't build against plan sketches. Signatures are added when the issues land.
 
 | Section | Status |
 |---|---|
 | [Typed Register](#typed-register) | proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d → #119 |
-| [Authentication from the contract](#authentication-from-the-contract) | planned → #120, #228 |
-| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121 |
+| [Authentication from the contract](#authentication-from-the-contract) | merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414)) → #120 |
+| [Policies and gates](#policies-and-gates) | proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 → #121; route integration: merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416)) → #122 |
 | [Guards in the container](#guards-in-the-container) | merged @ ea7ab23; `attempt()` password check proposed: PR [#346](https://github.com/Laratypes/Laratype/pull/346) @ 74b7e8245a6f86832f6d048bb6a62ed79a33011e; async password check proposed: PR [#393](https://github.com/Laratypes/Laratype/pull/393) @ 9fcf180c90f14c82afba0b2a143efe0a622ecf1b; composite-key rehash and login timing proposed: PR [#396](https://github.com/Laratypes/Laratype/pull/396) @ 488eeb65fe1e856ca03e748aa044e5ff6c4cbc2c; guard claim, model claim, HS256 and guard identity proposed: PR [#358](https://github.com/Laratypes/Laratype/pull/358) @ f37c318ebfb442892b273bd23d40a6fffe55543d; dummy-hash key hardening and the Hasher format/cost rule proposed: PR [#403](https://github.com/Laratypes/Laratype/pull/403) @ 35fdcc6d3f80c086c9905f30d5c1fa3270136abc |
 | [OAuth2 server](#oauth2-server) | planned → #179, #180 |
 
@@ -26,7 +26,7 @@ last-verified: 2026-10-09
 proposed: PR [#363](https://github.com/Laratypes/Laratype/pull/363) @ 2ecef6d ([#119](https://github.com/Laratypes/Laratype/issues/119), A1, M2).
 
 ### Public API
-[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts):
+[`packages/auth/src/Register.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/Register.ts); `GuardUser` is the A2 #120 addition, merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414); [`Register.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/Register.ts)).
 
 ```ts
 // @laratype/auth
@@ -34,9 +34,12 @@ export interface Register {}
 
 export type RegisteredUser<R = Register> = R extends { user: infer U extends Model } ? U : Model;
 export type GuardName<R = Register> = R extends { guards: infer G } ? keyof G & string : string;
+// A2 #120, merged @ 7040fd07: `{ user: Admin }` gives Admin, `true` (or no entry) the app's RegisteredUser; `true` is the default guard.
+export type GuardUser<A extends true | GuardName = true> = ...;
 ```
 
-An app fills `Register` once, by module augmentation. `Auth` and `AuthService` come from [`packages/auth/src/support/Auth.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/support/Auth.ts), `AuthManager` from [`packages/auth/src/guard/AuthManager.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/guard/AuthManager.ts), and `AuthVerification` from [`packages/auth/src/verifications/AuthVerification.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/verifications/AuthVerification.ts):
+An app fills `Register` once, by module augmentation: `user` is its user model, and each guard is `true` (the app's
+user) or `{ user: <model> }`. `Auth` and `AuthService` come from [`packages/auth/src/support/Auth.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/support/Auth.ts), `AuthManager` from [`packages/auth/src/guard/AuthManager.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/guard/AuthManager.ts), and `AuthVerification` from [`packages/auth/src/verifications/AuthVerification.ts` @ 2ecef6d](https://github.com/Laratypes/Laratype/blob/2ecef6d/packages/auth/src/verifications/AuthVerification.ts):
 
 ```ts
 // @laratype/auth
@@ -67,8 +70,8 @@ export class AuthVerification {
 - **The registered user is the default type argument.** `Auth.user()` with no type argument is `Authenticated<Register['user']> | null` (for example `Authenticated<User> | null`) once the app registers `user`; `Auth.guard(name).user()` is `Authenticated<User> | undefined`, and `Auth.guard(name).attempt(fields)` is `Promise<false | Authenticated<User>>`. An explicit type argument still wins: `Auth.user<Admin>()` is `Authenticated<Admin> | null`.
 - **Guard names.** Once `guards` is registered, `Auth.guard(name)`, `AuthService.guard(name)`, `AuthVerification.guard(name)` and `AuthManager.guard(name)` accept only `keyof Register['guards']`. The default guard (no name) is not affected. `Passport.authenticate(name)` keeps passport's `string | string[] | Strategy`: it runs any passport strategy, not only an auth guard.
 - **Before a registration.** `RegisteredUser` is `Model` and `GuardName` is `string`, so 0.5 code keeps its types: `Auth.user()` is `Authenticated<Model> | null`, `Auth.user<User>()` compiles, and every string is a guard name.
-- **Registry values are not read.** Only the keys of `Register['guards']` type the names; per-guard user types are not part of A1.
-- **Boundary with the contract.** `@laratype/contract` stays browser-pure and never imports `@laratype/auth`. It types `auth: '<guard>'` from its own `GuardRegistry` (C4b #228); until A2 #120 links the two, an app that uses both augments both registries (auth may import contract, never the reverse).
+- **Registry values are `true` or `{ user }`.** The keys of `Register['guards']` type the names; A2 #120 reads each value to type `GuardUser`: `true` is the app's `RegisteredUser`, `{ user: Admin }` is `Admin`. `Auth.guard(name)` still returns `RegisteredUser` until its own generic reads the guard (A2 leaves the runtime APIs as they were).
+- **Boundary with the contract.** `@laratype/contract` stays browser-pure and never imports `@laratype/auth`. A2 #120 links the two registries: `@laratype/auth` augments the contract's empty `AuthRegisterLink` with `{ user: RegisteredUser; guards: { [K in GuardName]: GuardUser<K> } }`, and the contract derives `GuardName` and `GuardUser<A>` from it (plus its own `GuardRegistry` for a contract-only app). The app writes `Register` once.
 
 ### Diagnostics
 - **Wrong guard name (type-level).** `Auth.guard('nope')` (and the other guard-name APIs) fails with `Argument of type '"nope"' is not assignable to parameter of type '"api" | "web" | "admin"'`, naming the registered guards. `Auth.guard('web')` compiles.
@@ -79,12 +82,12 @@ export class AuthVerification {
 [`examples/auth/proposed/typed-register.ts`](./examples/auth/proposed/typed-register.ts); the type tests are `packages/auth/__tests__/typedRegister.test-d.ts` (registered) and `packages/auth/__tests__/typedRegister.test.ts` (the unregistered fixture).
 
 ### Non-goals
-- No runtime registry check and no per-guard user type.
-- No change to the contract's `GuardRegistry` or to `auth: '<guard>'`: A2 #120 links the two registries.
+- No runtime registry check.
+- No change to the contract's `GuardRegistry` or to `auth: '<guard>'` beyond A2's link: `auth: '<guard>'` accepts the names of both registries.
 - `Auth.user()` does not return the bare model: the `Authenticated` wrapper stays.
 
 ### Open questions
-- [A2 #120](https://github.com/Laratypes/Laratype/issues/120): link `Register['guards']` to the contract's `GuardRegistry` (auth may import contract, never the reverse).
+- Resolved by A2 #120: `Register['guards']` is linked to the contract's `GuardRegistry` through `AuthRegisterLink` (auth may import contract, never the reverse).
 
 ### Acceptance
 [#119 Done when](https://github.com/Laratypes/Laratype/issues/119)
@@ -94,15 +97,65 @@ export class AuthVerification {
 ## Authentication from the contract
 
 ### Status
-planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), with the contract types in [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b).
+merged @ 7040fd07 (PR [#414](https://github.com/Laratypes/Laratype/pull/414), [#120](https://github.com/Laratypes/Laratype/issues/120), A2, M2), with the contract types of [#228](https://github.com/Laratypes/Laratype/issues/228) (C4b). The link is `AuthRegisterLink` in [`packages/contract/src/capabilities.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/contract/src/capabilities.ts); the enforcement is `auth()` and `registerContractAuth()` in [`packages/auth/src/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/auth/src/contractAuth.ts) and [`packages/http/src/routing/api/contractAuth.ts` @ 7040fd07](https://github.com/Laratypes/Laratype/blob/7040fd0743287171c076544a14ed9cb0b83c6d2a/packages/http/src/routing/api/contractAuth.ts).
 
-### Design (non-binding)
-- **Declared in the contract:** `auth: true | '<guard>'` on a scope, a contract or an endpoint. `true` uses the default guard. The nearest level wins, and `.public()` opts an endpoint out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)).
-- **Applied by the framework:** the guard runs from the contract. API routes don't use `.middleware(auth())`.
-- **Guard names** are typed from the app's guard registry ([Typed Register](#typed-register), [#119](https://github.com/Laratypes/Laratype/issues/119)). Until A2 [#120](https://github.com/Laratypes/Laratype/issues/120) links it, the contract's `GuardRegistry` is separate from `@laratype/auth`'s `Register['guards']` (see [Typed Register](#typed-register)).
-- **Context:** `ctx.user` is typed per guard ([http.md › Controller typing](./http.md#controller-typing-ctx-and-controllerof)).
-- **Unauthenticated:** a 401 (`errors.unauthorized`).
-- **Other 403s from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws` ([contract.md › Domain errors](./contract.md#domain-errors)).
+### Public API
+
+```ts
+// @laratype/contract: the link auth fills once, and what it derives
+export interface GuardRegistry {}                        // contract-only apps: declare module '@laratype/contract' { interface GuardRegistry { api: true } }
+export interface AuthRegisterLink {}                     // empty here; @laratype/auth augments it
+export type GuardName = (keyof GuardRegistry & string) | (AuthRegisterLink extends { guards: infer G } ? keyof G & string : never);
+type LinkedUser = AuthRegisterLink extends { user: infer U } ? U : unknown;
+type LinkedGuards = AuthRegisterLink extends { guards: infer G } ? G : {};
+export type GuardUser<A = AuthOption> = A extends true ? LinkedUser : A extends string ? (A extends keyof LinkedGuards ? LinkedGuards[A] : LinkedUser) : never;
+export type AuthOption = true | GuardName;
+
+// @laratype/http: the slot @laratype/auth fills on import (internal; the public API is the two functions)
+const CONTRACT_AUTH: unique symbol;                      // Symbol.for('laratype.http.contractAuth')
+export type ContractAuthFactory = (guard: true | string) => TypedMiddleware;
+export function registerContractAuth(factory: ContractAuthFactory): void;
+export function contractAuth(): ContractAuthFactory | undefined;   // undefined unless the slot holds a function
+
+// @laratype/auth: the guard is an argument; a type argument alone (`auth<'admin'>()`) is a compile error
+export function auth(): TypedMiddleware<{ user: GuardUser<true> }>;
+export function auth<G extends true | GuardName>(guard: G): TypedMiddleware<{ user: GuardUser<G> }>;
+
+declare module '@laratype/contract' {                    // done by @laratype/auth on import
+  interface AuthRegisterLink {
+    user: RegisteredUser;
+    guards: { [K in GuardName]: GuardUser<K> };
+  }
+}
+```
+
+The app writes `Register` once (auth.md › Typed Register): `guards: { web: true; api: true; admin: { user: Admin } }`. `web` and `api` resolve to `Register['user']`; `admin` to `Admin`. `Route.api` reads the contract's resolved `auth` and prepends the middleware at `mount()`; an API route writes no `.middleware(auth())`.
+
+### Invariants
+- **Declared in the contract, applied by the framework.** `auth: true | '<guard>'` on a scope, a contract or an endpoint; the nearest level wins, and `.public()` opts the endpoint out ([contract.md › Capabilities and derived errors](./contract.md#capabilities-and-derived-errors)). `true` is the default guard of `app/config/auth.ts`.
+- **Order.** `mount()` prepends the auth middleware to the route pipeline, before the route middleware (a short-circuit cannot skip it), before `r.bind()` bindings, before input validation and before the handler. A 401 therefore comes before a 404 or a 422, and never says whether a row exists. `RouteEntry.middleware` stays what the app declared.
+- **Fail closed.** A route whose resolved auth is set while no factory is registered fails `mount()`: `[@laratype/http] Route.api: <route name>: the contract declares auth, but @laratype/auth is not imported.` Importing `@laratype/auth` is what makes enforcement available.
+- **The slot is untrusted.** `contractAuth()` returns the `Symbol.for('laratype.http.contractAuth')` value only when it is a function; anything else behaves as "not imported", so `mount()` fails closed. `registerContractAuth()` accepts the same factory twice; `@laratype/auth` brands its factory (`Symbol.for('laratype.auth.contractAuthFactory')`, non-enumerable and read-only), so a branded factory replaces another branded one (last wins: a reloaded module or a second copy of the package) while any other different function throws and a non-function value is replaced. The brand is not a security boundary (any in-process code can set it): it only tells a second copy of `@laratype/auth` from an unrelated value.
+- **One registry.** `@laratype/auth` augments the contract's `AuthRegisterLink`; `GuardRegistry` alone still works for a contract-only app (its guard names type `auth: '<guard>'`, and its user type is `unknown`). The contract stays browser-pure and imports nothing from auth; auth imports `@laratype/contract` and throws its derived `errors.unauthorized()`.
+- **Runtime.** `authManager().guard(auth === true ? undefined : auth).user(request)`. No user: throw the derived 401 `{ code: 'UNAUTHORIZED', message: 'Unauthenticated.' }`. Otherwise `setAuthenticatedUser(user, guard.name)` (A6 #335: `Auth.user()` / `Auth.login()` sign for the authenticating guard), then `next({ user })`.
+- **Types.** Per endpoint the route proof adds `{ user: GuardUser<ResolvedAuth<...>> }` to the provided context, and nothing on a public route. Route middleware extensions still win, last wins, as at runtime. A handler that requires `user` on a route without auth gets its own diagnosis, and a `user` of another type than the guard's is reported at the guard (Diagnostics).
+- **`auth()` elsewhere.** The same middleware works on an ad-hoc route (`r.middleware(auth('api')).get(...)`) and in a manual `RequestKernel.handle({ middleware: [auth('api')] })`.
+- **0.5 routes are unchanged:** they keep `AuthGuard` and its two 401s.
+
+### Diagnostics
+- `` <c>.<e>: handler requires `user`, route has no auth (add auth: true or a guard to the endpoint, its contract or a scope) `` (type-level, the route proof)
+- `` <c>.<e>: `user` of the ctx does not match the guard's user type (the auth capability's guard) `` (type-level, the route proof)
+- `[@laratype/http] Route.api: <route name>: the contract declares auth, but @laratype/auth is not imported.` (`mount()`; fail closed)
+- `[@laratype/http] registerContractAuth(): the contract auth factory is already registered (<factory>), so a second, different factory would replace it. Fix: import @laratype/auth once, or remove the other package that registers the slot.` (at import of a second, different factory)
+- A wrong guard name (`auth: 'nope'`) is the existing argument error that names the registered guards, and the runtime `[@laratype/auth] Auth guard "<name>" is not defined in app/config/auth.ts.` (AuthManager).
+
+### Example
+[`examples/auth/proposed/contract-auth.ts`](./examples/auth/proposed/contract-auth.ts). Runtime tests: [`packages/auth/__tests__/contractAuth.test.ts`](../../packages/auth/__tests__/contractAuth.test.ts) (401 without a user, a named guard, `.public()`, the nearest level, `Auth.user()` / `Auth.login()` guard identity, 401 before 422 and before route middleware, a scope guard, the ad-hoc/manual use, a second evaluation of the module) and [`packages/http/__tests__/routing/contractAuth.test.ts`](../../packages/http/__tests__/routing/contractAuth.test.ts) (fail closed, the untrusted slot, the same/different factory, the branded replacement, the middleware order, `.public()`); type tests: `packages/http/__tests__/routing/contractAuth.test-d.ts` and `packages/auth/__tests__/typedRegister.test-d.ts`.
+
+### Non-goals
+- No policy check in the guard: authentication answers the 401 only, and the contract's `authorize` policies run after it ([Policies and gates](#policies-and-gates), H8 [#122](https://github.com/Laratypes/Laratype/issues/122)).
+- No model binding: `r.bind()` is H7 #118.
+- No 403 from the guard: an unverified or locked account is a domain error the guard throws, declared with `throws` ([contract.md › Domain errors](./contract.md#domain-errors)).
 
 ### Acceptance
 [#120 Done when](https://github.com/Laratypes/Laratype/issues/120)
@@ -112,7 +165,7 @@ planned → [#120](https://github.com/Laratypes/Laratype/issues/120) (A2, M2), w
 ## Policies and gates
 
 ### Status
-proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: [#105](https://github.com/Laratypes/Laratype/issues/105) ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)), which supersedes [#122](https://github.com/Laratypes/Laratype/issues/122) (H8); the call this section leaves to #105 is listed under [Invariants](#invariants-1).
+proposed: PR [#394](https://github.com/Laratypes/Laratype/pull/394) @ 4d6d8089 ([#121](https://github.com/Laratypes/Laratype/issues/121), A3, M2). Route integration: merged @ eef408a8 (PR [#416](https://github.com/Laratypes/Laratype/pull/416), [#122](https://github.com/Laratypes/Laratype/issues/122), H8), specified in [http.md › Authorization from the contract](./http.md#authorization-from-the-contract); this section also states the shared policy-method shape and the scope hook's asymmetry under [Invariants](#invariants-1).
 
 ### Public API
 [`Policy.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/policies/Policy.ts) (types), [`authorize.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/policies/authorize.ts), [`Gate.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/Gate.ts), [`GateAbility.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/GateAbility.ts), [`GateManager.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/gate/GateManager.ts), [`ForbiddenException.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/exceptions/ForbiddenException.ts) and `Authenticated` in [`AuthVerification.ts`](https://github.com/Laratypes/Laratype/blob/4d6d8089/packages/auth/src/verifications/AuthVerification.ts), all exported from `@laratype/auth`.
@@ -189,6 +242,8 @@ export class ForbiddenException extends Exception {}              // 403, { code
 
 Every public generic policy type except `HasPolicy` has a default, so its bare name compiles and means any policy (`.claude/rules/types.md` › Generics): `PolicyAbility` is `string`, `PolicySubject`, `SubjectParam` and `CheckPolicy` are `unknown`, `PolicyArgs` and `SubjectArgs` are `any[]`, and `ModelPolicy` is `AnyPolicy` (the model-shaped defaults use `HasPolicy<AnyPolicy>`). `HasPolicy` keeps its required type argument: a bare `extends HasPolicy` would brand the model with `AnyPolicy`, making `SubjectAbility` every string and switching `CheckPolicy` off, so an ability typo (`"udpate"`) would type-check. A real policy keeps its own names and parameters.
 
+`policyCheck`, `policyAllows` and `policyAuthorize` are exported for custom checks. `@laratype/auth` registers `check: policyRouteCheck` (the internal variant tagged with the half that answered) and `authorize: policyAuthorize` with `@laratype/http` on import (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)), so the route chain reuses A3's semantics; no policy semantics live in http and no new export is added.
+
 A policy is any class with ability methods and an optional `before`; the 0.5 `Policy` base class is not required:
 
 ```ts
@@ -210,10 +265,25 @@ class PostPolicy {
 - **Guests deny, without the policy.** A user is an object, a model instance; a guest is any non-object user: `null`, `undefined`, `false` (what `TokenGuard.user()` answers for a request with no bearer token) and every primitive or function (`0`, `""`, a number, `NaN`, a symbol, a function) answer `false` from `allows()`, `true` from `denies()` and the 403 from `authorize()`, and neither a policy nor a gate runs. A primitive principal such as a user id or an API-key string is therefore a guest too, so a gate written for it always denies. A gate or policy may still declare a nullable user (`user: User | null`); the guest check runs first, so it never sees the `null`. On a route the auth guard answers the 401 first ([Authentication from the contract](#authentication-from-the-contract)).
 - **A missing policy is an internal error.** `allows()`, `denies()` and `authorize()` reject with `InternalException` (500) when the subject's class has no policy: a bug must not read as a denial, and a caller's `.catch()` / `.then()` sees it. `GateManager.allows()` is `async` for that reason (and `Authenticated.can()` returns its promise), so the error never escapes synchronously. A policy without the ability method (and without a `before` that decided) denies.
 - **Exceptions are not denials.** What a `before` or an ability throws propagates (the exception filter's 500); it is never caught into `false`.
-- **The 403 is the contract's derived forbidden.** `authorize()` throws `ForbiddenException`, a responsible `Exception` with `code: "FORBIDDEN"`, `httpCode: 403` and the message `This action is unauthorized.`, so its wire body `{ code: "FORBIDDEN", message }` is the one `errors.forbidden()` declares ([contract.md › Built-in errors](./contract.md#built-in-errors)); the filter answers a responsible 4xx `Exception` with its `toJson()` ([http.md › Exceptions](./http.md#exceptions)). `@laratype/auth` imports no contract runtime: the 403 is the 0.5 exception channel.
+- **The 403 is the contract's derived forbidden.** `authorize()` throws `ForbiddenException`, a responsible `Exception` with `code: "FORBIDDEN"`, `httpCode: 403` and the message `This action is unauthorized.`, so its wire body `{ code: "FORBIDDEN", message }` is the one `errors.forbidden()` declares ([contract.md › Built-in errors](./contract.md#built-in-errors)); the filter answers a responsible 4xx `Exception` with its `toJson()` ([http.md › Exceptions](./http.md#exceptions)). The route chain's scope denial throws the same `errors.forbidden()` from `@laratype/http`; `@laratype/auth` imports the contract's `errors` since A2 #120, and both bodies are byte-identical.
 - **Two `can()` meanings stay side by side.** `Authenticated.can(ability, subject, ...args)` (`Auth.user()!.can("update", post)`) resolves the **subject's** policy, as Laravel's `$user->can()` does. The 0.5 `@UsePolicy(Policy)` mixin on a model keeps its own meaning: `model.can(ability, ...args)` runs the **actor's** policy with the model as the user. A v1 model declares its policy with `export default interface Post extends HasPolicy<PostPolicy> {}` beside its `export default class Post`, which is the type half of `Gate.policy`; nothing is added to the model at runtime, and the default-export pair is the shape the repo's models already use (a named class/interface merge is a lint error).
 - **A gate is a typed value.** `Gate.define(name, fn)` returns `{ name, check }`; `Gate.allows(user, gate, ...args)` checks it, with no registry and no second type map. A gate's arguments come from `fn`; `Gate.allows()`, `Gate.denies()` and `Gate.authorize()` apply the same exact-`true` rule as the policy checks to the gate's answer, whichever object is passed (a hand-built `GateAbility` included), so a truthy non-boolean (`1`, `"yes"`, an object, a promise or thenable of one) denies; what the check throws or rejects propagates. A guest denies without the gate running: `Gate.allows()`/`authorize()` answer before the gate, and the `check()` that `Gate.define()` builds answers `false` for a guest too, so a direct `gate.check(user)` (with a user id, say) never runs the callback.
-- **Route integration (proposed for #105).** `policyCheck(policy, user, ability, ...args)` is the tri-state single check (`true`, `false`, or `null` when `before` fell through and the ability name matches no method), `policyAllows()` is `=== true` and `policyAuthorize()` throws the 403 unless it allows. An ability method that returns `null` is a denial (`false`), not a `null` check: only an explicit `true` allows. A proposal for #105, not its decision: for each mounted scope policy, outer to inner, `policyCheck(instance, user, <endpoint key>, params)` — `false` answers the 403, `true` allows the request and skips the remaining policies, `null` continues — then the endpoint's policy with `policyAuthorize(instance, user, <endpoint key>, params)`, where `params` is the bound-model record the route resolved. That is what answers [http.md › Authorization from the contract](./http.md#authorization-from-the-contract)'s open question on the endpoint policy's arguments. Because `null` means the ability name matches no method, a typo in an endpoint key must be a deny in #105, never a fall-through that allows.
+- **Route integration (H8 [#122](https://github.com/Laratypes/Laratype/issues/122)).** `policyCheck(policy, user, ability, ...args)` is the public tri-state single check (`true`, `false`, or `null` when `before` fell through and the ability name matches no method), `policyAllows()` is `=== true` and `policyAuthorize()` throws the 403 unless it allows. An ability method that returns `null` is a denial (`false`), not a `null` check: only an explicit `true` allows. The route integration uses `policyRouteCheck()`, an internal variant (not exported by the package) that returns `{ by: 'before' | 'ability', answer } | null`: the same `before` then ability, tagged with the half that answered. `@laratype/auth` registers `check: policyRouteCheck` and `authorize: policyAuthorize` with `@laratype/http` on import (the `Symbol.for('laratype.http.contractPolicies')` slot), and that package runs the scope chain: for each scope, outer to inner, a `before` `true` is the bypass (allow the request and skip the rest), an ability `true` passes that scope only, a `false` from either is the 403, and `null` continues. Then the endpoint's policy decides with `policyAuthorize(instance, user, <endpoint key>, ...models)`; with no endpoint policy, at least one scope's ability must have allowed, and every scope falling through is the 403.
+  - **The scope hook gets the record.** A scope policy is a folder guard: `before(user, ability, params)` receives the resolved bound-model record as one argument (and its ability method, when `before` falls through, is `(user, params)`).
+  - **The endpoint policy gets the endpoint's own models.** Its method is the ability and its parameters are the bound models of the endpoint's **own** path params, in path order: `r.bind({ post: Post })` on `update: endpoint.patch('/:post')` calls `update(user, post)`, while a folder `[user]` model belongs to the scope's record, not to the endpoint policy.
+  - **One method serves the route and a service.** Because the endpoint policy's shape is A3's own (the user, then the subject and its extra arguments), the same method is what `Authenticated.can()` calls:
+
+    ```ts
+    class PostPolicy {
+      update(user: User, post: Post): boolean { return user.id === post.userId }
+    }
+    // Route.api: update: endpoint.patch('/:post') under a scope with authorize, r.bind({ post: Post })
+    //   -> policyAuthorize(instance, user, "update", post) -> update(user, post)
+    // A service:
+    await Auth.user()!.can('update', post)          // the same update(user, post)
+    ```
+
+  - **End of chain.** A scope's `before` `true` is the bypass (allow the request and skip the remaining scopes and the endpoint policy); an ability `true` passes that scope only; `false` from either is the 403; anything else falls through. With no endpoint policy, at least one scope's ability must have allowed, and a chain in which every scope answered `null` is the 403: a typo in an endpoint key never allows by falling through.
 
 ### Diagnostics
 `Error` messages (exact text), all `InternalException` (500) unless stated:
@@ -237,17 +307,17 @@ Type-level, from `Gate.allows()` and `Authenticated.can()`:
 - A gate's wrong argument or arity: `Argument of type 'Post' is not assignable to parameter of type 'User'`, and `Expected 1 arguments, but got 0` for a gate whose `fn` takes one.
 
 ### Example
-[`examples/auth/proposed/policies.ts`](./examples/auth/proposed/policies.ts); the type tests are `packages/auth/__tests__/policies.test-d.ts` and the runtime ones `packages/auth/__tests__/policies.test.ts`.
+[`examples/auth/proposed/policies.ts`](./examples/auth/proposed/policies.ts) and [`examples/auth/proposed/contract-authorization.ts`](./examples/auth/proposed/contract-authorization.ts); the type tests are `packages/auth/__tests__/policies.test-d.ts` and the runtime ones `packages/auth/__tests__/policies.test.ts` (the checks) and `packages/auth/__tests__/contractAuthorization.test.ts` (the route chain with the real guard: 401 before 403, the scope hook, the endpoint policy on the bound model, `before` allow/deny/fall-through, a typo'd key, a guest and the module reload).
 
 ### Non-goals
-- No route integration here: `{ policy }` on `r.scope()` / `r.contract()` and the `authorize` capability stay [#105](https://github.com/Laratypes/Laratype/issues/105)'s, and this section does not run them.
 - No policy auto-discovery from a model's name (Laravel's `guessPolicyName`): `Gate.policy()` is explicit.
+- No per-scope subset of the bound models: every scope hook and the endpoint policy reuse the one record H7 resolved, and no model is looked up twice ([http.md › Authorization from the contract](./http.md#authorization-from-the-contract)).
 - No named gate registry: `Gate.define()` returns the value to check, so `Gate.allows(user, "update-post", post)` is not an API ([#121](https://github.com/Laratypes/Laratype/issues/121) chose typed values).
 - No global gate hooks (`before`/`after` on `Gate` itself) and no `Gate::any`/`none`.
 - No per-guard user type in a policy: the ability declares its own `user` parameter.
 
 ### Open questions
-- [#105](https://github.com/Laratypes/Laratype/issues/105)
+- Resolved: the endpoint policy method takes the endpoint's own bound models, in path order, after the user; a scope hook takes the bound record (`before(user, ability, params)`); the same policy method serves the route and `user.can('update', post)` ([#122](https://github.com/Laratypes/Laratype/issues/122)).
 
 ### Acceptance
 [#121 Done when](https://github.com/Laratypes/Laratype/issues/121)
