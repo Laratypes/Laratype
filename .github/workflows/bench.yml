@@ -33,9 +33,13 @@ on:
 permissions:
   contents: read
 
-# One bench per PR/ref. A new label add cancels a running bench and starts the new one.
+# One bench per PR/ref and trigger. The label is part of the group on purpose: every `labeled` event starts a
+# workflow run, even when the added label is not `bench`, and a run that shares the group with cancel-in-progress
+# would cancel the bench that is running before its own job is skipped by the `if`. With the label in the group,
+# only a new `bench` label add joins the bench group and cancels the previous bench; any other label runs in its own
+# group and is a skipped job. A dispatch gets the `workflow_dispatch` suffix, so a label add cannot cancel it.
 concurrency:
-  group: bench-${{ github.event.pull_request.number || github.ref }}
+  group: bench-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || github.event_name }}
   cancel-in-progress: true
 
 jobs:
