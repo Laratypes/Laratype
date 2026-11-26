@@ -195,6 +195,25 @@ describe("LocaleMiddleware", () => {
     }
   });
 
+  it("does not read a Locale from the app container outside a request (D11 #318)", () => {
+    const app = setup();
+    const locale = new Locale();
+    locale.set("vi");
+    app.instance(Locale, locale);
+    // Outside a request the translator reads the request store, not the app container: an app-level Locale is ignored
+    expect(getLocale()).toBe("en");
+  });
+
+  it("does not leak a request's Locale to a call outside it (D11 #318)", async () => {
+    const app = setup();
+    await inScope(app, undefined, async () => {
+      await new LocaleMiddleware().handle(request({ locale: "vi" }), {} as Response, next);
+      expect(getLocale()).toBe("vi");
+    });
+    // The finished request's scope is not read again: `getLocale()` is back on the translator's default
+    expect(getLocale()).toBe("en");
+  });
+
   it("ignores an unsupported query locale and leaves the default when nothing matches", async () => {
     const app = setup();
     await inScope(app, undefined, async () => {

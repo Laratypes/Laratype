@@ -238,4 +238,26 @@ describe('request scope under RequestKernel', () => {
       '[@laratype/http] GET /a\\u2066b: disposing the request scope failed',
     ])
   })
+
+  it('escapes LRM, RLM and ALM in the logged path (D12 #337)', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // U+200E (LRM), U+200F (RLM) and U+061C (ALM) are format characters outside both bidi ranges
+    expect(await disposalLogs(error, ['/a%E2%80%8Eb', '/a%E2%80%8Fb', '/a%D8%9Cb'])).toEqual([
+      '[@laratype/http] GET /a\\u200eb: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u200fb: disposing the request scope failed',
+      '[@laratype/http] GET /a\\u061cb: disposing the request scope failed',
+    ])
+  })
+
+  it('keeps an undecodable sequence and a long path in the log without throwing', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // `%ED%A0%80` is UTF-8 for a lone surrogate and does not decode: Hono logs the literal escape. A long path is
+    // logged whole (no cap on a request path).
+    const long = `/${'x'.repeat(10_000)}`
+    const [surrogate, whole] = await disposalLogs(error, ['/a%ED%A0%80b', long])
+    expect(surrogate).toBe('[@laratype/http] GET /a%ED%A0%80b: disposing the request scope failed')
+    expect(whole).toBe(`[@laratype/http] GET ${long}: disposing the request scope failed`)
+  })
 })
