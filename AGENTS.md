@@ -37,7 +37,7 @@ Boundaries:
 
 ## Commands
 
-Node 20.17 (`.node-version`) and bun. Run `bun install` in every new worktree; there is no setup hook.
+Node 22.23.5 (`.node-version`) and bun. Run `bun install` in every new worktree; there is no setup hook.
 
 | What | Command |
 |---|---|
