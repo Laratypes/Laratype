@@ -6,15 +6,13 @@ import { loadEnv } from '../src/environ'
 
 describe('loadEnv', () => {
   const dirs: string[] = []
-  // The runner sets NODE_ENV, and K4's loader reads it: restore it after every test
+  // The runner sets NODE_ENV, and K4's loader reads it: every test starts from none and restores the original after
   const savedNodeEnv = process.env.NODE_ENV
   const tmp = () => {
     const dir = mkdtempSync(join(tmpdir(), 'laratype-env-'))
     dirs.push(dir)
     return dir
   }
-  // The runner sets NODE_ENV, and the loader now reads it: every test starts from none and restores the original
-  const savedNodeEnv = process.env.NODE_ENV
 
   beforeEach(() => {
     delete process.env.NODE_ENV
