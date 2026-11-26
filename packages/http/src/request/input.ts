@@ -511,6 +511,9 @@ const UNSAFE_PATH = new Set(["__proto__", "constructor", "prototype"]);
 const MAX_LEAF_DEPTH = 3;
 const MAX_LEAVES = 50;
 
+/** The unrecognized-key bound: at most 50 keys are searched, and more keys fail closed without echoing any (H31 #308). */
+const MAX_KEYS = 50;
+
 /** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
 const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
 
@@ -694,6 +697,27 @@ const scrub = (message: string, forms: readonly string[], tails: readonly Receiv
 };
 
 /**
+ * The message of an issue that carries `keys` (zod's unrecognized keys; zod 3's and valibot's formats included). The
+ * full message lists every key, so a per-key `includes` over it is O(keys x message): the keys are searched in one
+ * folded string instead, and past `MAX_KEYS` the answer is `Invalid value` without echoing any — a message that lists
+ * that many keys cannot be assumed clean (H31 #308). Up to the bound, only the keys of 3 or more characters are
+ * searched, case-folded, in the prefix before the first `": "` (the whole message when there is none): a key in the
+ * prefix is `Invalid value`; otherwise the prefix is cut (or the message kept when there is no `": "`).
+ */
+const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage => {
+  if (keys.length > MAX_KEYS) return { message: INVALID_VALUE, cut: true };
+  const at = message.indexOf(": ");
+  const prefix = at === -1 ? message : message.slice(0, at);
+  const folded = prefix.toLowerCase();
+  for (const key of keys) {
+    const text = String(key);
+    if (text.length < SEARCH_MIN) continue;
+    if (folded.includes(text.toLowerCase())) return { message: INVALID_VALUE, cut: true };
+  }
+  return at === -1 ? { message, cut: false } : { message: prefix, cut: true };
+};
+
+/**
  * An issue's message without the submitted data, which would reach proxy and client logs. The submitted data is the raw
  * request input at the issue's path (`input`: the query or body slot a contract route validated, the `all()` object for
  * a 0.5 request class), read by `valueAtPath`. Its printable value is searched for every issue code, `invalid_type`
@@ -709,10 +733,7 @@ const scrub = (message: string, forms: readonly string[], tails: readonly Receiv
  */
 const issueMessage = (issue: LibraryIssue, input: unknown): IssueMessage => {
   const { message, keys } = issue;
-  if (Array.isArray(keys) && keys.length > 0) {
-    const at = message.indexOf(": ");
-    if (at !== -1 && keys.every((key) => message.slice(at).includes(String(key)))) return { message: message.slice(0, at), cut: true };
-  }
+  if (Array.isArray(keys) && keys.length > 0) return keysMessage(message, keys);
   const found = valueAtPath(input, issuePath(issue));
   if (found.found) {
     if (printable(found.value) !== undefined) {

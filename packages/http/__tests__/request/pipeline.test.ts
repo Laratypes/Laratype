@@ -295,6 +295,54 @@ describe('a contract route', () => {
     expect(keyReads).toBeLessThanOrEqual(51)
   })
 
+  it('bounds the unrecognized-keys scrub (H31 #308)', async () => {
+    // 100k unknown keys: past the 50-key bound the answer is Invalid value, with no per-key search
+    const object: Record<string, number> = {}
+    for (let index = 0; index < 100_000; index++) object[`k${index}`] = 1
+    const parsed = await z.strictObject({ a: z.number().optional() }).safeParseAsync(object)
+    if (parsed.success) throw new Error('the strict object should refuse the unknown keys')
+    const issue = parsed.error.issues[0]!
+    expect(issue).toMatchObject({ code: 'unrecognized_keys' })
+    const includes = vi.spyOn(String.prototype, 'includes')
+    const result = publicIssue(issue, object)
+    const calls = includes.mock.calls.length
+    includes.mockRestore()
+    expect(result).toEqual({ path: [], message: 'Invalid value' })
+    expect(calls).toBeLessThanOrEqual(50)
+    // 50 keys are searched once each in the folded prefix, then the prefix is cut
+    const fifty: Record<string, number> = {}
+    for (let index = 0; index < 50; index++) fifty[`key${index}`] = 1
+    const fiftyParsed = await z.strictObject({ a: z.number().optional() }).safeParseAsync(fifty)
+    if (fiftyParsed.success) throw new Error('the strict object should refuse the unknown keys')
+    const fiftyIncludes = vi.spyOn(String.prototype, 'includes')
+    const fiftyResult = publicIssue(fiftyParsed.error.issues[0]!, fifty)
+    const fiftyCalls = fiftyIncludes.mock.calls.length
+    fiftyIncludes.mockRestore()
+    expect(fiftyResult).toEqual({ path: [], message: 'Unrecognized keys' })
+    expect(fiftyCalls).toBeLessThanOrEqual(50)
+    // a key echoed before the first `": "` fails closed
+    expect(publicIssue({ message: 'Unbekannter Schlüssel secretkey: "a"', keys: ['secretkey'], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+    // 51 keys are past the bound: Invalid value, not the prefix
+    const fiftyOne = Array.from({ length: 51 }, (_, index) => `key${index}`)
+    expect(publicIssue({ message: `Unrecognized keys: ${fiftyOne.join(', ')}`, keys: fiftyOne, code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+    // zod 3's format takes the same path
+    expect(publicIssue({ message: "Unrecognized key(s) in object: 'a', 'b'", keys: ['a', 'b'], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Unrecognized key(s) in object',
+    })
+    // valibot's strict object has no keys array: its key name is scrubbed by the normal received-tail path
+    const checked = await v.strictObject({ a: v.optional(v.number()) })['~standard'].validate({ a: 1, s3cr3t: 1 })
+    const valibotIssues = 'issues' in checked ? checked.issues : []
+    expect(valibotIssues).toHaveLength(1)
+    expect(publicIssue(valibotIssues[0]!, { a: 1, s3cr3t: 1 })).toEqual({ path: ['s3cr3t'], message: 'Invalid key: Expected never' })
+  })
+
   it('searches the printable leaves of an object at the path', async () => {
     quiet()
     // a message that embeds the object as JSON carries a leaf: the issue fails closed
