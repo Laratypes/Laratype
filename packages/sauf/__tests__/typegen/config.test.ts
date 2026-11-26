@@ -389,6 +389,12 @@ describe('laratype:api (the dev scan behind $api)', () => {
     expect(api.affectsTree('change', join(dir, 'app/api/users.ts'))).toBe(false);
     expect(api.affectsTree('change', join(dir, 'app/config/config.ts'))).toBe(true);
     expect(api.affectsTree('add', join(dir, 'app/src/new.ts'))).toBe(false);
+    // a model file added or deleted rewrites `.laratype/types/models.d.ts` (H14 #163); a content edit does not
+    expect(api.affectsTree('add', join(dir, 'app/models/User.ts'))).toBe(true);
+    expect(api.affectsTree('unlink', join(dir, 'app/src/models/Post.ts'))).toBe(true);
+    expect(api.affectsTree('change', join(dir, 'app/models/User.ts'))).toBe(false);
+    expect(api.affectsTree('add', join(dir, 'app/models/concerns/helper.ts'))).toBe(false);
+    expect(api.affectsTree('add', join(dir, 'app/models/User.test.ts'))).toBe(false);
     // only files the scan would read: no private folders, non-.ts files or editor temp files
     for (const file of ['app/api/_private/x.ts', 'app/api/$gen/x.ts', 'app/api/notes.md', 'app/api/users.ts~', 'app/api/users.ts.swp', 'app/api/users.d.ts', 'app/api/users.test.ts', 'app/api/_errors.ts']) {
       expect(api.inTree(join(dir, file))).toBe(false);

@@ -70,7 +70,7 @@ The 0.5 packages `console`, `log`, `mail`, `i18n`, `schedule`, `broadcast` and `
 ## Project structure
 
 ### Status
-Discovery merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1): the manifest reads both this layout and the 0.5 one. Moving `examples/basic` to this layout is E3 [#135](https://github.com/Laratypes/Laratype/issues/135). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
+Discovery merged ([#125](https://github.com/Laratypes/Laratype/issues/125), B1): the manifest reads both this layout and the 0.5 one. `examples/basic` is on this layout (E3 [#135](https://github.com/Laratypes/Laratype/issues/135)): controllers, middleware and resources under `app/http/` (its 0.5 request classes were replaced by contract body schemas), models, policies, providers and services under `app/`, and factories and seeders under `database/`. Dropping the 0.5 paths and `getAppPath()` is follow-up [#419](https://github.com/Laratypes/Laratype/issues/419). The layout comes from the "Added to scope" comment on DOC8 [#219](https://github.com/Laratypes/Laratype/issues/219).
 
 ### Design (non-binding)
 ```
@@ -107,9 +107,9 @@ public/             static files (view.md › Serving a Vite SPA)
 resources/
   js/app.ts         frontend entry (view.md › Serving a Vite SPA)
 ```
-- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
+- **Generated:** `sauf dev` and `sauf types:generate` write `$types.d.ts` per contract folder under `.laratype/types/`, `models.d.ts` (the app's `Register['models']`, H14 [#163](https://github.com/Laratypes/Laratype/issues/163)) next to them, and the runtime module `.laratype/api/index.gen.ts` (`appApi`, imported as `$api`) ([typegen.md](./typegen.md#sauf-typesgenerate)).
 - **Discovery:** the app manifest (B1, merged [#125](https://github.com/Laratypes/Laratype/issues/125); `virtual:laratype/app` in dev, `dist/app.manifest.js` in production) lists providers, configs, routes, commands, models, migrations, seeders, factories, modules and lang, each loaded lazily through a static specifier. It replaces runtime path discovery ([build.md › Plugin chain](./build.md#plugin-chain)).
-- **0.5 layout:** `examples/basic` on `256a743` keeps its classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`), and its factories and seeders under `app/database/`. `app/config/` and `app/routes/` exist already.
+- **0.5 layout:** other apps keep their classes under `app/src/` (for example `app/src/http/controllers/`, `app/src/providers/`) and their factories and seeders under `app/database/`; `examples/basic` used those paths until E3 [#135](https://github.com/Laratypes/Laratype/issues/135) moved it. Dropping the 0.5 paths and `getAppPath()` is follow-up [#419](https://github.com/Laratypes/Laratype/issues/419).
 
 ### Open questions
 - Resolved: Laravel layout. `lang/`, `public/` and `resources/js/app.ts` sit at the project root, and `app/routes/channels.ts` sits next to `api.ts` ([#125](https://github.com/Laratypes/Laratype/issues/125), [#167](https://github.com/Laratypes/Laratype/issues/167), [#174](https://github.com/Laratypes/Laratype/issues/174), [#177](https://github.com/Laratypes/Laratype/issues/177)).

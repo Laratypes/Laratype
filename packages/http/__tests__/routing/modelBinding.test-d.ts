@@ -180,12 +180,12 @@ describe('r.bind()', () => {
       show(ctx: Ctx<typeof posts.show, { params: { user: string } }>) { return ctx.params.post }
       latest() { return {} }
     }
-    // @ts-expect-error Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: mount the contract from a builder that binds `user` too (a handler's types see only its own builder's bindings)
+    // @ts-expect-error Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: bind it on the contract builder, or drop it from the scope (a handler's types see only its own builder's bindings)
     Route.api(appApi, (r) => [r.bind({ user: User }).scope('users/[user]', { policy: PostPolicy }), r.contract(posts, ReadsString)])
 
     type Items = [MountedScope<'users/[user]', { user: typeof User }>, MountedContract<typeof posts, {}>]
     expectTypeOf<CheckApiRoutes<typeof appApi, Items>>().toEqualTypeOf<{
-      error: 'Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: mount the contract from a builder that binds `user` too (a handler\'s types see only its own builder\'s bindings)'
+      error: 'Route.api: scope "users/[user]" binds `user`, but contract "users.posts" is mounted from a builder that does not bind it: bind it on the contract builder, or drop it from the scope (a handler\'s types see only its own builder\'s bindings)'
     }>()
   })
 

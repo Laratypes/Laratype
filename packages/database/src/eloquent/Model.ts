@@ -230,6 +230,47 @@ const errors = {
   routeKeyNotScalar: (model: string, name: string, value: unknown): string =>
     `[@laratype/database] ${model} route key ${formatValue(name)} is not a string, number, bigint, boolean or Date,`
     + ` got ${valueType(value)}`,
+  scopeNotModel: (model: string, key: string, value: unknown): string =>
+    `[@laratype/database] ${model}.findByRouteKey(): the scope \`${key}\` is not a model instance, got ${valueType(value)}`,
+  scopeNoRelation: (model: string, parent: string): string =>
+    `[@laratype/database] ${model} has no relation to ${parent}: .scopeBindings() scopes a child lookup through a`
+    + " relation whose target is the parent model",
+  scopeNoJoinColumn: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} has no join column: .scopeBindings() needs the`
+    + " owning side of a relation to the parent",
+  scopeComposite: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} has a composite join column: .scopeBindings()`
+    + " needs a single-column relation",
+  scopeEmbedded: (model: string, relation: string, embedded: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} is declared inside the embedded ${formatValue(embedded)}:`
+    + " .scopeBindings() needs a relation on the model itself",
+  scopeProto: (model: string): string =>
+    `[@laratype/database] ${model} relation \`__proto__\` cannot scope a lookup: every object reads it as its prototype,`
+    + " so the condition would be dropped",
+  scopeAmbiguous: (model: string, parent: string, relations: string[]): string =>
+    `[@laratype/database] ${model} has ${relations.length} relations to ${parent} (${relations.join(", ")}):`
+    + ` .scopeBindings() cannot choose one; keep a single relation to ${parent}`,
+  scopeRelationKind: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} is not a many-to-one or an owning one-to-one`
+    + " relation: .scopeBindings() needs the side that holds the join column",
+  scopeDuplicate: (model: string, relation: string): string =>
+    `[@laratype/database] ${model}: two scoped parents resolve to the relation ${formatValue(relation)}:`
+    + " .scopeBindings() cannot scope the lookup by both",
+  scopeNotLoaded: (model: string, parent: string, name: string): string =>
+    `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance has not`
+    + " loaded: select it before .scopeBindings()",
+  scopeNotScalar: (parent: string, name: string, value: unknown): string =>
+    `[@laratype/database] ${parent}.${formatValue(name)} is not a string, number, bigint, boolean or Date, so it`
+    + ` cannot scope a lookup: got ${valueType(value)}`,
+  scopeTransformer: (model: string, relation: string): string =>
+    `[@laratype/database] ${model} relation ${formatValue(relation)} references a column whose transformer.to() throws`
+    + " on the parent value: .scopeBindings() cannot bind the parent key",
+  scopeUnreadable: (model: string, parent: string, name: string): string =>
+    `[@laratype/database] ${model} is scoped by ${parent}.${formatValue(name)}, which the parent instance could not read:`
+    + " .scopeBindings() cannot bind the parent key",
+  scopeRouteKey: (model: string, name: string): string =>
+    `[@laratype/database] ${model} route key ${formatValue(name)} is also the relation's join column: .scopeBindings()`
+    + " cannot scope the lookup by it",
 };
 
 /**
@@ -357,6 +398,170 @@ const checkRouteKeyType = (
 };
 
 /**
+ * One scoped lookup condition (H14 #163): the join column of this model's relation to a parent, and the value the
+ * parent holds in the column that relation references. Both are read from TypeORM's metadata and the parent
+ * instance, never from the request.
+ */
+interface ScopeCondition {
+  readonly property: string;
+  readonly value: ScalarValue;
+}
+
+/**
+ * The conditions a `.scopeBindings()` lookup adds (docs/v1/http.md › Model binding › Scoped bindings, H14 #163): one
+ * per parent model in `scope`, from the relation whose target is the parent's class and its owning join column. The
+ * child must relate to its immediate parent (the last entry, path order); an earlier parent adds a condition only when
+ * exactly one usable relation exists, and is skipped otherwise (each level was already scoped by its own parent).
+ * For the immediate parent, more than one usable relation, a relation that is not many-to-one or an owning one-to-one,
+ * a relation with no join column, a relation with a composite join column, a relation declared inside an embedded and a
+ * parent property that is not loaded are configuration errors (a lookup that silently ignored the parent would read
+ * another parent's row, and one that picked a relation would choose a tenant for the app). A relation named `__proto__`
+ * is refused for every parent: the where dictionary would read it as its prototype and drop the filter. An earlier
+ * parent is transitive: it adds a condition only when it has one usable relation, and is skipped otherwise. A parent
+ * key that is `null` references nothing: `undefined`, which the lookup answers as a miss. Every value must be scalar,
+ * so it is bound as a parameter and never becomes SQL (a transformer that hydrates an object is refused).
+ */
+const scopeConditions = (model: typeof Model, metadata: EntityMetadata, scope: Readonly<Record<string, object>>): ScopeCondition[] | undefined => {
+  const conditions: ScopeCondition[] = [];
+  const properties = new Set<string>();
+  const entries = Object.entries(scope);
+  const immediate = entries.length - 1;
+  for (const [index, [key, parent]] of entries.entries()) {
+    if (parent === null || typeof parent !== "object") {
+      throw new ModelError(errors.scopeNotModel(metadata.targetName, key, parent));
+    }
+    const target = (parent as { constructor?: unknown }).constructor;
+    const parentName = targetName(target);
+    const matching = (metadata.relations ?? []).filter((entry) => {
+      // Match the parent's own class, or a scope value that is an instance of the relation's target (a subclass)
+      const relationTarget: unknown = entry.inverseEntityMetadata?.target;
+      return relationTarget === target || (typeof relationTarget === "function" && parent instanceof relationTarget);
+    });
+    // Only the side that holds the join column can filter this table: a one-to-many, a many-to-many or a non-owning
+    // one-to-one names the parent's table instead. The immediate parent is required; an earlier one is transitive.
+    const usable = matching.filter((entry) => entry.isManyToOne === true || entry.isOneToOneOwner === true);
+    if (matching.length === 0 || usable.length === 0) {
+      if (index === immediate) {
+        throw new ModelError(
+          matching.length === 0
+            ? errors.scopeNoRelation(metadata.targetName, parentName)
+            : errors.scopeRelationKind(metadata.targetName, matching[0]!.propertyName),
+        );
+      }
+      continue;
+    }
+    if (usable.length > 1) {
+      // The scope cannot choose one: using the first would let the app's relation order pick the tenant
+      if (index === immediate) {
+        throw new ModelError(errors.scopeAmbiguous(metadata.targetName, parentName, usable.map((entry) => entry.propertyName)));
+      }
+      continue;
+    }
+    const relation = usable[0]!;
+    // A relation declared inside an embedded class lives at `embedded.property`: `join.propertyName` drops the
+    // embedded path, so the where key TypeORM receives is not a property of the child (it throws
+    // EntityPropertyNotFoundError). This PR builds flat joins only; the immediate parent is a configuration error and
+    // an earlier one is transitive.
+    const embedded = relation.embeddedMetadata?.propertyName;
+    if (embedded !== undefined) {
+      if (index === immediate) {
+        throw new ModelError(errors.scopeEmbedded(metadata.targetName, relation.propertyName, embedded));
+      }
+      continue;
+    }
+    // A relation over `(tenantId, code)` filtered by `tenantId` alone is not a scope: two parents that share the first
+    // component would answer the same lookup. Refuse it rather than reading another parent's row.
+    if ((relation.joinColumns?.length ?? 0) > 1) {
+      if (index === immediate) {
+        throw new ModelError(errors.scopeComposite(metadata.targetName, relation.propertyName));
+      }
+      continue;
+    }
+    const join = relation.joinColumns?.[0];
+    const referenced = join?.referencedColumn;
+    if (join === undefined || referenced === undefined) {
+      throw new ModelError(errors.scopeNoJoinColumn(metadata.targetName, relation.propertyName));
+    }
+    // A `__proto__` relation (or join column) would become the where dictionary's prototype, dropping the parent
+    // filter (fail-open). It is never a usable scope, for the immediate or an earlier parent.
+    if (relation.propertyName === "__proto__" || join.propertyName === "__proto__") {
+      throw new ModelError(errors.scopeProto(metadata.targetName));
+    }
+    if (properties.has(join.propertyName)) {
+      // Two scope entries resolved to the same relation: the later value would overwrite the earlier in the where. The
+      // immediate parent is a configuration error; an earlier one is transitive and skipped.
+      if (index === immediate) {
+        throw new ModelError(errors.scopeDuplicate(metadata.targetName, relation.propertyName));
+      }
+      continue;
+    }
+    let value: unknown;
+    try {
+      value = (parent as Record<string, unknown>)[referenced.propertyName];
+    } catch {
+      // A getter that throws (a hostile Proxy, a computed property) is a configuration error, never SQL text
+      throw new ModelError(errors.scopeUnreadable(metadata.targetName, parentName, referenced.propertyName));
+    }
+    if (value === undefined) {
+      throw new ModelError(errors.scopeNotLoaded(metadata.targetName, parentName, referenced.propertyName));
+    }
+    // A null parent key references no row: no child can match, which is a miss (never `= NULL`, never a dropped filter)
+    if (value === null) {
+      return undefined;
+    }
+    // A transformer hydrates the parent value, so the referenced column's to() converts it back before it is bound (as
+    // the route key does); a throwing to() is a configuration error, never SQL text
+    let bound: unknown = value;
+    if (referenced.transformer !== undefined) {
+      try {
+        bound = transformTo(referenced.transformer, value);
+      } catch {
+        throw new ModelError(errors.scopeTransformer(metadata.targetName, relation.propertyName));
+      }
+    }
+    if (!isScalarValue(bound)) {
+      throw new ModelError(errors.scopeNotScalar(parentName, referenced.propertyName, bound));
+    }
+    properties.add(join.propertyName);
+    conditions.push({ property: join.propertyName, value: bound });
+  }
+  return conditions;
+};
+
+/** A class name for a diagnostic, never trusting a hostile function (a Proxy's `get` can throw). */
+const targetName = (target: unknown): string => {
+  try {
+    const name = (target as { name?: unknown }).name;
+    return typeof name === "string" && name !== "" ? name : "the parent model";
+  } catch {
+    return "the parent model";
+  }
+};
+
+/**
+ * The scoped conditions as `Raw` find operators: each value is a named parameter, so the driver binds it as one value
+ * and no parent value (a string with quotes, an object a hostile transformer hydrated) can become SQL text.
+ */
+const scopeWhere = (conditions: readonly ScopeCondition[]): Record<string, ReturnType<typeof Raw>> => {
+  // Null prototype: every condition becomes an own data property, so a `__proto__` key can never be lost to the
+  // prototype setter. `scopeConditions` refuses such a relation, and this keeps the writer fail-closed anyway.
+  const where: Record<string, ReturnType<typeof Raw>> = Object.create(null);
+  conditions.forEach((condition, index) => {
+    where[condition.property] = Raw((aliasPath) => `${aliasPath} = :scope${index}`, { [`scope${index}`]: condition.value });
+  });
+  return where;
+};
+
+/**
+ * The route-key where clause, plus the scoped conditions (H14 #163): the route key goes through the same `Raw` form, so
+ * a transformed key hydrates the same shape as a plain one.
+ */
+const routeKeyWhere = (property: string, value: ScalarValue, conditions: readonly ScopeCondition[]): Record<string, unknown> => ({
+  [property]: Raw((aliasPath) => `${aliasPath} = :routeKey`, { routeKey: value }),
+  ...scopeWhere(conditions),
+});
+
+/**
  * Looks the model up by an already converted route key through `findOne`, so a transformed key (and a plain SQL
  * Server `time` key, which the driver's `Time` parameter rejects) hydrates the same shape as a plain key: eager
  * relations and the single row (TypeORM's `take: 1`). The `raw` operator carries the value as a named parameter.
@@ -367,10 +572,11 @@ const findOneByRouteKey = <T extends BaseEntity>(
   model: ModelClass<T>,
   property: string,
   value: ScalarValue,
+  conditions: readonly ScopeCondition[] = [],
 ): Promise<T | null> => {
   const options = {
     // The alias path comes from the entity metadata and TypeORM's query alias, never from the caller's path string
-    where: { [property]: Raw((aliasPath) => `${aliasPath} = :routeKey`, { routeKey: value }) },
+    where: routeKeyWhere(property, value, conditions),
   } as FindOneOptions<BaseEntity>;
   return model.findOne(options) as Promise<T | null>;
 };
@@ -538,17 +744,34 @@ export default class Model extends BaseEntity {
    * The raw path string is converted to the route key column's type first (or through the column's transformer, whose
    * result is checked against the column's type), and a key that cannot convert or a transformer that throws resolves
    * `null`. The lookup goes through `findOne`, so eager relations and a single row match a plain key.
+   *
+   * `scope` (H14 #163, `r.scopeBindings()`) scopes the lookup to the models already bound for the route's earlier path
+   * params: each is matched through this model's relation to it, with its referenced column value bound as a
+   * parameter. A parent that is missing (a `null` key), another parent's child, or no row resolves `null`; a model with
+   * no relation to a parent, a relation without an owning join column and a parent value that is not loaded are
+   * configuration errors. `scope` must be declared as a plain second parameter: `Function.length` is what the router
+   * checks, and a default or rest parameter does not count.
    */
   static findByRouteKey<T extends BaseEntity>(
     this: ModelClass<T>,
     key: string,
+    scope?: Readonly<Record<string, object>>,
   ): Promise<T | null>;
 
-  static async findByRouteKey(key: string): Promise<any> {
-    const { property, column, driver } = routeKeyColumn(this);
+  static async findByRouteKey(key: string, scope?: Readonly<Record<string, object>>): Promise<any> {
+    const { property, column, driver, metadata } = routeKeyColumn(this);
     // The route key is a path string: a JS caller's other type is a miss, never a coercion or a throw
     if (typeof key !== "string") {
       return null;
+    }
+    const conditions = scope === undefined || Object.keys(scope).length === 0 ? [] : scopeConditions(this, metadata, scope);
+    // A parent key that references no row: no child can match it
+    if (conditions === undefined) {
+      return null;
+    }
+    // The route-key condition and a join column cannot be the same column: one where-entry would overwrite the other
+    if (conditions.some((condition) => condition.property === property)) {
+      throw new ModelError(errors.scopeRouteKey(metadata.targetName, property));
     }
     let routeKey: ScalarValue | undefined;
     try {
@@ -568,16 +791,16 @@ export default class Model extends BaseEntity {
     if (routeKey === undefined) {
       return null;
     }
-    if (column.transformer === undefined) {
+    if (column.transformer === undefined && conditions.length === 0) {
       // SQL Server types a plain `time` bind as a `Time` parameter, whose tedious validator runs Date.parse on the
       // string (NaN for time-only text) and rejects it. The raw form keeps the exact text, fractional digits
       // included, and SQL Server converts the untyped parameter to time.
       if (driver === "mssql" && TIME_TYPES.includes(column.type)) {
-        return findOneByRouteKey(this, property, routeKey);
+        return findOneByRouteKey(this, property, routeKey, conditions);
       }
       return this.findOne({ where: { [property]: routeKey } } as FindOneOptions<Model>);
     }
-    return findOneByRouteKey(this, property, routeKey);
+    return findOneByRouteKey(this, property, routeKey, conditions);
   }
 
   /**

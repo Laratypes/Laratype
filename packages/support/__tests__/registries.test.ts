@@ -52,5 +52,7 @@ describe('ModelBindingRegistry', () => {
     expect(registry.bindings).toEqual({})
     expect(registry.paramModelMap).toEqual({})
     expect(registry.models).toEqual({})
+    // The v1 implicit map (H14 #163) starts empty, next to the 0.5 ones
+    expect(registry.routeModels).toEqual({})
   })
 })

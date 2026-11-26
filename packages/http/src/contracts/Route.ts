@@ -76,6 +76,10 @@ export type RouteParams = {
   interceptors?: Array<AnyInterceptor>,
   /** The `r.bind()` bindings of a `Route.api` route, resolved once per request before policies (H7 #118). */
   bindings?: Bindings,
+  /** @internal The path params the app's registered models bind implicitly, in path order (H14 #163). */
+  implicitBindings?: readonly string[],
+  /** @internal `r.scopeBindings()`: the bindings resolve in path order, each child with its parents as scope (H14 #163). */
+  scopedBindings?: boolean,
   /** @internal The contract policy chain, built by `Route.api` for a route whose resolved `authorize` is true (H8 #122). */
   authorization?: RouteAuthorization,
   withoutMiddleware?: Array<MiddlewareClass>,
