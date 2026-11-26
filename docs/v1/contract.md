@@ -283,7 +283,7 @@ Type-only (`types/errors.types.ts`): an unknown built-in (`errors.conflict`), wr
 ## Validation adapter
 
 ### Status
-merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
+merged @ 883a8e2 (C3 [#91](https://github.com/Laratypes/Laratype/issues/91)). `issuePath` and the zod run-once in `validate()`: proposed: PR [#301](https://github.com/Laratypes/Laratype/pull/301) @ 4ea9155 (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)). H31 [#308](https://github.com/Laratypes/Laratype/issues/308) asks zod to report the submitted value as each issue's `input` at [67dd9255](https://github.com/Laratypes/Laratype/commit/9b7c5a4bff4aac683c4546c55b602b3696e86cd5) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
 
 ### Public API
 [`validate.ts` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/validate.ts#L1-L50); `issuePath`: [`validate.ts` @ 4ea9155](https://github.com/Laratypes/Laratype/blob/4ea91557e6d6229c23e8d10a1ae704f70dc297b7/packages/contract/src/validate.ts)
@@ -305,7 +305,7 @@ export const validateSync: <S extends StandardSchemaV1>(schema: S, value: unknow
 - `ErrorBag` has a **null prototype**, so `"__proto__"` stays a plain key. Use `Object.hasOwn(bag, k)` or `k in bag`, never `bag.hasOwnProperty`.
 - `validateSync` accepts only sync schemas. It detects any thenable, not just a native `Promise`.
 - It works with any Standard Schema vendor. The tests cover zod and valibot (valibot is a devDependency only).
-- A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives. `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
+- A zod schema (told by `~standard.vendor === "zod"` and a `safeParseAsync` method) runs once with `safeParseAsync`: zod's `~standard.validate` runs it again async when a refinement or transform is async or throws, so side effects would run twice. Its issues and output are the ones `~standard.validate` gives, plus the submitted value as each issue's `input` (zod's `reportInput`, 4.6+), which the 422 of `@laratype/http` scans a translated message for (H31 [#308](https://github.com/Laratypes/Laratype/issues/308)). `validateSync` keeps `~standard.validate` (H3 [#106](https://github.com/Laratypes/Laratype/issues/106)).
 - **Dates on the wire** (#255, proposed: PR [#311](https://github.com/Laratypes/Laratype/pull/311) @ 0721a22): the server validates the parsed JSON body and the query's string values (H3, PR [#301](https://github.com/Laratypes/Laratype/pull/301)), and JSON has no `Date`, so a body or query field whose output is a `Date` must accept its ISO string: `z.coerce.date<Date>()`. A handler that wants the ISO string itself uses `z.iso.datetime()`. A `z.date()` body field fails every request with a 422. The client types the body as its JSON-safe input, where a `Date` field is `Date | string` ([client.md › createClient](./client.md#json-safe-request-input)).
 
 ### Diagnostics
@@ -844,7 +844,7 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 ## Domain errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)); the plain-object body check is H33 [#313](https://github.com/Laratypes/Laratype/issues/313) at [45e9c1ff](https://github.com/Laratypes/Laratype/commit/45e9c1ffa9ac86b0ec16f9be7a45c04527f2737f) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)); the plain-object body check, a null-prototype array rejected with every array, is H33 [#313](https://github.com/Laratypes/Laratype/issues/313) at [67dd9255](https://github.com/Laratypes/Laratype/commit/9b7c5a4bff4aac683c4546c55b602b3696e86cd5) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
 
 ### Public API
 [`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
