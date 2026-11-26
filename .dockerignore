@@ -9,4 +9,6 @@ bench/out
 examples/laratype-test
 .env
 .env.*
+.npmrc
+.claude/
 *.log
