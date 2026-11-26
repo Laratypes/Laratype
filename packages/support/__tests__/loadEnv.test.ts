@@ -6,6 +6,8 @@ import { loadEnv } from '../src/environ'
 
 describe('loadEnv', () => {
   const dirs: string[] = []
+  // The runner sets NODE_ENV, and K4's loader reads it: restore it after every test
+  const savedNodeEnv = process.env.NODE_ENV
   const tmp = () => {
     const dir = mkdtempSync(join(tmpdir(), 'laratype-env-'))
     dirs.push(dir)
@@ -13,6 +15,8 @@ describe('loadEnv', () => {
   }
 
   afterEach(() => {
+    if (savedNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = savedNodeEnv
     vi.restoreAllMocks()
     for (const name of [
       'H1_OTHER_SECRET',
@@ -48,19 +52,23 @@ describe('loadEnv', () => {
   })
 
   it('lists a project directory whose name has a glob metacharacter, instead of reading it as a pattern', () => {
+    // NODE_ENV is unset, and no .env/.env.local exists, so only the .env.* discovery can select this file
+    delete process.env.NODE_ENV
     const project = join(tmp(), 'project[1]')
     mkdirSync(project)
-    writeFileSync(join(project, '.env'), 'H1_BRACKET_VALUE=bracket\n')
-    expect(loadEnv(project)).toBe(join(project, '.env'))
+    writeFileSync(join(project, '.env.production'), 'H1_BRACKET_VALUE=bracket\n')
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
     expect(process.env.H1_BRACKET_VALUE).toBe('bracket')
   })
 
   it.skipIf(process.platform === 'win32')('lists a project directory whose name has * and ? as well', () => {
     // Windows file names cannot contain * or ?; POSIX directories can
+    // NODE_ENV is unset, and no .env/.env.local exists, so only the .env.* discovery can select this file
+    delete process.env.NODE_ENV
     const project = join(tmp(), 'project*?')
     mkdirSync(project)
-    writeFileSync(join(project, '.env'), 'H1_WILDCARD_VALUE=wildcard\n')
-    expect(loadEnv(project)).toBe(join(project, '.env'))
+    writeFileSync(join(project, '.env.production'), 'H1_WILDCARD_VALUE=wildcard\n')
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
     expect(process.env.H1_WILDCARD_VALUE).toBe('wildcard')
   })
 
