@@ -10,12 +10,12 @@ private workspace; nothing here is published, and no `@laratype/*` package depen
 > `bunx vitest run --project bench`.
 
 **Phase 1 covers scenarios 1–5 and skips the SQLite read (6) in every app**: there is no v1 database API on master
-(DB1 #145 is planned), Node 20.17 has no `node:sqlite`, and `bun:sqlite` is Bun-only. The report says so. NestJS,
+(DB1 #145 is planned), `node:sqlite` is still experimental, and `bun:sqlite` is Bun-only. The report says so. NestJS,
 AdonisJS, Laravel, the `sauf build` run and the docs results page are phase 2.
 
 ## Docker
 
-`bench/Dockerfile` pins Node 20.17.0 and Bun 1.3.14 by image digest (see the comments there). The build context is the
+`bench/Dockerfile` pins Node 22.23.5 and Bun 1.3.14 by image digest (see the comments there). The build context is the
 repo root; `.dockerignore` keeps `.git`, `node_modules`, `dist` and `bench/out` out of the image.
 
 ```sh
@@ -37,7 +37,8 @@ docker run --rm -v "$PWD/bench/out:/out" laratype-bench bun run bench --apps hon
 The same settings are available as environment variables, which is how the workflow passes its dispatch inputs:
 `BENCH_APPS`, `BENCH_RUNTIMES`, `BENCH_SCENARIO`, `BENCH_CONNECTIONS`, `BENCH_DURATION`, `BENCH_WARMUP`, `BENCH_OUT`.
 Flags win over the environment. `BENCH_NODE` / `BENCH_BUN` pick the runtime binaries, and
-`BENCH_ALLOW_NODE_MISMATCH=1` records a Node that is not the `.node-version` instead of failing.
+`BENCH_ALLOW_NODE_MISMATCH=1` records a Node that is not the bench's Node 22.23.5 (the `bench/Dockerfile` pin) instead
+of failing.
 
 The Docker build context has no `.git`, so the container cannot read the commit. For a report with the real commit,
 pass `-e BENCH_GIT_SHA="$(git rev-parse HEAD)" -e BENCH_GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"` (and
