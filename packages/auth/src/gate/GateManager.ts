@@ -1,4 +1,3 @@
-import { Facade } from "@laratype/core";
 import type { AbstractNewable, Container } from "@laratype/core";
 import { ContextApi, InternalException } from "@laratype/support";
 import type { PolicyClass } from "../policies/Policy";
@@ -117,9 +116,9 @@ export default class GateManager {
     return container.make(GateManager);
   }
 
-  /** The container `current()` resolves from: the current request's scope, else the facade application. */
+  /** The container `current()` resolves from: the current request's scope, else the app container (the facade application). */
   static container(): Container {
-    return ContextApi.getContainer() ?? Facade.getFacadeApplication();
+    return ContextApi.getContainer();
   }
 
 }
