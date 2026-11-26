@@ -844,7 +844,7 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 ## Domain errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)); the plain-object body check, a null-prototype array rejected with every array, is H33 [#313](https://github.com/Laratypes/Laratype/issues/313) at [67dd9255](https://github.com/Laratypes/Laratype/commit/9b7c5a4bff4aac683c4546c55b602b3696e86cd5) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)); the plain-object body check, a null-prototype array rejected with every array, is H33 [#313](https://github.com/Laratypes/Laratype/issues/313) at [9b7c5a4b](https://github.com/Laratypes/Laratype/commit/9b7c5a4bff4aac683c4546c55b602b3696e86cd5) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
 
 ### Public API
 [`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
