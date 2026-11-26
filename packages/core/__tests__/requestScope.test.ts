@@ -10,6 +10,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 1))
 
 /** The process-wide set of keys already warned about; reset per test so tests stay independent. */
 const BUBBLE_WARNED = Symbol.for('laratype.di.bubbleWarned')
+const REQUEST_SCOPE_BINDING_WARNED = Symbol.for('laratype.di.requestScopeBindingWarned')
 
 let warn: ReturnType<typeof vi.spyOn>
 
@@ -20,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (globalThis as { [BUBBLE_WARNED]?: unknown })[BUBBLE_WARNED]
+  delete (globalThis as { [REQUEST_SCOPE_BINDING_WARNED]?: unknown })[REQUEST_SCOPE_BINDING_WARNED]
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -114,15 +116,18 @@ describe('request scope', () => {
   })
 
   it('a factory that starts the disposal while it builds throws instead of caching in the spent scope', async () => {
+    let disposed = 0
     const DB = token<object>('db')
     const root = new Container().scoped(DB, (container) => {
       void container.dispose()
-      return {}
+      return { [Symbol.dispose]() { disposed++ } }
     })
     const scope = root.createRequestScope()
     // dispose() marks the scope spent before its first await, so the value built after it must not land in the cache
     expect(() => scope.make(DB)).toThrow(new DiError('Request scope already disposed.'))
     await scope.dispose()
+    // Nothing can dispose the value it built (the snapshot was taken before it existed): it leaks, as documented
+    expect(disposed).toBe(0)
   })
 
   it('transient and singleton bindings keep their lifetime inside a request scope', () => {
@@ -332,6 +337,31 @@ describe('dispose()', () => {
     await expect(app.dispose()).rejects.toThrow(new DiError('Only a request scope can be disposed.'))
     await expect(app.createChild().dispose()).rejects.toThrow(new DiError('Only a request scope can be disposed.'))
   })
+
+  it('reads Symbol.dispose and Symbol.asyncDispose lazily, so one installed after the module load is used', async () => {
+    // A fresh copy of the container that loads while the global Symbol hides both keys (as on an older runtime)
+    vi.resetModules()
+    const real = globalThis.Symbol
+    vi.stubGlobal('Symbol', new Proxy(real, {
+      get(target, property, receiver) {
+        if (property === 'dispose' || property === 'asyncDispose') return undefined
+        return Reflect.get(target, property, receiver)
+      },
+    }))
+    let Fresh: typeof Container
+    try {
+      ({ Container: Fresh } = await import('../src/container'))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    let disposed = 0
+    class Db { [Symbol.dispose]() { disposed++ } }
+    const app = new Fresh().scoped(Db)
+    const scope = app.createRequestScope()
+    scope.make(Db)
+    await scope.dispose()
+    expect(disposed).toBe(1)
+  })
 })
 
 describe('scope bubbling', () => {
@@ -463,5 +493,84 @@ describe('scope bubbling', () => {
     expect(a.make(Config)).toBe(b.make(Config))
     expect(a.make(VALUE)).toBe(b.make(VALUE))
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a build that disposes the scope throws from bubble(), without warning about a bubble that never lands', async () => {
+    class Db {}
+    class Service {}
+    const app = new Container().scoped(Db)
+    let scope!: Container
+    app.singleton(Service, () => {
+      scope.make(Db)
+      void scope.dispose()
+      return new Service()
+    })
+    scope = app.createRequestScope()
+    expect(() => scope.make(Service)).toThrow(new DiError('Request scope already disposed.'))
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('class-key instance() in a request scope', () => {
+  const message = (c: string) =>
+    `[@laratype/core] ${c} is bound in the active request scope, but a container above it autowired a new instance, so the request's value is ignored. Per-request identity must be a token or a scoped() binding, not instance() on a class.`
+
+  it('warns once when a root singleton autowires a class the request scope binds, and keeps the blank instance', () => {
+    class Tenant {
+      name = 'blank'
+    }
+    class Service {
+      constructor(readonly tenant: Tenant) {}
+    }
+    const app = new Container({ deps: depsOf([[Service, { slots: [() => Tenant] }]]) }).singleton(Service)
+    const scope = app.createRequestScope()
+    const tenant = Object.assign(new Tenant(), { name: 'acme' })
+    scope.instance(Tenant, tenant)
+    const service = scope.make(Service)
+    expect(service.tenant).not.toBe(tenant)
+    expect(service.tenant.name).toBe('blank')
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(message('Tenant'))
+    // The singleton keeps its blank instance for the next request, and the class is not warned about again
+    const next = app.createRequestScope().instance(Tenant, Object.assign(new Tenant(), { name: 'other' }))
+    expect(next.make(Service)).toBe(service)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('is silent in production', () => {
+    class Tenant {}
+    class Service {
+      constructor(readonly tenant: Tenant) {}
+    }
+    vi.stubGlobal('__PROD__', true)
+    const app = new Container({ deps: depsOf([[Service, { slots: [() => Tenant] }]]) }).singleton(Service)
+    const scope = app.createRequestScope().instance(Tenant, new Tenant())
+    scope.make(Service)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn for a token key (it fails closed) or a scoped() binding (it bubbles)', () => {
+    const TENANT = token<Tenant>('tenant')
+    class Tenant {}
+    class Service {
+      constructor(readonly tenant: Tenant) {}
+    }
+    class Other {
+      constructor(readonly tenant: Tenant) {}
+    }
+    const app = new Container({
+      deps: depsOf([
+        [Service, { slots: [() => TENANT] }],
+        [Other, { slots: [() => Tenant] }],
+      ]),
+    }).scoped(Tenant).singleton(Service).singleton(Other)
+    const scope = app.createRequestScope().instance(TENANT, new Tenant())
+    expect(() => scope.make(Service)).toThrow('No binding for InjectionToken(tenant).')
+    // The scoped() binding is found, so nothing is autowired; the singleton bubbles with its own warning
+    expect(scope.make(Other).tenant).toBe(scope.make(Tenant))
+    expect(warn).not.toHaveBeenCalledWith(message('Tenant'))
+    expect(warn.mock.calls.map(([text]) => text)).toEqual([
+      '[@laratype/core] Other is a singleton but depends on request-scoped Tenant, so it is resolved once per request. Make Other request-scoped (or transient) to silence this.',
+    ])
   })
 })

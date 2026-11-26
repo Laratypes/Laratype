@@ -420,6 +420,21 @@ describe('Gate.policy: registration', () => {
     expect(otherManager.policyFor(post)).toBeUndefined()
     expect(appManager.policyFor(post)).toBe(Policy)
   })
+
+  it('does not reuse the manager of a finished request (D11 #318)', () => {
+    const { Policy } = policyWith(() => true)
+    Gate.policy(PostModel, Policy)
+    const appManager = GateManager.current()
+    const request = new Container().singleton(GateManager)
+    const requestManager = request.make(GateManager)
+    ContextApi.run({ container: request } as any, () => {
+      expect(GateManager.current()).toBe(requestManager)
+      expect(requestManager.policyFor(post)).toBeUndefined()
+    })
+    // Outside the request the store is empty: the app container's singleton answers, not the finished request's
+    expect(GateManager.current()).toBe(appManager)
+    expect(GateManager.current().policyFor(post)).toBe(Policy)
+  })
 })
 
 describe('Gate.authorize: the 403', () => {

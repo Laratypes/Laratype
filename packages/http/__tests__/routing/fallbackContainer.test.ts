@@ -1,84 +1,94 @@
-// D9 #270: the autowire-only fallback container warns once in dev, never in production
+// D11 #318: outside RequestKernel, Request.container() is core's one app-container lookup, not an http fallback
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { Container, depsRegistry } from '@laratype/core'
+import { appContainer, Container, depsRegistry, Facade } from '@laratype/core'
 import { HTTP_APP } from '@laratype/support'
 import Controller from '../../src/controller/Controller'
 import RequestKernel from '../../src/request/Request'
 
-const FALLBACK_WARNED = Symbol.for('laratype.http.fallbackContainerWarned')
+const FALLBACK_WARNED = Symbol.for('laratype.di.fallbackWarned')
 
-/**
- * A fresh copy of the module that declares the fallback container, so each load starts without one.
- * `Request` is the module that holds the fallback: the http entry would evaluate every http module for the same state.
- * The static import above pays the one-time cost of transforming the graph and loading it for the first time during
- * collection, outside the test timeout: that first import took ~1.7 s idle and up to ~5 s under CPU load, while a copy
- * loaded after it takes ~0.1 s (H40 #333). A load still re-evaluates the graph, so `resetModules()` keeps copies apart.
- */
-const loadFreshKernel = async () => {
-  vi.resetModules()
-  const { default: FreshRequestKernel } = await import('../../src/request/Request')
-  return FreshRequestKernel
+const reset = () => {
+  Facade.setFacadeApplication(undefined)
+  delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED]
 }
-
-const clearWarned = () => { delete (globalThis as { [FALLBACK_WARNED]?: true })[FALLBACK_WARNED] }
 
 let warn: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  clearWarned()
+  reset()
   vi.stubGlobal('__PROD__', false)
   vi.stubEnv('NODE_ENV', 'development')
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 afterEach(() => {
-  clearWarned()
+  reset()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })
 
-describe('fallback container', () => {
-  it('warns once in dev, also across module copies', async () => {
-    const kernel = await loadFreshKernel()
-    const fallback = kernel.container()
-    expect(kernel.container()).toBe(fallback)
+class Greeter {
+  greet() { return 'hello' }
+}
+class Loud extends Greeter {
+  greet() { return 'HELLO' }
+}
+class Greet extends Facade {
+  static override readonly accessor = Greeter
+  static greet() { return this.root().greet() }
+}
+
+describe('Request.container() outside RequestKernel', () => {
+  it('is the one shared fallback, created once, with core warning once in dev', () => {
+    const fallback = RequestKernel.container()
+    expect(fallback).toBeInstanceOf(Container)
+    expect(fallback).toBe(appContainer())
+    expect(Facade.getFacadeApplication()).toBe(fallback)
+    expect(RequestKernel.container()).toBe(fallback)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn.mock.calls[0]![0]).toMatchInlineSnapshot(`"[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container."`)
-    const secondKernel = await loadFreshKernel()
-    expect(secondKernel.container()).not.toBe(fallback)
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toMatchInlineSnapshot(`"[@laratype/core] No app container: facades and controllers use a shared autowire-only container, so app bindings do not apply and the singletons it autowires are shared for the process. Call Serve.getContainer() or setFacadeApplication() to use the app container."`)
   })
 
-  it('never warns when __PROD__ is set', async () => {
-    vi.stubGlobal('__PROD__', true)
-    const kernel = await loadFreshKernel()
-    kernel.container()
-    kernel.container()
+  it('is the app container when one is set, so app bindings apply outside the kernel', () => {
+    const app = new Container({ deps: depsRegistry }).bind(Greeter, Loud)
+    Facade.setFacadeApplication(app)
+    expect(RequestKernel.container()).toBe(app)
+    expect(RequestKernel.container().make(Greeter)).toBeInstanceOf(Loud)
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('an explicit __PROD__ = false wins over NODE_ENV=production', async () => {
+  it('shares the fallback with facades, so a fake made there reaches a controller', () => {
+    const restore = Greet.fake({ greet: () => 'faked' })
+    expect(RequestKernel.container()).toBe(Facade.getFacadeApplication())
+    expect(RequestKernel.container().make(Greeter).greet()).toBe('faked')
+    restore()
+  })
+
+  it('never warns when __PROD__ is set', () => {
+    vi.stubGlobal('__PROD__', true)
+    RequestKernel.container()
+    RequestKernel.container()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('an explicit __PROD__ = false wins over NODE_ENV=production', () => {
     vi.stubGlobal('__PROD__', false)
     vi.stubEnv('NODE_ENV', 'production')
-    const kernel = await loadFreshKernel()
-    kernel.container()
+    RequestKernel.container()
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('never warns when NODE_ENV is production', async () => {
+  it('never warns when NODE_ENV is production', () => {
     vi.stubGlobal('__PROD__', undefined)
     vi.stubEnv('NODE_ENV', 'production')
-    const kernel = await loadFreshKernel()
-    kernel.container()
+    RequestKernel.container()
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('never warns for a request served through RequestKernel', async () => {
-    // The copies evaluated at collection: tests 1-4 reset the module registry, so only these static bindings still
-    // point at the same core and support modules, and HTTP_APP is a token instance whose identity is per module copy
+  it('adds no warning of its own for a request served through RequestKernel', async () => {
     const container = new Container({ deps: depsRegistry })
     const app = new Hono()
     container.instance(HTTP_APP, app)
@@ -88,7 +98,6 @@ describe('fallback container', () => {
     }
     app.get('/probe', RequestKernel.handle({ method: 'get', path: '/probe', controller: [Probe, 'index'] }))
     expect((await app.request('/probe')).status).toBe(200)
-    // The boot may bind registries in the shared core fallback, which warns once (D11 #318); http's own warning must not fire
     expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[@laratype/http]'))).toHaveLength(0)
   })
 })
