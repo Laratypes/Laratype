@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "@scope/pkg": ["@scope/pkg@1.3.0", "", {}, "sha512-abc123"],
+  },
+}

@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "evil": ["evil@bitbucket:owner/evil", "", {}, "sha512-abc123"],
+  },
+}
