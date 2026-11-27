@@ -38,6 +38,11 @@ interface Reserved {
   readonly ok: string
 }
 
+/** Dotted keys are whole keys: the runtime reads the rest of the path before it splits (K4 #314). */
+interface Dotted {
+  readonly a: { readonly 'b.constructor': 42; readonly 'b.prototype': 43 }
+}
+
 // The app's registration: what `declare module` in app code looks like (Q16). It applies to the whole `types`
 // program, so this is the only type test that registers configs.
 declare module '@laratype/core' {
@@ -109,6 +114,17 @@ describe('config() (K1 #152)', () => {
     expectTypeOf<ConfigValue<'constructor.ok', Reserved>>().toEqualTypeOf<undefined>()
     expectTypeOf<ConfigValue<'constructor', Record<string, unknown>>>().toEqualTypeOf<undefined>()
     expectTypeOf<ConfigValue<'constructor', unknown>>().toEqualTypeOf<undefined>()
+    // A single reserved segment is the whole rest at that level: the runtime rejects the key, so it stays undefined
+    expectTypeOf<ConfigValue<'a.constructor', Record<string, unknown>>>().toEqualTypeOf<undefined>()
+    // A dotted remainder can be a literal key: the runtime reads `'b.constructor'` whole, so the type is `unknown`
+    expectTypeOf<ConfigValue<'a.b.constructor', Record<string, unknown>>>().toEqualTypeOf<unknown>()
+    expectTypeOf<ConfigValue<'a.b.prototype', Record<string, unknown>>>().toEqualTypeOf<unknown>()
+    expectTypeOf<ConfigValue<'a.b.__proto__', Record<string, unknown>>>().toEqualTypeOf<unknown>()
+    expectTypeOf<ConfigValue<'a.constructor.b', Record<string, unknown>>>().toEqualTypeOf<unknown>()
+    expectTypeOf<ConfigValue<'a.b.constructor', unknown>>().toEqualTypeOf<unknown>()
+    // A declared key that contains a dot is read whole, reserved segment or not
+    expectTypeOf<ConfigValue<'a.b.constructor', Dotted>>().toEqualTypeOf<42>()
+    expectTypeOf<ConfigValue<'a.b.prototype', Dotted>>().toEqualTypeOf<43>()
   })
 
   test('without a registration, any path gives unknown', () => {

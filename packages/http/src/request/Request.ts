@@ -9,7 +9,7 @@ import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBi
 import { FormValidation } from "@laratype/validation";
 import type { MiddlewareClass } from "../routing/api/types";
 import { Container } from "@laratype/core";
-import { errors, validate } from "@laratype/contract";
+import { errors, isStandardSchema, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { createReadBudget, publicIssue, readBody, readQuery, validateInput } from "./input";
 import type { RawInput } from "./input";
@@ -490,7 +490,7 @@ export default class Request extends AppServiceProvider {
       // Only invalid input is a 422, with its field errors (#275). Anything thrown, by rules() or inside the schema (an
       // AggregateError, an ORM error, a nested parse), goes on to resolveException: a generic 500 and a server-side log
       const rules = requestInstance.rules() as StandardSchemaV1;
-      if(typeof rules?.["~standard"]?.validate !== "function") {
+      if(!isStandardSchema(rules)) {
         throw new TypeError(`${requestInstance.constructor.name}.rules() must return a Standard Schema (zod 4.6.6+, valibot, ...)`);
       }
       // The contract's adapter runs a zod schema once (safeParseAsync); the 422 lists `{ path, message }` only. The

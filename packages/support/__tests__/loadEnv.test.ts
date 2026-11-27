@@ -1,18 +1,22 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadEnv } from '../src/environ'
 
 describe('loadEnv', () => {
   const dirs: string[] = []
-  // The runner sets NODE_ENV, and K4's loader reads it: restore it after every test
+  // The runner sets NODE_ENV, and K4's loader reads it: every test starts from none and restores the original after
   const savedNodeEnv = process.env.NODE_ENV
   const tmp = () => {
     const dir = mkdtempSync(join(tmpdir(), 'laratype-env-'))
     dirs.push(dir)
     return dir
   }
+
+  beforeEach(() => {
+    delete process.env.NODE_ENV
+  })
 
   afterEach(() => {
     if (savedNodeEnv === undefined) delete process.env.NODE_ENV
@@ -28,6 +32,13 @@ describe('loadEnv', () => {
       'H1_MODE_ORDER',
       'H1_CWD_MODE',
       'H1_FILES_ONLY',
+      'K4_FALLBACK_EXAMPLE',
+      'K4_FALLBACK_PROD',
+      'K4_FALLBACK_TEMPLATE',
+      'K4_FALLBACK_UPPER',
+      'K4_FALLBACK_LEAKED',
+      'K4_FALLBACK_SAFE',
+      'K4_FALLBACK_DIR',
     ]) delete process.env[name]
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
@@ -121,7 +132,84 @@ describe('loadEnv', () => {
     expect(loadEnv(project)).toBeUndefined()
 
     writeFileSync(join(project, '.env.development'), 'H1_FILES_ONLY=file\n')
+    // NODE_ENV names the directory: it is skipped, not returned as the loaded file
+    process.env.NODE_ENV = 'production'
     expect(loadEnv(project)).toBe(join(project, '.env.development'))
     expect(process.env.H1_FILES_ONLY).toBe('file')
+  })
+
+  it('reads files only: a directory named .env or .env.local is not an env file', () => {
+    const project = tmp()
+    mkdirSync(join(project, '.env'))
+    mkdirSync(join(project, '.env.local'))
+    writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_DIR=file\n')
+    // NODE_ENV is unset, so the name-ordered fallback picks the only regular env file
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
+    expect(process.env.K4_FALLBACK_DIR).toBe('file')
+  })
+
+  it('prefers .env.<NODE_ENV> over a template file (production over .env.example)', () => {
+    const project = tmp()
+    writeFileSync(join(project, '.env.example'), 'K4_FALLBACK_EXAMPLE=example\n')
+    writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_PROD=production\n')
+    process.env.NODE_ENV = 'production'
+
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
+    expect(process.env.K4_FALLBACK_PROD).toBe('production')
+    expect(process.env.K4_FALLBACK_EXAMPLE).toBeUndefined()
+  })
+
+  it('never falls back to a template: .env.production wins over .env.example with NODE_ENV unset', () => {
+    const project = tmp()
+    writeFileSync(join(project, '.env.example'), 'K4_FALLBACK_EXAMPLE=example\n')
+    writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_PROD=production\n')
+
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
+    expect(process.env.K4_FALLBACK_PROD).toBe('production')
+    expect(process.env.K4_FALLBACK_EXAMPLE).toBeUndefined()
+  })
+
+  it('loads nothing when only template files exist, and does not throw', () => {
+    for (const name of ['.env.example', '.env.sample', '.env.template', '.env.dist']) {
+      const project = tmp()
+      writeFileSync(join(project, name), 'K4_FALLBACK_TEMPLATE=template\n')
+      delete process.env.K4_FALLBACK_TEMPLATE
+
+      expect(() => loadEnv(project)).not.toThrow()
+      expect(loadEnv(project)).toBeUndefined()
+      expect(process.env.K4_FALLBACK_TEMPLATE).toBeUndefined()
+      // NODE_ENV cannot select a template either
+      process.env.NODE_ENV = name.slice('.env.'.length)
+      expect(loadEnv(project)).toBeUndefined()
+      expect(process.env.K4_FALLBACK_TEMPLATE).toBeUndefined()
+      delete process.env.NODE_ENV
+    }
+  })
+
+  it('treats a template name in any case as a template (.env.EXAMPLE)', () => {
+    const project = tmp()
+    writeFileSync(join(project, '.env.EXAMPLE'), 'K4_FALLBACK_UPPER=example\n')
+
+    expect(loadEnv(project)).toBeUndefined()
+    expect(process.env.K4_FALLBACK_UPPER).toBeUndefined()
+  })
+
+  it('ignores a NODE_ENV that is not one plain name: it never forms a path outside the project directory', () => {
+    const cwd = tmp()
+    writeFileSync(join(cwd, '.env'), 'K4_FALLBACK_LEAKED=leaked\n')
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+    const project = tmp()
+    writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_SAFE=production\n')
+
+    for (const value of [undefined, '', '../x', 'a/b', 'a\\b', '..', '%2e%2e', 'a.b', 'a\u0000b', 'a\u0001b', '\uD800', 'a'.repeat(100_000)]) {
+      delete process.env.K4_FALLBACK_LEAKED
+      if (value === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = value
+
+      // The mode file is skipped, and the name-ordered fallback stays inside the project directory
+      expect(loadEnv(project)).toBe(join(project, '.env.production'))
+      expect(process.env.K4_FALLBACK_LEAKED).toBeUndefined()
+      expect(process.env.K4_FALLBACK_SAFE).toBe('production')
+    }
   })
 })
