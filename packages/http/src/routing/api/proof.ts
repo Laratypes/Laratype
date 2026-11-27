@@ -247,14 +247,18 @@ type MismatchedKeys<Pv, Rq> =
 
 type At<O, P extends string> = P extends `params.${infer K}` ? Sub<Sub<O, "params">, K> : Sub<O, P>;
 
-/** A member of the 0.5 request that the ctx doesn't have. */
-type RequestKey = Exclude<keyof RequestSupport, keyof BaseCtx<AnyEndpoint>> & string;
+/**
+ * Whether the handler's required value for key `K` is a method of the 0.5 request: the handler is typed with that
+ * object (`{ param(key: string): string }`, `{ query(key: string): string }`, `{ rules(): unknown }`), not with a ctx
+ * extension that happens to share a name (`{ ip: string }`), which is a missing requirement (H31 #308).
+ */
+type TakesRequestMethod<Rq, K extends string> = K extends keyof RequestSupport
+  ? At<Rq, K> extends (...args: any[]) => unknown ? true : false
+  : false;
 
-/** A missing key; one of the 0.5 request when the handler is typed with that object (it has `rules()`). */
-type MissingLabel<N extends string, M extends string, Rq> = M extends RequestKey
-  ? Rq extends { rules(): unknown }
-    ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
-    : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`
+/** A missing key; one of the 0.5 request's methods when the handler is typed with that object, else a requirement. */
+type MissingLabel<N extends string, M extends string, Rq> = TakesRequestMethod<Rq, M> extends true
+  ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
   : `${N}: handler requires \`${M}\`, route does not provide it (add middleware / .bind())`;
 
 /*
@@ -277,15 +281,17 @@ type RequirementIssues<N extends string, Pv, Rq, AuthOn extends boolean, X exten
 } & {
   [M in MismatchedKeys<Pv, Rq> as M extends "endpoint"
     ? `${N}: handler ctx is typed for a different endpoint`
-    : M extends "query" | "body"
-      ? `${N}: \`${M}\` of the ctx does not match the handler (it is the output of the endpoint's ${M} schema)`
-      : M extends "user"
-        ? AuthOn extends true
-          ? "user" extends keyof X
-            ? `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
-            : `${N}: \`user\` of the ctx does not match the guard's user type (the auth capability's guard)`
-          : `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
-        : `${N}: \`${M}\` provided by the route does not match the handler (missing .bind()?)`]: {
+    : TakesRequestMethod<Rq, M> extends true
+      ? `${N}: handler takes the 0.5 request (\`${M}\`), Route.api passes the ctx { endpoint, params, query, body }`
+      : M extends "query" | "body"
+        ? `${N}: \`${M}\` of the ctx does not match the handler (it is the output of the endpoint's ${M} schema)`
+        : M extends "user"
+          ? AuthOn extends true
+            ? "user" extends keyof X
+              ? `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
+              : `${N}: \`user\` of the ctx does not match the guard's user type (the auth capability's guard)`
+            : `${N}: \`user\` provided by the route does not match the handler (missing .bind()?)`
+          : `${N}: \`${M}\` provided by the route does not match the handler (missing .bind()?)`]: {
     route_provides: At<Pv, M>;
     handler_requires: At<Rq, M>;
   };

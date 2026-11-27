@@ -3,6 +3,7 @@
 import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
+import { HonoRequest } from 'hono/request'
 import { bodyLimit } from 'hono/body-limit'
 import { validator } from 'hono/validator'
 import type { MiddlewareHandler } from 'hono'
@@ -13,6 +14,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { Ctx } from '../../src/index'
+import { createReadBudget, publicIssue } from '../../src/request/input'
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. Middleware is
  * mounted with `app.use()` before the kernel, the only place a `bodyLimit` keeps its 413. */
@@ -66,6 +68,17 @@ describe('a contract route', () => {
     expect(await (await app().request('/api/users/7/posts?page=2')).json()).toEqual({ query: { page: 2 } })
     expect(await (await app().request('/api/users/7/posts')).json()).toEqual({ query: { page: 1 } })
     expect(await (await app().request('/api/users/7/posts?tag=a&tag=b')).json()).toEqual({ query: { page: 1, tag: ['a', 'b'] } })
+  })
+
+  it('parses the query once per request (H31 #308)', async () => {
+    quiet()
+    const queries = vi.spyOn(HonoRequest.prototype, 'queries')
+    const query = vi.spyOn(HonoRequest.prototype, 'query')
+    const response = await app().request('/api/users/7/posts?page=2&tag=a&tag=b')
+    expect(response.status).toBe(200)
+    // the contract input and the 0.5 input() share one parse: Hono's query() and queries() parse the URL on every call
+    expect(queries).toHaveBeenCalledTimes(1)
+    expect(query).not.toHaveBeenCalled()
   })
 
   it('passes the body output, and keeps query and body apart', async () => {
@@ -124,6 +137,377 @@ describe('a contract route', () => {
     expect(JSON.parse(text).errors.draft).toEqual(['Invalid option: expected one of "yes"|"no"'])
   })
 
+  /** A contract route whose body is `body`, mounted at `/scrub`. */
+  const serveBody = (body: unknown) => {
+    const contract = defineContract()({ store: endpoint.post('/').body(body as never) })
+    class Scrub { store() {} }
+    const served = bootApp()
+    Route.api(defineApi({ scrub: { contract, path: '/scrub', scopes: [] } }), (r) => [r.contract(contract, Scrub)]).mount(served)
+    return served
+  }
+
+  /** A Standard Schema whose validate returns `issues` as they are, for issue-shape edge cases. */
+  const issuesSchema = (issues: readonly object[]) =>
+    ({ '~standard': { version: 1, vendor: 'other', validate: () => ({ issues }) } }) as const
+
+  it('scrubs a real zod 4 enum message that echoes the submitted input (H31 #308)', async () => {
+    quiet()
+    // zod 4's invalid_value carries no `received`: the translated error map gets the submitted value as `input`
+    const role = z.enum(['admin', 'user'], {
+      error: (issue) => `Ungültiger Enum-Wert. Erwartet 'admin' | 'user', erhalten '${String(issue.input)}'`,
+    })
+    const served = serveBody(z.object({ role }))
+    const response = await served.request('/scrub', json({ role: 's3cr3t' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ role: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+    // a default message names the allowed options, not the value: it is kept
+    const plain = serveBody(z.object({ role: z.enum(['admin', 'user']) }))
+    const kept = await plain.request('/scrub', json({ role: 's3cr3t' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({ role: ['Invalid option: expected one of "admin"|"user"'] })
+    // a very long submitted value is searched in linear time, and the generic answer stays small
+    const long = await served.request('/scrub', json({ role: 'x'.repeat(10_000) }))
+    const longText = await long.text()
+    expect(long.status).toBe(422)
+    expect(JSON.parse(longText).errors).toEqual({ role: ['Invalid value'] })
+    expect(longText.length).toBeLessThan(1_000)
+  })
+
+  it('scrubs a real zod 4 email message that echoes the submitted input (invalid_format)', async () => {
+    quiet()
+    const email = z.email({ error: (issue) => `Bad email: '${String(issue.input)}'` })
+    const served = serveBody(z.object({ user: z.object({ email }) }))
+    const response = await served.request('/scrub', json({ user: { email: 'nope@s3cr3t' } }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    // the nested path resolves through the body: `user.email`
+    expect(JSON.parse(text).errors).toEqual({ 'user.email': ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('searches invalid_type messages, keeping a type name (H31 #308)', async () => {
+    quiet()
+    // a custom error map can echo the submitted value on invalid_type: it is scrubbed like any other code
+    const echoed = serveBody(z.object({ n: z.number({ error: (issue) => `${String(issue.input)} is not a number` }) }))
+    const response = await echoed.request('/scrub', json({ n: 'secret123' }))
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual({ n: ['Invalid value'] })
+    expect(text).not.toContain('secret123')
+    // zod's default invalid_type messages name a type, not the submitted value: they are kept
+    const zodTypes = serveBody(z.object({ n: z.number(), s: z.number() }))
+    const kept = await zodTypes.request('/scrub', json({ n: 'string', s: 'number' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({
+      n: ['Invalid input: expected number, received string'],
+      s: ['Invalid input: expected number, received string'],
+    })
+    // valibot's default invalid_type message is kept too, its quoted type name included
+    const valibotTypes = serveBody(v.object({ n: v.number() }))
+    const vKept = await valibotTypes.request('/scrub', json({ n: 'string' }))
+    expect(JSON.parse(await vKept.text()).errors).toEqual({ n: ['Invalid type: Expected number but received "string"'] })
+  })
+
+  it('scrubs a refine message that echoes the submitted input', async () => {
+    quiet()
+    const name = z.string().refine((value) => value === 'ada', { error: (issue) => `Unknown name '${String(issue.input)}'` })
+    const served = serveBody(z.object({ name }))
+    const response = await served.request('/scrub', json({ name: 'grace' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ name: ['Invalid value'] })
+    expect(text).not.toContain('grace')
+  })
+
+  it('searches the trimmed form of a string a transform produced', async () => {
+    quiet()
+    // `trim()` makes the refine's message quote `grace`, while the body holds `  grace  `: both forms are searched
+    const nick = z.string().trim().refine((value) => value === 'ada', { error: (issue) => `Unknown nick '${String(issue.input)}'` })
+    const served = serveBody(z.object({ nick }))
+    const response = await served.request('/scrub', json({ nick: '  grace  ' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ nick: ['Invalid value'] })
+    expect(text).not.toContain('grace')
+  })
+
+  it('does not search a submitted value shorter than 3 characters', async () => {
+    quiet()
+    // a 1-2 character value leaks next to nothing, and searching it would turn the "too short" messages generic
+    const plain = serveBody(z.object({ name: z.string().min(5) }))
+    const response = await plain.request('/scrub', json({ name: 'a' }))
+    expect(JSON.parse(await response.text()).errors).toEqual({ name: ['Too small: expected string to have >=5 characters'] })
+    const translated = serveBody(z.object({ name: z.string().min(5, { error: (issue) => `Too short: '${String(issue.input)}'` }) }))
+    const short = await translated.request('/scrub', json({ name: 'a' }))
+    expect(JSON.parse(await short.text()).errors).toEqual({ name: ["Too short: 'a'"] })
+    // 3 characters are searched
+    const longer = await translated.request('/scrub', json({ name: 'abc' }))
+    expect(JSON.parse(await longer.text()).errors).toEqual({ name: ['Invalid value'] })
+  })
+
+  it('scrubs a valibot message that echoes the submitted input', async () => {
+    quiet()
+    const name = v.pipe(v.string(), v.check((value) => value.length > 10, (issue) => `Weak '${issue.received}'`))
+    const served = serveBody(v.object({ name }))
+    const response = await served.request('/scrub', json({ name: 's3cr3t' }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ name: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('resolves an array index path', async () => {
+    quiet()
+    const tags = z.object({ tags: z.array(z.string().max(4, { error: (issue) => `Bad tag '${String(issue.input)}'` })) })
+    const served = serveBody(tags)
+    const response = await served.request('/scrub', json({ tags: ['okay', 's3cr3t'] }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ 'tags.1': ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
+  it('bounds the leaf walk on a 100k-element array under max(2)', async () => {
+    quiet()
+    const tags = z.array(z.string()).max(2, { error: (issue) => `Too many tags: ${String(Array.isArray(issue.input) ? issue.input.length : 0)}` })
+    const served = serveBody(z.object({ tags }))
+    const response = await served.request('/scrub', json({ tags: Array.from({ length: 100_000 }, () => 'x') }))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ tags: ['Invalid value'] })
+    expect(text.length).toBeLessThan(1_000)
+  })
+
+  it('bounds the leaf enumeration of a 300k array and a 100k-key object', () => {
+    // Structural only, no wall clock: the array is read by at most 51 indices, the object by at most 51 own keys
+    const array = Array.from({ length: 300_000 }, () => 'x')
+    const arraySpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const fromArray = publicIssue({ code: 'too_big', message: 'Too many tags', path: ['tags'] }, { tags: array })
+    const indexReads = arraySpy.mock.calls.filter(([, key]) => /^\d+$/.test(String(key))).length
+    arraySpy.mockRestore()
+    expect(fromArray).toEqual({ path: ['tags'], message: 'Invalid value' })
+    expect(indexReads).toBeLessThanOrEqual(51)
+    const object = Object.fromEntries(Array.from({ length: 100_000 }, (_, index) => [`k${index}`, 'x']))
+    const objectSpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const fromObject = publicIssue({ code: 'custom', message: 'Passwords do not match', path: [] }, object)
+    const keyReads = objectSpy.mock.calls.length
+    objectSpy.mockRestore()
+    expect(fromObject).toEqual({ path: [], message: 'Invalid value' })
+    expect(keyReads).toBeLessThanOrEqual(51)
+  })
+
+  it('bounds the descriptor reads of a whole 422 build (H31 #308)', () => {
+    // 40 x 40 x 40 empty objects: 40 + 1,600 + 64,000 descriptor reads with no printable leaf and no previous bound
+    // hit. Five issues share one request budget, so the build stops at the budget instead of walking the shape again.
+    const empties = () => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, {}]))
+    const children = () => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, empties()]))
+    const shape = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, children()]))
+    const issue = { code: 'custom', message: 'Passwords do not match', path: [] }
+    const descriptorSpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const budget = createReadBudget()
+    const messages = Array.from({ length: 5 }, () => publicIssue(issue, shape, budget).message)
+    const reads = descriptorSpy.mock.calls.length
+    descriptorSpy.mockRestore()
+    expect(messages).toEqual(Array.from({ length: 5 }, () => 'Invalid value'))
+    expect(reads).toBeLessThanOrEqual(4_096)
+  })
+
+  it('bounds the unrecognized-keys scrub (H31 #308)', async () => {
+    // 100k unknown keys: past the 50-key bound the answer is Invalid value, with no per-key search
+    const object: Record<string, number> = {}
+    for (let index = 0; index < 100_000; index++) object[`k${index}`] = 1
+    const parsed = await z.strictObject({ a: z.number().optional() }).safeParseAsync(object)
+    if (parsed.success) throw new Error('the strict object should refuse the unknown keys')
+    const issue = parsed.error.issues[0]!
+    expect(issue).toMatchObject({ code: 'unrecognized_keys' })
+    const includes = vi.spyOn(String.prototype, 'includes')
+    const result = publicIssue(issue, object)
+    const calls = includes.mock.calls.length
+    includes.mockRestore()
+    expect(result).toEqual({ path: [], message: 'Invalid value' })
+    expect(calls).toBeLessThanOrEqual(50)
+    // 50 keys are searched once each in the folded prefix, then the prefix is cut
+    const fifty: Record<string, number> = {}
+    for (let index = 0; index < 50; index++) fifty[`key${index}`] = 1
+    const fiftyParsed = await z.strictObject({ a: z.number().optional() }).safeParseAsync(fifty)
+    if (fiftyParsed.success) throw new Error('the strict object should refuse the unknown keys')
+    const fiftyIncludes = vi.spyOn(String.prototype, 'includes')
+    const fiftyResult = publicIssue(fiftyParsed.error.issues[0]!, fifty)
+    const fiftyCalls = fiftyIncludes.mock.calls.length
+    fiftyIncludes.mockRestore()
+    expect(fiftyResult).toEqual({ path: [], message: 'Unrecognized keys' })
+    expect(fiftyCalls).toBeLessThanOrEqual(50)
+    // a key echoed before the first `": "` fails closed
+    expect(publicIssue({ message: 'Unbekannter Schlüssel secretkey: "a"', keys: ['secretkey'], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+    // 51 keys are past the bound: Invalid value, not the prefix
+    const fiftyOne = Array.from({ length: 51 }, (_, index) => `key${index}`)
+    expect(publicIssue({ message: `Unrecognized keys: ${fiftyOne.join(', ')}`, keys: fiftyOne, code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+    // zod 3's format takes the same path
+    expect(publicIssue({ message: "Unrecognized key(s) in object: 'a', 'b'", keys: ['a', 'b'], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Unrecognized key(s) in object',
+    })
+    // valibot's strict object has no keys array: its key name is scrubbed by the normal received-tail path
+    const checked = await v.strictObject({ a: v.optional(v.number()) })['~standard'].validate({ a: 1, s3cr3t: 1 })
+    const valibotIssues = 'issues' in checked ? checked.issues : []
+    expect(valibotIssues).toHaveLength(1)
+    expect(publicIssue(valibotIssues[0]!, { a: 1, s3cr3t: 1 })).toEqual({ path: ['s3cr3t'], message: 'Invalid key: Expected never' })
+  })
+
+  it('scrubs the retained text of a keys message (H31 #308)', () => {
+    // `Sample Name` is a submitted value, not a field name: cutting `extra` still leaves it in the custom prefix
+    expect(
+      publicIssue(
+        { message: 'Unexpected field for Sample Name: extra', keys: ['extra'], code: 'unrecognized_keys' },
+        { name: 'Sample Name', extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid value' })
+    // the library prefix is clean, so it is kept while the listed key goes
+    expect(
+      publicIssue({ message: 'Unrecognized keys: "extra"', keys: ['extra'], code: 'unrecognized_keys' }, { name: 'Sample Name', extra: 1 }),
+    ).toEqual({ path: [], message: 'Unrecognized keys' })
+  })
+
+  it('keeps a custom key instruction that lists no key (H31 #308)', () => {
+    // the suffix carries the instruction, not the key list: it stays
+    expect(
+      publicIssue(
+        { message: 'Invalid object: remove fields not in the schema.', keys: ['extra'], code: 'unrecognized_keys' },
+        { extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid object: remove fields not in the schema.' })
+    // the suffix lists the key: only the instruction before the first `": "` stays
+    expect(publicIssue({ message: 'Invalid object: extra', keys: ['extra'], code: 'unrecognized_keys' }, { extra: 1 })).toEqual({
+      path: [],
+      message: 'Invalid object',
+    })
+  })
+
+  it('scrubs a custom keys message that is kept whole (H31 #308)', () => {
+    // no key in the suffix, so the instruction stays, but it still carries a submitted leaf value: the value scrub runs
+    expect(
+      publicIssue(
+        { message: 'Unexpected field for Sample Name: remove it', keys: ['extra'], code: 'unrecognized_keys' },
+        { name: 'Sample Name', extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid value' })
+  })
+
+  it('searches the JSON-escaped spelling of an unknown key (H31 #308)', () => {
+    const key = 'pw"secret'
+    const message = `Bad fields: ${JSON.stringify([key])}`
+    expect(message).toContain('\\"')
+    // the suffix lists the escaped key: it is cut, so the key is not echoed
+    expect(publicIssue({ message, keys: [key], code: 'unrecognized_keys' }, {})).toEqual({ path: [], message: 'Bad fields' })
+    // the prefix loop searches the escaped spelling too: a key there fails closed
+    expect(publicIssue({ message: `Bad ${JSON.stringify([key])}: extra`, keys: [key], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+  })
+
+  it('searches the printable leaves of an object at the path', async () => {
+    quiet()
+    // a message that embeds the object as JSON carries a leaf: the issue fails closed
+    const user = z.object({ password: z.string(), confirm: z.string() })
+      .refine(() => false, { error: (issue) => `Mismatch: ${JSON.stringify(issue.input)}` })
+    const encoded = await serveBody(z.object({ user })).request('/scrub', json({ user: { password: 's3cr3t', confirm: 'other' } }))
+    const encodedText = await encoded.text()
+    expect(JSON.parse(encodedText).errors).toEqual({ user: ['Invalid value'] })
+    expect(encodedText).not.toContain('s3cr3t')
+    // an object-level message that does not carry a leaf is kept
+    const mismatch = z.object({ password: z.string(), confirm: z.string() }).refine(() => false, { error: 'Passwords do not match' })
+    const kept = await serveBody(mismatch).request('/scrub', json({ password: 's3cr3t', confirm: 'other' }))
+    expect(JSON.parse(await kept.text()).errors).toEqual({ '': ['Passwords do not match'] })
+    // the leaf walk fails closed when its bound is hit, and its depth bound
+    const deep = await serveBody(issuesSchema([{ message: 'Nested too deep', path: [] }]))
+      .request('/scrub', json({ a: { b: { c: { d: 'plain' } } } }))
+    expect(JSON.parse(await deep.text()).errors).toEqual({ '': ['Invalid value'] })
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`k${index}`, 'leaf']))
+    const wide = await serveBody(issuesSchema([{ message: 'Too many leaves', path: [] }])).request('/scrub', json(many))
+    expect(JSON.parse(await wide.text()).errors).toEqual({ '': ['Invalid value'] })
+  })
+
+  it('searches the JSON-escaped spelling of a submitted string (H31 #308)', async () => {
+    quiet()
+    // `JSON.stringify(input)` writes a newline, quote or backslash escaped; the literal spelling is not in the message
+    const user = z.object({ password: z.string(), confirm: z.string() })
+      .refine(() => false, { error: (issue) => `Mismatch: ${JSON.stringify(issue.input)}` })
+    const served = serveBody(z.object({ user }))
+    for (const password of ['line\nbreak', 'say "hi"', 'back\\slash']) {
+      const response = await served.request('/scrub', json({ user: { password, confirm: 'other' } }))
+      const text = await response.text()
+      expect(JSON.parse(text).errors).toEqual({ user: ['Invalid value'] })
+      expect(text).not.toContain(JSON.stringify(password).slice(1, -1))
+    }
+    // a printable value at the path is searched the same way
+    const field = z.object({ password: z.string().refine(() => false, { error: (issue) => `Bad: ${JSON.stringify(issue.input)}` }) })
+    const fieldServed = serveBody(field)
+    const fieldResponse = await fieldServed.request('/scrub', json({ password: 'line\nbreak' }))
+    expect(JSON.parse(await fieldResponse.text()).errors).toEqual({ password: ['Invalid value'] })
+  })
+
+  it('never follows __proto__, constructor or prototype', async () => {
+    quiet()
+    // own data keys of the body: a walk that followed them would find s3cr3t and scrub the message
+    const issues = [
+      { message: "Ungültig: 's3cr3t'", path: ['__proto__', 'value'] },
+      { message: "Ungültig: 's3cr3t'", path: ['constructor', 'value'] },
+      { message: "Ungültig: 's3cr3t'", path: ['prototype', 'value'] },
+    ]
+    const response = await serveBody(issuesSchema(issues)).request('/scrub', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"__proto__":{"value":"s3cr3t"},"constructor":{"value":"s3cr3t"},"prototype":{"value":"s3cr3t"}}',
+    })
+    expect(JSON.parse(await response.text()).errors).toEqual({
+      '__proto__.value': ["Ungültig: 's3cr3t'"],
+      'constructor.value': ["Ungültig: 's3cr3t'"],
+      'prototype.value': ["Ungültig: 's3cr3t'"],
+    })
+  })
+
+  it('never invokes a getter on the input', () => {
+    let invoked = 0
+    const input: Record<string, unknown> = {}
+    Object.defineProperty(input, 'user', { enumerable: true, value: {} })
+    Object.defineProperty(input.user as object, 'email', { enumerable: true, get() { invoked++; return 's3cr3t' } })
+    expect(publicIssue({ message: "Bad email 's3cr3t'", path: ['user', 'email'], code: 'invalid_format' }, input)).toEqual({
+      path: ['user', 'email'],
+      message: "Bad email 's3cr3t'",
+    })
+    expect(invoked).toBe(0)
+  })
+
+  it('treats a multipart File at the path as non-printable', async () => {
+    quiet()
+    const form = new FormData()
+    form.append('avatar', new File(['s3cr3t'], 's3cr3t.txt'))
+    const response = await serveBody(issuesSchema([{ message: 'Invalid file: s3cr3t', path: ['avatar'] }]))
+      .request('/scrub', { method: 'POST', body: form })
+    // the File's name and bytes are never read: the message is kept as the app wrote it
+    expect(JSON.parse(await response.text()).errors).toEqual({ avatar: ['Invalid file: s3cr3t'] })
+  })
+
+  it('scrubs a query issue against the query input', async () => {
+    quiet()
+    const draft = z.enum(['yes', 'no'], { error: (issue) => `Ungültig: '${String(issue.input)}'` })
+    const contract = defineContract()({ store: endpoint.post('/').query(z.object({ draft })).response(z.unknown(), 201) })
+    class Drafts { store() { return {} } }
+    const served = bootApp()
+    Route.api(defineApi({ drafts: { contract, path: '/drafts', scopes: [] } }), (r) => [r.contract(contract, Drafts)]).mount(served)
+    const response = await served.request('/drafts?draft=s3cr3t', json({}))
+    const text = await response.text()
+    expect(response.status).toBe(422)
+    expect(JSON.parse(text).errors).toEqual({ draft: ['Invalid value'] })
+    expect(text).not.toContain('s3cr3t')
+  })
+
   it('an error thrown inside a schema is a generic 500, not a 422', async () => {
     const errors = quiet()
     const failure = new Error('db at 10.0.0.7 refused')
@@ -171,15 +555,44 @@ describe('a contract route', () => {
     [{ message: 'Invalid email: Received "SECRET"', received: '"secret"' }, 'Invalid email'],
     // nothing left once the value is cut
     [{ message: 'Received "secret"', received: '"secret"' }, 'Invalid value'],
-    // "received" inside a word is not the tail, whole code points and combining marks included
-    [{ message: 'Field unreceived 5', received: 5 }, 'Field unreceived 5'],
-    [{ message: '𝐱received 5', received: 5 }, '𝐱received 5'],
-    [{ message: 'e\u0301received 5', received: 5 }, 'e\u0301received 5'],
+    // "received" inside a word is not the tail, and a value the message does not carry leaves it
+    [{ message: 'Field unreceived 5', received: 7 }, 'Field unreceived 5'],
+    [{ message: '𝐱received 5', received: 7 }, '𝐱received 5'],
+    [{ message: 'e\u0301received 5', received: 7 }, 'e\u0301received 5'],
+    // a value the message carries anywhere is dropped, word boundary or not (H31 #308)
+    [{ message: 'Field unreceived 500', received: 500 }, 'Invalid value'],
+    // a 1-2 character value is not searched: the common "too short" messages would turn generic
+    [{ message: 'Ungültiger Wert: 5', received: 5 }, 'Ungültiger Wert: 5'],
     // every separator before the tail goes
     [{ message: 'Invalid: but received "x"', received: '"x"' }, 'Invalid'],
     [{ message: 'Expected x,  but  :, received 5', received: 5 }, 'Expected x'],
-    // "but" only as a word
-    [{ message: 'Expected abut received 5', received: 5 }, 'Expected abut'],
+    // "but" is a word after any separator, not only a space
+    [{ message: 'Expected x,but received 7', received: 7 }, 'Expected x'],
+    // a cut that leaves only `but` says nothing
+    [{ message: 'but received 7', received: 7 }, 'Invalid value'],
+    // a translated default message that repeats the value: the pipeline cannot locate it, so the generic message
+    [{ message: "Ungültiger Enum-Wert. Erwartet 'a' | 'b', erhalten 'secret'", received: 'secret' }, 'Invalid value'],
+    // a translated message that does not repeat the value is kept
+    [{ message: 'Ungültiger Enum-Wert.', received: 'secret' }, 'Ungültiger Enum-Wert.'],
+    // a tail cut can leave the value in the prefix: the trimmed prefix is searched too (H31 #308)
+    [{ message: 'Value secret is forbidden, received secret', received: 'secret' }, 'Invalid value'],
+    // ... while a clean prefix, such as `Expected a`, is kept
+    [{ message: 'Expected a, received "x"', received: '"x"' }, 'Expected a'],
+    // an empty value matches every message: it is not searched
+    [{ message: 'Ungültiger Enum-Wert.', received: '' }, 'Ungültiger Enum-Wert.'],
+    // a zod invalid_type keeps its type name, even when the message repeats it
+    [{ message: 'Invalid input: expected string, received string', code: 'invalid_type', received: 'string' }, 'Invalid input: expected string, received string'],
+    // a value that is not a printable primitive (an object, null) is no data to look for
+    [{ message: 'Invalid value', received: { secret: 'detail' } }, 'Invalid value'],
+    [{ message: 'Invalid value', received: null }, 'Invalid value'],
+    [{ message: 'Invalid value', received: NaN }, 'Invalid value'],
+    // Infinity is printable like any number, and a prototype-looking string is just data to search for
+    [{ message: 'Ungültiger Wert: Infinity', received: Infinity }, 'Invalid value'],
+    [{ message: 'Ungültiger Wert: __proto__', received: '__proto__' }, 'Invalid value'],
+    // a lone surrogate of 3 code units is a string value like any other: no throw, and it is dropped when the message carries it
+    [{ message: 'Ungültiger Wert: \uD800\uD800\uD800', received: '\uD800\uD800\uD800' }, 'Invalid value'],
+    // lone surrogates and control characters in the message never throw
+    [{ message: 'Bad \uD800\u0007 value', received: 'secret' }, 'Bad \uD800\u0007 value'],
     // unrecognized keys with nothing before them
     [{ message: ': a', keys: ['a'] }, 'Invalid value'],
     // ... and with blank separators before them
@@ -194,7 +607,8 @@ describe('a contract route', () => {
     class Mails { send() {} }
     const served = bootApp()
     Route.api(defineApi({ mails: { contract: mails, path: '/mails', scopes: [] } }), (r) => [r.contract(mails, Mails)]).mount(served)
-    const response = await served.request('/mails', json({ email: 'x' }))
+    // the issue path does not resolve in the body: the library's `received` is the fallback
+    const response = await served.request('/mails', json({}))
     expect((await response.json()).errors).toEqual({ email: [message] })
   })
 
@@ -245,6 +659,11 @@ describe('the body by media type (H26 #287)', () => {
     'application/json;charset=UTF-8',
     // OWS before the `;`, as RFC 9110 §8.3.1 allows
     'application/json ; charset=utf-8',
+    // an empty parameter list, `_` in a parameter name, a quoted `;` in a value, `+` in the vendor subtype (H31 #308)
+    'application/json;',
+    'application/json; a_b=c',
+    'application/json; a="x;y"',
+    'application/vnd.a+b+json',
     'application/vnd.api+json',
     // a digit in the vendor prefix: Hono's own regex misses it (#287)
     'application/vnd.github.v3+json',
@@ -270,6 +689,17 @@ describe('the body by media type (H26 #287)', () => {
     const encoded = await app.request('/users', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=grace&user.age=45' })
     expect(encoded.status).toBe(201)
     expect(validated()).toEqual({ name: 'grace', user: { age: '45' } })
+  })
+
+  it('keeps a leading-space urlencoded key whole (H31 #308, the #340 read)', async () => {
+    quiet()
+    // The pipeline reads the whole body with arrayBuffer(), so no chunk boundary can drop the leading whitespace
+    class Echo extends LaratypeRequest {}
+    class Controllers extends Controller { store(req: Echo) { return req.input() } }
+    const app = bootApp()
+    app.post('/echo', RequestKernel.handle({ method: 'post', path: '/echo', request: Echo, controller: [Controllers, 'store'] }))
+    const response = await app.request('/echo', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: ' a=1' })
+    expect(await response.json()).toEqual({ ' a': '1' })
   })
 
   it('a multipart file field is a web File', async () => {
@@ -497,6 +927,16 @@ describe('a 0.5 request class', () => {
     expect(text).not.toContain('s3cr3t')
   })
 
+  it('scrubs a translated message against the request input (H31 #308)', async () => {
+    quiet()
+    const role = z.enum(['admin', 'user'], { error: (issue) => `Ungültig '${String(issue.input)}'` })
+    const response = await post(() => z.object({ role }), { role: 's3cr3t' })
+    expect(response.status).toBe(422)
+    const text = await response.text()
+    expect(JSON.parse(text).errors).toEqual([{ path: ['role'], message: 'Invalid value' }])
+    expect(text).not.toContain('s3cr3t')
+  })
+
   it('keeps a message of the app own, and the type name of an invalid_type', async () => {
     quiet()
     const response = await post(() => z.object({ name: z.string().min(3, 'Name too short'), age: z.number() }), { name: 'a', age: 'x' })
@@ -512,6 +952,21 @@ describe('a 0.5 request class', () => {
     const text = await response.text()
     expect(JSON.parse(text).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
     expect(text).not.toContain('s3cr3t')
+  })
+
+  it('keeps the library keys message past the leaf bound (H31 #308)', async () => {
+    quiet()
+    // 60 fields + `extra` is past the 50-leaf bound: the fixed `Unrecognized key` prefix must not be walked into
+    // `Invalid value`, and it must not echo the unknown key
+    const fields = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`f${index}`, z.string()]))
+    const body = (count: number) => ({ ...Object.fromEntries(Array.from({ length: count }, (_, index) => [`f${index}`, 'x'])), extra: 1 })
+    const big = await post(() => z.object(fields(60)).strict(), body(60))
+    const bigText = await big.text()
+    expect(JSON.parse(bigText).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
+    expect(bigText).not.toContain('extra')
+    // under the bound the same message is kept, as before
+    const small = await post(() => z.object(fields(10)).strict(), body(10))
+    expect(JSON.parse(await small.text()).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
   })
 
   it('a default rules() is told by its brand, so another copy of @laratype/http skips it too', async () => {

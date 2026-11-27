@@ -125,6 +125,16 @@ describe("the default body limit (H44 #341)", () => {
     await expect413(await app.request("/users", sized(json({ name: "a".repeat(MIB) }))));
   });
 
+  it.each(KINDS)("caps the JSON spellings the leading type decides, parameters ignored, on a %s route", async (_label, kind) => {
+    quiet();
+    const app = bootApp();
+    mount(app, kind);
+    // H31 #308: the cap and the parse take the same leading type, so an empty parameter list or a quoted `;` still caps
+    for (const contentType of ["application/json;", 'application/json; a="x;y"', "application/json; a_b=c"]) {
+      await expect413(await app.request("/users", sized(json({ name: "a".repeat(MIB) }, contentType))));
+    }
+  });
+
   it.each(KINDS)("answers a urlencoded body over 1 MiB with 413 on a %s route", async (_label, kind) => {
     quiet();
     const app = bootApp();

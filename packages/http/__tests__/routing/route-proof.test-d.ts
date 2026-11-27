@@ -204,9 +204,22 @@ describe('failure modes, by their diagnosis', () => {
     expectTypeOf<Proof<Rules>>().toHaveProperty(
       'users.posts.show: handler takes the 0.5 request (`rules`), Route.api passes the ctx { endpoint, params, query, body }',
     )
-    // without rules() it is not the request object: a missing `ip` is a missing requirement (a middleware extension)
+    // H31 #308: the request's methods are the marker, not only rules(): a handler typed with a subset of the request
+    type Param = With<{ show(req: { param(key: string): string }): Post }>
+    expectTypeOf<Proof<Param>>().toHaveProperty(
+      'users.posts.show: handler takes the 0.5 request (`param`), Route.api passes the ctx { endpoint, params, query, body }',
+    )
+    // `query` is a ctx key too: a function there is the request's method, not the schema output
+    type Query = With<{ show(req: { query(key: string): string }): Post }>
+    expectTypeOf<Proof<Query>>().toHaveProperty(
+      'users.posts.show: handler takes the 0.5 request (`query`), Route.api passes the ctx { endpoint, params, query, body }',
+    )
+    // a value that is a request member but not a method is a missing requirement (a middleware extension)
     type Ip = With<{ show(ctx: Ctx<typeof posts.show, { ip: string }>): Post }>
     expectTypeOf<Proof<Ip>>().toHaveProperty('users.posts.show: handler requires `ip`, route does not provide it (add middleware / .bind())')
+    // ... and so is a method the request does not have
+    type Other = With<{ show(ctx: Ctx<typeof posts.show, { report(key: string): string }>): Post }>
+    expectTypeOf<Proof<Other>>().toHaveProperty('users.posts.show: handler requires `report`, route does not provide it (add middleware / .bind())')
   })
 
   test('an endpoint named after a base Controller member has no handler on a bare controller', () => {
