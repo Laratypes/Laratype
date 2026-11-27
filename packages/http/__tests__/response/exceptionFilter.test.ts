@@ -1,11 +1,12 @@
 // H5 #108: the exception filter maps a thrown contract error to its own status and `{ code, ...body }`, tells errors
 // by brand (not instanceof), and answers anything else, non-Error throws included, with the generic 500
 import 'reflect-metadata'
+import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Container, depsRegistry } from '@laratype/core'
 import { Exception, HTTP_APP, NotFoundException } from '@laratype/support'
-import { defineApi, defineContract, defineError, endpoint, errors } from '@laratype/contract'
+import { defineApi, defineContract, defineError, endpoint, errors, isContractError } from '@laratype/contract'
 import { Controller, Middleware, RequestKernel, ResponseKernel, Route } from '../../src/index'
 
 const anything = { '~standard': { version: 1, vendor: 'test', validate: (value: unknown) => ({ value }) } } as const
@@ -15,6 +16,9 @@ const bootApp = (before?: (app: Hono) => void) => {
   const container = new Container({ deps: depsRegistry })
   const app = new Hono()
   container.instance(HTTP_APP, app)
+  // H33 #313: the catch middleware has to be mounted before the routes to wrap them, as `sauf dev` bootstraps it
+  // (ResponseKernel.register() runs before the providers' boot)
+  new ResponseKernel(container).register()
   new RequestKernel(container).boot()
   before?.(app)
   return { app, boot: () => new ResponseKernel(container).boot() }
@@ -217,6 +221,11 @@ describe('an Exception status the platform cannot send', () => {
     ['null', null],
     ['undefined', undefined],
     ['an object', { length: 1e9 }],
+    // H33 #313: a success status is no error answer, so an Exception never sends one
+    ['200', 200],
+    ['204', 204],
+    ['a redirect', 301],
+    ['399', 399],
   ])('%s answers the generic 500, never 200', async (_, status) => {
     quiet()
     const failure = new WeirdStatus(status)
@@ -310,6 +319,8 @@ describe('non-Error throws', () => {
     ['a string', () => 'secret detail'],
     ['an object', () => ({ secret: 'detail' })],
     ['undefined', () => undefined],
+    ['zero', () => 0],
+    ['false', () => false],
   ])('%s thrown by a controller answers the generic 500 and is logged once', async (_, value) => {
     quiet()
     const response = await throwing(value)
@@ -330,6 +341,26 @@ describe('non-Error throws', () => {
     await expectBody(await app.request('/hono'), 500, GENERIC)
     await expectBody(await app.request('/legacy'), 500, GENERIC)
     expect(logged).toHaveBeenCalledTimes(2)
+  })
+
+  it('a non-Error from a middleware mounted before the catch is the fetch wrapper\'s generic 500', async () => {
+    quiet()
+    // The only path the wrapper still covers: a provider's register() mounts its middleware before ResponseKernel's
+    // register() runs, so a throw there is outside the catch and the scrub (bootProviders' register pass)
+    const container = new Container({ deps: depsRegistry })
+    const app = new Hono()
+    container.instance(HTTP_APP, app)
+    app.use(() => { throw 'secret detail' })
+    new ResponseKernel(container).register()
+    class Ok extends Controller { index() { return {} } }
+    app.get('/outer', RequestKernel.handle({ method: 'get', path: '/outer', controller: [Ok, 'index'] }))
+    new ResponseKernel(container).boot()
+    const response = await app.request('/outer')
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    // No context headers reached this answer: the throw is outside the catch middleware
+    expect(response.headers.get('X-Content-Type-Options')).toBeNull()
+    expect(logged).toHaveBeenCalledTimes(1)
   })
 
   it('a fetch that throws synchronously answers the generic 500 too', async () => {
@@ -355,5 +386,106 @@ describe('non-Error throws', () => {
     const response = await app.request('/fail')
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
     await expectBody(response, 500, GENERIC)
+  })
+
+  // H33 #313: the catch middleware replaces the fetch wrapper, so the non-Error 500 now carries what the filter adds
+  it('a non-Error throw carries the middleware headers, nosniff and no-store', async () => {
+    quiet()
+    class Failing extends Controller { index() { throw 'secret detail' } }
+    const { app, boot } = bootApp((app) => app.use(async (c, next) => {
+      c.header('Access-Control-Allow-Origin', 'https://app.example.test')
+      c.header('Vary', 'Origin')
+      await next()
+    }))
+    app.get('/fail', RequestKernel.handle({ method: 'get', path: '/fail', controller: [Failing, 'index'] }))
+    boot()
+    const response = await app.request('/fail')
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    expect(response.headers.get('Vary')).toBe('Origin')
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(logged).toHaveBeenCalledWith('secret detail')
+  })
+
+  it('a non-Error from the not-found handler answers the generic 500', async () => {
+    quiet()
+    const { app, boot } = bootApp()
+    app.notFound(() => { throw 'secret detail' })
+    boot()
+    await expectBody(await app.request('/missing'), 500, GENERIC)
+    expect(logged).toHaveBeenCalledTimes(1)
+  })
+
+  it('a non-Error from an app mounted with parent.route() answers the generic 500 with the parent headers', async () => {
+    quiet()
+    const container = new Container({ deps: depsRegistry })
+    const child = new Hono()
+    container.instance(HTTP_APP, child)
+    // The child's fetch wrapper is bypassed by parent.route(): its catch middleware is copied with its routes instead
+    new ResponseKernel(container).register()
+    class Failing extends Controller { index() { throw 'secret detail' } }
+    child.get('/fail', RequestKernel.handle({ method: 'get', path: '/fail', controller: [Failing, 'index'] }))
+    new ResponseKernel(container).boot()
+    const parent = new Hono()
+    parent.use(async (c, next) => { c.header('Access-Control-Allow-Origin', 'https://app.example.test'); await next() })
+    parent.route('/sub', child)
+    const response = await parent.request('/sub/fail')
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.test')
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  })
+
+  it('a ContractError from another realm answers its declared status and body, not a 500', async () => {
+    quiet()
+    // A real other realm: the brand is the shared `Symbol.for` key, while the value is not an `instanceof Error` here
+    const foreign = runInNewContext(`(() => {
+      class ContractError extends Error {
+        constructor() {
+          super('The email is taken.')
+          this.name = 'ContractError'
+          this.status = 409
+          this.code = 'EMAIL_TAKEN'
+          this.body = { message: 'The email is taken.' }
+          Object.defineProperty(this, Symbol.for('laratype.contract-error'), { value: true })
+        }
+      }
+      return new ContractError()
+    })()`)
+    expect(foreign).not.toBeInstanceOf(Error)
+    expect(isContractError(foreign)).toBe(true)
+    class Failing extends Controller { index() { throw foreign } }
+    const { app, boot } = bootApp()
+    app.get('/foreign', RequestKernel.handle({ method: 'get', path: '/foreign', controller: [Failing, 'index'] }))
+    boot()
+    const response = await app.request('/foreign')
+    await expectBody(response, 409, { code: 'EMAIL_TAKEN', message: 'The email is taken.' })
+    // A contract error is an expected answer: the filter does not log it
+    expect(logged).not.toHaveBeenCalled()
+  })
+
+  it('a throw out of the exception filter answers the generic 500, never an unhandled rejection', async () => {
+    quiet()
+    const filter = vi.spyOn(ResponseKernel.prototype, 'resolveException').mockImplementation(() => { throw 'filter failure' })
+    class Failing extends Controller { index() { throw new Error('secret detail') } }
+    const { app, boot } = bootApp()
+    app.get('/fail', RequestKernel.handle({ method: 'get', path: '/fail', controller: [Failing, 'index'] }))
+    boot()
+    const response = await app.request('/fail')
+    await expectBody(response, 500, GENERIC)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    // The filter ran for the route error and again for its own failure
+    expect(filter).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['a symbol', () => Symbol('secret detail')],
+    ['an object whose toString throws', () => ({ toString() { throw new TypeError('toString') } })],
+    ['an object whose status getter throws', () => Object.defineProperty({}, 'status', { get() { throw new TypeError('status getter') } })],
+  ])('%s thrown by a controller answers the logged generic 500 and never crashes', async (_, value) => {
+    quiet()
+    const response = await throwing(value)
+    await expectBody(response, 500, GENERIC)
+    expect(logged).toHaveBeenCalledTimes(1)
   })
 })

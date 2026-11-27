@@ -5,6 +5,7 @@ import { Hash, ModelManagement, InternalException } from "@laratype/support";
 import type { Hasher } from "@laratype/support";
 import JWTVerification from "../verifications/jwt";
 import UnsupportedVerificationModeException from "../exceptions/UnsupportVerificationModeException";
+import { passwordFieldOf } from "./passwordField";
 import type { GuardConfig } from "./tokens";
 
 const ALIAS = "user";
@@ -248,13 +249,7 @@ export default class TokenGuard<User = any> {
   async attempt(fields: Record<string, any>): Promise<User | null> {
     const model: typeof Model = this.config.provider;
     // The model hashes its own credential column, so the guard must check the same one
-    const declared: string | undefined = (model as { passwordField?: string }).passwordField;
-    const passwordField: string = this.config.options?.passwordField ?? declared ?? "password";
-    if (typeof declared === "string" && declared !== passwordField) {
-      throw new Error(
-        `[@laratype/auth] ${model.name} hashes "${declared}", not the guard's passwordField "${passwordField}": set static passwordField on the model, or use the same name in options.`,
-      );
-    }
+    const passwordField = passwordFieldOf(model, this.config.options?.passwordField);
     const { [passwordField]: password, ...where } = fields;
     // An object, an array, null or a non-finite number would reach the query as a value, not a credential
     const values = Object.values(where);

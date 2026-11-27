@@ -105,6 +105,24 @@ describe('Processed input before forwarding to validate', () => {
     expect(requestInstance.input).toStrictEqual(testData);
   })
 
+  it('a repeated query key keeps its first value in input(), as Hono query() did', async () => {
+    // H31 #308: the single parse yields arrays (for the contract input); the 0.5 input() takes the first, like query()
+    const request = new HonoRequest(new Request(`${getUrl(routeMock.path)}?tag=a&tag=b&page=2`));
+    const requestInstance = await RequestKernel.processData(request);
+
+    expect(requestInstance.input).toStrictEqual({ tag: 'a', page: '2' });
+  })
+
+  it('keeps an own __proto__ query key as data, never a prototype', async () => {
+    const request = new HonoRequest(new Request(`${getUrl(routeMock.path)}?__proto__=x&a=1`));
+    const requestInstance = await RequestKernel.processData(request);
+    const input = requestInstance.input as Record<string, unknown>;
+
+    expect(Object.hasOwn(input, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
+    expect(input['__proto__']).toBe('x');
+  })
+
   it('queries should be overwrite by JSON data', async () => {
     const queries = {
       email: 'test@example.com',
