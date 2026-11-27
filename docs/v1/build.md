@@ -1,7 +1,7 @@
 ---
 area: build
 packages: ["sauf", "@laratype/testing"]
-issues: [95, 102, 116, 125, 126, 127, 128, 129, 130, 131, 132, 155, 156, 172, 173, 185, 187, 188, 189, 190, 191]
+issues: [95, 102, 116, 125, 126, 127, 128, 129, 130, 131, 132, 155, 156, 172, 173, 185, 187, 188, 189, 190, 191, 329]
 verified-against: Laratype@d9e8df2
 last-verified: 2026-10-12
 ---
@@ -50,11 +50,13 @@ Constraints every package build must keep:
 - **No `"sideEffects": false` on packages that re-export defaults** (http, database, log). Bun 1.3.14 drops `export { default as X } from './mod'` re-exports under that flag, which left http's `Middleware` `undefined`. That was the root cause of the B12 "superclass is not a constructor" error. `@laratype/contract` and `@laratype/core` keep `sideEffects: false`.
 - **CJS output is named `dist/index.cjs`** in `"type": "module"` packages. `main` / `exports.require` point at it. This includes the v1 packages contract, core and client, which S4 added after B13 branched (fixed in ccf9894). This is a breaking change for CJS consumers.
 - **`globalThis.__PROD__` is not folded into library dists.** `packages/sauf/src/cli.ts` sets it at runtime, so the dev dist→src rewrite in `sauf dev` stays live.
+- **Build-machine paths stay out of every dist (B25 [#329](https://github.com/Laratypes/Laratype/issues/329)).** `import.meta.url`, `__dirname` and `__filename` are runtime expressions in the ESM and CJS builds, never build-time constants. ESM keeps `import.meta.url`; CJS has no `import.meta`, so Bun folds it to a `file://<source file>` literal and `bun.build.js` rewrites that literal to `require("node:url").pathToFileURL(__filename).href` after the build. figlet's Node entry bakes `__dirname` into its font path, so sauf's resources bundles resolve `figlet` through `scripts/figlet-browser.mjs` (the browser entry plus the Standard font data, no file reads) and the package dists keep it external, as a declared dependency. `bun run check:dist` fails a dist that contains the repository root, in its native, forward-slash, escaped-backslash or `file://` form.
 - **Every dist loads under plain Node**, both ESM `import()` and CJS `require()`, with every export defined. `bun run check:dist` verifies this.
 - **Type-only imports use `import type`** (`verbatimModuleSyntax`), as required by S3 condition 1 ([#86](https://github.com/Laratypes/Laratype/issues/86)). B11 brings TS1484/TS1485/TS1205 errors down from 62 to 0, and other pre-existing type errors are unchanged.
 
 ### Diagnostics
 - `check:dist` fails if a dist inlines another workspace package, or if a dist fails to load under Node.
+- `check:dist` fails with `<file>: contains the build root path at offset <n> (<form>)` when a dist carries the build machine's repository root.
 - `TS1484` / `TS1485` for a type imported as a value.
 
 ### Example
