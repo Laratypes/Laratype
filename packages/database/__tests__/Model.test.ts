@@ -145,6 +145,30 @@ describe('Model password cast', () => {
     expect(lookups).toEqual([])
   })
 
+  it('allows a relation lookup by a loaded entity that carries its password hash', async () => {
+    const { User, lookups } = model()
+    class Author extends Model {
+      id!: number
+      email!: string
+      password!: string
+    }
+    const author: any = Object.assign(new Author(), {
+      id: 1,
+      email: 'ada@example.com',
+      password: Hash.make('loaded'),
+    })
+    // { author } is a relation lookup by that row: TypeORM compares author.password with the stored hash, so it matches
+    await expect(User.findOneBy({ author } as any)).resolves.toBeNull()
+    expect(lookups).toEqual([{ author }])
+  })
+
+  it('still refuses a loaded entity passed as the top-level where', async () => {
+    const { User, lookups } = model()
+    const loaded: any = Object.assign(new User(), { id: 1, email: 'ada@example.com', password: 'stored-hash' })
+    await expect(User.findOneBy(loaded)).rejects.toThrow('findOneBy() cannot look a user up by password')
+    expect(lookups).toEqual([])
+  })
+
   it('queries a nested or cyclic where that does not carry the password', async () => {
     const { User, lookups } = model()
     await expect(User.findOneBy({ user: { email: 'ada@example.com' } } as any)).resolves.toBeNull()

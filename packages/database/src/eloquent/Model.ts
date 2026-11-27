@@ -632,7 +632,12 @@ const carriesPassword = (where: unknown, passwordField: string, seen: WeakSet<ob
   // Traverse a query container whatever its prototype: TypeORM's buildWhere() walks a class instance's fields too
   for (const key in where) {
     if (key === passwordField) return true;
-    if (carriesPassword((where as Record<string, unknown>)[key], passwordField, seen)) return true;
+    const value = (where as Record<string, unknown>)[key];
+    // A nested loaded entity is a relation lookup by that row (Post.findOneBy({ author: user })): TypeORM compares the
+    // row's columns, the stored credential hash included, and the lookup is valid. Do not descend into it. An entity
+    // passed at the top level, or as an array element, still carries its own credential and is checked there.
+    if (value instanceof BaseEntity) continue;
+    if (carriesPassword(value, passwordField, seen)) return true;
   }
   return false;
 }
