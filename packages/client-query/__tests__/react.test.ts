@@ -16,6 +16,27 @@ const User = { id: 1, name: "Ada", email: "ada@example.com" };
 
 const queryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
+type QueryApi = ReturnType<typeof createQueryApi<typeof appApi>>;
+
+// Module-level components: a component defined inside a test is a new identity on every render (noComponentHookFactories).
+const UserName = ({ q }: { q: QueryApi }) => {
+  const user = useQuery(q.users.show.queryOptions({ params: { user: 1 } }));
+  return createElement("div", null, user.isPending ? "loading" : user.data?.name);
+};
+
+const StoreUser = ({ q }: { q: QueryApi }) => {
+  const created = useMutation(q.users.store.mutationOptions());
+  useEffect(() => {
+    created.mutate({ body: { name: "Ada", email: "ada@example.com" } });
+  }, [created.mutate]);
+  return createElement("div", null, created.data?.name ?? "pending");
+};
+
+const FailedUserName = ({ q }: { q: QueryApi }) => {
+  const user = useQuery(q.users.show.queryOptions({ params: { user: 1 } }));
+  return createElement("div", null, user.isError ? String(user.error.code) : "pending");
+};
+
 /** Renders a component with a provider and a retry-free client; `waitForText` flushes React's effects while it polls. */
 const render = async (child: ReactElement, client: QueryClient) => {
   const el = document.createElement("div");
@@ -41,12 +62,8 @@ describe("createQueryApi in React", () => {
   it("renders the query data a component reads", async () => {
     const { fetch, calls } = fakeFetch(User);
     const q = createQueryApi(createClient(appApi, { fetch }));
-    function UserName() {
-      const user = useQuery(q.users.show.queryOptions({ params: { user: 1 } }));
-      return createElement("div", null, user.isPending ? "loading" : user.data?.name);
-    }
 
-    const { root, waitForText } = await render(createElement(UserName), queryClient());
+    const { root, waitForText } = await render(createElement(UserName, { q }), queryClient());
     await waitForText("Ada");
     expect(calls[0]!.url).toBe("/api/users/1");
     await act(async () => root.unmount());
@@ -55,15 +72,8 @@ describe("createQueryApi in React", () => {
   it("runs a mutation and renders its data", async () => {
     const { fetch, calls } = fakeFetch(User, 201);
     const q = createQueryApi(createClient(appApi, { fetch }));
-    function StoreUser() {
-      const created = useMutation(q.users.store.mutationOptions());
-      useEffect(() => {
-        created.mutate({ body: { name: "Ada", email: "ada@example.com" } });
-      }, [created.mutate]);
-      return createElement("div", null, created.data?.name ?? "pending");
-    }
 
-    const { root, waitForText } = await render(createElement(StoreUser), queryClient());
+    const { root, waitForText } = await render(createElement(StoreUser, { q }), queryClient());
     await waitForText("Ada");
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.body).toBe('{"name":"Ada","email":"ada@example.com"}');
@@ -73,12 +83,8 @@ describe("createQueryApi in React", () => {
   it("renders the error of a failed query", async () => {
     const { fetch } = fakeFetch({ code: "UNAUTHORIZED", message: "Sign in." }, 401);
     const q = createQueryApi(createClient(appApi, { fetch }));
-    function UserName() {
-      const user = useQuery(q.users.show.queryOptions({ params: { user: 1 } }));
-      return createElement("div", null, user.isError ? String(user.error.code) : "pending");
-    }
 
-    const { root, waitForText } = await render(createElement(UserName), queryClient());
+    const { root, waitForText } = await render(createElement(FailedUserName, { q }), queryClient());
     // the typed error reaches the component: `UNAUTHORIZED` is declared by the contract's auth
     await waitForText("UNAUTHORIZED");
     await act(async () => root.unmount());
