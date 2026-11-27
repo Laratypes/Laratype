@@ -1,5 +1,6 @@
-// B30 #410 r2: the pipeline's form decision must cover every `hono` peer in `^4.8.0`. 4.8.0–4.12.27's `parseBody()`
-// matches the header as sent with a case-sensitive `startsWith`; 4.12.28+ splits at `;`, trims, lowercases and compares
+// B30 #410 r2: the pipeline's form decision must cover every `hono` rule the framework has declared, the `^4.8.0`
+// arm through `^4.13.23`'s. 4.8.0–4.12.27's `parseBody()` matches the header as sent with a case-sensitive
+// `startsWith`; 4.12.28+ (every peer since the floor moved to `^4.13.23`) splits at `;`, trims, lowercases and compares
 // exactly. The pipeline reads a request as a form when EITHER rule does (fail closed), so a spelling one peer parses can
 // never reach a handler unvalidated because another peer's rule was copied. A Content-Type holding more than one media
 // type is the 400 before either rule, and so is a form type name anywhere outside the leading media type (Bun's
@@ -110,7 +111,7 @@ const CASES: FormCase[] = [
   { header: "text/plain", kind: "neither" },
 ];
 
-describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
+describe("form media type over the hono ^4.13.23 peer's rule and the older arms (B30 #410)", () => {
   it.each(CASES)("classifies and parses $header exactly as the union of Hono's rules", async ({ header, kind, multipart }) => {
     const body = multipart ? MULTIPART : URLENCODED;
     const union = oldRule(header) || newRule(header) || masterRule(header);
@@ -139,7 +140,7 @@ describe("form media type across the hono ^4.8.0 peer range (B30 #410)", () => {
     }
 
     if (newRule(header)) {
-      // The installed Hono (4.13.17) classifies it as a form: the pipeline must agree, field for field. A platform
+      // The installed Hono (4.13.23) classifies it as a form: the pipeline must agree, field for field. A platform
       // parse rejection (a leading U+00A0 on Node) is the malformed-form 400, not a `{}` that skips validation.
       if (hono.ok) {
         expect(pipeline.status).toBe(200);
