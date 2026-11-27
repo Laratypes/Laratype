@@ -509,6 +509,27 @@ describe('scope bubbling', () => {
     expect(() => scope.make(Service)).toThrow(new DiError('Request scope already disposed.'))
     expect(warn).not.toHaveBeenCalled()
   })
+
+  it('a warning adapter that disposes the scope in the warning throws instead of caching the bubbled value', async () => {
+    let disposed = 0
+    class RequestId {}
+    class Controller {
+      constructor(readonly id: RequestId) {}
+      [Symbol.dispose]() { disposed++ }
+    }
+    const app = new Container({ deps: depsOf([[Controller, { slots: [() => RequestId] }]]) })
+      .scoped(RequestId)
+      .singleton(Controller)
+    const scope = app.createRequestScope()
+    // The adapter runs inside warnBubbled(), after bubble() resolved the still-live scope: the value must not be
+    // cached in it once the warning disposed it (di.md › dispose())
+    warn.mockImplementationOnce(() => { void scope.dispose() })
+    expect(() => scope.make(Controller)).toThrow(new DiError('Request scope already disposed.'))
+    expect(warn).toHaveBeenCalledTimes(1)
+    // The disposal snapshot was taken before the value existed, so nothing disposes it: it leaks, as documented
+    await scope.dispose()
+    expect(disposed).toBe(0)
+  })
 })
 
 describe('class-key instance() in a request scope', () => {

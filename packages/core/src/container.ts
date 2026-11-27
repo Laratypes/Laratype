@@ -692,8 +692,10 @@ export class Container {
   /** Cache the first value of a bubbled singleton in the current request scope, and warn once in dev. */
   protected bubble(key: unknown, cacheKey: unknown, value: unknown, requestDep: unknown): unknown {
     // Resolve the scope before the warning: a bubble that throws must not suppress the dev warning on the next request
-    const { cache } = this.resolutionScope(key, undefined)
+    const { scope, cache } = this.resolutionScope(key, undefined)
     warnBubbled(key, requestDep)
+    // A console.warn adapter is app code: one that disposes this scope must not have the value cached in the spent scope
+    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
     this.cacheValue(cache, cacheKey, value)
     return value
   }
