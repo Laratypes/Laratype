@@ -147,13 +147,58 @@ function matchPattern(pattern: string, value: string, context: PatternContext): 
 }
 
 /**
+ * Whether Hono's routers would read `value` differently from the RegExp form: that form groups the pattern and appends
+ * the static rest, while a trie router takes the matched text (`exec()[0]`) as the param, so it can stop at a prefix or
+ * an inner `/next`. Both trie forms are checked: the grouped one (`^(?:pattern)$` / `^(?:pattern)(?=/next)`) that Hono
+ * 4.13.23 uses (GHSA-586x), and the bare one (`^pattern$` / `^pattern(?=/next)`) an older Hono still runs, which a browser
+ * client cannot rule out because `@laratype/contract` has no Hono dependency. A pattern the RegExp router refuses is
+ * served by the trie router alone, so there is no disagreement. This is consulted only for a split `buildUrl` is about to
+ * send; a value that stays encoded is not a router choice.
+ */
+function routerDisagrees(pattern: string, value: string, context: PatternContext): boolean {
+  if (!regexpRouterCompiles(pattern)) return false;
+  const { suffix, next } = context;
+  const input = value + suffix;
+  let regexp: boolean;
+  try {
+    regexp = new RegExp(`^(?:${pattern})${escapeRegExp(suffix)}$`).test(input);
+  } catch {
+    // the RegExp form cannot compile: the trie router is the only one that can serve the route
+    return false;
+  }
+  const lookahead = next === undefined ? "" : `(?=/${escapeRegExp(next)})`;
+  for (const source of [`^(?:${pattern})${lookahead}`, `^${pattern}${lookahead}`]) {
+    let trie: RegExpExecArray | null;
+    try {
+      trie = new RegExp(source).exec(input);
+    } catch {
+      // this trie form cannot compile either; skip it
+      continue;
+    }
+    if (regexp !== (trie !== null)) return true;
+    // both accept: the trie router reads the matched text as the param, so a prefix is a different value
+    if (regexp && trie !== null && trie[0] !== value) return true;
+  }
+  return false;
+}
+
+/** Throws when a value would route differently under Hono's routers; names the param and the path, never the value. */
+function failRouterDisagreement(name: string, path: string): never {
+  return fail(
+    `buildUrl: param "${name}" for "${path}" has a pattern Hono's two routers read differently for this value, so the URL depends on the app's router`,
+  );
+}
+
+/**
  * Encodes one param value: the whole value by default, so a `/` is `%2F` and a value like `admin/all` cannot pick the
  * static `admin/all` sibling route. A value without a `/` is the encoded value and is never examined per segment: the
  * trie router reading a prefix of it is Hono's matching, not a URL choice. Only a value with a `/` that its pattern
  * rejects in that form is examined per segment: the segments joined with `/`, as `:file{.+/.+}` (a literal `/`, where
- * `%2F` would 404) needs a real split. The split is used when the pattern accepts it; a split the pattern rejects keeps
- * the encoded value, which 404s. Only a split that is used refuses an empty, `.` or `..` segment, since it must not add
- * a segment or be resolved as a dot segment.
+ * `%2F` would 404) needs a real split. The split is used when the pattern accepts it. Because a split that is sent turns
+ * the value into path segments, a split that either trie form (grouped or bare) reads differently from the RegExp form
+ * throws (the app's router decides which one serves it); a split the pattern rejects keeps the encoded value, which 404s.
+ * Only a split that is used refuses an empty, `.` or `..` segment, since it must not add a segment or be resolved as a
+ * dot segment.
  */
 function encodeParam(name: string, text: string, path: string, pattern: string | undefined, rest: string): string {
   const encoded = encodeValue(name, text, path);
@@ -163,6 +208,10 @@ function encodeParam(name: string, text: string, path: string, pattern: string |
   const segments = text.split("/");
   const perSegment = segments.map((segment) => encodeValue(name, segment, path)).join("/");
   if (matchPattern(pattern, perSegment, context) !== "accepts") return encoded;
+  // the split is sent: every trie form in use must read it the same way as the RegExp form
+  if (routerDisagrees(pattern, perSegment, context)) {
+    failRouterDisagreement(name, path);
+  }
   refuseEmptyOrDotSegments(name, segments, path);
   return perSegment;
 }
@@ -285,10 +334,13 @@ function serializeQuery(query: UrlQuery): string {
  *   missing required param throws; an absent optional one drops its segment. A value without `/` is sent encoded and is
  *   never examined per segment. When the pattern rejects the encoded value (it needs a literal `/`, as `:file{.+/.+}`
  *   does: `%2F` would 404), the value is split on `/`, each segment encoded, and the split is sent when the pattern
- *   accepts it; a split the pattern rejects keeps the encoded value, which 404s. The sent split's segments become path
- *   segments, so it refuses an empty, `.` or `..` segment. A pattern with a `}` before a `/` (`:f{a{2}/x}`) throws: Hono
- *   reads the pattern up to that `}` and splits the route there, so it cannot route the path. A `*` segment throws: there
- *   is no value to fill it with.
+ *   accepts it; a split the pattern rejects keeps the encoded value, which 404s. Because a sent split turns the value into
+ *   path segments, the RegExp form is compared with both trie forms on that split — the grouped one Hono 4.13.23 uses and
+ *   the bare one an older server may still run — and `buildUrl` throws when either reads it differently (a top-level
+ *   `|`, a lazy quantifier, an earlier alternative stopping at an inner `/next`; another route of the app decides which
+ *   router serves it). The sent split's segments become path segments, so it refuses an empty, `.` or `..` segment. A
+ *   pattern with a `}` before a `/` (`:f{a{2}/x}`) throws: Hono reads the pattern up to that `}` and splits the route
+ *   there, so it cannot route the path. A `*` segment throws: there is no value to fill it with.
  * - A param value of exactly `.` or `..` throws: it would survive encoding and be resolved as a dot segment.
  * - A result that URL parsing reads as another host throws (`"//x"` from an absent optional first param in `"/:a?//x"`).
  * - Query: a plain object of keys (a `null` prototype or any realm's `Object.prototype`), not an array, a `Map`, a
