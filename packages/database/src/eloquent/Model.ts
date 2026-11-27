@@ -6,11 +6,13 @@ import {
   type EntityMetadata,
   type FindManyOptions,
   type FindOneOptions,
+  FindOperator,
   type FindOptionsWhere,
   Raw,
   type SaveOptions,
   type UpdateResult,
 } from "typeorm";
+import type { QueryDeepPartialEntity } from "typeorm/query-builder/QueryPartialEntity.js";
 import ModelError from "../exceptions/ModelError";
 import ModelNotFoundException from "../exceptions/ModelNotFoundException";
 import {
@@ -33,9 +35,13 @@ export type ModelClass<T extends BaseEntity = BaseEntity> = { new (): T } & type
 
 /**
  * The write input of `save()`, `update()` and `updateFor()`: a plain row where the credential column may also be a
- * `Hash.trusted()` value, stored as it is instead of being hashed again (docs/v1/database.md › Model).
+ * `Hash.trusted()` value, stored as it is instead of being hashed again (docs/v1/database.md › Model). Each property
+ * stays optional and deep like `DeepPartial`, but the `TrustedHash` brand is not made optional: an unbranded object
+ * such as `{ password: {} }` or `{ password: { hash: 'x' } }` is a type error, not a `castPassword()` throw.
  */
-export type TrustedInput<T> = DeepPartial<{ [K in keyof T]: T[K] | TrustedHash }>;
+export type TrustedInput<T> = {
+  [K in keyof T]?: DeepPartial<T[K]> | TrustedHash;
+};
 
 /** The drivers whose route-key time range the lookup knows; any other driver takes the strict common range. */
 type RouteKeyDriver = "mysql" | "postgres" | "mssql" | "unknown";
@@ -621,10 +627,14 @@ const carriesPassword = (where: unknown, passwordField: string, seen: WeakSet<ob
   if (Array.isArray(where)) {
     return where.some((entry) => carriesPassword(entry, passwordField, seen));
   }
-  // Recurse only into a relation's plain object (or null-prototype map): a Date, a Buffer or a FindOperator is a value
-  const prototype = Object.getPrototypeOf(where);
-  if (prototype !== Object.prototype && prototype !== null) return false;
-  return Object.values(where).some((value) => carriesPassword(value, passwordField, seen));
+  // A Date, a Buffer or a FindOperator is a value TypeORM reads no nested key from: keep it a leaf
+  if (where instanceof Date || Buffer.isBuffer(where) || where instanceof FindOperator) return false;
+  // Traverse a query container whatever its prototype: TypeORM's buildWhere() walks a class instance's fields too
+  for (const key in where) {
+    if (key === passwordField) return true;
+    if (carriesPassword((where as Record<string, unknown>)[key], passwordField, seen)) return true;
+  }
+  return false;
 }
 
 const fillableGuard = (input: Record<string, any>, fillable: string[]) => {
@@ -839,7 +849,7 @@ export default class Model extends BaseEntity {
   static update<T extends BaseEntity>(
     this: ModelClass<T>,
     criteria: any,
-    data: DeepPartial<T> | TrustedInput<T>,
+    data: QueryDeepPartialEntity<T> | TrustedInput<T>,
   ): Promise<UpdateResult>;
 
   static async update(criteria: any, data: any): Promise<UpdateResult> {

@@ -135,6 +135,16 @@ describe('Model password cast', () => {
     expect(lookups).toEqual([])
   })
 
+  it('refuses a credential key nested in a class-instance where container', async () => {
+    const { User, lookups } = model()
+    // TypeORM's buildWhere() reads a class instance's own fields with for...in, so the nested password reaches the SQL
+    class Criteria {
+      user = { email: 'ada@example.com', password: 'secret' }
+    }
+    await expect(User.findOneBy(new Criteria() as any)).rejects.toThrow('findOneBy() cannot look a user up by password')
+    expect(lookups).toEqual([])
+  })
+
   it('queries a nested or cyclic where that does not carry the password', async () => {
     const { User, lookups } = model()
     await expect(User.findOneBy({ user: { email: 'ada@example.com' } } as any)).resolves.toBeNull()
