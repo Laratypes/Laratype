@@ -3,7 +3,8 @@
 // path nor figlet's own `fonts/` folder exists (B25 #329). The browser entry reads no files, so this
 // registers the Standard font the banner uses and the bundle carries the font data instead.
 // `packages/sauf/build.config.js` resolves `figlet` here for the resources builds only; package dists
-// keep figlet external, as a declared dependency.
+// keep figlet external, as a declared dependency. This file sits next to build.config.js, not under
+// `dist/` or `resources/`, so it resolves through sauf's declared figlet and `files` does not ship it.
 import figlet from "figlet/browser"
 import Standard from "figlet/importable-fonts/Standard.js"
 
