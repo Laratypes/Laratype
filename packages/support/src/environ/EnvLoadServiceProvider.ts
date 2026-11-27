@@ -4,7 +4,7 @@ import { loadDefault, manifestEntry, peekAppManifest } from "../manifest/AppMani
 import { ServiceProvider } from "../ServiceProvider";
 import { validateEnv } from "./validateEnv";
 import dotenv from "dotenv";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -73,7 +73,7 @@ export function loadEnv(projectDir?: string): string | undefined {
   const mode = nodeEnv !== undefined && NODE_ENV_NAME.test(nodeEnv) && !isTemplateEnvFile(`.env.${nodeEnv}`)
     ? `.env.${nodeEnv}`
     : undefined;
-  const priorities = ['.env', '.env.local'].map((file) => at(file)).filter((file) => existsSync(file));
+  const priorities = ['.env', '.env.local'].map((file) => at(file)).filter((file) => isEnvFile(file));
   if (mode !== undefined) {
     // A directory named `.env.<NODE_ENV>` is not an env file (the name-ordered fallback below skips it too)
     const modePath = at(mode);

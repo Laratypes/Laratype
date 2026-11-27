@@ -38,6 +38,7 @@ describe('loadEnv', () => {
       'K4_FALLBACK_UPPER',
       'K4_FALLBACK_LEAKED',
       'K4_FALLBACK_SAFE',
+      'K4_FALLBACK_DIR',
     ]) delete process.env[name]
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
@@ -135,6 +136,16 @@ describe('loadEnv', () => {
     process.env.NODE_ENV = 'production'
     expect(loadEnv(project)).toBe(join(project, '.env.development'))
     expect(process.env.H1_FILES_ONLY).toBe('file')
+  })
+
+  it('reads files only: a directory named .env or .env.local is not an env file', () => {
+    const project = tmp()
+    mkdirSync(join(project, '.env'))
+    mkdirSync(join(project, '.env.local'))
+    writeFileSync(join(project, '.env.production'), 'K4_FALLBACK_DIR=file\n')
+    // NODE_ENV is unset, so the name-ordered fallback picks the only regular env file
+    expect(loadEnv(project)).toBe(join(project, '.env.production'))
+    expect(process.env.K4_FALLBACK_DIR).toBe('file')
   })
 
   it('prefers .env.<NODE_ENV> over a template file (production over .env.example)', () => {

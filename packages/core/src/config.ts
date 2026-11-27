@@ -22,7 +22,8 @@ type ReservedKey = 'constructor' | 'prototype' | '__proto__'
 
 /**
  * Every dot path of `T`: `"database" | "database.default" | ...`. A key that contains a dot ends a path: the lookup
- * reads it as the whole rest of the path. A reserved key is never a declared path: `config()` never reads it.
+ * reads it as the whole rest of the path, so `'b.constructor'` is an ordinary key. A key that is exactly a reserved key
+ * is never a declared path: `config()` never reads it.
  */
 export type ConfigPath<T = AppConfigs, Depth extends unknown[] = []> = Depth['length'] extends 8
   ? never
@@ -41,16 +42,16 @@ type LiteralKey<T> = keyof { [K in keyof T as string extends K ? never : number 
 type Missing<T> = string extends keyof T ? undefined : number extends keyof T ? undefined : never
 
 /**
- * The value at dot path `P` of `T`; `| undefined` when a key on the path is optional, an index signature, or a
- * reserved key (`constructor`, `prototype`, `__proto__`), which `config()` never reads.
+ * The value at dot path `P` of `T`; `| undefined` when a key on the path is optional or an index signature, and
+ * `undefined` for a path that is exactly a reserved key (`constructor`, `prototype`, `__proto__`), which `config()`
+ * never reads. A key that merely contains a reserved segment (`b.constructor`) is an ordinary key, and `config()` reads
+ * the whole rest of the path as a key first, so below an `unknown` key it is `unknown`, not `undefined`.
  * Same lookup as `config()`: the whole path as a declared key, then the segment before the first dot.
  */
 export type ConfigValue<P extends string, T = AppConfigs> = P extends ReservedKey
   ? undefined
   : unknown extends T
-    ? P extends `${infer Head}.${infer Rest}`
-      ? Head extends ReservedKey ? undefined : ConfigValue<Rest, unknown>
-      : unknown
+    ? unknown
     : T extends null | undefined
       ? undefined
       : P extends LiteralKey<T>
@@ -107,8 +108,8 @@ const readKey = (target: unknown, key: string): ReadKey | undefined => {
 /**
  * Reads a config value by dot path, typed from the registered configs: `config('database.default')`.
  * A key missing at run time gives `undefined`, and so does a method or a prototype data property (`app.url.toString`),
- * a reserved key (`constructor`, `prototype`, `__proto__`, which `ConfigPath` leaves out), or a path that is not a
- * string. Throws before the configs are loaded.
+ * a path that is exactly a reserved key (`constructor`, `prototype`, `__proto__`, which `ConfigPath` leaves out), or a
+ * path that is not a string. Throws before the configs are loaded.
  */
 export function config<const P extends ConfigPath>(path: P): ConfigValue<P>
 export function config(path: string): unknown {
