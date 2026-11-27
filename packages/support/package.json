@@ -50,7 +50,7 @@
   "peerDependencies": {
     "dayjs": "^1.11.13",
     "typeorm": "^0.3.31",
-    "hono": "^4.8.0",
+    "hono": "^4.13.23",
     "@laratype/http": "workspace:*",
     "passport": "^0.7.0",
     "@types/passport": "^1.0.17"
