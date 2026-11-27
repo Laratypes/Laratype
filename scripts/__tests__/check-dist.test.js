@@ -165,6 +165,19 @@ describe("path boundaries", () => {
     expect(findBuildRoot('const a = "resources/app/x";', "/app")).toBeUndefined();
   });
 
+  it("finds a root after any non-path character", () => {
+    for (const before of ["(", "=", ":", ",", "[", ";"]) {
+      const contents = `${before}${root}`;
+      expect(findBuildRoot(contents, root), before).toBeDefined();
+      expect(findBuildRoot(contents, root)?.index, before).toBe(1);
+    }
+  });
+
+  it("still rejects a path character before the root", () => {
+    expect(findBuildRoot(`x${root}`, root)).toBeUndefined();
+    expect(findBuildRoot('"resources/app/x"', "/app")).toBeUndefined();
+  });
+
   it("keeps searching after a rejected segment suffix", () => {
     const contents = 'const a = "resources/app/x";\nconst b = "/app/y";\n';
     const hit = findBuildRoot(contents, "/app");

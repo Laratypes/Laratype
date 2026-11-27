@@ -18,11 +18,12 @@ import { pathToFileURL } from 'node:url'
 const isEnd = (char) => char === undefined || char === '/' || char === '\\' || char === '"' || char === "'" || char === '`'
 
 /**
- * The same rule on the left: the form starts a path, follows a separator or a quote, or follows
- * whitespace (a path in a comment). A letter or digit before it means it is a segment suffix.
+ * The rule on the left rejects only a path character before the form: a letter, digit, `.`, `_` or `-`
+ * means the form is a segment suffix. Any other character (`(`, `=`, `:`, `,`, `[`, `;`, a separator, a
+ * quote, whitespace) or the start of the file means the form starts a path.
  * @param {string | undefined} char
  */
-const isStart = (char) => isEnd(char) || char === ' ' || char === '\t' || char === '\n' || char === '\r'
+const isStart = (char) => char === undefined || !/[A-Za-z0-9._-]/.test(char)
 
 /**
  * The forms one root takes in a file: the `file://` URL (plus its decoded variant), native separators,
