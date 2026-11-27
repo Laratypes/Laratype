@@ -268,9 +268,16 @@ const splitParams = (source: string, start: number, end: number): string[] => {
 const stripComments = (param: string): string =>
   param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
 
+/** Whether the `class` keyword starts at `index`: `superclass`, `classy` and `obj.class` are not class expressions. */
+const startsClassWord = (source: string, index: number): boolean =>
+  source.startsWith('class', index)
+  && source[index - 1] !== '.'
+  && !/[A-Za-z0-9_$]/.test(source[index - 1] ?? '')
+  && !/[A-Za-z0-9_$]/.test(source[index + 'class'.length] ?? '')
+
 /** Index of the class body's `{`, skipping a heritage expression and its brackets, strings and comments. */
-const classBodyStart = (source: string): number | undefined => {
-  let index = skipTrivia(source, 0)
+const classBodyStart = (source: string, from = 0): number | undefined => {
+  let index = skipTrivia(source, from)
   if (!source.startsWith('class', index)) return undefined
   index += 'class'.length
   while (index < source.length) {
@@ -285,6 +292,11 @@ const classBodyStart = (source: string): number | undefined => {
       index = skipBalanced(source, index, '[', ']')
     } else if (char === '{') {
       return index
+    } else if (startsClassWord(source, index)) {
+      // A heritage class expression's body belongs to the parent class, not to this one (`extends class { ... }`).
+      const body = classBodyStart(source, index)
+      if (body === undefined) return undefined
+      index = skipBalanced(source, body, '{', '}')
     } else {
       index++
     }
@@ -726,7 +738,8 @@ export class Container {
       && this.deps.hasOwn?.(cls) === false
     if (!entry || hiddenParams) {
       // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
-      const params = leadingConstructorParamCount(cls) ?? cls.length
+      // It is also a lower bound: a scan that misreads the list must not report fewer params than the engine counted.
+      const params = Math.max(leadingConstructorParamCount(cls) ?? 0, cls.length)
       if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
       if (!entry) return new cls()
     }

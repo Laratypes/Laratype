@@ -390,6 +390,25 @@ describe('zero-length constructors', () => {
     }
   })
 
+  it('keeps cls.length as a lower bound when the scan cannot parse the list', () => {
+    class Truncated {
+      constructor(first: Clock, second: Clock) {
+        void first
+        void second
+      }
+    }
+    const original = Function.prototype.toString
+    const toString = vi.spyOn(Function.prototype, 'toString').mockImplementation(function (this: Function) {
+      return this === Truncated ? 'class Truncated { constructor(first, second' : original.call(this)
+    })
+    try {
+      // The reader reports one param for the unparseable list; cls.length says the engine saw two
+      expect(messageOf(() => new Container().make(Truncated))).toContain('takes 2 param(s)')
+    } finally {
+      toString.mockRestore()
+    }
+  })
+
   it('fails closed when a line comment ends at U+2028 before a real param', () => {
     const before = new Function('return class LineComment {\u002F\u002F c\u2028 constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
     const inline = new Function('return class InlineComment { constructor(\u002F\u002F c\u2028 dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
@@ -439,12 +458,20 @@ describe('zero-length constructors', () => {
     expect(messageOf(() => new Container().make(Extended))).toContain('takes 1 param(s)')
   })
 
-  it('reads a heritage class expression through its first top-level brace (known limit)', () => {
+  it('skips a heritage class expression and reads the subclass constructor', () => {
     const A = new Function('return class A extends class { constructor(x = 1) {} } {}')()
-    const B = new Function('return class B extends class { m() {} } { constructor(p = 1) { super(); this.p = p } }')()
-    // The inner class body is the first `{`: A counts the inner constructor, B has no leading constructor there.
-    expect(messageOf(() => new Container().make(A))).toContain('Cannot autowire A: its constructor takes 1 param(s)')
-    expect(new Container().make(B).p).toBe(1)
+    const B = new Function('return class B extends class { constructor() {} } { constructor(dep) { super(); this.dep = dep } }')()
+    const C = new Function('return class C extends class { m() {} } { constructor(dep = 1) { super(); this.dep = dep } }')()
+    const Nested = new Function(
+      'return class Nested extends class extends class { m() {} } { constructor(x = 1) {} } { constructor(dep = 1) { super(); this.dep = dep } }',
+    )()
+    // A has no own constructor, so the parent class expression's body is not read as A's: `new A()` applies the default
+    expect(new Container().make(A)).toBeInstanceOf(A)
+    // B's required param is in its own body, after the parent class expression; the parent's `constructor()` must not report 0
+    expect(messageOf(() => new Container().make(B))).toContain('Cannot autowire B: its constructor takes 1 param(s)')
+    // C's leading constructor is after the parent class expression, so the all-default rule applies to it
+    expect(messageOf(() => new Container().make(C))).toContain('Cannot autowire C: its constructor takes 1 param(s)')
+    expect(messageOf(() => new Container().make(Nested))).toContain('Cannot autowire Nested: its constructor takes 1 param(s)')
   })
 
   it('does not see a constructor after a field (known limit)', () => {
