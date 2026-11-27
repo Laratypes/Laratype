@@ -166,7 +166,7 @@ function routerDisagrees(pattern: string, value: string, context: PatternContext
     // the RegExp form cannot compile: the trie router is the only one that can serve the route
     return false;
   }
-  const lookahead = next === undefined ? "" : `(?=/${escapeRegExp(next)})`;
+  const lookahead = next === undefined ? "$" : `(?=/${escapeRegExp(next)})`;
   for (const source of [`^(?:${pattern})${lookahead}`, `^${pattern}${lookahead}`]) {
     let trie: RegExpExecArray | null;
     try {

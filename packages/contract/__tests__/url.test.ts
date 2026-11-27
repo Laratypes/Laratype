@@ -193,6 +193,16 @@ describe('buildUrl regex params and "/"', () => {
     }
   })
 
+  it('anchors the last-position trie forms, so a whole match is not a prefix', () => {
+    // A param at the end of the path has no following static segment: both trie forms must anchor with `$`, not an empty
+    // lookahead, or a lazy form that matches the whole value would look like a prefix disagreement
+    expect(buildUrl('/files/:file{.+?/.+?}', { params: { file: 'a/b/c' } })).toBe('/files/a/b/c')
+    // The bare form (Hono < 4.13.23) is ungrouped at the top level: `^a/b|a/b/c$` reads "a/b" of "a/b/c", while the
+    // grouped form reads the whole value. That is a real disagreement, so the split stays refused rather than building
+    // a URL an older server routes with p="a/b" (dropping the bare form would also stop the `a|.+/.+` refusal)
+    expect(() => buildUrl('/x/:p{a/b|a/b/c}', { params: { p: 'a/b/c' } })).toThrow(/two routers read differently/)
+  })
+
   it('keeps the encoded value when no split is sent', () => {
     // a common alternation pattern: a value without "/" is what buildUrl sends; a value its pattern rejects at both
     // ends is the app's 404, not a URL choice, and buildUrl has no split to compare
