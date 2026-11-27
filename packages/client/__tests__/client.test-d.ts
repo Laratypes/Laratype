@@ -231,6 +231,12 @@ describe('JSON-safe request input (#255)', () => {
     expectTypeOf<Body>().toEqualTypeOf<{ at: never }>()
   })
 
+  test('body: a toJSON that may return undefined only accepts its JSON form, never the raw value (#326)', () => {
+    type Body = CallInput<Shape<{ gone: { toJSON(): undefined }; maybe: { toJSON(): string | undefined }; plain: { toJSON(): string } }>>['body']
+    // JSON.stringify returns undefined for the first (no body) and may for the second: the raw object is not accepted
+    expectTypeOf<Body>().toEqualTypeOf<{ gone: never; maybe: string; plain: { toJSON(): string } | string }>()
+  })
+
   // H32 #312: the client's NotJson is the contract's `undefined | symbol | ((...args: any[]) => unknown)`. The aliases
   // are private to their packages, so the pin is behavioural: a property of one of those types is not on the wire
   // (`Jsonify`), and is no body field either (`JsonInput`): a symbol or a function is `never`, an undefined property
@@ -351,6 +357,28 @@ describe('headers that options.headers provides (#255)', () => {
   })
 })
 
+describe('an explicit Hd only provides a header a static options.headers sends (#326)', () => {
+  type Tenant = { 'x-tenant': string }
+
+  test('the contract, node and api overloads take Hd only with a matching static headers value', () => {
+    void createClient<typeof usersContract, Tenant>(usersContract, { headers: { 'x-tenant': 't' } }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+    void createClient<typeof appApi.users, Tenant>(appApi.users, { headers: { 'x-tenant': 't' } }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+    void createClient<typeof appApi, Tenant>(appApi, { headers: { 'x-tenant': 't' } }).users.store({ body: { name: 'Ada', email: 'a@b.c' } })
+    // no options: nothing sends x-tenant, so the types cannot claim it
+    // @ts-expect-error the static-headers overload needs options.headers
+    createClient<typeof usersContract, Tenant>(usersContract)
+    // @ts-expect-error a headers function provides no header to the types
+    createClient<typeof usersContract, Tenant>(usersContract, { headers: () => ({ 'x-tenant': 't' }) })
+  })
+
+  test('without Hd a headers function provides nothing, so the schema header stays required', () => {
+    // @ts-expect-error x-tenant is required
+    void createClient(usersContract, { headers: () => ({ 'x-tenant': 't' }) }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+    // the static form provides it
+    void createClient(usersContract, { headers: { 'x-tenant': 't' } }).store({ body: { name: 'Ada', email: 'a@b.c' } })
+  })
+})
+
 describe('createClient(manifest)', () => {
   const sep = createClient<Generated>(manifest)
 
@@ -409,11 +437,15 @@ describe('createClient(manifest)', () => {
 })
 
 describe('options and hooks', () => {
-  test('headers: a HeadersInit, or a function returning one, sync or async', () => {
+  test('headers: a HeadersInit, or a function returning one (or undefined), sync or async', () => {
     expectTypeOf<{ headers: { authorization: string } }>().toMatchTypeOf<ClientOptions>()
     expectTypeOf<{ headers: () => [string, string][] }>().toMatchTypeOf<ClientOptions>()
     expectTypeOf<{ headers: () => Promise<Headers> }>().toMatchTypeOf<ClientOptions>()
-    // @ts-expect-error a function must return headers
+    // CL9 #315: the function form may return undefined, like the static form
+    expectTypeOf<{ headers: () => undefined }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => Promise<undefined> }>().toMatchTypeOf<ClientOptions>()
+    expectTypeOf<{ headers: () => Promise<HeadersInit | undefined> }>().toMatchTypeOf<ClientOptions>()
+    // @ts-expect-error a function must return headers or undefined
     createClient(appApi, { headers: () => 1 })
   })
 

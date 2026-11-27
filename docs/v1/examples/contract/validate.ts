@@ -1,5 +1,7 @@
-// docs/v1/contract.md: Standard Schema adapter (C3, merged on master).
+// docs/v1/contract.md: Standard Schema adapter.
 import { expectTypeOf } from 'vitest'
+
+// #region validating-a-value
 import * as z from 'zod'
 import { endpoint, errors, validate, validateSync } from '@laratype/contract'
 import type { ValidationErrorBody } from '@laratype/contract'
@@ -13,8 +15,7 @@ export async function check(input: unknown): Promise<ValidationErrorBody | { nam
   // (The router validates with the untyped runtime slot `store.def.body`.)
   const result = await validate(StoreBody, input)
   if (result.ok) {
-    expectTypeOf(result.value).toEqualTypeOf<{ name: string; address: { zip: string } }>()
-    return result.value
+    return result.value // { name: string; address: { zip: string } }
   }
   // errors: dot path -> messages, e.g. { "address.zip": ["Required"] }: the 422 body shape.
   return errors.validation(result.errors).body
@@ -23,4 +24,10 @@ export async function check(input: unknown): Promise<ValidationErrorBody | { nam
 // Sync variant: throws a TypeError when the schema is async.
 const Page = z.object({ page: z.coerce.number<number>().default(1) })
 export const page = validateSync(Page, { page: '2' })
+// page.value.page: number, once page.ok is true
+// #endregion validating-a-value
+
+// Type checks, outside the guide region.
+type CheckResult = Awaited<ReturnType<typeof validate<typeof StoreBody>>>
+expectTypeOf<Extract<CheckResult, { ok: true }>['value']>().toEqualTypeOf<{ name: string; address: { zip: string } }>()
 if (page.ok) expectTypeOf(page.value.page).toEqualTypeOf<number>()
