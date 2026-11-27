@@ -388,6 +388,29 @@ describe('a contract route', () => {
     })
   })
 
+  it('scrubs a custom keys message that is kept whole (H31 #308)', () => {
+    // no key in the suffix, so the instruction stays, but it still carries a submitted leaf value: the value scrub runs
+    expect(
+      publicIssue(
+        { message: 'Unexpected field for Sample Name: remove it', keys: ['extra'], code: 'unrecognized_keys' },
+        { name: 'Sample Name', extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid value' })
+  })
+
+  it('searches the JSON-escaped spelling of an unknown key (H31 #308)', () => {
+    const key = 'pw"secret'
+    const message = `Bad fields: ${JSON.stringify([key])}`
+    expect(message).toContain('\\"')
+    // the suffix lists the escaped key: it is cut, so the key is not echoed
+    expect(publicIssue({ message, keys: [key], code: 'unrecognized_keys' }, {})).toEqual({ path: [], message: 'Bad fields' })
+    // the prefix loop searches the escaped spelling too: a key there fails closed
+    expect(publicIssue({ message: `Bad ${JSON.stringify([key])}: extra`, keys: [key], code: 'unrecognized_keys' }, {})).toEqual({
+      path: [],
+      message: 'Invalid value',
+    })
+  })
+
   it('searches the printable leaves of an object at the path', async () => {
     quiet()
     // a message that embeds the object as JSON carries a leaf: the issue fails closed
@@ -929,6 +952,21 @@ describe('a 0.5 request class', () => {
     const text = await response.text()
     expect(JSON.parse(text).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
     expect(text).not.toContain('s3cr3t')
+  })
+
+  it('keeps the library keys message past the leaf bound (H31 #308)', async () => {
+    quiet()
+    // 60 fields + `extra` is past the 50-leaf bound: the fixed `Unrecognized key` prefix must not be walked into
+    // `Invalid value`, and it must not echo the unknown key
+    const fields = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`f${index}`, z.string()]))
+    const body = (count: number) => ({ ...Object.fromEntries(Array.from({ length: count }, (_, index) => [`f${index}`, 'x'])), extra: 1 })
+    const big = await post(() => z.object(fields(60)).strict(), body(60))
+    const bigText = await big.text()
+    expect(JSON.parse(bigText).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
+    expect(bigText).not.toContain('extra')
+    // under the bound the same message is kept, as before
+    const small = await post(() => z.object(fields(10)).strict(), body(10))
+    expect(JSON.parse(await small.text()).errors).toEqual([{ path: [], message: 'Unrecognized key' }])
   })
 
   it('a default rules() is told by its brand, so another copy of @laratype/http skips it too', async () => {

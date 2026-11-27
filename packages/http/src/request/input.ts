@@ -753,14 +753,26 @@ const isLibraryKeysMessage = (prefix: string): boolean => {
 };
 
 /**
+ * The spellings of a key searched in a keys message: the key, and its JSON-escaped form too when it differs (a message
+ * built with `JSON.stringify(keys)` writes a quote or backslash escaped). Each spelling of 3 or more characters is
+ * searched, the same floor as a value's forms (H31 #308).
+ */
+const keySpellings = (key: unknown): readonly string[] => {
+  const text = String(key);
+  const escaped = JSON.stringify(text)?.slice(1, -1);
+  const forms = escaped !== undefined && escaped !== text ? [text, escaped] : [text];
+  return forms.filter((form) => form.length >= SEARCH_MIN);
+};
+
+/**
  * The message of an issue that carries `keys` (zod's unrecognized keys; zod 3's and valibot's formats included). The
  * full message lists every key, so a per-key `includes` over it is O(keys x message): the keys are searched in one
  * folded string instead, and past `MAX_KEYS` the answer is `Invalid value` without echoing any — a message that lists
- * that many keys cannot be assumed clean (H31 #308). Up to the bound, only the keys of 3 or more characters are
- * searched, case-folded, in the prefix before the first `": "` (the whole message when there is none): a key in the
- * prefix is `Invalid value`. The suffix after `": "` is cut only when it lists one of those keys or the prefix is one of
- * the libraries' own formats, so a custom instruction (`Invalid object: remove fields not in the schema.`) is kept; a
- * blank prefix is cut too, since the message is then only the suffix.
+ * that many keys cannot be assumed clean (H31 #308). Up to the bound, each key is searched in its raw and JSON-escaped
+ * spellings, case-folded, in the prefix before the first `": "` (the whole message when there is none): a spelling in
+ * the prefix is `Invalid value`. The suffix after `": "` is cut only when it lists one of those spellings or the prefix
+ * is one of the libraries' own formats, so a custom instruction (`Invalid object: remove fields not in the schema.`) is
+ * kept; a blank prefix is cut too, since the message is then only the suffix.
  */
 const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage => {
   if (keys.length > MAX_KEYS) return { message: INVALID_VALUE, cut: true };
@@ -768,17 +780,17 @@ const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage =>
   const prefix = at === -1 ? message : message.slice(0, at);
   const folded = prefix.toLowerCase();
   for (const key of keys) {
-    const text = String(key);
-    if (text.length < SEARCH_MIN) continue;
-    if (folded.includes(text.toLowerCase())) return { message: INVALID_VALUE, cut: true };
+    for (const form of keySpellings(key)) {
+      if (folded.includes(form.toLowerCase())) return { message: INVALID_VALUE, cut: true };
+    }
   }
   if (at === -1) return { message, cut: false };
   if (prefix.trim() === "" || isLibraryKeysMessage(prefix)) return { message: prefix, cut: true };
   const suffix = message.slice(at + 2).toLowerCase();
   for (const key of keys) {
-    const text = String(key);
-    if (text.length < SEARCH_MIN) continue;
-    if (suffix.includes(text.toLowerCase())) return { message: prefix, cut: true };
+    for (const form of keySpellings(key)) {
+      if (suffix.includes(form.toLowerCase())) return { message: prefix, cut: true };
+    }
   }
   return { message, cut: false };
 };
@@ -793,15 +805,20 @@ const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage =>
  * 'c'`, valibot's `... but received 5`), and a translated or custom message can put it anywhere (`Ungültiger Enum-Wert.
  * Erwartet 'a' | 'b', erhalten 'secret'`). An object or array at the path is searched through its printable leaves, so
  * an object-level message (`Passwords don't match`) is kept unless a leaf appears in it or the walk hits its bound. The
- * retained text of a keys issue is searched for that value too, and the whole build shares `budget`: once it runs out,
- * the issue fails closed. A path that does not resolve falls back to the library's printable `received` (zod 3,
- * valibot), then keeps the message. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut
- * into `Invalid value`), so a message the app wrote empty is kept empty.
+ * retained text of a custom keys message is searched for that value too; a keys message cut to a library prefix
+ * (`Unrecognized key`) or to nothing is fixed text, not submitted data, so it is returned without a path or leaf walk —
+ * a large body must not turn it into `Invalid value`. The whole build shares `budget`: once it runs out, the issue
+ * fails closed. A path that does not resolve falls back to the library's printable `received` (zod 3, valibot), then
+ * keeps the message. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut into `Invalid
+ * value`), so a message the app wrote empty is kept empty.
  */
 const issueMessage = (issue: LibraryIssue, input: unknown, budget: ReadBudget): IssueMessage => {
   const { message, keys } = issue;
   const keyed = Array.isArray(keys) && keys.length > 0 ? keysMessage(message, keys) : undefined;
   if (keyed?.message === INVALID_VALUE) return keyed;
+  // A cut to a library prefix or to nothing is fixed text: no submitted value can be in it, and the walk over a body
+  // past the leaf bound would only replace a clean `Unrecognized key` with `Invalid value` (H31 #308)
+  if (keyed?.cut && (isLibraryKeysMessage(keyed.message) || keyed.message.trim() === "")) return keyed;
   const base = keyed?.message ?? message;
   const found = valueAtPath(input, issuePath(issue), budget);
   if (found.bounded) return { message: INVALID_VALUE, cut: true };
