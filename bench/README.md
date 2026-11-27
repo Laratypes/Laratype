@@ -110,8 +110,8 @@ All four use the same Zod 4.6.7 schema for 3a/3b. The 422 envelope is built from
 
 - One server process at a time, spawned per scenario on a free port bound to `127.0.0.1`; health-checked, warmed up,
   measured, killed and awaited before the next run. No cluster, no parallel servers.
-- The bench pins its own `@hono/node-server` 2.1.6 (patched for GHSA-rmxm-3fg6-px4f); the root workspace's and
-  `sauf`'s older entries are pre-existing and untouched.
+- The bench pins `@hono/node-server` 2.1.7 (patched for GHSA-rmxm-3fg6-px4f); the root and `sauf` workspaces resolve
+  the same 2.1.7 entry.
 - Metrics: req/s, p50/p99 latency, cold start (spawn → first 200 on `/health`), RSS at idle and under load (from the
   child pid: `/proc/<pid>/status` on Linux, `tasklist` on Windows, `ps` on macOS). A failed run is recorded and the
   suite continues; it exits 1 at the end.

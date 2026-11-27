@@ -111,6 +111,6 @@ export function markdown(report) {
   lines.push('- `validation-422` answers 422 by design, so its autocannon `non2xx` count equals its response count; it is not an error.')
   lines.push('- Express/Fastify on Bun run through Bun\'s node:http compatibility layer, their only Bun path; Hono/Laratype use `Bun.serve`.')
   lines.push('- RSS is the child pid\'s OS value (`/proc/<pid>/status` on Linux, `tasklist` on Windows, `ps` on macOS), sampled every 500 ms.')
-  lines.push('- The bench resolves its own `@hono/node-server` (2.1.6, patched for GHSA-rmxm-3fg6-px4f); the root workspace (1.19.1) and `sauf` (1.19.6) entries are pre-existing and untouched by this benchmark.')
+  lines.push('- The bench resolves `@hono/node-server` 2.1.7 (patched for GHSA-rmxm-3fg6-px4f), the same version as the root and `sauf` workspaces.')
   return lines.join('\n')
 }

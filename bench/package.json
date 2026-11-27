@@ -9,7 +9,7 @@
     "bench:smoke": "bun run.mjs --smoke"
   },
   "devDependencies": {
-    "@hono/node-server": "2.1.6",
+    "@hono/node-server": "2.1.7",
     "@laratype/contract": "workspace:*",
     "@laratype/core": "workspace:*",
     "@laratype/http": "workspace:*",
