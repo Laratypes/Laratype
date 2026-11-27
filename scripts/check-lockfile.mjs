@@ -5,8 +5,11 @@
 //  2. keep a text scan for non-registry sources as a second layer;
 //  3. scan the manifests derived from workspaces.packages (dir and dir/*), plus
 //     resolutions, workspaces.catalog and workspaces.catalogs.*;
-//  4. no manifest adds trustedDependencies (the allowlist is empty);
-//  5. bun pm untrusted must be fully understood and list no script outside the allowlist.
+//  4. every workspace:<dir> lock ref names one of those directories, so a
+//     traversing or undeclared path cannot point outside the workspace;
+//  5. fail on a duplicate key in any lock object (JSON.parse keeps the last one);
+//  6. no manifest adds trustedDependencies (the allowlist is empty);
+//  7. bun pm untrusted must be fully understood and list no script outside the allowlist.
 // Usage: bun run check:lockfile
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -22,7 +25,10 @@ const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
 const GLOB_META = /[*?[\]{}!]/
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies', 'overrides', 'resolutions']
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, any>}
+ */
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
@@ -55,6 +61,105 @@ const stripTrailingCommas = (text) => {
     result += char
   }
   return result
+}
+
+/**
+ * True when a relative directory uses forward slashes and stays inside the root.
+ * @param {string} value
+ */
+const isSafeRelativeDirectory = (value) => {
+  if (!value || value.startsWith('/') || path.win32.isAbsolute(value) || /^[A-Za-z]:/.test(value)) return false
+  return value.split('/').every(segment => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+/**
+ * Scan JSONC text for duplicate keys in any object. JSON.parse silently keeps the
+ * last value, so a duplicate would hide the earlier entry from every check here.
+ * @param {string} text
+ * @returns {{ key: string, path: string }[]}
+ */
+const findDuplicateKeys = (text) => {
+  /** @type {{ kind: 'object' | 'array', path: string, keys?: Set<string>, pendingKey?: string, index?: number, state?: 'key' | 'value' }[]} */
+  const stack = []
+  /** @type {{ key: string, path: string }[]} */
+  const duplicates = []
+  let index = 0
+  while (index < text.length) {
+    const char = text[index]
+    if (char === '"') {
+      let end = index + 1
+      while (end < text.length) {
+        if (text[end] === '\\') {
+          end += 2
+          continue
+        }
+        if (text[end] === '"') break
+        end++
+      }
+      const literal = text.slice(index, Math.min(end + 1, text.length))
+      let value
+      try {
+        value = JSON.parse(literal)
+      }
+      catch {
+        value = literal.slice(1, -1)
+      }
+      const frame = stack[stack.length - 1]
+      if (frame?.kind === 'object' && frame.state === 'key' && frame.keys) {
+        if (frame.keys.has(value)) duplicates.push({ key: value, path: frame.path })
+        frame.keys.add(value)
+        frame.pendingKey = value
+        frame.state = 'value'
+      }
+      index = end + 1
+      continue
+    }
+    if (char === '{' || char === '[') {
+      const frame = stack[stack.length - 1]
+      const parentPath = frame === undefined
+        ? '$'
+        : frame.kind === 'object' ? `${frame.path}.${frame.pendingKey ?? '?'}` : `${frame.path}[${frame.index ?? 0}]`
+      stack.push(char === '{'
+        ? { kind: 'object', path: parentPath, keys: new Set(), state: 'key' }
+        : { kind: 'array', path: parentPath, index: 0 })
+      index++
+      continue
+    }
+    if (char === '}' || char === ']') {
+      stack.pop()
+      index++
+      continue
+    }
+    if (char === ':') {
+      const frame = stack[stack.length - 1]
+      if (frame?.kind === 'object') frame.state = 'value'
+      index++
+      continue
+    }
+    if (char === ',') {
+      const frame = stack[stack.length - 1]
+      if (frame?.kind === 'object') frame.state = 'key'
+      else if (frame?.kind === 'array') frame.index = (frame.index ?? 0) + 1
+      index++
+      continue
+    }
+    if (char === '/' && text[index + 1] === '/') {
+      const newline = text.indexOf('\n', index)
+      index = newline < 0 ? text.length : newline + 1
+      continue
+    }
+    if (char === '/' && text[index + 1] === '*') {
+      const close = text.indexOf('*/', index + 2)
+      index = close < 0 ? text.length : close + 2
+      continue
+    }
+    if (/\s/.test(char)) {
+      index++
+      continue
+    }
+    while (index < text.length && !/[\s,}\]:]/.test(text[index])) index++
+  }
+  return duplicates
 }
 
 /**
@@ -96,10 +201,12 @@ const checkTrusted = (context, pkg, errors) => {
  * @param {string} targetRoot
  * @param {Record<string, any>} rootPkg
  * @param {string[]} errors
- * @returns {string[]}
+ * @returns {{ manifests: string[], directories: Set<string> }}
  */
 const workspaceManifests = (targetRoot, rootPkg, errors) => {
   const manifests = new Set([path.join(targetRoot, 'package.json')])
+  // The root manifest is the "." workspace Bun writes for a named root package.
+  const directories = new Set(['.'])
   const workspaces = rootPkg.workspaces
   if (workspaces !== undefined && !Array.isArray(workspaces) && !isObject(workspaces)) {
     errors.push('package.json: workspaces must be an array or an object')
@@ -127,7 +234,7 @@ const workspaceManifests = (targetRoot, rootPkg, errors) => {
     }
     if (glob.endsWith('/*')) {
       const basePart = glob.slice(0, -2)
-      if (!basePart || GLOB_META.test(basePart)) {
+      if (!basePart || GLOB_META.test(basePart) || !isSafeRelativeDirectory(basePart)) {
         errors.push(`package.json: workspaces.packages glob "${raw}" is unsupported (only "dir" and "dir/*")`)
         continue
       }
@@ -142,6 +249,7 @@ const workspaceManifests = (targetRoot, rootPkg, errors) => {
         const manifest = path.join(base, entry.name, 'package.json')
         if (existsSync(manifest)) {
           manifests.add(manifest)
+          directories.add(`${basePart}/${entry.name}`)
           found += 1
         }
       }
@@ -152,20 +260,26 @@ const workspaceManifests = (targetRoot, rootPkg, errors) => {
         errors.push(`package.json: workspaces.packages glob "${raw}" is unsupported (only "dir" and "dir/*")`)
         continue
       }
+      if (!isSafeRelativeDirectory(glob)) {
+        errors.push(`package.json: workspaces.packages "${raw}" must be a directory inside the repository`)
+        continue
+      }
       const manifest = path.join(targetRoot, ...glob.split('/'), 'package.json')
       if (!existsSync(manifest)) {
         errors.push(`package.json: workspaces.packages "${raw}" has no package.json`)
         continue
       }
       manifests.add(manifest)
+      directories.add(glob)
     }
   }
-  return [...manifests].sort()
+  return { manifests: [...manifests].sort(), directories }
 }
 
 /**
  * @param {string} targetRoot
  * @param {string[]} errors
+ * @returns {Set<string>} the declared workspace directories, relative to the root
  */
 const checkManifests = (targetRoot, errors) => {
   const rootPath = path.join(targetRoot, 'package.json')
@@ -175,9 +289,10 @@ const checkManifests = (targetRoot, errors) => {
   }
   catch (error) {
     errors.push(`package.json: cannot read or parse: ${error instanceof Error ? error.message : String(error)}`)
-    return
+    return new Set()
   }
-  for (const manifest of workspaceManifests(targetRoot, rootPkg, errors)) {
+  const { manifests, directories } = workspaceManifests(targetRoot, rootPkg, errors)
+  for (const manifest of manifests) {
     let pkg
     try {
       pkg = JSON.parse(readFileSync(manifest, 'utf-8'))
@@ -198,14 +313,44 @@ const checkManifests = (targetRoot, errors) => {
       }
     }
   }
+  return directories
+}
+
+/**
+ * A workspace:<dir> ref must name a directory declared by workspaces.packages.
+ * @param {string} name
+ * @param {string} directory
+ * @param {Set<string>} declared
+ * @param {string[]} errors
+ */
+const checkWorkspaceReference = (name, directory, declared, errors) => {
+  const context = `bun.lock: packages.${name}: workspace ref "${directory}"`
+  if (directory.includes('\\')) {
+    errors.push(`${context} must use forward slashes`)
+    return
+  }
+  if (directory.startsWith('/') || path.win32.isAbsolute(directory) || /^[A-Za-z]:/.test(directory)) {
+    errors.push(`${context} must be relative to the repository root`)
+    return
+  }
+  // Bun writes "." for a named root package; the root manifest is always declared.
+  if (directory === '.') return
+  if (directory.split('/').some(segment => segment === '' || segment === '.' || segment === '..')) {
+    errors.push(`${context} must not contain empty, "." or ".." segments`)
+    return
+  }
+  if (!declared.has(directory)) {
+    errors.push(`${context} is not a declared workspace directory (workspaces.packages)`)
+  }
 }
 
 /**
  * @param {Record<string, any>} lock
+ * @param {Set<string>} declaredWorkspaces
  * @param {string[]} errors
  * @returns {{ entries: number, integrity: number, workspace: number }}
  */
-const checkLockEntries = (lock, errors) => {
+const checkLockEntries = (lock, declaredWorkspaces, errors) => {
   if (!isObject(lock.packages)) {
     errors.push('bun.lock: "packages" is missing or not an object')
     return { entries: 0, integrity: 0, workspace: 0 }
@@ -232,6 +377,7 @@ const checkLockEntries = (lock, errors) => {
     const ref = first.slice(at + 1)
     if (ref.startsWith('workspace:')) {
       workspace += 1
+      checkWorkspaceReference(name, ref.slice('workspace:'.length), declaredWorkspaces, errors)
       continue
     }
     if (!SEMVER.test(ref)) {
@@ -315,6 +461,12 @@ export function checkLockfile(options = {}) {
     }
   }
 
+  for (const duplicate of findDuplicateKeys(lockText)) {
+    errors.push(`bun.lock: duplicate key "${duplicate.key}" in object at ${duplicate.path}`)
+  }
+
+  const declaredWorkspaces = checkManifests(targetRoot, errors)
+
   let stats = { entries: 0, integrity: 0, workspace: 0 }
   let lock
   try {
@@ -325,10 +477,8 @@ export function checkLockfile(options = {}) {
   }
   if (lock !== undefined) {
     if (!isObject(lock)) errors.push('bun.lock: top level is not an object')
-    else stats = checkLockEntries(lock, errors)
+    else stats = checkLockEntries(lock, declaredWorkspaces, errors)
   }
-
-  checkManifests(targetRoot, errors)
 
   let installScripts = 0
   let installScriptsSkipped = false
