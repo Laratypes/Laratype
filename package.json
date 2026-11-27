@@ -60,7 +60,7 @@
     "publint": "^0.3.25",
     "rollup": "^4.68.2",
     "rollup-plugin-dts": "^6.5.1",
-    "typescript": "^5.4.2",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
   "files": [
