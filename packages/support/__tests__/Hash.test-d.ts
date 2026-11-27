@@ -1,6 +1,6 @@
 // Type tests for the Hash facade (D8 #115): each Hasher method is on Hash with the same signature
 import { describe, expectTypeOf, it } from 'vitest'
-import { Hash, Hasher } from '@laratype/support'
+import { Hash, Hasher, isTrustedHash, type TrustedHash } from '@laratype/support'
 
 describe('Hash facade types', () => {
   it('forwards each Hasher method with the same signature', () => {
@@ -10,6 +10,9 @@ describe('Hash facade types', () => {
     expectTypeOf(Hash.checkAsync).toEqualTypeOf<(value: string, hashed: string) => Promise<boolean>>()
     expectTypeOf(Hash.needsRehash).toEqualTypeOf<(hashed: string) => boolean>()
     expectTypeOf(Hash.isHashed).toEqualTypeOf<(value: string) => boolean>()
+    expectTypeOf(Hash.trusted).toEqualTypeOf<(hashed: string) => TrustedHash>()
+    expectTypeOf(new Hasher().trusted).toEqualTypeOf<(hashed: string) => TrustedHash>()
+    expectTypeOf(isTrustedHash).toEqualTypeOf<(value: unknown) => value is TrustedHash>()
   })
 
   it('takes a Hasher instance as its fake, not a partial implementation', () => {

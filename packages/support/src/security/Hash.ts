@@ -40,6 +40,36 @@ const checkLegacy = (value: string, hashed: string) =>
 /** The stored format `check()` can verify: the scrypt hash, the 0.5 sha256 marker, or undefined. */
 const stored = (hashed: string) => parse(hashed) ?? (LEGACY_HASH.test(hashed) ? 'legacy' : undefined);
 
+/** Brand of a trusted hash: a `Symbol.for` key, so a duplicated copy of the package agrees on it. */
+const TRUSTED_HASH: unique symbol = Symbol.for('laratype.hash.trusted');
+
+/**
+ * A pre-hashed credential from a trusted source (a seeder, a fixture, an import of 0.5 hashes), built by
+ * `Hash.trusted()`: `Model`'s credential cast stores `hash` as it is instead of hashing it again.
+ */
+export interface TrustedHash {
+  readonly hash: string;
+  readonly [TRUSTED_HASH]: true;
+}
+
+/**
+ * Whether `value` is a `Hash.trusted()` value: the brand is an own property set to `true`, and `hash` an own string.
+ * A plain object (a JSON body included) cannot carry the symbol, and a string-keyed lookalike is not one.
+ */
+export const isTrustedHash = (value: unknown): value is TrustedHash => {
+  if (typeof value !== 'object' || value === null) return false;
+  try {
+    const record = value as Record<PropertyKey, unknown>;
+    return Object.prototype.hasOwnProperty.call(value, TRUSTED_HASH)
+      && record[TRUSTED_HASH] === true
+      && Object.prototype.hasOwnProperty.call(value, 'hash')
+      && typeof record.hash === 'string';
+  } catch {
+    // A hostile Proxy or throwing getter is not a trusted value
+    return false;
+  }
+};
+
 /** The implementation behind the `Hash` facade: salted scrypt, stored as `$scrypt$N=<n>,r=<r>,p=<p>$<salt>$<key>` (base64). */
 export class Hasher {
   /** A new salted hash of `value`: two calls give two different strings. */
@@ -96,9 +126,29 @@ export class Hasher {
     return typeof hashed !== 'string' || parse(hashed) === undefined;
   }
 
-  /** Whether `value` is already a hash `make()` wrote, which is stored as it is instead of being hashed again. */
+  /** Whether `value` is already a hash `make()` wrote. */
   public isHashed(value: string): boolean {
     return typeof value === 'string' && parse(value) !== undefined;
+  }
+
+  /**
+   * A hash from a trusted source, for `Model`'s write methods to store as it is instead of hashing it again. Accepts
+   * only what `check()` can verify: the formats `isHashed()` accepts, plus a 0.5 sha256 hash when `isHashed()` is the
+   * base implementation. A custom Hasher that overrides `isHashed()` owns its own accepted format (and can override
+   * this method too).
+   */
+  public trusted(hashed: string): TrustedHash {
+    if (typeof hashed !== 'string') {
+      throw new TypeError(`[@laratype/support] Hash.trusted() takes a password hash, got ${typeof hashed}.`);
+    }
+    const accepted = this.isHashed === Hasher.prototype.isHashed ? stored(hashed) !== undefined : this.isHashed(hashed);
+    if (!accepted) {
+      throw new TypeError(
+        "[@laratype/support] Hash.trusted() takes a hash this Hasher's check() can verify. Pass a plain password to Hash.make() or Model.save() instead.",
+      );
+    }
+    const trusted: TrustedHash = { hash: hashed, [TRUSTED_HASH]: true };
+    return Object.freeze(trusted);
   }
 }
 
@@ -127,6 +177,10 @@ export default class Hash extends Facade {
 
   public static isHashed(value: string): boolean {
     return Hash.root().isHashed(value);
+  }
+
+  public static trusted(hashed: string): TrustedHash {
+    return Hash.root().trusted(hashed);
   }
 
 }

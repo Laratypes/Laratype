@@ -1,5 +1,6 @@
 import type { PassportStatic } from "passport";
 import TokenGuard from "./TokenGuard";
+import { passwordFieldOf } from "./passwordField";
 
 type VerifyCallback = (err: any, user: any, info?: any) => void;
 
@@ -29,6 +30,8 @@ export default class PassportGuard<User = any> extends TokenGuard<User> {
     if (local && this.config.options?.passReqToCallback) {
       throw new Error(`[@laratype/auth] Auth guard "${this.name}": a local strategy does not support options.passReqToCallback.`);
     }
+    // The model hashes its own credential column: a guard/model mismatch fails boot, not every login (A8 #350)
+    passwordFieldOf(this.config.provider, this.config.options?.passwordField);
     const Strategy = this.config.strategy as any;
     passport.use(this.name, new Strategy({
       ...this.config.options,
