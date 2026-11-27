@@ -14,7 +14,7 @@ import { HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Request as LaratypeRequest, RequestKernel, ResponseKernel, Route } from '../../src/index'
 import type { Ctx } from '../../src/index'
-import { publicIssue } from '../../src/request/input'
+import { createReadBudget, publicIssue } from '../../src/request/input'
 
 /** An app booted like `sauf dev`: RequestKernel runs the pipeline, ResponseKernel handles errors. Middleware is
  * mounted with `app.use()` before the kernel, the only place a `bodyLimit` keeps its 413. */
@@ -295,6 +295,22 @@ describe('a contract route', () => {
     expect(keyReads).toBeLessThanOrEqual(51)
   })
 
+  it('bounds the descriptor reads of a whole 422 build (H31 #308)', () => {
+    // 40 x 40 x 40 empty objects: 40 + 1,600 + 64,000 descriptor reads with no printable leaf and no previous bound
+    // hit. Five issues share one request budget, so the build stops at the budget instead of walking the shape again.
+    const empties = () => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, {}]))
+    const children = () => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, empties()]))
+    const shape = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`k${index}`, children()]))
+    const issue = { code: 'custom', message: 'Passwords do not match', path: [] }
+    const descriptorSpy = vi.spyOn(Object, 'getOwnPropertyDescriptor')
+    const budget = createReadBudget()
+    const messages = Array.from({ length: 5 }, () => publicIssue(issue, shape, budget).message)
+    const reads = descriptorSpy.mock.calls.length
+    descriptorSpy.mockRestore()
+    expect(messages).toEqual(Array.from({ length: 5 }, () => 'Invalid value'))
+    expect(reads).toBeLessThanOrEqual(4_096)
+  })
+
   it('bounds the unrecognized-keys scrub (H31 #308)', async () => {
     // 100k unknown keys: past the 50-key bound the answer is Invalid value, with no per-key search
     const object: Record<string, number> = {}
@@ -343,6 +359,35 @@ describe('a contract route', () => {
     expect(publicIssue(valibotIssues[0]!, { a: 1, s3cr3t: 1 })).toEqual({ path: ['s3cr3t'], message: 'Invalid key: Expected never' })
   })
 
+  it('scrubs the retained text of a keys message (H31 #308)', () => {
+    // `Sample Name` is a submitted value, not a field name: cutting `extra` still leaves it in the custom prefix
+    expect(
+      publicIssue(
+        { message: 'Unexpected field for Sample Name: extra', keys: ['extra'], code: 'unrecognized_keys' },
+        { name: 'Sample Name', extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid value' })
+    // the library prefix is clean, so it is kept while the listed key goes
+    expect(
+      publicIssue({ message: 'Unrecognized keys: "extra"', keys: ['extra'], code: 'unrecognized_keys' }, { name: 'Sample Name', extra: 1 }),
+    ).toEqual({ path: [], message: 'Unrecognized keys' })
+  })
+
+  it('keeps a custom key instruction that lists no key (H31 #308)', () => {
+    // the suffix carries the instruction, not the key list: it stays
+    expect(
+      publicIssue(
+        { message: 'Invalid object: remove fields not in the schema.', keys: ['extra'], code: 'unrecognized_keys' },
+        { extra: 1 },
+      ),
+    ).toEqual({ path: [], message: 'Invalid object: remove fields not in the schema.' })
+    // the suffix lists the key: only the instruction before the first `": "` stays
+    expect(publicIssue({ message: 'Invalid object: extra', keys: ['extra'], code: 'unrecognized_keys' }, { extra: 1 })).toEqual({
+      path: [],
+      message: 'Invalid object',
+    })
+  })
+
   it('searches the printable leaves of an object at the path', async () => {
     quiet()
     // a message that embeds the object as JSON carries a leaf: the issue fails closed
@@ -363,6 +408,25 @@ describe('a contract route', () => {
     const many = Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`k${index}`, 'leaf']))
     const wide = await serveBody(issuesSchema([{ message: 'Too many leaves', path: [] }])).request('/scrub', json(many))
     expect(JSON.parse(await wide.text()).errors).toEqual({ '': ['Invalid value'] })
+  })
+
+  it('searches the JSON-escaped spelling of a submitted string (H31 #308)', async () => {
+    quiet()
+    // `JSON.stringify(input)` writes a newline, quote or backslash escaped; the literal spelling is not in the message
+    const user = z.object({ password: z.string(), confirm: z.string() })
+      .refine(() => false, { error: (issue) => `Mismatch: ${JSON.stringify(issue.input)}` })
+    const served = serveBody(z.object({ user }))
+    for (const password of ['line\nbreak', 'say "hi"', 'back\\slash']) {
+      const response = await served.request('/scrub', json({ user: { password, confirm: 'other' } }))
+      const text = await response.text()
+      expect(JSON.parse(text).errors).toEqual({ user: ['Invalid value'] })
+      expect(text).not.toContain(JSON.stringify(password).slice(1, -1))
+    }
+    // a printable value at the path is searched the same way
+    const field = z.object({ password: z.string().refine(() => false, { error: (issue) => `Bad: ${JSON.stringify(issue.input)}` }) })
+    const fieldServed = serveBody(field)
+    const fieldResponse = await fieldServed.request('/scrub', json({ password: 'line\nbreak' }))
+    expect(JSON.parse(await fieldResponse.text()).errors).toEqual({ password: ['Invalid value'] })
   })
 
   it('never follows __proto__, constructor or prototype', async () => {

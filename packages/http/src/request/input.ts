@@ -514,6 +514,31 @@ const MAX_LEAVES = 50;
 /** The unrecognized-key bound: at most 50 keys are searched, and more keys fail closed without echoing any (H31 #308). */
 const MAX_KEYS = 50;
 
+/**
+ * The descriptor reads one 422 build may make, across every issue and both input slots: the path walk and the leaf walk
+ * share one budget, so a value whose leaves are all empty containers cannot multiply its cost by the issue count
+ * (H31 #308). A legitimate issue reads a handful of descriptors; the bound only trips on a pathological shape.
+ */
+const MAX_READS = 4_096;
+
+/** The descriptor-read budget of one 422 build: created once per build and passed to every issue (H31 #308). */
+export interface ReadBudget {
+  /** The descriptor reads spent so far. */
+  used: number;
+  /** The read budget's ceiling. */
+  readonly max: number;
+}
+
+/** A fresh budget for one 422 build: the call site maps every issue of the build with this one object. */
+export const createReadBudget = (): ReadBudget => ({ used: 0, max: MAX_READS });
+
+/** Spends one descriptor read; false when the budget is spent, so the caller fails closed. */
+const spendRead = (budget: ReadBudget): boolean => {
+  if (budget.used >= budget.max) return false;
+  budget.used++;
+  return true;
+};
+
 /** A message ending in a letter, digit or combining mark (whole code points): `received` after it is not a word. */
 const ENDS_IN_WORD = /[\p{L}\p{N}\p{M}]$/u;
 
@@ -530,31 +555,46 @@ const isFile = (value: object): boolean => typeof File !== "undefined" && value 
  * The raw value at an issue's path, from own data properties only: `Object.getOwnPropertyDescriptor` is read and only
  * its `value` used, so a getter is never invoked; the prototype chain is never followed, and `__proto__`, `constructor`
  * and `prototype` are refused by name; an array is walked by its index keys like any other object. `found` is false
- * when the path does not resolve, so the issue can fall back to the library's `received` or keep its message.
+ * when the path does not resolve, so the issue can fall back to the library's `received` or keep its message; `bounded`
+ * is true when the read budget ran out, so the issue fails closed instead of being kept unread.
  */
-const valueAtPath = (input: unknown, path: readonly PropertyKey[]): { readonly found: boolean; readonly value: unknown } => {
+const valueAtPath = (
+  input: unknown,
+  path: readonly PropertyKey[],
+  budget: ReadBudget,
+): { readonly found: boolean; readonly value: unknown; readonly bounded: boolean } => {
   let current: unknown = input;
   for (const segment of path) {
-    if (typeof segment === "string" && UNSAFE_PATH.has(segment)) return { found: false, value: undefined };
-    if (current === null || typeof current !== "object") return { found: false, value: undefined };
+    if (typeof segment === "string" && UNSAFE_PATH.has(segment)) return { found: false, value: undefined, bounded: false };
+    if (current === null || typeof current !== "object") return { found: false, value: undefined, bounded: false };
+    if (!spendRead(budget)) return { found: false, value: undefined, bounded: true };
     const descriptor = Object.getOwnPropertyDescriptor(current, segment);
-    if (descriptor === undefined || !("value" in descriptor)) return { found: false, value: undefined };
+    if (descriptor === undefined || !("value" in descriptor)) return { found: false, value: undefined, bounded: false };
     current = descriptor.value;
   }
-  return { found: true, value: current };
+  return { found: true, value: current, bounded: false };
 };
 
 /**
  * The printable leaves of an object or array at the path, read under the path walk's rules (own data only, no getter,
  * no `File`, no unsafe key), at most `MAX_LEAF_DEPTH` levels deep. The enumeration itself is bounded: an array is read
  * by its first `MAX_LEAVES + 1` indices, an object by its first `MAX_LEAVES + 1` own keys (`for...in` with an own-key
- * check, so the prototype's keys are skipped), so a large body cannot make the 422 path walk every element. `bounded`
- * says the walk stopped before it covered the value or crossed the bound: an unread leaf could be in the message, so
- * the issue fails closed.
+ * check, so the prototype's keys are skipped), so a large body cannot make the 422 path walk every element. Every
+ * descriptor read also spends the request-wide `budget`, shared with the path walk and the other issues of the build, so
+ * a shape made of empty containers cannot cost `MAX_LEAVES` reads at every level for every issue. `bounded` says the
+ * walk stopped before it covered the value, crossed the leaf/key/depth bound or ran out of budget: an unread leaf could
+ * be in the message, so the issue fails closed.
  */
-const leafValues = (value: object): { readonly leaves: string[]; readonly bounded: boolean } => {
+const leafValues = (value: object, budget: ReadBudget): { readonly leaves: string[]; readonly bounded: boolean } => {
   const leaves: string[] = [];
   let bounded = false;
+  const descriptorOf = (current: object, key: PropertyKey): PropertyDescriptor | undefined => {
+    if (!spendRead(budget)) {
+      bounded = true;
+      return undefined;
+    }
+    return Object.getOwnPropertyDescriptor(current, key);
+  };
   const visit = (current: unknown, depth: number): void => {
     const text = printable(current);
     if (text !== undefined) {
@@ -565,7 +605,8 @@ const leafValues = (value: object): { readonly leaves: string[]; readonly bounde
     if (current === null || typeof current !== "object" || isFile(current)) return;
     if (Array.isArray(current)) {
       // Own `length` through its descriptor: no getter, and an array with more elements than the bound is closed
-      const length: unknown = Object.getOwnPropertyDescriptor(current, "length")?.value;
+      const length: unknown = descriptorOf(current, "length")?.value;
+      if (bounded) return;
       if (typeof length !== "number" || length === 0) return;
       if (depth >= MAX_LEAF_DEPTH) {
         bounded = true;
@@ -574,7 +615,8 @@ const leafValues = (value: object): { readonly leaves: string[]; readonly bounde
       if (length > MAX_LEAVES) bounded = true;
       const limit = Math.min(length, MAX_LEAVES + 1);
       for (let index = 0; index < limit; index++) {
-        const descriptor = Object.getOwnPropertyDescriptor(current, String(index));
+        const descriptor = descriptorOf(current, String(index));
+        if (bounded) return;
         if (descriptor !== undefined && "value" in descriptor) visit(descriptor.value, depth + 1);
         if (bounded) return;
       }
@@ -598,7 +640,8 @@ const leafValues = (value: object): { readonly leaves: string[]; readonly bounde
         return;
       }
       if (UNSAFE_PATH.has(key)) continue;
-      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      const descriptor = descriptorOf(current, key);
+      if (bounded) return;
       if (descriptor !== undefined && "value" in descriptor) visit(descriptor.value, depth + 1);
       if (bounded) return;
     }
@@ -655,15 +698,22 @@ const receivedAt = (message: string, folded: string, tails: readonly ReceivedTai
 
 /**
  * The printable spellings a message can give the submitted value: the value itself, and for a string its trimmed form
- * (a trim transform makes a translated message quote the trimmed value). A spelling shorter than `SEARCH_MIN` is left
- * out of the search but its exact `received <value>` tail is still cut; a type name is left out of both, so a default
- * `invalid_type` message keeps its text.
+ * (a trim transform makes a translated message quote the trimmed value) and its JSON-escaped spelling (`JSON.stringify`
+ * writes a newline, quote or backslash escaped, so a message built with `JSON.stringify(input)` carries that form). A
+ * spelling shorter than `SEARCH_MIN` is left out of the search but its exact `received <value>` tail is still cut; a
+ * type name is left out of both, so a default `invalid_type` message keeps its text.
  */
 const searchForms = (value: unknown): readonly string[] => {
   const text = printable(value);
   if (text === undefined) return [];
   const forms = typeof value === "string" && value.trim() !== text ? [text, value.trim()] : [text];
-  return forms.filter((form) => form.length >= SEARCH_MIN && !isTypeName(form));
+  if (typeof value === "string") {
+    for (const form of [...forms]) {
+      const escaped = JSON.stringify(form)?.slice(1, -1);
+      if (escaped !== undefined && escaped !== form) forms.push(escaped);
+    }
+  }
+  return [...new Set(forms)].filter((form) => form.length >= SEARCH_MIN && !isTypeName(form));
 };
 
 /**
@@ -696,13 +746,21 @@ const scrub = (message: string, forms: readonly string[], tails: readonly Receiv
   return forms.some((form) => folded.includes(form.toLowerCase())) ? { message: INVALID_VALUE, cut: true } : { message, cut: false };
 };
 
+/** The libraries' own key messages (zod 4's `Unrecognized key(s)`, zod 3's `Unrecognized key(s) in object`): a suffix after one of them lists keys, not an instruction. */
+const isLibraryKeysMessage = (prefix: string): boolean => {
+  const text = prefix.trim().toLowerCase();
+  return text === "unrecognized key" || text === "unrecognized keys" || text === "unrecognized key(s) in object";
+};
+
 /**
  * The message of an issue that carries `keys` (zod's unrecognized keys; zod 3's and valibot's formats included). The
  * full message lists every key, so a per-key `includes` over it is O(keys x message): the keys are searched in one
  * folded string instead, and past `MAX_KEYS` the answer is `Invalid value` without echoing any — a message that lists
  * that many keys cannot be assumed clean (H31 #308). Up to the bound, only the keys of 3 or more characters are
  * searched, case-folded, in the prefix before the first `": "` (the whole message when there is none): a key in the
- * prefix is `Invalid value`; otherwise the prefix is cut (or the message kept when there is no `": "`).
+ * prefix is `Invalid value`. The suffix after `": "` is cut only when it lists one of those keys or the prefix is one of
+ * the libraries' own formats, so a custom instruction (`Invalid object: remove fields not in the schema.`) is kept; a
+ * blank prefix is cut too, since the message is then only the suffix.
  */
 const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage => {
   if (keys.length > MAX_KEYS) return { message: INVALID_VALUE, cut: true };
@@ -714,7 +772,15 @@ const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage =>
     if (text.length < SEARCH_MIN) continue;
     if (folded.includes(text.toLowerCase())) return { message: INVALID_VALUE, cut: true };
   }
-  return at === -1 ? { message, cut: false } : { message: prefix, cut: true };
+  if (at === -1) return { message, cut: false };
+  if (prefix.trim() === "" || isLibraryKeysMessage(prefix)) return { message: prefix, cut: true };
+  const suffix = message.slice(at + 2).toLowerCase();
+  for (const key of keys) {
+    const text = String(key);
+    if (text.length < SEARCH_MIN) continue;
+    if (suffix.includes(text.toLowerCase())) return { message: prefix, cut: true };
+  }
+  return { message, cut: false };
 };
 
 /**
@@ -726,35 +792,44 @@ const keysMessage = (message: string, keys: readonly unknown[]): IssueMessage =>
  * value answers `Invalid value`. Default messages put the value last (`Invalid enum value. Expected 'a' | 'b', received
  * 'c'`, valibot's `... but received 5`), and a translated or custom message can put it anywhere (`Ungültiger Enum-Wert.
  * Erwartet 'a' | 'b', erhalten 'secret'`). An object or array at the path is searched through its printable leaves, so
- * an object-level message (`Passwords don't match`) is kept unless a leaf appears in it or the walk hits its bound. A
- * path that does not resolve falls back to the library's printable `received` (zod 3, valibot), then keeps the
- * message. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut into `Invalid value`),
- * so a message the app wrote empty is kept empty.
+ * an object-level message (`Passwords don't match`) is kept unless a leaf appears in it or the walk hits its bound. The
+ * retained text of a keys issue is searched for that value too, and the whole build shares `budget`: once it runs out,
+ * the issue fails closed. A path that does not resolve falls back to the library's printable `received` (zod 3,
+ * valibot), then keeps the message. `cut` tells whether the message was not kept whole (`publicIssue` turns an empty cut
+ * into `Invalid value`), so a message the app wrote empty is kept empty.
  */
-const issueMessage = (issue: LibraryIssue, input: unknown): IssueMessage => {
+const issueMessage = (issue: LibraryIssue, input: unknown, budget: ReadBudget): IssueMessage => {
   const { message, keys } = issue;
-  if (Array.isArray(keys) && keys.length > 0) return keysMessage(message, keys);
-  const found = valueAtPath(input, issuePath(issue));
+  const keyed = Array.isArray(keys) && keys.length > 0 ? keysMessage(message, keys) : undefined;
+  if (keyed?.message === INVALID_VALUE) return keyed;
+  const base = keyed?.message ?? message;
+  const found = valueAtPath(input, issuePath(issue), budget);
+  if (found.bounded) return { message: INVALID_VALUE, cut: true };
   if (found.found) {
     if (printable(found.value) !== undefined) {
-      return scrub(message, searchForms(found.value), [...submissionTails(found.value), ...submissionTails(issue.received)]);
+      const scrubbed = scrub(base, searchForms(found.value), [...submissionTails(found.value), ...submissionTails(issue.received)]);
+      return keyed ? { message: scrubbed.message, cut: keyed.cut || scrubbed.cut } : scrubbed;
     }
     if (found.value !== null && typeof found.value === "object" && !isFile(found.value)) {
-      const { leaves, bounded } = leafValues(found.value);
+      const { leaves, bounded } = leafValues(found.value, budget);
       if (bounded) return { message: INVALID_VALUE, cut: true };
-      const folded = message.toLowerCase();
+      const folded = base.toLowerCase();
       return leaves.flatMap(searchForms).some((leaf) => folded.includes(leaf.toLowerCase()))
         ? { message: INVALID_VALUE, cut: true }
-        : { message, cut: false };
+        : { message: base, cut: keyed?.cut ?? false };
     }
   }
+  if (keyed) return keyed;
   if (printable(issue.received) !== undefined) return scrub(message, searchForms(issue.received), submissionTails(issue.received));
   return { message, cut: false };
 };
 
-/** What a 422 may carry of an issue: `{ path, message }` only, never the library's `received` or `keys`. */
-export const publicIssue = (issue: StandardIssue, input: unknown): PublicIssue => {
-  const { message, cut } = issueMessage(issue, input);
+/**
+ * What a 422 may carry of an issue: `{ path, message }` only, never the library's `received` or `keys`. `budget` is the
+ * read budget of the 422 build; a direct call gets a fresh one, while a build maps all its issues with one shared object.
+ */
+export const publicIssue = (issue: StandardIssue, input: unknown, budget: ReadBudget = createReadBudget()): PublicIssue => {
+  const { message, cut } = issueMessage(issue, input, budget);
   return {
     path: issuePath(issue),
     // A message a cut left with nothing (`Received "x"`, `: a`, `" : a"`) has only the data to show: a generic one. A
@@ -798,9 +873,10 @@ export const validateInput = async (endpoint: AnyEndpoint, input: RawInput): Pro
   const body = await validateSlot(endpoint.def.body, input.body);
   if (!query.ok || !body.ok) {
     // Each slot's issues are scrubbed against the slot's own raw input: a query issue's path is in the query, a body issue's in the body
+    const budget = createReadBudget();
     throw unprocessable([
-      ...(query.ok ? [] : query.issues.map((issue) => publicIssue(issue, input.query))),
-      ...(body.ok ? [] : body.issues.map((issue) => publicIssue(issue, input.body))),
+      ...(query.ok ? [] : query.issues.map((issue) => publicIssue(issue, input.query, budget))),
+      ...(body.ok ? [] : body.issues.map((issue) => publicIssue(issue, input.body, budget))),
     ]);
   }
   return { query: query.value, body: body.value };
