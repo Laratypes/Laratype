@@ -58,8 +58,23 @@ describe('defineResource', () => {
     expect(() => defineResource(User, () => null as any).make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must return a plain object, got null',
     )
+    expect(() => defineResource(User, () => undefined as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got undefined',
+    )
+    expect(() => defineResource(User, () => 42 as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got 42',
+    )
     expect(() => defineResource(User, () => (() => 1) as any).make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must return a plain object, got a function',
+    )
+    expect(() => defineResource(User, () => [] as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got an instance of Array',
+    )
+    expect(() => defineResource(User, () => Number.NaN as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got NaN',
+    )
+    expect(() => defineResource(User, () => Number.POSITIVE_INFINITY as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must return a plain object, got Infinity',
     )
   })
 
@@ -75,26 +90,56 @@ describe('defineResource', () => {
     expect(() => UserResource.paginate({ items: [] } as any)).toThrow(
       '[@laratype/http] User: paginate() takes a page whose data holds the models, got data undefined',
     )
+    expect(() => UserResource.paginate({ data: { length: 1e9 } } as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a page whose data holds the models, got data an instance of Object',
+    )
+    expect(() => UserResource.paginate(null as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got null',
+    )
+    expect(() => UserResource.paginate(42 as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got 42',
+    )
+    expect(() => UserResource.paginate(Number.NaN as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got NaN',
+    )
+    expect(() => UserResource.paginate(Number.POSITIVE_INFINITY as any)).toThrow(
+      '[@laratype/http] User: paginate() takes a plain page object ({ data, ...meta }), got Infinity',
+    )
   })
 
-  it('a __proto__ key stays an own key, not the prototype', () => {
-    const Proto = defineResource(User, () => JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>)
+  it('a __proto__ key stays an own key, not the prototype, on the data and the page', () => {
+    const Proto = defineResource(User, () => JSON.parse('{"__proto__": {"polluted": true}}') as any)
     const out = Proto.make(new User(1, 'ada'))
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
     expect(Object.keys(out)).toEqual(['__proto__'])
+
+    const page = UserResource.paginate(JSON.parse('{"data": [], "__proto__": {"polluted": true}}'))
+    expect(Object.getPrototypeOf(page)).toBe(Object.prototype)
+    expect(Object.keys(page)).toEqual(['data', '__proto__'])
   })
 
   it('make refuses a toJSON key, which would send its result instead of the data', () => {
-    const ToJson = defineResource(User, (user) => ({ id: user.id, toJSON: () => ({ id: 0 }) }))
+    const ToJson = defineResource(User, (user) => ({ id: user.id, toJSON: () => ({ id: 0 }) }) as any)
     expect(() => ToJson.make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data',
     )
   })
 
   it('make refuses the key even when a when() would drop it: the check runs before the filter', () => {
-    const Dropped = defineResource(User, () => ({ id: 1, toJSON: when(false, () => ({ id: 0 })) }))
+    const Dropped = defineResource(User, () => ({ id: 1, toJSON: when(false, () => ({ id: 0 })) }) as any)
     expect(() => Dropped.make(new User(1, 'ada'))).toThrow(
       '[@laratype/http] User: the resource function must not return a toJSON key',
+    )
+  })
+
+  it('make refuses a then key, function or plain value, which would make the data a thenable', () => {
+    const ThenFn = defineResource(User, () => ({ id: 1, then: () => ({ id: 0 }) }) as any)
+    expect(() => ThenFn.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a then key: it would become a thenable that the response pipeline awaits',
+    )
+    const ThenValue = defineResource(User, () => ({ id: 1, then: 1 }) as any)
+    expect(() => ThenValue.make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a then key',
     )
   })
 
@@ -110,6 +155,99 @@ describe('defineResource', () => {
     )
   })
 
+  it('collection and paginate refuse the keys through make', () => {
+    const ToJson = defineResource(User, () => ({ id: 1, toJSON: () => ({ id: 0 }) }) as any)
+    expect(() => ToJson.collection([new User(1, 'ada')])).toThrow('[@laratype/http] User: the resource function must not return a toJSON key')
+    expect(() => ToJson.paginate({ data: [new User(1, 'ada')] })).toThrow('[@laratype/http] User: the resource function must not return a toJSON key')
+    const Then = defineResource(User, () => ({ id: 1, then: () => ({ id: 0 }) }) as any)
+    expect(() => Then.collection([new User(1, 'ada')])).toThrow('[@laratype/http] User: the resource function must not return a then key')
+    expect(() => Then.paginate({ data: [new User(1, 'ada')] })).toThrow('[@laratype/http] User: the resource function must not return a then key')
+  })
+
+  it('make refuses a reserved key before reading any value, without invoking its getter', () => {
+    const readId = vi.fn(() => 1)
+    const readToJSON = vi.fn(() => () => ({ id: 0 }))
+    const data = {
+      get id() { return readId() },
+      get toJSON() { return readToJSON() },
+    }
+    expect(() => defineResource(User, () => data as any).make(new User(1, 'ada'))).toThrow(
+      '[@laratype/http] User: the resource function must not return a toJSON key',
+    )
+    expect(readToJSON).not.toHaveBeenCalled()
+    expect(readId).not.toHaveBeenCalled()
+  })
+
+  it('make reads the own keys once, so a Proxy cannot pass the check and carry a reserved key into the copy', () => {
+    const ownKeys = vi.fn(() => ['id'])
+    const data = new Proxy(
+      { id: 1, toJSON: () => ({ id: 0 }) },
+      { ownKeys, getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) },
+    )
+    expect(defineResource(User, () => data as any).make(new User(1, 'ada'))).toEqual({ id: 1 })
+    expect(ownKeys).toHaveBeenCalledTimes(1)
+  })
+
+  it('paginate refuses a page-level toJSON key, and checks it before mapping the models', () => {
+    const mapped = vi.fn()
+    const data = { *[Symbol.iterator]() { mapped(); yield new User(1, 'ada') } }
+    expect(() => UserResource.paginate({ data, toJSON: () => ({ data: [] }) })).toThrow(
+      '[@laratype/http] User: the page must not have a toJSON key: JSON.stringify would send its result instead of the resource data',
+    )
+    expect(mapped).not.toHaveBeenCalled()
+  })
+
+  it('paginate refuses a page-level constructor key, which would send the body as text/html', () => {
+    expect(() => UserResource.paginate({ data: [], constructor: Array })).toThrow(
+      '[@laratype/http] User: the page must not have a constructor key: the body would be sent as text/html instead of JSON',
+    )
+  })
+
+  it('paginate refuses a page-level then key, function or plain value', () => {
+    expect(() => UserResource.paginate({ data: [], then: () => ({ data: [] }) })).toThrow(
+      '[@laratype/http] User: the page must not have a then key: it would become a thenable that the response pipeline awaits',
+    )
+    expect(() => UserResource.paginate({ data: [], then: 1 })).toThrow('[@laratype/http] User: the page must not have a then key')
+  })
+
+  it('paginate refuses a reserved page key without invoking its getter', () => {
+    const readToJSON = vi.fn(() => () => ({ data: [] }))
+    const page = { data: [] as User[], get toJSON() { return readToJSON() } }
+    expect(() => UserResource.paginate(page)).toThrow('[@laratype/http] User: the page must not have a toJSON key')
+    expect(readToJSON).not.toHaveBeenCalled()
+  })
+
+  it('paginate refuses a reserved key on a null-prototype page, and keeps a page symbol key', () => {
+    const nullProto = Object.assign(Object.create(null), { data: [], toJSON: () => ({ data: [] }) })
+    expect(() => UserResource.paginate(nullProto)).toThrow('[@laratype/http] User: the page must not have a toJSON key')
+
+    const tag = Symbol('tag')
+    const out = UserResource.paginate({ data: [new User(1, 'ada')], [tag]: 'users' })
+    expect(Object.getOwnPropertySymbols(out)).toEqual([tag])
+    expect(out[tag]).toBe('users')
+  })
+
+  it('skips a non-enumerable reserved key, which neither the copy nor the page spread carries', () => {
+    const page = { data: [] as User[] }
+    Object.defineProperty(page, 'toJSON', { value: () => ({ data: [] }) })
+    expect(UserResource.paginate(page)).toEqual({ data: [] })
+
+    const data = { id: 1 }
+    Object.defineProperty(data, 'toJSON', { value: () => ({ id: 0 }) })
+    expect(defineResource(User, () => data).make(new User(1, 'ada'))).toEqual({ id: 1 })
+  })
+
+  it('paginate checks every page key in one pass, a reserved one after 10k meta keys included', () => {
+    const page: { data: User[]; [key: string]: unknown } = { data: [new User(1, 'ada')] }
+    for (let i = 0; i < 10_000; i++) page[`k${i}`] = i
+    const out = UserResource.paginate(page)
+    expect(Object.keys(out)).toHaveLength(10_001)
+    expect(out.k9999).toBe(9999)
+
+    page.toJSON = () => ({ data: [] })
+    expect(() => UserResource.paginate(page)).toThrow('[@laratype/http] User: the page must not have a toJSON key')
+  })
+
   it('make keeps an own symbol key, as the output type promises', () => {
     const tag = Symbol('tag')
     const Tagged = defineResource(User, (user) => ({ id: user.id, [tag]: user.name }))
@@ -117,6 +255,20 @@ describe('defineResource', () => {
     expect(Object.getOwnPropertySymbols(out)).toEqual([tag])
     expect(out[tag]).toBe('ada')
     expect(Object.keys(out)).toEqual(['id'])
+  })
+
+  it('make keeps ordinary long, unicode and control-char keys, which are not refused', () => {
+    const long = `k${'x'.repeat(10_000)}`
+    const Weird = defineResource(User, (user) => ({
+      id: user.id,
+      [long]: user.name,
+      '\u0000control': 'nul',
+      'lone-\uD800': 'lone',
+    }))
+    const out = Weird.make(new User(1, 'ada'))
+    expect(out[long]).toBe('ada')
+    expect(out['\u0000control']).toBe('nul')
+    expect(out['lone-\uD800']).toBe('lone')
   })
 
   it('drops a missing value made by another copy of the module (src and dist)', () => {
