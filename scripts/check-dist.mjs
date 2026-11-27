@@ -138,19 +138,28 @@ else {
   }
 }
 
-// 2. Build-machine paths: a dist that carries this checkout's root cannot run off the machine that built it.
-// The forms checked (forward slashes, backslashes, escaped backslashes and the file:// URL) live in
-// scripts/module-paths.mjs, with the `bun.build.js` rewrite that keeps folded import.meta.url runtime.
-console.log('Build root path in dists:')
-for (const { dir, name } of workspace) {
-  const distDir = path.join(root, 'packages', dir, 'dist')
-  if (!existsSync(distDir)) continue
-  const hits = findBuildRootInTree(distDir, root, { caseInsensitive: process.platform === 'win32' })
+// 2. Build-machine paths: output that carries this checkout's root cannot run off the machine that built it.
+// The forms checked (forward slashes, backslashes, escaped backslashes and the file:// URLs, plain and
+// percent-encoded) live in scripts/module-paths.mjs, with the `bun.build.js` rewrite that keeps folded
+// import.meta.url runtime.
+console.log('Build root path in dists and the sauf resources bundles:')
+/**
+ * @param {string} dir
+ * @param {string} label
+ */
+const scanBuildRoot = (dir, label) => {
+  const hits = findBuildRootInTree(dir, root, { caseInsensitive: process.platform === 'win32' })
   for (const { file, index, form } of hits) {
     fail(`${path.relative(root, file)}: contains the build root path at offset ${index} (${form})`)
   }
-  if (!hits.length) console.log(`  ok   ${name}`)
+  if (!hits.length) console.log(`  ok   ${label}`)
 }
+for (const { dir, name } of workspace) {
+  const distDir = path.join(root, 'packages', dir, 'dist')
+  if (existsSync(distDir)) scanBuildRoot(distDir, name)
+}
+// The resources bundles ship in sauf's npm tarball and `sauf build` copies them into an app's dist.
+if (existsSync(SAUF_RESOURCES)) scanBuildRoot(SAUF_RESOURCES, path.relative(root, SAUF_RESOURCES))
 
 // 3. Loading
 console.log('Load under Node (import() / require()):')

@@ -5,10 +5,13 @@
 // expression. Both use the forms below.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 /**
  * The forms the build root takes in a file: native separators, forward slashes for the URL Bun writes,
- * the `file://` URL, and the doubled backslashes of a JS/JSON string literal (`"D:\\repo"`).
+ * the `file://` URL, its percent-encoded form (`pathToFileURL` encodes a space or a non-ASCII character,
+ * which Bun writes as `%20` / `%C3%A9`), and the doubled backslashes of a JS/JSON string literal
+ * (`"D:\\repo"`).
  * @param {string} root
  * @returns {string[]}
  */
@@ -17,12 +20,19 @@ export const buildRootForms = (root) => {
   const base = root.replace(/[\\/]+$/, '')
   const forward = base.replace(/\\/g, '/')
   const backslash = base.replace(/\//g, '\\')
-  return [...new Set([
-    forward.startsWith('/') ? `file://${forward}` : `file:///${forward}`,
+  const url = forward.startsWith('/') ? `file://${forward}` : `file:///${forward}`
+  const forms = [
+    url,
     forward,
     backslash,
     backslash.replace(/\\/g, '\\\\'),
-  ])].filter(form => form.length > 1)
+  ]
+  // Bun writes the URL `pathToFileURL` produces, which percent-encodes a space or a non-ASCII
+  // character. Only keep it when it is the encoded variant of `url`: pathToFileURL resolves a path for
+  // the current platform, so a synthetic root for another platform would get the cwd instead.
+  const encoded = pathToFileURL(base).href
+  if (decodeURIComponent(encoded) === url) forms.push(encoded)
+  return [...new Set(forms)].filter(form => form.length > 1)
 }
 
 /**
@@ -80,18 +90,18 @@ export const findBuildRootInTree = (dir, root, options = {}) => {
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * Rewrites every `file://<root>/...` string literal in a CJS build to `CJS_MODULE_URL`, so the bundle
- * resolves relative to itself and not to the source file it was built from. ESM builds keep
- * `import.meta.url` and are not passed here.
+ * Rewrites every `file://<root>/...` string literal in a CJS build to `CJS_MODULE_URL`, in both the
+ * plain and the percent-encoded URL form, so the bundle resolves relative to itself and not to the
+ * source file it was built from. ESM builds keep `import.meta.url` and are not passed here.
  * @param {string} code
  * @param {string} root
  * @param {{ caseInsensitive?: boolean }} [options]
  * @returns {{ code: string, rewritten: number }}
  */
 export const keepRuntimeModuleUrl = (code, root, { caseInsensitive = false } = {}) => {
-  const url = buildRootForms(root).find(form => form.startsWith('file://'))
-  if (!url) return { code, rewritten: 0 }
-  const pattern = new RegExp(escapeRegExp(url), caseInsensitive ? 'gi' : 'g')
+  const urls = buildRootForms(root).filter(form => form.startsWith('file://'))
+  if (!urls.length) return { code, rewritten: 0 }
+  const pattern = new RegExp(urls.map(escapeRegExp).join('|'), caseInsensitive ? 'gi' : 'g')
   /** @type {string[]} */
   const parts = []
   let from = 0
