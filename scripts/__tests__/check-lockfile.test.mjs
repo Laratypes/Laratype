@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { checkLockfile } from '../check-lockfile.mjs'
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/check-lockfile')
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 /** @type {string[]} */
 const roots = []
 
@@ -150,6 +151,62 @@ describe('check:lockfile', () => {
     expect(result.ok).toBe(false)
     expect(result.errors.join('\n')).toContain('pkg/package.json')
     expect(result.errors.join('\n')).toContain('resolutions.evil')
+  })
+
+  it('passes a workspace ref to a declared directory and the root entry', () => {
+    const result = checkLockfile(fixture('workspace-declared', { untrustedOutput: '' }))
+    expect(result.errors).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.stats).toMatchObject({ entries: 2, workspace: 2 })
+  })
+
+  it('fails a workspace ref that traverses up', () => {
+    const result = checkLockfile(fixture('workspace-traversal', { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('"../x"')
+    expect(result.errors.join('\n')).toContain('must not contain empty, "." or ".." segments')
+  })
+
+  it('fails a workspace ref that traverses up inside a declared directory', () => {
+    const result = checkLockfile(fixture('workspace-nested-traversal', { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('"packages/../../x"')
+    expect(result.errors.join('\n')).toContain('must not contain empty, "." or ".." segments')
+  })
+
+  it('fails an absolute workspace ref (posix and windows)', () => {
+    const result = checkLockfile(fixture('workspace-absolute', { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.filter(error => error.includes('must be relative to the repository root'))).toHaveLength(2)
+  })
+
+  it('fails a workspace ref with a backslash', () => {
+    const result = checkLockfile(fixture('workspace-backslash', { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('must use forward slashes')
+  })
+
+  it('fails a workspace ref to an undeclared directory', () => {
+    const result = checkLockfile(fixture('workspace-undeclared', { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('"packages/ghost"')
+    expect(result.errors.join('\n')).toContain('not a declared workspace directory')
+  })
+
+  it.each([
+    ['duplicate-package-key', 'duplicate key "left-pad" in object at $.packages'],
+    ['duplicate-workspace-key', 'duplicate key "workspaces" in object at $'],
+    ['duplicate-entry-key', 'duplicate key "dependencies"'],
+  ])('fails a duplicate object key (%s)', (name, message) => {
+    const result = checkLockfile(fixture(name, { untrustedOutput: '' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain(message)
+  })
+
+  it('passes the repository lockfile', () => {
+    const result = checkLockfile({ root: REPO_ROOT, untrustedOutput: '' })
+    expect(result.errors).toEqual([])
+    expect(result.ok).toBe(true)
   })
 
   it('scans workspaces.catalogs.*', () => {

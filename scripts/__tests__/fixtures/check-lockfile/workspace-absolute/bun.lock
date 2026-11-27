@@ -1,0 +1,8 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "@fixture/core": ["@fixture/core@workspace:/tmp/x"],
+    "@fixture/win": ["@fixture/win@workspace:C:/x"],
+  },
+}
