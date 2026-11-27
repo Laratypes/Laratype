@@ -34,7 +34,7 @@ import { scenarios, skipped } from './scenarios.mjs'
 import { parseArgs, usageLines, UsageError } from './lib/args.mjs'
 import { resolveGitInfo } from './lib/git-info.mjs'
 import { buildReport, markdown, reportBaseName, round } from './lib/report.mjs'
-import { autocannonArgs, requestFor, responseMatches } from './lib/wire.mjs'
+import { autocannonArgs, measurementMatches, requestFor, responseMatches } from './lib/wire.mjs'
 import { assertContainer, ContainerError } from './lib/container.mjs'
 import { EXPECTED_NODE_VERSION, nodeVersionMismatch } from './lib/node.mjs'
 
@@ -395,11 +395,13 @@ async function measure(app, runtime, scenario) {
     } finally {
       samples = await sampler.stop()
     }
+    const outcome = measurementMatches(scenario, result)
     return {
       name: scenario.name,
       method: scenario.method,
       path: scenario.path,
-      status: 'ok',
+      status: outcome.ok ? 'ok' : 'failed',
+      ...(outcome.ok ? {} : { error: `measured responses do not match the scenario: ${outcome.reason}` }),
       requestsPerSec: round(result.requests?.average ?? 0),
       latencyMs: { p50: round(result.latency?.p50, 2), p99: round(result.latency?.p99, 2) },
       coldStartMs: round(coldStartMs),
@@ -451,13 +453,13 @@ async function smoke() {
         }
         const jsonScenario = scenarios.find((scenario) => scenario.name === 'json')
         const result = await runAutocannon(jsonScenario, boot.port, 1)
-        const ok = (result.requests?.average ?? 0) > 0 && (result.errors ?? 0) === 0 && (result.non2xx ?? 0) === 0 && (result.timeouts ?? 0) === 0
+        const ok = measurementMatches(jsonScenario, result).ok
         checks++
         if (ok) {
           console.log(`PASS ${app}/${runtime} autocannon 1s ${round(result.requests?.average ?? 0)} req/s, ${round(result.latency?.p50, 2)} ms p50, ${round(result.latency?.p99, 2)} ms p99, 0 errors`)
         } else {
-          failures.push({ app, runtime, scenario: 'autocannon', errors: result.errors, non2xx: result.non2xx, timeouts: result.timeouts })
-          console.log(`FAIL ${app}/${runtime} autocannon 1s: ${JSON.stringify({ errors: result.errors, non2xx: result.non2xx, timeouts: result.timeouts, requests: result.requests?.average })}`)
+          failures.push({ app, runtime, scenario: 'autocannon', errors: result.errors, non2xx: result.non2xx, timeouts: result.timeouts, statusCodeStats: result.statusCodeStats })
+          console.log(`FAIL ${app}/${runtime} autocannon 1s: ${JSON.stringify({ errors: result.errors, non2xx: result.non2xx, timeouts: result.timeouts, statusCodeStats: result.statusCodeStats, requests: result.requests?.average })}`)
         }
       } catch (error) {
         failures.push({ app, runtime, error: error.message })
@@ -486,7 +488,12 @@ async function benchmark() {
         try {
           const result = await measure(app, runtime, scenario)
           run.scenarios.push(result)
-          console.log(`  ${scenario.name}: ${result.requestsPerSec} req/s, p50 ${result.latencyMs.p50} ms, p99 ${result.latencyMs.p99} ms, cold ${result.coldStartMs} ms`)
+          if (result.status === 'ok') {
+            console.log(`  ${scenario.name}: ${result.requestsPerSec} req/s, p50 ${result.latencyMs.p50} ms, p99 ${result.latencyMs.p99} ms, cold ${result.coldStartMs} ms`)
+          } else {
+            run.status = 'failed'
+            console.log(`  ${scenario.name}: FAILED ${result.error}`)
+          }
         } catch (error) {
           run.status = 'failed'
           run.scenarios.push({ name: scenario.name, status: 'failed', error: error.message, stderrTail: error.stderrTail ?? null })

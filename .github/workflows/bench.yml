@@ -66,6 +66,14 @@ jobs:
       - name: Build the bench image
         run: docker build -f bench/Dockerfile -t laratype-bench .
 
+      # Smoke-check the image before measuring: one request per scenario plus a 1 s autocannon run per selected
+      # app/runtime. A broken build fails in seconds instead of after the measured runs.
+      - name: Smoke-check the image
+        run: |
+          docker run --rm \
+            -e BENCH_APPS -e BENCH_RUNTIMES \
+            laratype-bench bun run bench:smoke
+
       # The report lands in bench/out on the runner through the /out mount. The commit metadata is passed as
       # environment because the Docker build context has no .git; github.sha is the checked-out commit (for a
       # pull_request run that is the merge commit the image was built from).

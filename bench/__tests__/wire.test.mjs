@@ -2,9 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { scenarios, skipped } from '../scenarios.mjs'
 import { invalidUser, userInput, validUser } from '../shared/schemas.mjs'
 import { validationError } from '../shared/validation-error.mjs'
-import { autocannonArgs, requestFor, responseMatches } from '../lib/wire.mjs'
+import { autocannonArgs, measurementMatches, requestFor, responseMatches } from '../lib/wire.mjs'
 
 const byName = (name) => scenarios.find((scenario) => scenario.name === name)
+
+/** A fake autocannon result: the measured-run check never starts a server or a load generator. */
+const measured = (overrides = {}) => ({
+  requests: { average: 1000, total: 20 },
+  errors: 0,
+  timeouts: 0,
+  non2xx: 0,
+  statusCodeStats: { 200: { count: 20 } },
+  ...overrides,
+})
 
 describe('scenarios', () => {
   it('lists the five JS scenarios in order and the skipped SQLite one', () => {
@@ -43,6 +53,47 @@ describe('responseMatches', () => {
     expect(responseMatches(byName('json'), 201, '{"message":"Hello, World!"}')).toBe(false)
     expect(responseMatches(byName('json'), 200, '{"message": "Hello, World!"}')).toBe(false)
     expect(responseMatches(byName('json'), 200, '{"Message":"Hello, World!"}')).toBe(false)
+  })
+})
+
+describe('measurementMatches', () => {
+  it('accepts a run whose completed responses all carry the expected status', () => {
+    expect(measurementMatches(byName('json'), measured())).toEqual({ ok: true })
+    expect(measurementMatches(byName('json'), measured({ statusCodeStats: { 200: { count: '20' } } }))).toEqual({ ok: true })
+  })
+
+  it('accepts the expected 422 even though autocannon counts it in non2xx', () => {
+    const result = measured({ non2xx: 20, statusCodeStats: { 422: { count: 20 } } })
+    expect(measurementMatches(byName('validation-422'), result)).toEqual({ ok: true })
+  })
+
+  it('rejects an HTTP 500 measured as if the scenario had succeeded', () => {
+    const result = measured({ non2xx: 20, statusCodeStats: { 500: { count: 20 } } })
+    expect(measurementMatches(byName('json'), result)).toEqual({ ok: false, reason: 'unexpected status code(s): 500 (20)' })
+  })
+
+  it('rejects a mix of the expected status and another status', () => {
+    const result = measured({ non2xx: 5, statusCodeStats: { 200: { count: 15 }, 500: { count: 5 } } })
+    expect(measurementMatches(byName('json'), result)).toEqual({ ok: false, reason: 'unexpected status code(s): 500 (5)' })
+    const wrong = measured({ non2xx: 20, statusCodeStats: { 500: { count: 20 } } })
+    expect(measurementMatches(byName('validation-422'), wrong).ok).toBe(false)
+  })
+
+  it('rejects connection errors, timeouts and an empty measurement', () => {
+    expect(measurementMatches(byName('json'), measured({ errors: 2 }))).toEqual({ ok: false, reason: '2 connection error(s)' })
+    expect(measurementMatches(byName('json'), measured({ timeouts: 1 }))).toEqual({ ok: false, reason: '1 timeout(s)' })
+    expect(measurementMatches(byName('json'), measured({ requests: { average: 0, total: 0 }, statusCodeStats: {} }))).toEqual({
+      ok: false,
+      reason: 'no completed responses',
+    })
+  })
+
+  it('rejects a report whose completed count disagrees with the expected status count', () => {
+    expect(measurementMatches(byName('json'), measured({ statusCodeStats: { 200: { count: 19 } } }))).toEqual({
+      ok: false,
+      reason: '19 of 20 completed responses were 200',
+    })
+    expect(measurementMatches(byName('json'), measured({ statusCodeStats: { 200: { count: 20 }, 302: { count: 0 } } }))).toEqual({ ok: true })
   })
 })
 

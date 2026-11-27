@@ -58,7 +58,9 @@ before parsing any flag or picking a port. On a host, `bun run bench` (or `bench
 ## The `bench` workflow
 
 `.github/workflows/bench.yml` builds the same image and runs it on a GitHub runner; it is the validation path for this
-change (the first CI run is the validation, no local benchmark run is).
+change (the first CI run is the validation, no local benchmark run is). The job runs `bench:smoke` in the image first
+(one request per scenario plus a 1 s autocannon run per selected app/runtime), so a broken app fails in seconds, then
+the measured run.
 
 - **On a pull request:** add the `bench` label. A `pull_request` workflow runs from the PR's merge ref, so a
   `bench.yml` added in the PR already runs on `labeled` for that PR, before merge (a fork PR may need a maintainer's
@@ -114,7 +116,9 @@ All four use the same Zod 4.6.7 schema for 3a/3b. The 422 envelope is built from
   the same 2.1.7 entry.
 - Metrics: req/s, p50/p99 latency, cold start (spawn → first 200 on `/health`), RSS at idle and under load (from the
   child pid: `/proc/<pid>/status` on Linux, `tasklist` on Windows, `ps` on macOS). A failed run is recorded and the
-  suite continues; it exits 1 at the end.
+  suite continues; it exits 1 at the end. A measured scenario is `ok` only when autocannon reports no error and no
+  timeout, at least one completed response, and every completed response carries the scenario's `expectedStatus`
+  (the 422 scenario is valid, not an error).
 - 50 connections, 10 s measured, 2 s warm-up discarded, pipelining 1, keep-alive on, no extra Node flags. Autocannon
   always runs on Node, never on the Bun under test.
 - `NODE_ENV=production` everywhere; no logging (Fastify `logger: false`, Express `x-powered-by` off, Hono/Laratype log
