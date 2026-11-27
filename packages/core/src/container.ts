@@ -36,12 +36,16 @@ export class DiError extends Error {
   override name = 'DiError'
 }
 
-interface Binding {
-  scope: Scope
-  create: (container: Container, requiredBy?: string) => unknown
+/** A singleton's cache slot: the first value, or the request lifetime a request-scoped dependency gave it. */
+interface SingletonSlot {
   resolved?: { value: unknown }
   /** A singleton found to depend on a request-scoped key: cached per request scope from then on. */
   bubbled?: true
+}
+
+interface Binding extends SingletonSlot {
+  scope: Scope
+  create: (container: Container, requiredBy?: string) => unknown
 }
 
 /** A singleton being built, and the first request-scoped key it was found to depend on. */
@@ -404,10 +408,8 @@ export class Container {
   protected readonly parent: Container | undefined
   protected readonly deps: DepsLookup
   protected readonly tree: TreeState
-  /** Unbound classes autowired as `@Injectable({ scope: 'singleton' })`, cached on the root container. */
-  protected readonly autowired = new Map<unknown, { value: unknown }>()
-  /** Autowired singleton classes found to depend on a request-scoped key, on the root container. */
-  protected readonly bubbled = new Set<unknown>()
+  /** Unbound classes autowired as `@Injectable({ scope: 'singleton' })`, with their cache slot, on the root container. */
+  protected readonly autowired = new Map<unknown, SingletonSlot>()
   /**
    * Set on a request scope only: its request-scoped values, keyed by binding (or by class when autowired),
    * in creation order for `dispose()`.
@@ -567,14 +569,7 @@ export class Container {
       if (binding.scope === 'singleton') {
         // Built by its owner so a child's overrides never leak into a shared instance.
         const build = () => owner.withCycleCheck(key, () => binding.create(owner, requiredBy))
-        if (binding.bubbled) return this.fromRequestScope(key, binding, requiredBy, build)
-        const { value, requestDep } = this.buildSingleton(build)
-        if (requestDep === undefined) {
-          binding.resolved = { value }
-          return value
-        }
-        binding.bubbled = true
-        return this.bubble(key, binding, value, requestDep)
+        return this.resolveSingleton(key, binding, requiredBy, binding, build)
       }
       return this.withCycleCheck(key, () => binding.create(this, requiredBy))
     }
@@ -592,16 +587,8 @@ export class Container {
         let root: Container = this
         while (root.parent) root = root.parent
         const build = () => root.withCycleCheck(key, () => root.build(key as Newable, requiredBy))
-        if (root.bubbled.has(key)) return this.fromRequestScope(key, key, requiredBy, build)
-        const cached = root.autowired.get(key)
-        if (cached) return cached.value
-        const { value, requestDep } = this.buildSingleton(build)
-        if (requestDep === undefined) {
-          root.autowired.set(key, { value })
-          return value
-        }
-        root.bubbled.add(key)
-        return this.bubble(key, key, value, requestDep)
+        const save = (slot: SingletonSlot) => root.autowired.set(key, slot)
+        return this.resolveSingleton(key, key, requiredBy, root.autowired.get(key), build, save)
       }
       return this.withCycleCheck(key, () => this.build(key as Newable, requiredBy))
     }
@@ -676,6 +663,34 @@ export class Container {
   /** Store a request-scoped value in the scope's cache: the one place `fromRequestScope()` and `bubble()` write it. */
   protected cacheValue(cache: RequestCache, cacheKey: unknown, value: unknown): void {
     cache.set(cacheKey, { value })
+  }
+
+  /**
+   * Resolve a singleton binding or autowired class through one path: `slot` caches the first value and remembers a
+   * request-scoped dependency, and `build` runs under the owning container's cycle check. The current request scope
+   * caches the value under `cacheKey`: the binding, or the class when it was autowired. `save` stores a new autowired
+   * slot; a binding already holds its own.
+   */
+  protected resolveSingleton(
+    key: unknown,
+    cacheKey: unknown,
+    requiredBy: string | undefined,
+    slot: SingletonSlot | undefined,
+    build: () => unknown,
+    save?: (slot: SingletonSlot) => void,
+  ): unknown {
+    if (slot?.bubbled) return this.fromRequestScope(key, cacheKey, requiredBy, build)
+    if (slot?.resolved) return slot.resolved.value
+    const { value, requestDep } = this.buildSingleton(build)
+    const state = slot ?? {}
+    // Store a new autowired slot before bubbling, so a bubble that throws keeps the mark a binding keeps.
+    if (!slot) save?.(state)
+    if (requestDep === undefined) {
+      state.resolved = { value }
+      return value
+    }
+    state.bubbled = true
+    return this.bubble(key, cacheKey, value, requestDep)
   }
 
   /** Build a singleton, recording the first request-scoped key it depends on, directly or not. */
