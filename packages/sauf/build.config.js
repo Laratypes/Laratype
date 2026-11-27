@@ -1,5 +1,18 @@
 import { fileURLToPath } from "url";
 
+// figlet's Node entry sets its font path from `__dirname`, which Bun folds into the build machine's
+// node_modules. The resources bundles are copied into an app's dist, where that path and figlet's fonts
+// folder do not exist, so the banner resolves figlet through the browser entry with its font data
+// (scripts/figlet-browser.mjs) instead. Package dists keep figlet external, as a declared dependency.
+const figletBrowser = {
+  name: "figlet-browser",
+  setup(build) {
+    build.onResolve({ filter: /^figlet$/ }, () => ({
+      path: fileURLToPath(new URL("../../scripts/figlet-browser.mjs", import.meta.url)),
+    }))
+  },
+}
+
 const esmConfigure = {
   entrypoints: [fileURLToPath(import.meta.resolve("./src/cli.ts"))],
   outdir: fileURLToPath(import.meta.resolve("./resources/app")),
@@ -8,6 +21,7 @@ const esmConfigure = {
   splitting: false,
   minify: true,
   naming: "[dir]/[name].[ext]",
+  plugins: [figletBrowser],
   define: {
     "globalThis.__PROD__": "true",
     "globalThis.__APP_PROD__": "true",
