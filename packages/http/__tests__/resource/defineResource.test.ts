@@ -108,7 +108,7 @@ describe('defineResource', () => {
   })
 
   it('a __proto__ key stays an own key, not the prototype, on the data and the page', () => {
-    const Proto = defineResource(User, () => JSON.parse('{"__proto__": {"polluted": true}}') as any)
+    const Proto = defineResource(User, () => JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>)
     const out = Proto.make(new User(1, 'ada'))
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
     expect(Object.keys(out)).toEqual(['__proto__'])
@@ -186,6 +186,56 @@ describe('defineResource', () => {
     )
     expect(defineResource(User, () => data as any).make(new User(1, 'ada'))).toEqual({ id: 1 })
     expect(ownKeys).toHaveBeenCalledTimes(1)
+  })
+
+  it('paginate reads the page own keys once, so a Proxy cannot swap a toJSON key into the copy', () => {
+    let reads = 0
+    const ownKeys = vi.fn(() => (++reads === 1 ? ['data'] : ['data', 'toJSON']))
+    const page = new Proxy(
+      { data: [] as User[], toJSON: () => ({ data: ['hijacked'] }) },
+      { ownKeys, getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) },
+    )
+    const out = UserResource.paginate(page)
+    expect(out).toEqual({ data: [] })
+    expect(JSON.stringify(out)).toBe('{"data":[]}')
+    expect(ownKeys).toHaveBeenCalledTimes(1)
+  })
+
+  it('paginate reads the page own keys once, so a Proxy cannot swap a then key into the copy', () => {
+    let reads = 0
+    const ownKeys = vi.fn(() => (++reads === 1 ? ['data'] : ['data', 'then']))
+    const page = new Proxy(
+      { data: [] as User[], then: () => ({ data: ['hijacked'] }) },
+      { ownKeys, getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) },
+    )
+    const out = UserResource.paginate(page)
+    expect(Object.keys(out)).toEqual(['data'])
+    expect(out).not.toHaveProperty('then')
+    expect(ownKeys).toHaveBeenCalledTimes(1)
+  })
+
+  it('paginate reads page.data once: the first value is validated and mapped', () => {
+    let reads = 0
+    const page = {
+      get data(): User[] {
+        reads++
+        return (reads === 1 ? [] : 5) as unknown as User[]
+      },
+    }
+    expect(UserResource.paginate(page)).toEqual({ data: [] })
+    expect(reads).toBe(1)
+
+    let invalidReads = 0
+    const invalid = {
+      get data(): User[] {
+        invalidReads++
+        return (invalidReads === 1 ? null : [new User(1, 'ada')]) as unknown as User[]
+      },
+    }
+    expect(() => UserResource.paginate(invalid)).toThrow(
+      '[@laratype/http] User: paginate() takes a page whose data holds the models, got data null',
+    )
+    expect(invalidReads).toBe(1)
   })
 
   it('paginate refuses a page-level toJSON key, and checks it before mapping the models', () => {

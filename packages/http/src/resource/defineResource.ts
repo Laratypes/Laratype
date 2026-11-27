@@ -159,11 +159,20 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
       if (!isPlainObject(page)) {
         throw new TypeError(failMessage(model, `paginate() takes a plain page object ({ data, ...meta }), got ${describe(page)}`));
       }
-      if (!isIterable(page.data)) {
-        throw new TypeError(failMessage(model, `paginate() takes a page whose data holds the models, got data ${describe(page.data)}`));
+      const data = page.data;
+      if (!isIterable(data)) {
+        throw new TypeError(failMessage(model, `paginate() takes a page whose data holds the models, got data ${describe(data)}`));
       }
-      assertNoReservedKeys(model, "the page must not have a", ownEnumerableKeys(page));
-      return { ...page, data: Array.from(page.data, make) } as unknown as ResourcePage<P, Out>;
+      const keys = ownEnumerableKeys(page);
+      assertNoReservedKeys(model, "the page must not have a", keys);
+      // The copy is built from the checked keys: a spread would read the page's own keys again, and a Proxy could
+      // answer a reserved key the check never saw. `data` is mapped from the one read above, never read again.
+      const dataIndex = keys.indexOf("data");
+      const values = keys.map((key) => (key === "data" ? undefined : Reflect.get(page, key)));
+      const mapped = Array.from(data, make);
+      const entries = keys.map((key, index) => [key, index === dataIndex ? mapped : values[index]] as const);
+      if (dataIndex === -1) entries.push(["data", mapped] as const);
+      return Object.fromEntries(entries) as unknown as ResourcePage<P, Out>;
     },
   });
 }
