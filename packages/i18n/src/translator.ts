@@ -108,8 +108,8 @@ export class Translator {
     return renderMessage(found.message, params, found.locale) ?? key;
   }
 
-  /** The request-scoped `Locale`, or `undefined` outside a request. */
+  /** The request-scoped `Locale`, or `undefined` outside a request (the request store, not `getContainer()`, D11 #318). */
   private requestLocale(): Locale | undefined {
-    return ContextApi.getContainer()?.make(Locale);
+    return ContextApi.getRequestStore().getStore()?.container?.make(Locale);
   }
 }
