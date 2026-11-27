@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import { Console } from "@laratype/console";
-import { isAbsolute, join, posix, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { ManifestKind } from "@laratype/support";
 import { lines, quote } from "../typegen/emit";
 import { isModuleFile } from "../typegen/scan";
@@ -82,12 +82,15 @@ const isConfigFile = (name: string) =>
 const isKindFile = (kind: ManifestKind, name: string) => (kind === "configs" ? isConfigFile(name) : isModuleFile(name, KIND_EXTENSIONS[kind]));
 /** A module's entry: `index.ts` (or `.mts`, `.js`, `.mjs`). */
 const isModuleIndex = (name: string) => isModuleFile(name, MODULE_EXTENSIONS) && stripExtension(name) === "index";
+/** The source a `.js` / `.mjs` file would be emitted from (`User.js` → `User.ts`), or the name itself. */
+const emittedFrom = (name: string) => name.replace(/\.js$/, ".ts").replace(/\.mjs$/, ".mts");
+
 /**
  * Whether a file is the output of a source next to it: `User.js` next to `User.ts` (`.mjs` next to `.mts`), what tsc
- * writes without `outDir`. It is not read, so it never clashes with its source.
+ * writes without `outDir`. Without one it is not read, so it never clashes with its source.
  */
 const isEmittedNextTo = (name: string, siblings: ReadonlySet<string>) => {
-  const source = name.replace(/\.js$/, ".ts").replace(/\.mjs$/, ".mts");
+  const source = emittedFrom(name);
   return source !== name && siblings.has(source);
 };
 
@@ -95,6 +98,11 @@ const isEmittedNextTo = (name: string, siblings: ReadonlySet<string>) => {
 interface ScanContext {
   readonly root: string;
   readonly skipped: string[];
+  /**
+   * Whether tsc emits next to the sources (a build without `outDir`, or `sauf dev`): an `X.js` next to `X.ts` is its
+   * output, not a hand-written module. With an `outDir` tsc writes elsewhere, so such a `.js` is read again.
+   */
+  readonly emittedNextTo: boolean;
 }
 
 /** Whether a real path is the project or inside it. */
@@ -149,12 +157,12 @@ function scanDir(ctx: ScanContext, projectDir: string, dir: string, kind: Manife
       if (type !== "dir") continue;
       const files = readdirSync(join(abs, entry.name)).sort();
       const names = new Set(files);
-      for (const file of files.filter((name) => isModuleIndex(name) && !isEmittedNextTo(name, names))) {
+      for (const file of files.filter((name) => isModuleIndex(name) && !(ctx.emittedNextTo && isEmittedNextTo(name, names)))) {
         entries.push({ name: entry.name, path: posix.join(dir, entry.name, file) });
       }
     } else if (type === "dir" && (NESTED.has(kind) || (kind === LOCALE_KIND && prefix === "")) && entry.name !== "node_modules") {
       entries.push(...scanDir(ctx, projectDir, dir, kind, posix.join(prefix, entry.name), within));
-    } else if (type === "file" && isKindFile(kind, entry.name) && !isEmittedNextTo(entry.name, siblings)) {
+    } else if (type === "file" && isKindFile(kind, entry.name) && !(ctx.emittedNextTo && isEmittedNextTo(entry.name, siblings))) {
       // `lang` reads one level only: `lang/<locale>/<file>.ts`, never a file directly in `lang/`
       if (kind === LOCALE_KIND && prefix === "") continue;
       entries.push({ name: posix.join(prefix, stripExtension(entry.name)), path: posix.join(dir, prefix, entry.name) });
@@ -182,7 +190,7 @@ const warnSkipped = (ctx: ScanContext) => {
  * skips and duplicate rule as `scanManifest`, for `sauf types:generate`'s `models.d.ts`. Names only.
  */
 export function scanModels(projectDir: string): ScannedEntry[] {
-  const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
+  const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [], emittedNextTo: true };
   const entries = scanKind(ctx, projectDir, "models");
   warnSkipped(ctx);
   return entries;
@@ -202,14 +210,25 @@ function scanKind(ctx: ScanContext, projectDir: string, kind: ManifestKind): Sca
   return entries;
 }
 
+/** How `scanManifest()` reads the folders: the build's `outDir`, when it has one. */
+export interface ScanManifestOptions {
+  /**
+   * The `outDir` of the build tsconfig (`sauf build`). With one, tsc writes elsewhere, so an `X.js` next to `X.ts` is
+   * hand-written and a duplicate name; without one (the default: `sauf dev`, a 0.5 build), it is tsc's output and is
+   * skipped.
+   */
+  readonly outDir?: string;
+}
+
 /**
  * Reads the folders of `MANIFEST_DIRS` (file names only, never contents). Throws a `ManifestScanError` on a name found
  * twice in a kind: in both layouts, or `User.ts` next to `User.mjs`. A `User.js` next to `User.ts` is tsc's output
- * (a build without `outDir`) and is skipped. Symlinks that lead outside the project, or back to
+ * (a build without `outDir`) and is skipped; a build with `outDir` (`options.outDir`) writes elsewhere, so that `.js`
+ * is read and a duplicate name again. Symlinks that lead outside the project, or back to
  * a folder being read, are not followed: one warning lists them.
  */
-export function scanManifest(projectDir: string): ScannedManifest {
-  const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [] };
+export function scanManifest(projectDir: string, options: ScanManifestOptions = {}): ScannedManifest {
+  const ctx: ScanContext = { root: realpathSync(projectDir), skipped: [], emittedNextTo: !options.outDir };
   const kinds = {} as Record<ManifestKind, ScannedEntry[]>;
   for (const kind of Object.keys(MANIFEST_DIRS) as ManifestKind[]) {
     kinds[kind] = scanKind(ctx, projectDir, kind);
@@ -259,12 +278,16 @@ export function inManifestDirs(relativePath: string): boolean {
 
 /**
  * Whether adding or deleting `file` (absolute) changes the manifest (`inManifestDirs`). `sauf dev --hmr` restarts on
- * it, and `laratype:manifest` invalidates its module. Editor temp files and helpers in sub-folders don't count.
+ * it, and `laratype:manifest` invalidates its module. Editor temp files and helpers in sub-folders don't count, and
+ * neither does an `X.js` next to its `X.ts`: dev has no build `outDir` (it never loads `typescript`), so that `.js` is
+ * `tsc -w`'s output, which the scan skips.
  */
 export function isManifestFile(projectDir: string, file: string): boolean {
   const rel = relative(projectDir, resolve(file));
   if (rel.startsWith("..") || isAbsolute(rel)) return false;
-  return inManifestDirs(rel);
+  if (!inManifestDirs(rel)) return false;
+  const name = basename(rel);
+  return !(emittedFrom(name) !== name && existsSync(join(dirname(resolve(file)), emittedFrom(name))));
 }
 
 /**

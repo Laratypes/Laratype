@@ -152,6 +152,15 @@ describe('scanManifest', () => {
     expect(scan.kinds.modules).toEqual([{ name: 'billing', path: 'app/modules/billing/index.ts' }]);
   });
 
+  it('with outDir, a hand-written .js next to its .ts is a duplicate name again', () => {
+    const dir = join(tmp, 'emitted-next-to-outdir');
+    write(dir, 'app/src/models/User.ts');
+    write(dir, 'app/src/models/User.js');
+    expect(() => scanManifest(dir, { outDir: 'dist' })).toThrow(
+      'models/User is in both app/src/models/User.js and app/src/models/User.ts: rename or remove one',
+    );
+  });
+
   it('skips folders that do not exist, and has no providers entry without app/config/providers.*', () => {
     const empty = join(tmp, 'empty');
     mkdirSync(empty, { recursive: true });
@@ -435,6 +444,17 @@ describe('shouldRestart (sauf dev --hmr)', () => {
     expect(shouldRestart('add', '/p/app/models/concerns/HasSlug.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/http/X.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/models/Tag.ts', undefined)).toBe(false);
+  });
+
+  it('does not restart for an emitted .js next to its .ts, but does for a hand-written .js', () => {
+    const dir = join(tmp, 'hmr-emitted');
+    write(dir, 'app/models/User.ts');
+    write(dir, 'app/models/User.js');
+    write(dir, 'app/models/HandWritten.js');                                // no User.ts-shaped source next to it
+    const inManifest = (file: string) => isManifestFile(dir, file);
+    expect(shouldRestart('add', join(dir, 'app/models/User.js'), undefined, inManifest)).toBe(false);
+    expect(shouldRestart('unlink', join(dir, 'app/models/User.js'), undefined, inManifest)).toBe(false);
+    expect(shouldRestart('add', join(dir, 'app/models/HandWritten.js'), undefined, inManifest)).toBe(true);
   });
 });
 
