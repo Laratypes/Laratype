@@ -262,34 +262,82 @@ const assertNoGetBody = (method: string, hasBody: boolean, path: string): void =
 };
 
 /**
+ * The reason of an aborted signal. `AbortSignal.reason` is undefined on browsers before it existed (Safari < 15.4,
+ * Chrome < 98), where an abort would otherwise be the status-0 result with `error: undefined`; the Fetch Standard's
+ * `AbortError` stands in for it.
+ */
+const abortReason = (signal: AbortSignal): unknown =>
+  signal.reason === undefined ? new DOMException("This operation was aborted", "AbortError") : signal.reason;
+
+/**
  * A call aborted before `fetch` (while the headers function or `onRequest` ran): the status-0 result fetch would give,
  * without running the next step.
  */
 const throwIfAborted = (signal: AbortSignal | null | undefined): void => {
-  if (signal?.aborted) throw new FetchFailed(signal.reason);
+  if (signal?.aborted) throw new FetchFailed(abortReason(signal));
 };
 
 /** Whether the body was read or locked (a reader taken), so the client can't read it. */
 const bodyTaken = (response: Response): boolean => response.bodyUsed || !!response.body?.locked;
+
+/** Whether a request body is a stream, which `fetch` needs `duplex: "half"` for, and a probe Request would take. */
+const isStreamBody = (body: unknown): boolean => {
+  if (typeof body !== "object" || body === null) return false;
+  const stream = body as { getReader?: unknown; pipeTo?: unknown };
+  return typeof stream.getReader === "function" && typeof stream.pipeTo === "function";
+};
+
+/**
+ * What `fetch` would refuse, checked after `onRequest` and before it is called (#315): one `new Request`, as `fetch`
+ * builds it, so an invalid method or body rejects with a message that names the path instead of coming back as the
+ * status-0 result. The caller's body is never taken by the probe: constructing a `Request` with a `ReadableStream`
+ * takes it, so a stream body is left out and its rules are checked by hand (`duplex: "half"`, no `keepalive`, and a
+ * `mode` of `same-origin` or `cors`). A GET or HEAD body keeps the client's own `a <METHOD> request cannot have a body`
+ * diagnostic.
+ */
+const preflight = (url: string, init: ClientRequest["init"], path: string): void => {
+  assertNoGetBody(init.method ?? "GET", init.body != null, path);
+  const stream = isStreamBody(init.body);
+  if (stream) {
+    if ((init as RequestInit & { duplex?: unknown }).duplex !== "half") {
+      fail(`the request body is a stream, which needs duplex: "half": "${path}"`);
+    }
+    if (init.keepalive) fail(`the request body is a stream, which cannot use keepalive: "${path}"`);
+    if (init.mode !== undefined && init.mode !== "same-origin" && init.mode !== "cors") {
+      fail(`the request body is a stream, which needs mode: "same-origin" or "cors": "${path}"`);
+    }
+  }
+  const probeInit: RequestInit & { duplex?: string } = { ...init, body: stream ? undefined : init.body };
+  try {
+    // a relative URL needs a base only to build the probe; fetch still gets (url, init)
+    new Request(new URL(url, SENTINEL), probeInit);
+  } catch (error) {
+    fail(`fetch would refuse the request: ${error instanceof Error ? error.message : "invalid request"}: "${path}"`);
+  }
+};
 
 /**
  * One request: the route path filled by `buildUrl`, the headers and the JSON body, sent with the injected fetch.
  * `buildUrl` only sees the route path; the result is then joined to `baseUrl`'s path with the server's `joinPath`, so
  * `baseUrl` is never parsed as route syntax, and a single contract's `"/"` route under `https://host/api/users` is
  * `/api/users`, not `/api/users/` (a 404 under strict routing).
- * Headers: `options.headers` (a function is called, and awaited, at each call), overridden by the call's own `headers`;
- * then `content-type: application/json` for a body when neither sets one. `options.credentials` is set when given, and
- * `init.redirect` is set on every call, from `options.redirect`, default `"manual"`; `onRequest` can still override it.
+ * Headers: `options.headers` (a value is copied at createClient, a function is called, and awaited, at each call; a
+ * reassigned `options.headers` rejects the call), overridden by the call's own `headers`; then
+ * `content-type: application/json` for a body when neither sets one.
+ * `options.credentials` is set when given, and `init.redirect` is set on every call, from `options.redirect`, default
+ * `"manual"`; `onRequest` can still override it.
  * `onRequest` gets the request just before `fetch`, and `onResponse` the response before its body is read; a throw from
- * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body. A call
- * aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither the headers function nor `onRequest`
- * once aborted.
+ * either rejects the call (the unread body is then cancelled), and so does an `onResponse` that reads the body, after
+ * releasing what it can. One pre-flight `Request` then rejects what `fetch` would refuse (an invalid method, a stream
+ * without `duplex: "half"`, with `keepalive`, or with a mode other than `same-origin` or `cors`) instead of letting it
+ * look like a network failure. A call aborted before `fetch` is a `FetchFailed`, as fetch would reject, and runs neither
+ * the headers function nor `onRequest` once aborted.
  * Async, so every failure (a missing param, a body JSON cannot hold, no fetch) rejects instead of throwing.
  * A GET with a body rejects the call, and so does a relative URL for the global `fetch` outside a browser; `fetch` gets
  * `(url, init)` and resolves a relative URL itself. A synchronous throw from `fetch` rejects the call too; only a
  * rejected promise is a `FetchFailed`, which the result union turns into `unexpected`.
- * The options are read from `options` when each call starts, so changing one (a refreshed token) applies to the next
- * call, and one call never mixes old and new options.
+ * Every option except a `headers` value is read from `options` when each call starts, so changing one (a refreshed
+ * token in a `headers` function) applies to the next call, and one call never mixes old and new options.
  */
 const SPLIT_CACHE_SIZE = 8;
 
@@ -312,16 +360,17 @@ const createBaseUrlSplit = (): BaseUrlSplit => {
 };
 
 const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlSplit()): Send => {
+  // A `headers` value is read once, here at createClient, and its entries copied (#326): mutating the caller's object,
+  // array or Headers later changes nothing, so `ProvidedHeaders` is what every call sends. A function stays live.
+  const headersOption = options.headers;
+  const fixedHeaders = typeof headersOption === "function" ? undefined : new Headers(headersOption);
   return async (method, path, input = {}) => {
-    const {
-      baseUrl,
-      fetch: injected,
-      headers: defaults,
-      credentials,
-      redirect = "manual",
-      onRequest,
-      onResponse,
-    } = options;
+    // #326: a reassigned options.headers would send something other than the snapshot (a logout, a new token) with no
+    // error. Fail closed instead; in-place mutation of a copied value is the documented, undetected case.
+    if (options.headers !== headersOption) {
+      fail("options.headers was replaced after createClient: use the headers function form, or create a new client");
+    }
+    const { baseUrl, fetch: injected, credentials, redirect = "manual", onRequest, onResponse } = options;
     const [origin, basePath] = split(baseUrl ?? "");
     const built = buildUrl(path, { params: input.params, query: input.query });
     const q = built.indexOf("?");
@@ -349,11 +398,13 @@ const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlS
     const { signal } = input;
     throwIfAborted(signal);
     let headers: Headers;
-    if (typeof defaults === "function") {
-      headers = new Headers(await defaults());
+    if (typeof headersOption === "function") {
+      // called on the options object, so a method-style `headers()` sees `this`, and may return undefined
+      headers = new Headers(await headersOption.call(options));
       throwIfAborted(signal);
     } else {
-      headers = new Headers(defaults);
+      // a copy per call: onRequest may change it, and a call never sees another one's headers
+      headers = new Headers(fixedHeaders);
     }
     for (const [key, value] of Object.entries(input.headers ?? {})) {
       if (value !== undefined) headers.set(key, value);
@@ -367,10 +418,14 @@ const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlS
     if (signal) init.signal = signal;
     const request: ClientRequest = Object.freeze({ url, init });
     if (onRequest) {
-      await onRequest(request);
-      // onRequest may have set a body or changed the method (fetch's default is GET)
-      assertNoGetBody(init.method ?? "GET", init.body != null, path);
+      // called on the options object, so a method-style hook sees `this` (#315)
+      await onRequest.call(options, request);
+      // onRequest may have replaced init.headers with a plain object (or pairs); onResponse reads request.init.headers.get()
+      if (!(init.headers instanceof Headers)) init.headers = new Headers(init.headers);
+      // onRequest may have set a body or changed the method (fetch's default is GET): one probe of what fetch would
+      // refuse, after the abort check, so a hook-built request gets a clear rejection instead of the status-0 result
       throwIfAborted(init.signal);
+      preflight(url, init, path);
     }
     // a synchronous throw from fetch rejects the call as a programming error; only a rejected promise is a network failure
     const pending = fetchFn(url, init);
@@ -384,13 +439,18 @@ const createSend = (options: ClientOptions, split: BaseUrlSplit = createBaseUrlS
       // an injected fetch may hand over a used body; only a body this hook used is its fault
       const readable = !bodyTaken(response);
       try {
-        await onResponse(response, request);
+        // called on the options object, so a method-style hook sees `this` (#315)
+        await onResponse.call(options, response, request);
       } catch (error) {
         // the call rejects and nobody reads the body: release it
         cancelBody(response);
         throw error;
       }
-      if (readable && bodyTaken(response)) fail("onResponse read the response body: read a response.clone() instead");
+      if (readable && bodyTaken(response)) {
+        // a partly read body the hook released can still be released; one it keeps locked is its own, and cancel can't free it
+        cancelBody(response);
+        fail("onResponse read the response body: read a response.clone() instead");
+      }
     }
     return response;
   };
@@ -665,28 +725,42 @@ export function createClient<T extends ApiShape<T>, Hd extends HeadersInit>(
 /**
  * The typed client for one contract file. It has no folder prefix: `baseUrl`'s path is joined to its endpoint paths
  * like the server's `joinPath`, and its params are only its own.
+ *
+ * `options.headers` is an object (or a `Headers`/pairs) whose literal names are always sent: those schema headers are
+ * optional in a call (`ProvidedHeaders`). The overload below takes the function form, which provides none.
  */
-export function createClient<C extends AnyContract, const Hd extends HeadersInit = HeadersInit>(
+export function createClient<C extends AnyContract, const Hd extends HeadersInit>(
   contract: C,
-  options?: ClientOptions<Hd>,
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): ClientOf<C, ProvidedHeaders<Hd>>;
+/**
+ * The same contract client with no `headers` value, or a `headers` function: its headers are known only when it runs,
+ * so no header is provided to the types (#326).
+ */
+export function createClient<C extends AnyContract>(contract: C, options?: ClientOptions): ClientOf<C>;
 /** The typed client for one API node (`appApi.users`), named relative to it: `api.posts.update`. */
-export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit = HeadersInit>(
+export function createClient<N extends ApiNodeShape, const Hd extends HeadersInit>(
   node: N,
-  options?: ClientOptions<Hd>,
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): ClientOf<N, ProvidedHeaders<Hd>>;
+/** The API node client with no `headers` value, or a `headers` function: no header is provided to the types. */
+export function createClient<N extends ApiNodeShape>(node: N, options?: ClientOptions): ClientOf<N>;
 /**
  * The typed client for the generated `appApi` (`$api`). Names follow the folder tree (`api.users.posts.update(...)`)
  * and URLs are the contracts' full paths, so `baseUrl` is only the origin.
+ *
+ * `options.headers` as an object provides its literal headers; the overload below takes no value or a function.
  *
  * @example
  * const api = createClient(appApi, { baseUrl: 'https://example.com' })
  * const result = await api.users.posts.update({ params: { user: 1, post: 2 }, body: { title: 'Hi' } })
  */
-export function createClient<A extends ApiRootShape, const Hd extends HeadersInit = HeadersInit>(
+export function createClient<A extends ApiRootShape, const Hd extends HeadersInit>(
   api: A,
-  options?: ClientOptions<Hd>,
+  options: ClientOptions<Hd> & { headers: Hd & HeaderValues },
 ): ClientOf<A, ProvidedHeaders<Hd>>;
+/** The appApi client with no `headers` value, or a `headers` function: no header is provided to the types. */
+export function createClient<A extends ApiRootShape>(api: A, options?: ClientOptions): ClientOf<A>;
 export function createClient(api: object, options: ClientOptions = {}): object {
   const split = createBaseUrlSplit();
   split(options.baseUrl ?? "");

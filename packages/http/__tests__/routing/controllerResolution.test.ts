@@ -3,7 +3,7 @@
 import 'reflect-metadata'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { Container, __laratype_deps, depsRegistry } from '@laratype/core'
+import { Container, __laratype_deps, depsRegistry, Facade } from '@laratype/core'
 import { ContextApi, HTTP_APP } from '@laratype/support'
 import { defineApi, defineContract, endpoint } from '@laratype/contract'
 import { Controller, Middleware, Request as LaratypeRequest, RequestKernel, Route } from '../../src/index'
@@ -110,12 +110,12 @@ describe('controller resolution', () => {
     expect(scope).toBeInstanceOf(Container)
     expect(scope).not.toBe(container)
     expect(greeter).toBe(container.make(Greeter))
-    // outside a request, and on a bare app: one autowire-only container, created once
-    expect(ContextApi.getContainer()).toBeUndefined()
-    const fallback = RequestKernel.container()
-    expect(fallback).toBeInstanceOf(Container)
-    expect(fallback).not.toBe(container)
-    expect(RequestKernel.container()).toBe(fallback)
+    // outside a request: core's one app-container lookup, not the finished request scope (D11 #318)
+    const outside = ContextApi.getContainer()
+    expect(outside).toBeInstanceOf(Container)
+    expect(outside).not.toBe(scope)
+    expect(RequestKernel.container()).toBe(outside)
+    expect(outside).toBe(Facade.getFacadeApplication())
   })
 
   it('a dependency the container cannot resolve fails the request, not the mount', async () => {

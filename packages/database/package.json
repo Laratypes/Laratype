@@ -39,10 +39,11 @@
     ]
   },
   "peerDependencies": {
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.31"
   },
   "devDependencies": {
-    "mysql2": "^3.15.0"
+    "mysql2": "^3.24.6",
+    "typeorm": "^0.3.31"
   },
   "files": [
     "dist"
