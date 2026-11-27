@@ -21,7 +21,7 @@
     "@laratype/database": "workspace:*",
     "@laratype/http": "workspace:*",
     "@laratype/support": "workspace:*",
-    "dotenv": "^16.4.5",
+    "dotenv": "^18.0.10",
     "laratype": "workspace:*",
     "mysql2": "^3.24.6",
     "passport-google-oidc": "^0.1.0",
