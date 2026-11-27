@@ -7,7 +7,7 @@
 //     with every export defined, and every ESM chunk loads too,
 //  4. the sauf resources bundles (copied into apps by `sauf build`) pass `node --check`.
 // Usage: bun run build && bun run check:dist
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -15,6 +15,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { findBuildRootInTree } from './module-paths.mjs'
 
 const root = path.resolve(fileURLToPath(import.meta.url), '../..')
+// The root as given and as resolved: Bun writes the resolved path into a folded literal when the
+// checkout is reached through a junction, symlink, subst drive or 8.3 name (B25 #329).
+const realRoot = realpathSync.native(root)
+const roots = realRoot === root ? [root] : [root, realRoot]
 const META_DIR = path.join(root, 'dist_tmp/bun-meta')
 const SAUF_RESOURCES = path.join(root, 'packages/sauf/resources/app')
 
@@ -148,7 +152,7 @@ console.log('Build root path in dists and the sauf resources bundles:')
  * @param {string} label
  */
 const scanBuildRoot = (dir, label) => {
-  const hits = findBuildRootInTree(dir, root, { caseInsensitive: process.platform === 'win32' })
+  const hits = findBuildRootInTree(dir, roots, { caseInsensitive: process.platform === 'win32' })
   for (const { file, index, form } of hits) {
     fail(`${path.relative(root, file)}: contains the build root path at offset ${index} (${form})`)
   }
