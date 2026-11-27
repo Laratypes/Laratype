@@ -3,7 +3,7 @@
 // `file://` URLs Bun folds `import.meta.url` into. The fixtures hold a Windows-style build root in
 // every form a dist can carry, so the test runs the same on Windows and POSIX and never builds.
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   CJS_MODULE_URL,
@@ -14,6 +14,9 @@ import {
 } from "../module-paths.mjs";
 
 const ROOT = "C:\\build\\machine\\laratype";
+/** A root with a space, so `pathToFileURL` percent-encodes it (`%20`); the native form differs per platform. */
+const SPACE_ROOT = process.platform === "win32" ? "C:\\build\\my dir\\laratype" : "/build/my dir/laratype";
+const SPACE_URL = pathToFileURL(SPACE_ROOT).href;
 const FIXTURES = fileURLToPath(new URL("./fixtures/dist-paths", import.meta.url));
 
 /** @param {string} file */
@@ -36,6 +39,15 @@ describe("buildRootForms", () => {
   it("drops a trailing separator, so a root with one is reported alike", () => {
     expect(buildRootForms(`${ROOT}\\`)).toContain("C:/build/machine/laratype");
     expect(buildRootForms(`${ROOT}/`)).toEqual(buildRootForms(ROOT));
+  });
+
+  it("adds the percent-encoded URL for a root with a space", () => {
+    const forms = buildRootForms(SPACE_ROOT);
+
+    expect(SPACE_URL).toContain("%20");
+    expect(forms).toContain(SPACE_URL);
+    // Bun only percent-encodes the URL, so the plain form stays a form as well.
+    expect(forms).toContain(SPACE_URL.replace("%20", " "));
   });
 });
 
@@ -102,6 +114,14 @@ describe("findBuildRoot", () => {
     expect(findBuildRoot(contents, ROOT)).toBeUndefined();
     expect(findBuildRoot(contents, ROOT, { caseInsensitive: true })?.form).toBe("file:///C:/build/machine/laratype");
   });
+
+  it("finds the percent-encoded URL of a root with a space", () => {
+    const contents = `const manifest = new URL("./app.manifest.js", "${SPACE_URL}/packages/sauf/src/manifest/load.ts").href;`;
+    const hit = findBuildRoot(contents, SPACE_ROOT);
+
+    expect(hit?.form).toBe(SPACE_URL);
+    expect(hit?.index).toBe(contents.indexOf(SPACE_URL));
+  });
 });
 
 describe("findBuildRootInTree", () => {
@@ -142,6 +162,17 @@ describe("keepRuntimeModuleUrl", () => {
     const { code, rewritten } = keepRuntimeModuleUrl(contents, ROOT);
 
     expect(rewritten).toBe(2);
+    expect(code.match(/pathToFileURL\(__filename\)/g)).toHaveLength(2);
+  });
+
+  it("rewrites both URL forms of a root with a space", () => {
+    const plain = SPACE_URL.replace("%20", " ");
+    const contents = `const a = "${plain}/a";\nconst b = "${SPACE_URL}/b";\n`;
+    const { code, rewritten } = keepRuntimeModuleUrl(contents, SPACE_ROOT);
+
+    expect(rewritten).toBe(2);
+    expect(code).not.toContain("my dir");
+    expect(code).not.toContain("my%20dir");
     expect(code.match(/pathToFileURL\(__filename\)/g)).toHaveLength(2);
   });
 
