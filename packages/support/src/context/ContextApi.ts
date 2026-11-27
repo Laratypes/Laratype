@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import type { Request } from "@laratype/http"; 
+import { appContainer } from "@laratype/core";
+import type { Container } from "@laratype/core";
 
 export default class ContextApi {
 
@@ -38,11 +40,12 @@ export default class ContextApi {
   }
 
   /**
-   * The request scope of the app container for the current request (D6 #112), set by `RequestKernel`; undefined outside
-   * a request served by `RequestKernel`.
+   * The container of the current request scope (D6 #112), set by `RequestKernel`, else the app container
+   * (`appContainer()`, D11 #318). Always a container: to tell whether a request is active, read the request store
+   * (`getRequestStore().getStore()`) instead of comparing this to `undefined`.
    */
-  static getContainer() {
-    return this.getRequestStore().getStore()?.container;
+  static getContainer(): Container {
+    return this.getRequestStore().getStore()?.container ?? appContainer();
   }
 
   static setRequest(request: Request) {

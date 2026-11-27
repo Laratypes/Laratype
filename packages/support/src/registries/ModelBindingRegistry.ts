@@ -1,4 +1,3 @@
-import { Facade } from "@laratype/core";
 import type { Container } from "@laratype/core";
 import ContextApi from "../context/ContextApi";
 
@@ -35,9 +34,9 @@ export default class ModelBindingRegistry {
     return app.make(ModelBindingRegistry);
   }
 
-  /** The container `current()` resolves from: the current request's scope, else the facade application. */
+  /** The container `current()` resolves from: the current request's scope, else the app container. */
   static container(): Container {
-    return ContextApi.getContainer() ?? Facade.getFacadeApplication();
+    return ContextApi.getContainer();
   }
 
 }

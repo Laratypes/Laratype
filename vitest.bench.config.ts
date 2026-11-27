@@ -1,5 +1,5 @@
 import { configDefaults, mergeConfig } from "vitest/config";
-import config from "./vitest.config";
+import config from "./vitest.shared";
 
 /**
  * Fast, server-free checks of the benchmark's pure code (#353): argument parsing, the report tables, the wire

@@ -1,4 +1,6 @@
-// docs/v1/di.md: ServiceProvider v2 + two-phase boot (D4, merged on master).
+// docs/v1/di.md: ServiceProvider v2 + two-phase boot.
+
+// #region writing-a-provider
 import { Container, token } from '@laratype/core'
 import { bootProviders, ServiceProvider } from '@laratype/support'
 
@@ -11,12 +13,14 @@ export class ClockServiceProvider extends ServiceProvider {
     this.app.singleton(CLOCK, () => ({ now: () => new Date() }))
   }
 
-  // boot(): every binding from every provider is available here.
+  // boot(): every provider has registered, so every binding can be resolved here.
   boot() {
     this.app.make(CLOCK).now()
   }
 }
+// #endregion writing-a-provider
 
+// #region how-the-application-boots
 export async function main() {
   const app = new Container()
   // Instantiates each provider with the container, runs all register(), then all boot(), in order.
@@ -24,3 +28,4 @@ export async function main() {
   // Cleanups come back in reverse boot order.
   for (const down of downs) await down()
 }
+// #endregion how-the-application-boots

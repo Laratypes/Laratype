@@ -1,6 +1,8 @@
 import { Container, DiError } from './container'
 import type { Token } from './container'
 import { depsRegistry } from './registry'
+import { escapeName } from './names'
+import { isProduction } from './runtime'
 
 /** Facade application state, on `globalThis` under `Symbol.for` like the deps registry, so two copies of `@laratype/core` agree. */
 const STATE = Symbol.for('laratype.di.facade')
@@ -18,31 +20,29 @@ const FALLBACK_WARNED = Symbol.for('laratype.di.fallbackWarned')
 /** Dev warning, once per process: an app container replaced the shared fallback with unrestored fakes. */
 const FAKES_DROPPED = Symbol.for('laratype.di.fakesDropped')
 
-/** Same dev-only check as the container's request-scope bubble warning. */
-const isProduction = (): boolean => {
-  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
-  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
-}
-
 const warnFallback = (): void => {
   if (isProduction()) return
   const store = globalThis as { [FALLBACK_WARNED]?: true }
   if (store[FALLBACK_WARNED]) return
   store[FALLBACK_WARNED] = true
   console.warn(
-    '[@laratype/core] No app container: facades use a shared autowire-only container, so app bindings do not apply and '
+    '[@laratype/core] No app container: facades and controllers use a shared autowire-only container, so app bindings do not apply and '
     + 'the singletons it autowires are shared for the process. '
     + 'Call Serve.getContainer() or setFacadeApplication() to use the app container.',
   )
 }
 
-/** A token's label, coerced and escaped: a hostile token cannot make the warning throw or break the line. */
+/** The most escaped characters a token label echoes: a longer one is cut with an ellipsis. */
+const MAX_TOKEN_LABEL = 100
+
+/** A token's label, coerced and escaped: a hostile token cannot make the warning throw, break the line or flood it. */
 const tokenLabel = (token: unknown): string => {
   try {
     const name = typeof token === 'function' ? (token as { name?: unknown }).name : token
-    const label = name === undefined || name === null || name === '' ? '<anonymous class>' : String(name)
-    return label.replace(/[\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) =>
-      char === '\\' ? '\\\\' : `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    const label = name === undefined || name === null || name === '' || (typeof token === 'function' && typeof name !== 'string')
+      ? '<anonymous class>'
+      : escapeName(String(name))
+    return label.length > MAX_TOKEN_LABEL ? `${label.slice(0, MAX_TOKEN_LABEL)}…` : label
   } catch {
     return '<unprintable token>'
   }
@@ -52,11 +52,12 @@ const warnDroppedFakes = (tokens: ReadonlyArray<unknown>): void => {
   if (isProduction()) return
   const store = globalThis as { [FAKES_DROPPED]?: true }
   if (store[FAKES_DROPPED]) return
-  store[FAKES_DROPPED] = true
   console.warn(
     `[@laratype/core] setFacadeApplication() dropped the shared fallback with unrestored fakes: ${tokens.map(tokenLabel).join(', ')}. `
     + 'Make the fake after the boot (for example in beforeEach after Serve.bootProvider()), or restore it before the boot.',
   )
+  // Set after the warning prints, so a warn adapter that throws does not silence the next drop
+  store[FAKES_DROPPED] = true
 }
 
 /** One swap made while the fallback served as the facade application. */
@@ -101,8 +102,7 @@ class FallbackContainer extends Container {
 
 /**
  * The app container: the one `setFacadeApplication()` set, else one autowire-only container shared by every facade and
- * by the app lookups that move onto it. Creating the fallback warns once per process in dev (D9 #270). http's `Request`
- * fallback switches to this lookup after #379 / #400 merge (D11 #318).
+ * by `ContextApi.getContainer()` / http's `Request.container()`. Creating the fallback warns once per process in dev.
  */
 export function appContainer(): Container {
   const current = state()
@@ -112,7 +112,8 @@ export function appContainer(): Container {
   const fallback = new FallbackContainer({ deps: depsRegistry })
   current.fallback = fallback
   warnFallback()
-  return fallback
+  // Re-read: the warning adapter may have set an app container, which dropped the fallback just created (D11 #318)
+  return state().app ?? fallback
 }
 
 /** The app container, or the fallback when one was already created: `undefined` instead of allocating it. */

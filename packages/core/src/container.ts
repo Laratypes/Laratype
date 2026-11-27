@@ -3,6 +3,8 @@ import type { DepsLookup } from './deps'
 import { InjectionToken } from './token'
 import { injectableScope, injectTokens } from './decorators'
 import { isAbstract } from './registry'
+import { escapeName } from './names'
+import { isProduction } from './runtime'
 
 export type Newable<T = unknown> = new (...args: any[]) => T
 export type AbstractNewable<T = unknown> = abstract new (...args: any[]) => T
@@ -66,21 +68,14 @@ interface TreeState {
   scopeStack: Container[]
 }
 
-const asyncDisposeKey: symbol = (Symbol as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('Symbol.asyncDispose')
-const disposeKey: symbol = (Symbol as { dispose?: symbol }).dispose ?? Symbol.for('Symbol.dispose')
-
-/** A name on one line: control and format characters, line separators and backslashes are escaped. */
-const escapeName = (name: string): string =>
-  name.replace(/[\p{Cc}\p{Cf}\u2028\u2029\\]/gu, (char) => {
-    if (char === '\\') return '\\\\'
-    const code = char.codePointAt(0)!
-    // A supplementary format character escapes as its UTF-16 surrogate pair, so the second unit is not dropped.
-    if (code > 0xffff) {
-      const offset = code - 0x10000
-      return `\\u${(0xd800 + (offset >> 10)).toString(16)}\\u${(0xdc00 + (offset & 0x3ff)).toString(16)}`
-    }
-    return `\\u${code.toString(16).padStart(4, '0')}`
-  })
+/** The `Symbol.asyncDispose` / `Symbol.dispose` keys, read when a disposal runs so a later polyfill is seen (D12 #337). */
+const disposeSymbols = (): { asyncDispose: symbol, dispose: symbol } => {
+  const symbols = Symbol as { asyncDispose?: symbol, dispose?: symbol }
+  return {
+    asyncDispose: symbols.asyncDispose ?? Symbol.for('Symbol.asyncDispose'),
+    dispose: symbols.dispose ?? Symbol.for('Symbol.dispose'),
+  }
+}
 
 /** `<C>` for a message: a class name (one line, `<anonymous class>` when unreadable), else `String(key)`. */
 const keyName = (key: unknown): string => {
@@ -93,7 +88,8 @@ const keyName = (key: unknown): string => {
   }
   try {
     const name = key.name
-    return name ? escapeName(typeof name === 'string' ? name : String(name)) : '<anonymous class>'
+    // A `static name()` method is a function, not the class name: print the placeholder instead of its source.
+    return typeof name === 'string' && name !== '' ? escapeName(name) : '<anonymous class>'
   } catch {
     return '<anonymous class>'
   }
@@ -333,12 +329,6 @@ const leadingConstructorParamCount = (cls: Function): number | undefined => {
   return count ?? undefined
 }
 
-// Same check as the fallback container warning of @laratype/http.
-const isProduction = (): boolean => {
-  const g = globalThis as { __PROD__?: boolean, process?: { env?: Record<string, string | undefined> } }
-  return g.__PROD__ ?? g.process?.env?.NODE_ENV === 'production'
-}
-
 /**
  * `Cannot autowire` hints (di.md › Resolution errors with fix hints). Production `sauf build` runs no laratype:di
  * transform yet (B2 #126, B4 #128), so only a factory binding can add the class. In dev both fixes exist, and the
@@ -397,6 +387,14 @@ const warnBubbled = (key: unknown, requestDep: unknown): void => {
   warned.add(key)
   console.warn(bubbleWarning(key, requestDep))
 }
+
+/** Dev warning, once per class per process: a container above a request scope autowired a class that scope binds. */
+const requestScopeBindingWarning = (key: unknown): string =>
+  `[@laratype/core] ${keyName(key)} is bound in the active request scope, but a container above it autowired a new instance,`
+  + ' so the request\'s value is ignored. Per-request identity must be a token or a scoped() binding, not instance() on a class.'
+
+/** Classes already warned about, per process: a second copy of `@laratype/core` shares the set. */
+const REQUEST_SCOPE_BINDING_WARNED = Symbol.for('laratype.di.requestScopeBindingWarned')
 
 const isFactory = (concrete: Concrete<unknown>): concrete is Factory<unknown> =>
   concrete.prototype === undefined
@@ -527,13 +525,15 @@ export class Container {
     // place it was first built, so the values built after it from it are still disposed before it
     const values = [...new Set([...this.requestCache.values()].map(({ value }) => value))].reverse()
     this.requestCache.clear()
+    // Read when the disposal runs: a Symbol.dispose polyfilled after this module loaded is still seen (D12 #337)
+    const { asyncDispose, dispose } = disposeSymbols()
     const failures: unknown[] = []
     for (const value of values) {
       if (value === null || (typeof value !== 'object' && typeof value !== 'function')) continue
       const target = value as Record<symbol, unknown>
       try {
-        if (typeof target[asyncDisposeKey] === 'function') await (target[asyncDisposeKey] as () => unknown).call(value)
-        else if (typeof target[disposeKey] === 'function') (target[disposeKey] as () => unknown).call(value)
+        if (typeof target[asyncDispose] === 'function') await (target[asyncDispose] as () => unknown).call(value)
+        else if (typeof target[dispose] === 'function') (target[dispose] as () => unknown).call(value)
       } catch (error) {
         failures.push(error)
       }
@@ -579,6 +579,8 @@ export class Container {
       return this.withCycleCheck(key, () => binding.create(this, requiredBy))
     }
     if (typeof key === 'function') {
+      // A request scope's own binding of this class is invisible to a container above it: the root autowires a blank one
+      this.warnRequestScopeBinding(key)
       // The transform's own-class flag: a concrete subclass of an abstract class still autowires.
       if (isAbstract(key)) throw new DiError(errors.noBindingAbstract(key, requiredBy))
       const scope = injectableScope(key)
@@ -612,6 +614,22 @@ export class Container {
       if (c.requestCache) return c
     }
     return undefined
+  }
+
+  /**
+   * Warn once per class in dev when the request scope of the `make()` in progress binds `key` itself and this
+   * container (above it) is about to autowire a new instance instead: a class `instance()` never reaches a singleton,
+   * so the value the request set is silently ignored. Production pays no lookup.
+   */
+  protected warnRequestScopeBinding(key: unknown): void {
+    if (isProduction()) return
+    const scope = this.currentRequestScope()?.scope
+    if (!scope || scope === this || !scope.bindings.has(key)) return
+    const store = globalThis as { [REQUEST_SCOPE_BINDING_WARNED]?: Set<unknown> }
+    const warned = store[REQUEST_SCOPE_BINDING_WARNED] ??= new Set()
+    if (warned.has(key)) return
+    warned.add(key)
+    console.warn(requestScopeBindingWarning(key))
   }
 
   /**
@@ -651,8 +669,13 @@ export class Container {
     const value = create(scope)
     // A factory that starts the disposal while it builds: the cache was cleared, so the value must not land in it
     if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
-    cache.set(cacheKey, { value })
+    this.cacheValue(cache, cacheKey, value)
     return value
+  }
+
+  /** Store a request-scoped value in the scope's cache: the one place `fromRequestScope()` and `bubble()` write it. */
+  protected cacheValue(cache: RequestCache, cacheKey: unknown, value: unknown): void {
+    cache.set(cacheKey, { value })
   }
 
   /** Build a singleton, recording the first request-scoped key it depends on, directly or not. */
@@ -668,8 +691,10 @@ export class Container {
 
   /** Cache the first value of a bubbled singleton in the current request scope, and warn once in dev. */
   protected bubble(key: unknown, cacheKey: unknown, value: unknown, requestDep: unknown): unknown {
+    // Resolve the scope before the warning: a bubble that throws must not suppress the dev warning on the next request
+    const { cache } = this.resolutionScope(key, undefined)
     warnBubbled(key, requestDep)
-    this.resolutionScope(key, undefined).cache.set(cacheKey, { value })
+    this.cacheValue(cache, cacheKey, value)
     return value
   }
 

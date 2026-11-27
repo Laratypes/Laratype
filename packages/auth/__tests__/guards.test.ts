@@ -710,4 +710,22 @@ describe('outside the app container', () => {
       expect(() => AuthVerification.verify('token')).toThrow('AuthManager is not bound in the app container: boot PassportServiceProvider')
     })
   })
+
+  it('does not use the facade application outside a request (D11 #318)', () => {
+    const app = new Container().instance(AuthManager, {} as AuthManager)
+    Facade.setFacadeApplication(app)
+    // The guards need a request: ContextApi.getContainer() would be this app container, the request store is empty
+    expect(() => AuthVerification.verify('token')).toThrow('[@laratype/auth] No app container')
+  })
+
+  it('does not reuse the container of a finished request (D11 #318)', () => {
+    const guard = { verify: async () => null }
+    const request = new Container().instance(AuthManager, { guard: () => guard } as unknown as AuthManager)
+    ContextApi.run({ container: request } as never, () => {
+      // Inside the request the store answers, so the guard resolves
+      expect(AuthVerification.guard('web')).toBe(guard)
+    })
+    // Outside it, the store is empty: the finished request's container is never read
+    expect(() => AuthVerification.guard('web')).toThrow('[@laratype/auth] No app container')
+  })
 })
