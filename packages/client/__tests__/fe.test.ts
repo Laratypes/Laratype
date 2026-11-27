@@ -19,6 +19,13 @@ const classify = (file: string) => {
   return `server: ${f.startsWith(root) ? f.slice(root.length) : f}`
 }
 
+/**
+ * A Hono package file: a `node_modules/hono/...` path, Bun's nested store included. The checkout path itself may
+ * contain "hono" (the B33 worktree is `b33-hono`), so the package segment is what counts, not the substring.
+ */
+const isHonoPackageFile = (file: string): boolean =>
+  /\/node_modules\/(\.bun\/[^/]+\/node_modules\/)?hono\//i.test(file.replace(/\\/g, '/'))
+
 /** One `tsc -p <tsconfig> --listFiles` run: its diagnostics and every file of the program, grouped. */
 const compile = (tsconfig: string, ...args: string[]) => {
   const child = spawnSync(process.execPath, [tsc, '-p', `${fixtures}${tsconfig}`, '--listFiles', ...args], { encoding: 'utf-8' })
@@ -37,7 +44,7 @@ describe('FE fixture (createClient with the generated appApi)', () => {
     expect(diagnostics).toEqual([])
     expect(status).toBe(0)
     expect(server).toEqual([])
-    expect(files.filter((f) => /hono/i.test(f))).toEqual([])
+    expect(files.filter(isHonoPackageFile)).toEqual([])
     // fe/main.ts, index.gen.ts, 3 $types.d.ts, 2 _scope.ts, _errors.ts, users.ts, posts.ts, health/index.ts
     expect(groups.fixture).toBe(11)
     expect(groups['@laratype/client']).toBeGreaterThan(0)
@@ -45,8 +52,8 @@ describe('FE fixture (createClient with the generated appApi)', () => {
   }, 60_000)
 
   it('negative control: the app tsconfig setting `jsxImportSource: "hono/jsx"` would load hono files', () => {
-    const { server } = compile('tsconfig.json', '--jsxImportSource', 'hono/jsx')
-    expect(server.filter((f) => /hono/.test(f)).length).toBeGreaterThan(0)
+    const { files } = compile('tsconfig.json', '--jsxImportSource', 'hono/jsx')
+    expect(files.filter(isHonoPackageFile).length).toBeGreaterThan(0)
   }, 60_000)
 })
 
@@ -56,7 +63,7 @@ describe('separate-repo FE fixture (createClient<AppApi>(manifest) with the gene
     expect(diagnostics).toEqual([])
     expect(status).toBe(0)
     expect(server).toEqual([])
-    expect(files.filter((f) => /hono/i.test(f))).toEqual([])
+    expect(files.filter(isHonoPackageFile)).toEqual([])
     expect(groups['schema lib']).toBeUndefined()
     // main.ts and api.ts (which imports nothing)
     expect(groups.fixture).toBe(2)
