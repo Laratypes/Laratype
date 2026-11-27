@@ -34,6 +34,8 @@ export const runtimeSource = join(here, 'runtime.ts');
 
 /** `@laratype/core` sources, compiled next to the stub for fixtures that import from `@laratype/core`. */
 export const coreSourceDir = join(here, '../../../../core/src');
+/** `@laratype/contract` sources, compiled next to core for its one runtime import (`core/src/env.ts`, K4 #314). */
+export const contractSourceDir = join(here, '../../../../contract/src');
 const CORE_ID = '@laratype/core';
 
 /** SWC options for one file; `.tsx` gets JSX with a classic `h` pragma so fixtures can define their own. */
@@ -50,6 +52,16 @@ const swcOptionsFor = (file: string, decoratorMetadata: boolean): Options => {
   };
 };
 
+/** Compiles a source dir to Node ESM JS in `to`; `rewrite` maps a bare workspace import (`@laratype/contract`) to a file. */
+const compileSources = (from: string, to: string, rewrite: (code: string) => string = (code) => code) => {
+  for (const file of readdirSync(from).filter((f) => f.endsWith('.ts'))) {
+    const { code } = transformSync(readFileSync(join(from, file), 'utf8'), { ...warmupSwcOptions(), filename: file });
+    // Node ESM needs the extension on relative specifiers.
+    const js = rewrite(code.replace(/(from ["']\.\/[\w-]+)(["'])/g, '$1.js$2'));
+    writeFileSync(join(to, file.replace(/\.ts$/, '.js')), js);
+  }
+};
+
 let outRoot: string | undefined;
 const getOutRoot = () => {
   if (!outRoot) {
@@ -57,11 +69,11 @@ const getOutRoot = () => {
     const runtime = readFileSync(runtimeSource, 'utf8');
     writeFileSync(join(outRoot, 'runtime.js'), transformSync(runtime, { ...warmupSwcOptions(), filename: 'runtime.ts' }).code);
     mkdirSync(join(outRoot, 'core'));
-    for (const file of readdirSync(coreSourceDir).filter((f) => f.endsWith('.ts'))) {
-      const { code } = transformSync(readFileSync(join(coreSourceDir, file), 'utf8'), { ...warmupSwcOptions(), filename: file });
-      // Node ESM needs the extension on relative specifiers.
-      writeFileSync(join(outRoot, 'core', file.replace(/\.ts$/, '.js')), code.replace(/(from ["']\.\/[\w-]+)(["'])/g, '$1.js$2'));
-    }
+    mkdirSync(join(outRoot, 'contract'));
+    // core/src/env.ts imports isStandardSchema at runtime: resolve it to the compiled contract next to core
+    compileSources(coreSourceDir, join(outRoot, 'core'), (code) =>
+      code.replace(/(from ["'])@laratype\/contract(["'])/g, '$1../contract/index.js$2'));
+    compileSources(contractSourceDir, join(outRoot, 'contract'));
   }
   return outRoot;
 };

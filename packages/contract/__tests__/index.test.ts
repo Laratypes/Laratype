@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus, isEndpointPath, isFailureStatus } from '@laratype/contract'
+import { Endpoint, PACKAGE_NAME, defineError, endpoint, isBodylessStatus, isEndpointPath, isFailureStatus, isStandardSchema } from '@laratype/contract'
 import type { AnyEndpoint, AnyErrorDef } from '@laratype/contract'
 
 const notFound = defineError(404, 'POST_NOT_FOUND')
@@ -9,6 +9,7 @@ const forbidden = defineError(403, 'NOT_OWNER')
 describe('@laratype/contract', () => {
   it('can be imported', () => {
     expect(PACKAGE_NAME).toBe('@laratype/contract')
+    expect(isStandardSchema(z.string())).toBe(true)
   })
 })
 

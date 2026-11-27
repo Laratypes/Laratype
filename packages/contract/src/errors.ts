@@ -47,13 +47,15 @@ const hasBrand = (value: unknown): boolean =>
 /**
  * Whether `value` is a `ContractError` of any error def, by its brand (not `instanceof`), so one from another bundle
  * or package copy counts. The fields the wire format `{ code, ...body }` reads are checked too: a 400-599 `status`, a
- * string `code` and a non-array object `body` without its own `code`, so an error changed after it was created to break them is not one.
+ * string `code` and a plain-object `body` without its own `code` (a `Map`, `Set`, `Date` or class instance would be
+ * sent emptied, and an array, a null-prototype one included, would be sent as its indices, so it is not one, H33 #313),
+ * so an error changed after it was created to break them is not one.
  */
 export const isContractError = (value: unknown): value is ContractError<number, string, object> => {
   if (!hasBrand(value)) return false;
   const { status, code, body } = value as { status?: unknown; code?: unknown; body?: unknown };
-  return isFailureStatus(status) && typeof code === "string" && typeof body === "object" && body !== null &&
-    !Array.isArray(body) && !Object.prototype.hasOwnProperty.call(body, "code");
+  return isFailureStatus(status) && typeof code === "string" && isPlainObject(body) && !Array.isArray(body) &&
+    !Object.prototype.hasOwnProperty.call(body, "code");
 };
 
 /**

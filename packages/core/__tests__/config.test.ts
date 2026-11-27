@@ -141,6 +141,17 @@ describe('config() (K1 #152)', () => {
     expect(config('mail.smtp.port')).toBe(25)
   })
 
+  it('reads the whole rest of the path before it splits, so a dotted key can end with a reserved segment', () => {
+    // Computed keys: a literal `__proto__` key would set the prototype instead of declaring one
+    setConfigs({ a: { ['b.constructor']: 42, ['b.prototype']: 43, ['b.__proto__']: 44, ['constructor.b']: 45 } })
+    expect(config('a.b.constructor')).toBe(42)
+    expect(config('a.b.prototype')).toBe(43)
+    expect(config('a.b.__proto__')).toBe(44)
+    expect(config('a.constructor.b')).toBe(45)
+    // A single reserved segment is still rejected: the whole rest is reserved, so no key is read
+    expect(config('a.constructor')).toBeUndefined()
+  })
+
   it('defineConfig returns its argument', () => {
     const value = { default: 'mysql' }
     expect(defineConfig(value)).toBe(value)
