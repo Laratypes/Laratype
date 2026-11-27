@@ -91,13 +91,14 @@ describe("Hono body cache (H43 #345)", () => {
     expect((request.bodyCache as { parsedBody?: unknown }).parsedBody).toBeUndefined();
   });
 
-  it("drops a key with a __proto__. segment in parseBody({ dot: true })", async () => {
-    // The guard in `handleParsingNestedValues` (4.13.18's `/(?:^|\.)__proto__\./`, 4.13.23 also refuses a
-    // `constructor.prototype.` segment): a `__proto__` segment is refused and its flat entry deleted. `toDotFields`
-    // mirrors the `__proto__` part, so the pipeline drops it on every peer version too
+  it("drops a key with a __proto__. or constructor.prototype. segment in parseBody({ dot: true })", async () => {
+    // The guard in `handleParsingNestedValues` (4.13.23's `/(?:^|\.)(?:__proto__|constructor\.prototype)\./`; 4.13.18
+    // refused only `__proto__.`): the nested key is refused and its flat entry deleted. `toDotFields` mirrors both, so
+    // the pipeline drops it on every peer version too
     const form = new FormData();
     form.append("name", "ada");
     form.append("__proto__.x", "polluted");
+    form.append("constructor.prototype.x", "polluted");
     form.append("constructor.y", "own");
     const request = new HonoRequest(new Request("http://localhost/", { method: "POST", body: form }));
     const body = await request.parseBody({ dot: true });

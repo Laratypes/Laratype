@@ -812,6 +812,7 @@ describe("toDotFields (H43 #345 round 5)", () => {
     form.append("user.address.city", "Paris");
     form.append("__proto__.x", "polluted");
     form.append("constructor.y", "own");
+    form.append("constructor.prototype.x", "polluted");
     form.append("prototype.z", "own");
     return form;
   };
@@ -829,9 +830,10 @@ describe("toDotFields (H43 #345 round 5)", () => {
     expect(Object.prototype).not.toHaveProperty("x");
     expect(Object.prototype).not.toHaveProperty("y");
     expect(Object.prototype).not.toHaveProperty("z");
-    // 4.13.17 refuses a key with a leading `__proto__.` segment: neither conversion has that key, so the submitted value
-    // is not reachable through it at all (4.9.6 kept it as a nested own object)
+    // 4.13.23 refuses a key with a leading `__proto__.` or `constructor.prototype.` segment: neither conversion has
+    // that key, so the submitted value is not reachable through it at all (4.9.6 kept `__proto__` as a nested own object)
     expect(Object.hasOwn(fields, "__proto__")).toBe(false);
     expect(Object.hasOwn(hono, "__proto__")).toBe(false);
+    expect(Object.hasOwn(fields.constructor as object, "prototype")).toBe(false);
   });
 });
