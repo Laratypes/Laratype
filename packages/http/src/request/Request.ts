@@ -8,7 +8,7 @@ import type { KernelRouteParams, PolicyFactory, RouteParams } from "../contracts
 import { AppServiceProvider, ContextApi, InternalException, MetaDataKey, ModelBindingRegistry, ModelManagement, NotFoundException, UnauthorizedException, ValidationException } from "@laratype/support"
 import { FormValidation } from "@laratype/validation";
 import type { MiddlewareClass } from "../routing/api/types";
-import { Container, depsRegistry } from "@laratype/core";
+import { Container } from "@laratype/core";
 import { errors, validate } from "@laratype/contract";
 import type { AnyEndpoint, StandardSchemaV1 } from "@laratype/contract";
 import { publicIssue, readBody, readQuery, validateInput } from "./input";
@@ -26,18 +26,13 @@ const CONTAINER = "laratype.container";
 
 /**
  * A request path as one log line: Hono decodes the path, so `%0A` is a real newline and could break or forge a line in
- * the log (CWE-117). Control characters, C1 controls, the line separators and the bidi controls are escaped as
- * `\uXXXX`, and a backslash as `\\`, so a literal `\u000a` a client sent never reads as the escaped newline.
+ * the log (CWE-117). Control characters, C1 controls, the line separators and the bidi controls (LRM, RLM, ALM and
+ * both bidi ranges) are escaped as `\uXXXX`, and a backslash as `\\`, so a literal `\u000a` a client sent never reads
+ * as the escaped newline.
  */
 const loggablePath = (path: string): string =>
-  path.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
+  path.replace(/[\p{Cc}\u2028\u2029\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069\\]/gu, (char) =>
     char === "\\" ? "\\\\" : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
-
-/** Created on first use, for routes served without `RequestKernel` (a bare Hono app). */
-let fallbackContainer: Container | undefined;
-
-/** Set once the fallback warning printed: per process, as dev restarts and a second copy of the module create another. */
-const FALLBACK_WARNED = Symbol.for("laratype.http.fallbackContainerWarned");
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
@@ -65,17 +60,6 @@ const snapshotExtension = (ext: object): object => {
 
 /** The ctx keys of a contract route an extension cannot replace: the validated input and the pinned endpoint. */
 const RESERVED_EXTENSION_KEYS: ReadonlySet<string> = new Set(["query", "body", "endpoint"]);
-
-/** The autowire-only container, with a one-time dev warning (D9 #270): it ignores app bindings. Silent in production. */
-const createFallbackContainer = () => {
-  const store = globalThis as { [FALLBACK_WARNED]?: true };
-  const prod = globalThis.__PROD__ ?? globalThis.process?.env?.NODE_ENV === "production";
-  if (!prod && !store[FALLBACK_WARNED]) {
-    store[FALLBACK_WARNED] = true;
-    console.warn("[@laratype/http] No app container outside a RequestKernel request, so controllers (and RequestKernel.container()) use an autowire-only container: app bindings don't apply, and every request shares the singletons it autowires. Serve routes through RequestKernel to resolve them from the app container.");
-  }
-  return new Container({ deps: depsRegistry });
-};
 
 type PipeLineType = {
   type: 'middleware',
@@ -123,12 +107,12 @@ export default class Request extends AppServiceProvider {
   }
 
   /**
-   * The container controllers, middleware and policies are resolved from: the request scope of the app container
-   * `boot()` puts on each request, else one autowire-only container (outside `RequestKernel`, they are autowired
-   * without app bindings).
+   * The container controllers, middleware and policies are resolved from: the request scope `boot()` puts on each
+   * request, else the app container (`ContextApi.getContainer()`, D11 #318), which is the shared fallback without a
+   * boot. Outside `RequestKernel` app bindings now apply, instead of an autowire-only container of its own.
    */
   public static container(): Container {
-    return ContextApi.getContainer() ?? (fallbackContainer ??= createFallbackContainer());
+    return ContextApi.getContainer();
   }
 
   public static controllerKernel (c: NonNullable<RouteParams['controller']>) {

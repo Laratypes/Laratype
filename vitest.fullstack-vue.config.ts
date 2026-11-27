@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { mergeConfig } from "vitest/config";
-import config from "./vitest.config";
+import config from "./vitest.shared";
 
 /**
  * E4 #136's project: examples/fullstack-vue type-checks itself with `vue-tsc` (spawned by its test), so it needs

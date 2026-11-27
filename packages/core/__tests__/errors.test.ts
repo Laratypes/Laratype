@@ -202,6 +202,29 @@ describe('no dependency metadata: hostile class names', () => {
     expect(messageOf(() => new Container().make(Throwing))).toMatchInlineSnapshot(`"Cannot autowire <anonymous class>: its constructor takes 1 param(s) but no dependency metadata was found. Fix: bind it with a factory in a service provider \`register()\` of the app container (the only fix for a class outside the app, such as a third-party class); for app code, the laratype:di plugin compiles it under \`sauf dev\`."`)
   })
 
+  it('does not print a non-string name (a static name() method, an object or a number) as the class name', () => {
+    for (const value of [() => 'Tok', 42, {}, Symbol('Tok')]) {
+      const Tok = namedClass('Ignored')
+      Object.defineProperty(Tok, 'name', { value })
+      const message = messageOf(() => new Container().make(Tok))
+      expect(message).toContain('Cannot autowire <anonymous class>:')
+      expect(message).not.toContain('() =>')
+      expect(message).not.toContain('[object Object]')
+    }
+  })
+
+  it('prints <anonymous class> for a non-string name in the requester label (paramLabel)', () => {
+    const Requester = namedClass('Ignored')
+    Object.defineProperty(Requester, 'name', { value: () => 'Requester' })
+    class NoMeta {
+      constructor(readonly dep: unknown) {}
+    }
+    const deps = depsOf([[Requester, { slots: [() => NoMeta], meta: { params: ['dep'] } }]])
+    const message = messageOf(() => new Container({ deps }).make(Requester))
+    expect(message).toContain('Required by <anonymous class> constructor param #0 `dep`.')
+    expect(message).not.toContain('() =>')
+  })
+
   it('keeps a 100k class name', () => {
     const name = 'L'.repeat(100_000)
     const message = messageOf(() => new Container().make(namedClass(name)))
