@@ -167,7 +167,7 @@
       },
       "peerDependencies": {
         "@laratype/auth": "workspace:*",
-        "hono": "^4.8.0",
+        "hono": "^4.13.23",
         "zod": "^4.6.6",
       },
       "optionalPeers": [
@@ -197,7 +197,7 @@
       "peerDependencies": {
         "@laratype/auth": "workspace:*",
         "@laratype/http": "workspace:*",
-        "hono": "^4.8.0",
+        "hono": "^4.13.23",
       },
       "optionalPeers": [
         "@laratype/auth",
@@ -290,7 +290,7 @@
         "@laratype/http": "workspace:*",
         "@types/passport": "^1.0.17",
         "dayjs": "^1.11.13",
-        "hono": "^4.8.0",
+        "hono": "^4.13.23",
         "passport": "^0.7.0",
         "typeorm": "^0.3.31",
       },
@@ -332,7 +332,7 @@
     "source-map-js": "1.2.2",
   },
   "catalog": {
-    "hono": "^4.13.18",
+    "hono": "^4.13.23",
     "vite": "^7.3.8",
     "zod": "^4.6.6",
   },
@@ -917,7 +917,7 @@
 
     "highlight.js": ["highlight.js@10.7.3", "", {}, "sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A=="],
 
-    "hono": ["hono@4.13.18", "", {}, "sha512-H9q/E1XizaWstJxUW881dmLxEj+t/TrGGnyxINkm4+sK0qUwsMtFdo2BWI9Vs3cIS19MU6b6iCijoUoEf4f3DA=="],
+    "hono": ["hono@4.13.23", "", {}, "sha512-OS90dj7dcsftEEWCOef8jRbnHE5lbrOq0hNRqjSyPsOnaGZvvfof1KS05hQNb4kUOCfDq1mG3PmHoX37DMnHQg=="],
 
     "iconv-lite": ["iconv-lite@0.7.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ=="],
 

@@ -168,14 +168,15 @@ const textReadBodyError = (): TypeError =>
 const hasFields = (formData: FormData): boolean => formData.entries().next().done !== true;
 
 /**
- * Hono 4.13.17's guard in `handleParsingNestedValues` (`hono/utils/body.ts`): a `__proto__` segment at the start or
- * after a dot **and followed by another segment**. A trailing `x.__proto__` or a top-level `__proto__` names no nested
- * object, so each stays an own data key of its null-prototype object.
+ * Hono 4.13.23's guard in `handleParsingNestedValues` (`hono/utils/body.ts`): a `__proto__` or `constructor.prototype.`
+ * segment at the start or after a dot **and followed by another segment**. A trailing `x.__proto__`, a top-level
+ * `__proto__`, `constructor.y` or a trailing `constructor.prototype` names no nested object, so each stays an own data key
+ * of its null-prototype object. Hono 4.13.18 refused only `__proto__`; 4.13.23 also refuses `constructor.prototype.`.
  */
-const UNSAFE_DOT_KEY = /(?:^|\.)__proto__\./;
+const UNSAFE_DOT_KEY = /(?:^|\.)(?:__proto__|constructor\.prototype)\./;
 
 /**
- * Hono 4.13.17's nesting limits (`hono/utils/body.ts`): a dot key has at most 33 segments, and one conversion creates
+ * Hono 4.13.23's nesting limits (`hono/utils/body.ts`): a dot key has at most 33 segments, and one conversion creates
  * at most 10,000 nested groups (`MAX_NESTED_OBJECTS = 1e4`). A field of many dots would otherwise build as many
  * objects as the body cap allows; the pipeline answers the malformed-form 400 for it.
  */
@@ -190,17 +191,18 @@ class FormNestingError extends Error {
 }
 
 /**
- * The form fields as Hono 4.13.17's `parseBody({ dot: true })` builds them, from the FormData this pipeline already
+ * The form fields as Hono 4.13.23's `parseBody({ dot: true })` builds them, from the FormData this pipeline already
  * holds. It mirrors its `convertFormDataToBodyData` with `{ all: false, dot: true }`: a key sent once is its value, a
  * repeated key the last value, a `[]` key an array, and a dotted key a nested object, replacing a non-object on the
  * way. Hono does not export that conversion, and `parseBody()` cannot read the request here on the whole peer range
  * (`^4.8.0`): on 4.12.28 it re-reads a cached FormData as bytes with a new multipart boundary, so they no longer
- * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded); 4.13.17 converts the
+ * match the request's Content-Type (a `TypeError` on multipart, wrong fields on urlencoded); 4.13.23 converts the
  * cached FormData, but the pipeline keeps its own conversion so every peer version reads the same fields. Every object
  * is built with `Object.create(null)`, so a `constructor`, `prototype` or `__proto__` segment is an own key, never a
- * prototype one. 4.13.17 drops a key with a `__proto__` segment at the start or after a dot **and followed by another
- * segment** (`UNSAFE_DOT_KEY`: `__proto__.x`, `a.__proto__.x`); a trailing `x.__proto__` and a top-level `__proto__`
- * stay own data keys, and the pipeline mirrors that on every peer version.
+ * prototype one. 4.13.23 drops a key with a `__proto__` or `constructor.prototype.` segment at the start or after a dot
+ * **and followed by another segment** (`UNSAFE_DOT_KEY`: `__proto__.x`, `a.__proto__.x`, `constructor.prototype.x`); a
+ * trailing `x.__proto__`, a top-level `__proto__`, `constructor.y` and a trailing `constructor.prototype` stay own data
+ * keys, and the pipeline mirrors that on every peer version.
  */
 export const toDotFields = (formData: FormData): Record<string, unknown> => {
   const fields: Record<string, unknown> = Object.create(null);

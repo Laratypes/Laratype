@@ -43,7 +43,7 @@
     "dist"
   ],
   "peerDependencies": {
-    "hono": "^4.8.0",
+    "hono": "^4.13.23",
     "zod": "^4.6.6",
     "@laratype/auth": "workspace:*"
   },

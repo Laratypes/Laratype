@@ -46,7 +46,7 @@ describe("Hono body cache (H43 #345)", () => {
   it("is the version the pipeline's cached-read behaviour was read from", () => {
     // The pipeline casts `bodyCache` to the shapes below and relies on `#cachedBody`'s first-key lookup: read the
     // semantics here again on a bump, and update both sides together
-    expect(version).toBe("4.13.18");
+    expect(version).toBe("4.13.23");
   });
 
   it("caches each reader's promise under the reader's own key", async () => {
@@ -76,7 +76,7 @@ describe("Hono body cache (H43 #345)", () => {
   });
 
   it("caches a form parse's FormData as a promise and leaves a JSON body's stream unread", async () => {
-    // 4.9.6 cached parseBody()'s result as a plain `parsedBody`, `{}` for a JSON media type. 4.13.18 caches nothing
+    // 4.9.6 cached parseBody()'s result as a plain `parsedBody`, `{}` for a JSON media type. 4.13.23 caches nothing
     // there, so the stream is still the pipeline's to read
     const json = requestOf(asJson({ name: "ada" }));
     await expect(json.parseBody()).resolves.toEqual({});
@@ -91,12 +91,14 @@ describe("Hono body cache (H43 #345)", () => {
     expect((request.bodyCache as { parsedBody?: unknown }).parsedBody).toBeUndefined();
   });
 
-  it("drops a key with a __proto__. segment in parseBody({ dot: true })", async () => {
-    // 4.13.18's guard (`/(?:^|\.)__proto__\./` in `handleParsingNestedValues`): the key is refused and its flat entry
-    // deleted. `toDotFields` mirrors it, so the pipeline drops it on every peer version too
+  it("drops a key with a __proto__. or constructor.prototype. segment in parseBody({ dot: true })", async () => {
+    // The guard in `handleParsingNestedValues` (4.13.23's `/(?:^|\.)(?:__proto__|constructor\.prototype)\./`; 4.13.18
+    // refused only `__proto__.`): the nested key is refused and its flat entry deleted. `toDotFields` mirrors both, so
+    // the pipeline drops it on every peer version too
     const form = new FormData();
     form.append("name", "ada");
     form.append("__proto__.x", "polluted");
+    form.append("constructor.prototype.x", "polluted");
     form.append("constructor.y", "own");
     const request = new HonoRequest(new Request("http://localhost/", { method: "POST", body: form }));
     const body = await request.parseBody({ dot: true });
@@ -106,14 +108,14 @@ describe("Hono body cache (H43 #345)", () => {
   });
 
   it("chains every other reader from the first cache entry, which must be a promise", async () => {
-    // 4.13.18 leaves no cache entry for parseBody() on a JSON request: the stream is still readable
+    // 4.13.23 leaves no cache entry for parseBody() on a JSON request: the stream is still readable
     const request = requestOf(asJson({ name: "ada" }));
     await request.parseBody();
     expect(Object.keys(request.bodyCache)).toEqual([]);
     await expect(request.text()).resolves.toBe('{"name":"ada"}');
 
     // The cache a 4.9.6 middleware left is still served: `#cachedBody` chains from `Object.keys(bodyCache)[0]` (a
-    // `for...in` loop on 4.13.18) and calls `.then` on it, so a plain `parsedBody` throws synchronously
+    // `for...in` loop on 4.13.23) and calls `.then` on it, so a plain `parsedBody` throws synchronously
     const seeded = requestOf(asJson({ name: "ada" }));
     (seeded.bodyCache as { parsedBody?: unknown }).parsedBody = {};
     expect(() => seeded.text()).toThrow(TypeError);

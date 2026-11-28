@@ -320,35 +320,39 @@ describe('buildUrl through a real Hono app', () => {
     }
   })
 
-  it('refuses a top-level "|" value whose URL depends on the app\'s router, with a static sibling (C8 round 3)', async () => {
+  it('refuses a top-level "|" value the bare trie form reads as a prefix, with a static sibling (C8 round 3)', async () => {
     const app = new Hono()
     app.delete('/files/admin/all', () => new Response('sibling'))
     app.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
-    // with the sibling, SmartRouter falls back to TrieRouter; without it, RegExpRouter serves the route. The static
-    // path answers the split, and the encoded path reads the prefix, so neither URL carries "admin/all"
+    // Hono 4.13.23 groups the alternation in the trie form (GHSA-586x), but a server on an older Hono reads `admin/all`
+    // as the prefix `a`: buildUrl refuses the split, and the hand-built paths show what each router does. The static path
+    // is registered first, so it wins over the param route
     expect(await (await app.request('/files/admin/all', { method: 'DELETE' })).text()).toBe('sibling')
-    const encoded = await app.request('/files/admin%2Fall', { method: 'DELETE' })
-    expect(encoded.status).toBe(200)
-    expect(await encoded.json()).toEqual({ f: 'a' })
+    expect((await app.request('/files/admin%2Fall', { method: 'DELETE' })).status).toBe(404)
+    expect(await (await app.request('/files/x/y', { method: 'DELETE' })).json()).toEqual({ f: 'x/y' })
     expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(
-      new TypeError(
-        '[@laratype/contract] buildUrl: param "f" for "/files/:f{a|.+/.+}" has a pattern Hono\'s two routers read differently for this value, so the URL depends on the app\'s router',
-      ),
+      /two routers read differently/,
     )
+    // without the sibling registration, 4.13.23's grouped trie form reads the hand-built split whole
+    const alone = new Hono()
+    alone.delete('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
+    const res = await alone.request('/files/admin/all', { method: 'DELETE' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ f: 'admin/all' })
   })
 
-  it('sees the trie router once another route forces it, where a top-level "|" reads a prefix (C8 round 3)', async () => {
+  it('reads a top-level "|" split whole once SmartRouter serves the app with the trie router (C8 round 3)', async () => {
     const app = new Hono()
     app.get('/other/:x{.*}', (c) => c.json({ x: c.req.param('x') }))
     app.get('/files/:f{a|.+/.+}', (c) => c.json({ f: c.req.param('f') }))
     // the ".*" route makes RegExpRouter throw UnsupportedPathError, so SmartRouter serves the whole app with TrieRouter:
-    // both the encoded and the split URL are read as the prefix "a", never as "admin/all"
+    // 4.13.23's grouped form reads the hand-built split whole, but buildUrl refuses it because the bare form on an older
+    // server reads the prefix `a`
     const encoded = await app.request('/files/admin%2Fall')
-    expect(encoded.status).toBe(200)
-    expect(await encoded.json()).toEqual({ f: 'a' })
+    expect(encoded.status).toBe(404)
     const split = await app.request('/files/admin/all')
     expect(split.status).toBe(200)
-    expect(await split.json()).toEqual({ f: 'a' })
+    expect(await split.json()).toEqual({ f: 'admin/all' })
     expect(() => buildUrl('/files/:f{a|.+/.+}', { params: { f: 'admin/all' } })).toThrow(/two routers read differently/)
   })
 

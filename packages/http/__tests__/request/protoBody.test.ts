@@ -1,6 +1,7 @@
 // B30 #410: a request body's `__proto__`, `constructor` and `prototype` keys are data, never a prototype. The pipeline
-// builds every form group with `Object.create(null)` and mirrors Hono 4.13.17's `__proto__.` guard; a JSON body keeps
-// `JSON.parse`'s own data key. Each case checks that a value submitted under such a key reaches no prototype.
+// builds every form group with `Object.create(null)` and mirrors Hono 4.13.23's `__proto__.` / `constructor.prototype.`
+// guard; a JSON body keeps `JSON.parse`'s own data key. Each case checks that a value submitted under such a key reaches
+// no prototype.
 import "reflect-metadata";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -80,13 +81,13 @@ describe("a __proto__. segment in a form body (B30 #410)", () => {
     ["urlencoded", () => urlencoded("name=ada&__proto__=polluted")],
   ];
 
-  it.each(bodies)("drops it from a %s body, as Hono 4.13.17's parseBody({ dot: true }) does", async (_label, init) => {
+  it.each(bodies)("drops it from a %s body, as Hono 4.13.23's parseBody({ dot: true }) does", async (_label, init) => {
     const { app, captured } = captureRoute("post", "/form", (req) => req.input());
     const response = await app.request("/form", init());
     expect(response.status).toBe(200);
 
     const input = captured.value as Record<string, unknown>;
-    // The nested `__proto__` object is gone: Hono's 4.13.17 guard drops a key in which `__proto__` is a segment followed
+    // The nested `__proto__` object is gone: Hono's 4.13.23 guard drops a key in which `__proto__` is a segment followed
     // by another segment, and
     // the pipeline mirrors it, so the submitted value cannot be reached through a `__proto__` key at all
     expect(Object.hasOwn(input, "__proto__")).toBe(false);
@@ -117,18 +118,29 @@ describe("a __proto__. segment in a form body (B30 #410)", () => {
     expect(protoStates().x).toBeUndefined();
   });
 
-  it("keeps constructor.prototype.x as own nested keys, never a prototype", async () => {
-    const { app, captured } = captureRoute("post", "/form", (req) => req.input());
-    const response = await app.request("/form", urlencoded("constructor.prototype.y=polluted&z=1"));
-    expect(response.status).toBe(200);
+  it("drops constructor.prototype.x from a form body, while a JSON body keeps it as data", async () => {
+    // Hono 4.13.23's guard `/(?:^|\.)(?:__proto__|constructor\.prototype)\./` refuses the nested key; toDotFields mirrors
+    // it, so the submitted object is gone before the input is built
+    const form = captureRoute("post", "/form", (req) => req.input());
+    const formResponse = await form.app.request("/form", urlencoded("constructor.prototype.x=1&z=2"));
+    expect(formResponse.status).toBe(200);
 
-    const input = captured.value as Record<string, any>;
-    expect(Object.hasOwn(input, "constructor")).toBe(true);
-    expect(Object.getPrototypeOf(input.constructor)).toBeNull();
-    expect(Object.getPrototypeOf(input.constructor.prototype)).toBeNull();
-    expect(input.constructor.prototype.y).toBe("polluted");
-    expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
+    const formInput = form.captured.value as Record<string, unknown>;
+    expect(Object.hasOwn(formInput, "constructor")).toBe(false);
+    expect(formInput).toEqual({ z: "2" });
+    expect(Object.getPrototypeOf(formInput)).toBe(Object.prototype);
     expect(protoStates()).toEqual({ x: undefined, y: undefined });
+
+    // A JSON body is unchanged: JSON.parse makes the key an own data key, and the form guard never runs on it
+    const json = captureRoute("post", "/json", (req) => req.input());
+    const jsonResponse = await json.app.request("/json", asJson({ constructor: { prototype: { x: 1 } }, z: 2 }));
+    expect(jsonResponse.status).toBe(200);
+
+    const jsonInput = json.captured.value as Record<string, any>;
+    expect(Object.hasOwn(jsonInput, "constructor")).toBe(true);
+    expect(jsonInput.constructor.prototype.x).toBe(1);
+    expect(jsonInput.z).toBe(2);
+    expect(Object.getPrototypeOf(jsonInput)).toBe(Object.prototype);
   });
 });
 
@@ -288,7 +300,7 @@ describe("a __proto__ key in a JSON body (B30 #410)", () => {
   });
 });
 
-describe("Hono 4.13.17's form nesting limits (B30 #410)", () => {
+describe("Hono 4.13.23's form nesting limits (B30 #410)", () => {
   const dotKey = (segments: number) => Array.from({ length: segments }, (_, index) => `k${index}`).join(".");
 
   it("accepts 33 dot segments and refuses 34", () => {
@@ -314,19 +326,22 @@ describe("Hono 4.13.17's form nesting limits (B30 #410)", () => {
   });
 });
 
-describe("toDotFields' __proto__. guard (B30 #410)", () => {
-  it("drops the keys Hono 4.13.17 drops and keeps a top-level __proto__", () => {
+describe("toDotFields' __proto__. / constructor.prototype. guard (B30 #410)", () => {
+  it("drops the keys Hono 4.13.23 drops and keeps the rest", () => {
     const form = new FormData();
     form.append("__proto__", "top");
     form.append("__proto__.x", "polluted");
     form.append("a.__proto__.y", "polluted");
     form.append("a__proto__.z", "kept");
     form.append("x.__proto__", "tail");
+    form.append("constructor.prototype.x", "polluted");
+    form.append("constructor.y", "kept");
 
     const fields = toDotFields(form);
-    // The guard is Hono's regex, `/(?:^|\.)__proto__\./`: a `__proto__` segment at the start or after a dot **and
-    // followed by another segment** is refused, while `a__proto__` is a plain name and a trailing `__proto__` (no
-    // segment after it) is an own key of a null-prototype group
+    // The guard is Hono's 4.13.23 regex, `/(?:^|\.)(?:__proto__|constructor\.prototype)\./`: a `__proto__` or
+    // `constructor.prototype` segment at the start or after a dot **and followed by another segment** is refused, while
+    // `a__proto__` is a plain name, a trailing `__proto__` (no segment after it) is an own key, and `constructor.y`
+    // names no prototype
     expect(Object.hasOwn(fields, "__proto__")).toBe(true);
     expect(fields.__proto__).toBe("top");
     expect(Object.hasOwn(fields, "a")).toBe(false);
@@ -334,6 +349,9 @@ describe("toDotFields' __proto__. guard (B30 #410)", () => {
     expect(Object.getPrototypeOf(fields.x)).toBeNull();
     expect(Object.hasOwn(fields.x as object, "__proto__")).toBe(true);
     expect((fields.x as Record<string, unknown>).__proto__).toBe("tail");
+    expect(Object.getPrototypeOf(fields.constructor)).toBeNull();
+    expect(fields.constructor).toEqual({ y: "kept" });
+    expect(Object.hasOwn(fields.constructor as object, "prototype")).toBe(false);
     expect(Object.getPrototypeOf(fields)).toBeNull();
     expect(protoStates()).toEqual({ x: undefined, y: undefined });
   });
@@ -341,12 +359,14 @@ describe("toDotFields' __proto__. guard (B30 #410)", () => {
   it("refuses only the exact ASCII segment: case and unicode lookalikes stay data", () => {
     const form = new FormData();
     form.append("__PROTO__.x", "1");
+    form.append("Constructor.Prototype.y", "4");
     // A control character after the name is part of the key, not a separator: the key is a plain nested group
     form.append("__proto__\u0000.y", "2");
     form.append("__proto__\u{1F600}.z", "3");
 
     const fields = toDotFields(form);
     expect(fields.__PROTO__).toEqual({ x: "1" });
+    expect(fields.Constructor).toEqual({ Prototype: { y: "4" } });
     expect((fields as Record<string, any>)["__proto__\u0000"]).toEqual({ y: "2" });
     expect((fields as Record<string, any>)["__proto__\u{1F600}"]).toEqual({ z: "3" });
     expect(protoStates()).toEqual({ x: undefined, y: undefined });
