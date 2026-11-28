@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { scenarios, skipped } from '../scenarios.mjs'
 import { invalidUser, userInput, validUser } from '../shared/schemas.mjs'
 import { validationError } from '../shared/validation-error.mjs'
-import { autocannonArgs, measurementMatches, requestFor, responseMatches } from '../lib/wire.mjs'
+import {
+  autocannonArgs,
+  measurementMatches,
+  requestFor,
+  responseMatches,
+  SMOKE_TIMEOUT_MS,
+  smokeRequest,
+} from '../lib/wire.mjs'
 
 const byName = (name) => scenarios.find((scenario) => scenario.name === name)
 
@@ -112,6 +119,39 @@ describe('requestFor', () => {
       headers: { 'content-type': 'application/json' },
       body: '{"name":"Ada","email":"ada@example.com"}',
     })
+  })
+})
+
+describe('smokeRequest', () => {
+  it('returns the status and body of an answered request', async () => {
+    const fetchImpl = async (_url, init) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+      return { status: 200, text: async () => '{"message":"Hello, World!"}' }
+    }
+    await expect(smokeRequest(fetchImpl, byName('json'), 3210, 100)).resolves.toEqual({
+      status: 200,
+      text: '{"message":"Hello, World!"}',
+    })
+  })
+
+  it('fails a fetch that never settles within the injected deadline', async () => {
+    const started = Date.now()
+    await expect(smokeRequest(() => new Promise(() => {}), byName('json'), 3210, 20)).rejects.toThrow(
+      'smoke: json did not answer within 20 ms',
+    )
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('covers the body read with the same deadline', async () => {
+    const fetchImpl = async (_url, init) => ({
+      status: 200,
+      text: () => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))),
+    })
+    await expect(smokeRequest(fetchImpl, byName('json'), 3210, 20)).rejects.toThrow('smoke: json did not answer within 20 ms')
+  })
+
+  it('uses a few seconds by default, well inside the workflow timeout', () => {
+    expect(SMOKE_TIMEOUT_MS).toBe(5000)
   })
 })
 

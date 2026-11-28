@@ -34,9 +34,10 @@ import { scenarios, skipped } from './scenarios.mjs'
 import { parseArgs, usageLines, UsageError } from './lib/args.mjs'
 import { resolveGitInfo } from './lib/git-info.mjs'
 import { buildReport, markdown, reportBaseName, round } from './lib/report.mjs'
-import { autocannonArgs, measurementMatches, requestFor, responseMatches } from './lib/wire.mjs'
+import { autocannonArgs, measurementMatches, responseMatches, smokeRequest } from './lib/wire.mjs'
 import { assertContainer, ContainerError } from './lib/container.mjs'
 import { EXPECTED_NODE_VERSION, nodeVersionMismatch } from './lib/node.mjs'
+import { resolvedVersion } from './lib/versions.mjs'
 
 // Before parsing a flag, picking a port or spawning anything: refuse a host run (a local run has frozen a machine).
 // bench/Dockerfile sets the marker; the bench workflow runs that image, so it inherits it too.
@@ -142,7 +143,8 @@ const frameworkVersions = {
   fastify: installedVersion('fastify'),
   zod: installedVersion('zod'),
   autocannon: installedVersion('autocannon'),
-  dayjs: installedVersion('dayjs'),
+  // A peer dependency of @laratype/support: report the copy the app loads, not the bench's own devDependency.
+  dayjs: resolvedVersion(path.join(root, 'packages/support/package.json'), 'dayjs'),
 }
 
 const machine = {
@@ -436,17 +438,15 @@ async function smoke() {
         for (const scenario of selected) {
           const repeats = scenario.requests ?? 1
           for (let attempt = 1; attempt <= repeats; attempt++) {
-            const [url, init] = requestFor(scenario, boot.port)
-            const response = await fetch(url, init)
-            const text = await response.text()
-            const ok = responseMatches(scenario, response.status, text)
+            const { status, text } = await smokeRequest(fetch, scenario, boot.port)
+            const ok = responseMatches(scenario, status, text)
             checks++
             const suffix = repeats > 1 ? ` #${attempt}` : ''
             if (ok) {
-              console.log(`PASS ${app}/${runtime} ${scenario.name}${suffix} ${response.status} ${text}`)
+              console.log(`PASS ${app}/${runtime} ${scenario.name}${suffix} ${status} ${text}`)
             } else {
-              failures.push({ app, runtime, scenario: scenario.name, attempt, status: response.status, body: text, scenarioExpectedStatus: scenario.expectedStatus, expectedBody: scenario.expectedBody })
-              console.log(`FAIL ${app}/${runtime} ${scenario.name}${suffix}: got ${response.status} ${text}`)
+              failures.push({ app, runtime, scenario: scenario.name, attempt, status, body: text, scenarioExpectedStatus: scenario.expectedStatus, expectedBody: scenario.expectedBody })
+              console.log(`FAIL ${app}/${runtime} ${scenario.name}${suffix}: got ${status} ${text}`)
               console.log(`     expected ${scenario.expectedStatus} ${scenario.expectedBody}`)
             }
           }

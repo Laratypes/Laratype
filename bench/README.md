@@ -45,7 +45,9 @@ pass `-e BENCH_GIT_SHA="$(git rev-parse HEAD)" -e BENCH_GIT_BRANCH="$(git rev-pa
 `-e BENCH_GIT_DIRTY=1` if the tree is dirty); otherwise the report says `unknown`.
 
 `bench:smoke` is the container/CI self-check (exact status and body of every scenario, plus one 1 s autocannon run per
-app/runtime). Use it through Docker, not on the host:
+app/runtime). Each smoke request and its body read share a 5 s deadline (`SMOKE_TIMEOUT_MS` in `bench/lib/wire.mjs`), so
+a route that accepts the request and never answers fails that app/runtime instead of running until the job timeout.
+Use it through Docker, not on the host:
 
 ```sh
 docker run --rm -v "$PWD/bench/out:/out" laratype-bench bun run bench:smoke
