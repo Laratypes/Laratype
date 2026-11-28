@@ -61,9 +61,14 @@ export type ResourceOutput<R> = R extends unknown
 
 /**
  * What `fn` returns: a plain object (checked at runtime), never an array or a promise (load relations before `make`).
- * A `then` key is refused too: it would make the data a thenable.
+ * A `then` or `toJSON` key is refused too: a `then` would make the data a thenable, and `make` refuses both at runtime
+ * (a plain-JS or `any`-typed `fn` gets past this type).
  */
-type ResourceData = object & { readonly then?: never; readonly [Symbol.iterator]?: never };
+type ResourceData = object & {
+  readonly then?: never;
+  readonly toJSON?: never;
+  readonly [Symbol.iterator]?: never;
+};
 
 /** A plain page of models (`{ data, ...meta }`): `paginate` maps `data` and copies the page's other fields as they are. */
 export type ResourcePage<P, Out> = P extends unknown
@@ -93,13 +98,31 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
 const failMessage = (model: ModelClass, message: string): string => `[@laratype/http] ${model.name}: ${message}`;
 
 /**
- * The keys `make` refuses, and why: a `toJSON` key makes JSON.stringify send its result instead of the mapped data the
- * contract checked, and a `constructor` key makes the 0.5 `ResponseSupport.shouldBeJson()` send the body as text/html.
+ * The keys `make` and `paginate` refuse, and why (H42 #339): a `toJSON` key makes JSON.stringify send its result
+ * instead of the mapped data the contract checked, a `constructor` key makes the 0.5
+ * `ResponseSupport.shouldBeJson()` send the body as text/html, and a `then` key makes the data a thenable that the
+ * response pipeline awaits.
  */
-const RESERVED_KEY_MESSAGES: ReadonlyMap<string, string> = new Map([
-  ["toJSON", "the resource function must not return a toJSON key: JSON.stringify would send its result instead of the resource data"],
-  ["constructor", "the resource function must not return a constructor key: the body would be sent as text/html instead of JSON"],
+const RESERVED_KEY_REASONS: ReadonlyMap<PropertyKey, string> = new Map([
+  ["toJSON", "JSON.stringify would send its result instead of the resource data"],
+  ["constructor", "the body would be sent as text/html instead of JSON"],
+  ["then", "it would become a thenable that the response pipeline awaits"],
 ]);
+
+/** The own enumerable keys of a value: the copy `make` builds and the check below inspect the same list. */
+const ownEnumerableKeys = (value: object): PropertyKey[] =>
+  Reflect.ownKeys(value).filter((key) => Object.prototype.propertyIsEnumerable.call(value, key));
+
+/**
+ * Throws on a refused key among `keys` (`subject` names the caller's rule). The list comes from descriptors, so a
+ * getter is never invoked, and one read of the object's own keys serves both the check and the copy (H42 #339).
+ */
+const assertNoReservedKeys = (model: ModelClass, subject: string, keys: PropertyKey[]): void => {
+  for (const key of keys) {
+    const reason = RESERVED_KEY_REASONS.get(key);
+    if (reason !== undefined) throw new TypeError(failMessage(model, `${subject} ${String(key)} key: ${reason}`));
+  }
+};
 
 /**
  * A resource for `Model`: `fn` maps one instance to plain data, and its return type is the output type.
@@ -122,12 +145,8 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
     if (!isPlainObject(data)) {
       throw new TypeError(failMessage(model, `the resource function must return a plain object, got ${describe(data)}`));
     }
-    const keys = Reflect.ownKeys(data).filter((key) => Object.prototype.propertyIsEnumerable.call(data, key));
-    for (const key of keys) {
-      if (typeof key !== "string") continue;
-      const message = RESERVED_KEY_MESSAGES.get(key);
-      if (message !== undefined) throw new TypeError(failMessage(model, message));
-    }
+    const keys = ownEnumerableKeys(data);
+    assertNoReservedKeys(model, "the resource function must not return a", keys);
     // fromEntries defines own properties, so a `__proto__` key stays a key; own keys include symbol keys
     const entries = keys.map((key) => [key, data[key]] as const).filter(([, value]) => !isMissing(value));
     return Object.fromEntries(entries) as Out;
@@ -140,10 +159,20 @@ export function defineResource<M extends ModelClass, R extends ResourceData>(
       if (!isPlainObject(page)) {
         throw new TypeError(failMessage(model, `paginate() takes a plain page object ({ data, ...meta }), got ${describe(page)}`));
       }
-      if (!isIterable(page.data)) {
-        throw new TypeError(failMessage(model, `paginate() takes a page whose data holds the models, got data ${describe(page.data)}`));
+      const data = page.data;
+      if (!isIterable(data)) {
+        throw new TypeError(failMessage(model, `paginate() takes a page whose data holds the models, got data ${describe(data)}`));
       }
-      return { ...page, data: Array.from(page.data, make) } as unknown as ResourcePage<P, Out>;
+      const keys = ownEnumerableKeys(page);
+      assertNoReservedKeys(model, "the page must not have a", keys);
+      // The copy is built from the checked keys: a spread would read the page's own keys again, and a Proxy could
+      // answer a reserved key the check never saw. `data` is mapped from the one read above, never read again.
+      const dataIndex = keys.indexOf("data");
+      const values = keys.map((key) => (key === "data" ? undefined : Reflect.get(page, key)));
+      const mapped = Array.from(data, make);
+      const entries = keys.map((key, index) => [key, index === dataIndex ? mapped : values[index]] as const);
+      if (dataIndex === -1) entries.push(["data", mapped] as const);
+      return Object.fromEntries(entries) as unknown as ResourcePage<P, Out>;
     },
   });
 }

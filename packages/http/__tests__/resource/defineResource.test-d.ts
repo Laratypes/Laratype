@@ -47,6 +47,14 @@ describe('the inferred output', () => {
     when(true, {} as unknown)
   })
 
+  test('when() refuses a value of an unconstrained generic type', () => {
+    const unconstrained = <T>(value: T, condition: boolean) => {
+      // @ts-expect-error T is not assignable to ConcreteValue (TS2345 names T); constrain T to a concrete type
+      return when(condition, value)
+    }
+    expectTypeOf(unconstrained).toBeFunction()
+  })
+
   test('when() accepts a generic value, whose constraint is concrete', () => {
     const fromString = <T extends string>(t: T, condition: boolean) => when(condition, t)
     const fromNumber = <T extends number>(t: T, condition: boolean) => when(condition, t)
@@ -63,6 +71,13 @@ describe('the inferred output', () => {
     const Any = defineResource(User, (user) => ({ id: user.id, extra: when(true, user as any) }))
     expectTypeOf<ReturnType<typeof Any.make>>().toHaveProperty('extra')
     expectTypeOf<ReturnType<typeof Any.make>['extra']>().toBeAny()
+  })
+
+  test('a top-level toJSON is refused, a nested one keeps working', () => {
+    // @ts-expect-error a toJSON key would change the wire format; make() refuses it too
+    defineResource(User, (user) => ({ id: user.id, toJSON: () => ({ id: 0 }) }))
+    const Nested = defineResource(User, (user) => ({ meta: { toJSON: () => ({ id: user.id }) } }))
+    expectTypeOf(Nested.make).returns.toEqualTypeOf<{ meta: { toJSON: () => { id: number } } }>()
   })
 
   test('readonly keys stay readonly; any, unknown and object keys stay required', () => {
