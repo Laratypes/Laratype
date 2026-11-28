@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { api } from "./api";
+// The users page of examples/basic, fetched through the TanStack Query adapter: the list is one query with the
+// adapter's generated key, and the form is one mutation whose typed error narrows like a failed call.
+import { computed, ref } from "vue";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import { isClientQueryError } from "@laratype/client-query";
+import type { ClientQueryError } from "@laratype/client-query";
+import { api, q } from "./api";
 import type { User } from "./api";
 
 /** A declared error, or the catch-all the client uses for a network failure or an undeclared status. */
@@ -9,33 +14,55 @@ interface ShownError {
   message: string;
 }
 
-const users = ref<User[]>([]);
+/** The store mutation's failure variant, as the client returns it: the declared 422 and the other results. */
+type StoreFailure = Exclude<Awaited<ReturnType<typeof api.users.store>>, { ok: true }>;
+
+/**
+ * The error channel is `ClientQueryError<...> | Error`: a failed call throws the typed error, and a call that rejects
+ * (a programming error) throws a plain `Error`. The brand guard, narrowed to this mutation's failure, restores the
+ * exact `result` variant.
+ */
+function isStoreError(error: Error): error is ClientQueryError<StoreFailure> {
+  return isClientQueryError(error);
+}
+
+const queryClient = useQueryClient();
+
+/** The list: keyed `["laratype", "users", "index"]` and fetched by the endpoint's `queryOptions`. */
+const usersQuery = useQuery(q.users.index.queryOptions());
+const users = computed(() => usersQuery.data.value?.data ?? []);
+
 const selected = ref<User | null>(null);
 const error = ref<ShownError | null>(null);
 const message = ref("");
-const saving = ref(false);
 const lookupId = ref("999");
 const form = ref({ name: "Ada Lovelace", email: "ada@example.com" });
 
-function showUnexpected(status: number): void {
-  error.value = { code: "UNEXPECTED", message: `The request failed with status ${status}.` };
+/** The write: the contract's body is its variables, and a failed call rejects with a `ClientQueryError`. */
+const store = useMutation(q.users.store.mutationOptions());
+const saving = computed(() => store.isPending.value);
+
+function showUnexpected(status: number): ShownError {
+  return { code: "UNEXPECTED", message: `The request failed with status ${status}.` };
 }
+
+/** The list query's failure, typed by the adapter: the declared code, or the catch-all the client uses. */
+const listError = computed<ShownError | null>(() => {
+  const failure = usersQuery.error.value;
+  if (failure === null) return null;
+  // A call that rejected (a programming error) reaches the hook as a plain Error, which has no code.
+  if (!isClientQueryError(failure)) return { code: "UNEXPECTED", message: failure.message };
+  return { code: failure.code ?? "UNEXPECTED", message: failure.message };
+});
+
+/** The page's failure slot: the list query's, or the last show/create failure. */
+const failure = computed(() => error.value ?? listError.value);
 
 /** The 422 body is typed by the contract: a dot path to its messages (docs/v1/contract.md › Error catalog). */
 function formatValidationErrors(errors: Record<string, string[]>): string {
   return Object.entries(errors)
     .map(([field, messages]) => `${field || "body"}: ${messages.join(", ")}`)
     .join("; ");
-}
-
-async function load(): Promise<void> {
-  error.value = null;
-  const result = await api.users.index();
-  if (result.ok) {
-    users.value = result.data.data;
-    return;
-  }
-  showUnexpected(result.status);
 }
 
 async function showUser(id: number): Promise<void> {
@@ -51,7 +78,7 @@ async function showUser(id: number): Promise<void> {
     error.value = { code: result.code, message: result.error.message };
     return;
   }
-  showUnexpected(result.status);
+  error.value = showUnexpected(result.status);
 }
 
 function showById(): void {
@@ -59,26 +86,31 @@ function showById(): void {
   if (Number.isInteger(id) && id > 0) void showUser(id);
 }
 
-async function createUser(): Promise<void> {
-  saving.value = true;
+function createUser(): void {
   error.value = null;
   message.value = "";
-  const result = await api.users.store({ body: { name: form.value.name, email: form.value.email } });
-  saving.value = false;
-  if (result.ok) {
-    message.value = `Created #${result.data.id}: ${result.data.name} <${result.data.email}>.`;
-    form.value = { name: "", email: "" };
-    await load();
-    return;
-  }
-  if (result.code === "VALIDATION_ERROR") {
-    error.value = { code: result.code, message: formatValidationErrors(result.error.errors) };
-    return;
-  }
-  showUnexpected(result.status);
+  store.mutate(
+    { body: { name: form.value.name, email: form.value.email } },
+    {
+      onSuccess: (user) => {
+        message.value = `Created #${user.id}: ${user.name} <${user.email}>.`;
+        form.value = { name: "", email: "" };
+        // The list's generated key: the users node's prefix, then the endpoint. A node key would refresh the folder.
+        void queryClient.invalidateQueries({ queryKey: q.users.index.queryKey() });
+      },
+      onError: (err) => {
+        // `err.result` is the call's failure variant: the declared 422 narrows by code, as a failed call's does.
+        if (isStoreError(err) && err.result.code === "VALIDATION_ERROR") {
+          error.value = { code: err.result.code, message: formatValidationErrors(err.result.error.errors) };
+          return;
+        }
+        error.value = isClientQueryError(err)
+          ? showUnexpected(err.status)
+          : { code: "UNEXPECTED", message: err.message };
+      },
+    },
+  );
 }
-
-onMounted(load);
 </script>
 
 <template>
@@ -92,14 +124,14 @@ onMounted(load);
     </header>
 
     <p v-if="message" class="success" role="status">{{ message }}</p>
-    <p v-if="error" class="failure" role="alert">
-      <strong>{{ error.code }}</strong>
-      <span>{{ error.message }}</span>
+    <p v-if="failure" class="failure" role="alert">
+      <strong>{{ failure.code }}</strong>
+      <span>{{ failure.message }}</span>
     </p>
 
     <section>
       <h2>Users</h2>
-      <button type="button" @click="load">Reload</button>
+      <button type="button" @click="usersQuery.refetch()">Reload</button>
       <ul>
         <li v-for="user in users" :key="user.id">
           <button type="button" @click="showUser(user.id)">

@@ -1,8 +1,10 @@
 # examples/fullstack-vue
 
 A Vue 3 + Vite frontend for the users API of [`examples/basic`](../basic), typed by its contracts through
-`@laratype/client` (E4 [#136](https://github.com/Laratypes/Laratype/issues/136)). One page lists users, shows one,
-creates one, and renders the declared `404 NOT_FOUND` and `422 VALIDATION_ERROR` by code.
+`@laratype/client` and its TanStack Query adapter ([`@laratype/client-query`](../../packages/client-query), CL5
+[#141](https://github.com/Laratypes/Laratype/issues/141); E4 [#136](https://github.com/Laratypes/Laratype/issues/136)).
+One page lists users (one query on the adapter's generated key), shows one, creates one (one mutation whose typed
+error narrows to the declared 422), and renders the declared `404 NOT_FOUND` and `422 VALIDATION_ERROR` by code.
 
 The FE imports **contracts only**: `src/api.ts` imports `examples/basic/app/api/users.ts` and builds the `appApi` with
 `defineApi`. It never imports `$api`, `typeof routes`, a controller or a model.
@@ -55,10 +57,14 @@ bunx vitest run --project fullstack-vue
 1. the whole FE program, `.vue` files included, type-checks with 0 diagnostics;
 2. `--listFilesOnly` lists no `hono`, `typeorm`, another workspace package (`@laratype/http`, `@laratype/support`, ...)
    or `examples/basic` file outside `app/api` — the program holds the example's `src`, `@laratype/client` +
-   `@laratype/contract` sources, `examples/basic/app/api/users.ts`, zod and the generated `$types.d.ts` overlay;
+   `@laratype/contract` + `@laratype/client-query` sources, `examples/basic/app/api/users.ts`, zod and the generated
+   `$types.d.ts` overlay;
 3. changing a contract field breaks the FE type-check: a temporary copy of the example (under `.laratype/overlay`,
    removed after the run, and the real contract file is never edited) renames `UserDto.email` to `emailAddress`, and
-   `vue-tsc` then reports `Property 'email' does not exist` in `src/App.vue`.
+   `vue-tsc` then reports `Property 'email' does not exist` in `src/App.vue`;
+4. the adapter types the list and show keys, the query data, the mutation's variables and its declared 422: a
+   type-assertion file written into the overlay's `src` (so the real `src` stays as it is) must compile with no
+   diagnostics, and its `@ts-expect-error` lines fail if a type degrades to `any`.
 
 `bun run test --run` at the repo root runs this project with the rest, which is the CI check of the issue's Done-when.
 It needs neither a browser nor the basic app server.
