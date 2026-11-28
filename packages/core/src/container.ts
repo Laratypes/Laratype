@@ -268,18 +268,36 @@ const splitParams = (source: string, start: number, end: number): string[] => {
 const stripComments = (param: string): string =>
   param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
 
-/** Whether the `class` keyword starts at `index`: `superclass`, `classy` and `obj.class` are not class expressions. */
-const startsClassWord = (source: string, index: number): boolean =>
-  source.startsWith('class', index)
-  && source[index - 1] !== '.'
-  && !/[A-Za-z0-9_$]/.test(source[index - 1] ?? '')
-  && !/[A-Za-z0-9_$]/.test(source[index + 'class'.length] ?? '')
+/** Identifier characters beyond ASCII, so `Éclass`, `classÉ` and `a\u200cb` do not hide or grow a keyword. */
+const IDENTIFIER_PART = /[\p{ID_Continue}$\u200c\u200d]/u
 
-/** Index of the class body's `{`, skipping a heritage expression and its brackets, strings and comments. */
-const classBodyStart = (source: string, from = 0): number | undefined => {
+const isIdentifierPart = (char: string | undefined): boolean =>
+  char !== undefined && IDENTIFIER_PART.test(char)
+
+/** Whether `word` starts at `index` as a keyword: not a property (`obj.class`), a private name (`#class`) or part of a longer identifier. */
+const startsWord = (source: string, index: number, word: string): boolean => {
+  if (!source.startsWith(word, index)) return false
+  if (isIdentifierPart(source[index - 1]) || isIdentifierPart(source[index + word.length])) return false
+  let back = index - 1
+  while (back >= 0 && isWhitespace(source[back]!)) back--
+  return source[back] !== '.' && source[back] !== '#'
+}
+
+const startsClassWord = (source: string, index: number): boolean => startsWord(source, index, 'class')
+
+interface ClassBodies {
+  /** The class body's `{`. */
+  body: number
+  /** The bodies of an inline `extends class { ... }` heritage, which belongs to the parent class. */
+  heritage?: ClassBodies
+}
+
+/** The class body's `{`, skipping its header, strings and comments, and the bodies of an inline heritage class. */
+const classBodies = (source: string, from = 0): ClassBodies | undefined => {
   let index = skipTrivia(source, from)
-  if (!source.startsWith('class', index)) return undefined
+  if (!startsClassWord(source, index)) return undefined
   index += 'class'.length
+  let heritage: ClassBodies | undefined
   while (index < source.length) {
     const char = source[index]
     if (char === '"' || char === "'" || char === '`') {
@@ -291,12 +309,19 @@ const classBodyStart = (source: string, from = 0): number | undefined => {
     } else if (char === '[') {
       index = skipBalanced(source, index, '[', ']')
     } else if (char === '{') {
-      return index
-    } else if (startsClassWord(source, index)) {
-      // A heritage class expression's body belongs to the parent class, not to this one (`extends class { ... }`).
-      const body = classBodyStart(source, index)
-      if (body === undefined) return undefined
-      index = skipBalanced(source, body, '{', '}')
+      return { body: index, heritage }
+    } else if (startsWord(source, index, 'extends')) {
+      // Only a class expression as the first token after `extends` is the heritage class; a `class` further in
+      // (a member, private or unicode name) is not one. That class's body belongs to the parent, so skip it whole.
+      const next = skipTrivia(source, index + 'extends'.length)
+      if (startsClassWord(source, next)) {
+        const parent = classBodies(source, next)
+        if (parent === undefined) return undefined
+        heritage = parent
+        index = skipBalanced(source, parent.body, '{', '}')
+      } else {
+        index = next
+      }
     } else {
       index++
     }
@@ -305,19 +330,11 @@ const classBodyStart = (source: string, from = 0): number | undefined => {
 }
 
 /**
- * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a
- * readable class, has no own constructor, or puts a field before it (a known limit). `0` means no params, or a
- * rest-only constructor, which the DI transform treats as no own constructor.
+ * Non-rest params of a leading `constructor(...)` in the body at `body`, or `undefined` when the constructor is not
+ * the first member (a known limit). `0` means no params, or a rest-only constructor, which the DI transform treats
+ * as no own constructor.
  */
-const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
-  let source: string
-  try {
-    source = Function.prototype.toString.call(cls)
-  } catch {
-    return undefined
-  }
-  const body = classBodyStart(source)
-  if (body === undefined) return undefined
+const leadingConstructorCount = (source: string, body: number): number | undefined => {
   let index = skipTrivia(source, body + 1)
   if (!source.startsWith('constructor', index)) return undefined
   index = skipTrivia(source, index + 'constructor'.length)
@@ -333,6 +350,28 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
     .map((param) => stripComments(param).trim())
     .filter((param) => param !== '')
   return params.filter((param) => !param.startsWith('...')).length
+}
+
+/**
+ * Non-rest params of the leading constructor a class source runs, or `undefined` when the source is not a readable
+ * class or its constructor is not first (a known limit). A class with no own constructor and an inline heritage
+ * class expression counts that parent's params: the implicit `super(...args)` passes none, so `new cls()` would leave
+ * its required params undefined.
+ */
+const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
+  let source: string
+  try {
+    source = Function.prototype.toString.call(cls)
+  } catch {
+    return undefined
+  }
+  const bodies = classBodies(source)
+  if (bodies === undefined) return undefined
+  for (let current: ClassBodies | undefined = bodies; current !== undefined; current = current.heritage) {
+    const count = leadingConstructorCount(source, current.body)
+    if (count !== undefined) return count
+  }
+  return undefined
 }
 
 /** Per-class cache, `null` for a source that cannot be read: HMR makes a new class object, so it re-reads there. */

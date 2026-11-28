@@ -459,19 +459,49 @@ describe('zero-length constructors', () => {
   })
 
   it('skips a heritage class expression and reads the subclass constructor', () => {
-    const A = new Function('return class A extends class { constructor(x = 1) {} } {}')()
     const B = new Function('return class B extends class { constructor() {} } { constructor(dep) { super(); this.dep = dep } }')()
     const C = new Function('return class C extends class { m() {} } { constructor(dep = 1) { super(); this.dep = dep } }')()
     const Nested = new Function(
       'return class Nested extends class extends class { m() {} } { constructor(x = 1) {} } { constructor(dep = 1) { super(); this.dep = dep } }',
     )()
-    // A has no own constructor, so the parent class expression's body is not read as A's: `new A()` applies the default
-    expect(new Container().make(A)).toBeInstanceOf(A)
     // B's required param is in its own body, after the parent class expression; the parent's `constructor()` must not report 0
     expect(messageOf(() => new Container().make(B))).toContain('Cannot autowire B: its constructor takes 1 param(s)')
     // C's leading constructor is after the parent class expression, so the all-default rule applies to it
     expect(messageOf(() => new Container().make(C))).toContain('Cannot autowire C: its constructor takes 1 param(s)')
     expect(messageOf(() => new Container().make(Nested))).toContain('Cannot autowire Nested: its constructor takes 1 param(s)')
+  })
+
+  it.each([
+    ['a required param', 'constructor(dep) { this.dep = dep }'],
+    ['a defaulted param', 'constructor(dep = 1) { this.dep = dep }'],
+  ])('counts an inline parent constructor with %s when the subclass has none', (_, constructor) => {
+    // The implicit `super(...args)` passes nothing, so the parent's params would be undefined (or defaulted) silently
+    const cls = new Function(`return class Inline extends class { ${constructor} } {}`)()
+    expect(messageOf(() => new Container().make(cls))).toContain('Cannot autowire Inline: its constructor takes 1 param(s)')
+  })
+
+  it('counts an inline parent constructor through its own inline parent', () => {
+    const cls = new Function(
+      'return class Deep extends class extends class { constructor(dep) { this.dep = dep } } {} {}',
+    )()
+    expect(messageOf(() => new Container().make(cls))).toContain('Cannot autowire Deep: its constructor takes 1 param(s)')
+  })
+
+  it('does not read a class keyword from a member, private or unicode identifier name', () => {
+    const Éclass = new Function('return class Éclass { constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
+    const UnicodeHeritage = new Function('Éclass', 'return class UnicodeHeritage extends Éclass { constructor(dep = 1) { super(); this.dep = dep } }')(Éclass)
+    const member = { class: Éclass }
+    const MemberHeritage = new Function('obj', 'return class MemberHeritage extends obj. class { constructor(dep = 1) { super(); this.dep = dep } }')(member)
+    const Host = new Function(`return class Host {
+      #class = class { constructor() {} }
+      create() { return class PrivateHeritage extends this.#class { constructor(dep = 1) { super(); this.dep = dep } } }
+    }`)()
+    const PrivateHeritage = new Host().create()
+    const BodyField = new Function('obj', 'return class BodyField extends class { value = obj. class; #class = 1 } { constructor(dep = 1) { super(); this.dep = dep } }')(member)
+    // Each source hides `class` behind a unicode identifier, a property name, a private name or a parent body field
+    for (const [name, cls] of [['Éclass', Éclass], ['UnicodeHeritage', UnicodeHeritage], ['MemberHeritage', MemberHeritage], ['PrivateHeritage', PrivateHeritage], ['BodyField', BodyField]] as const) {
+      expect(messageOf(() => new Container().make(cls))).toContain(`Cannot autowire ${name}: its constructor takes 1 param(s)`)
+    }
   })
 
   it('does not see a constructor after a field (known limit)', () => {
