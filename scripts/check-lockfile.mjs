@@ -9,16 +9,43 @@
 //     traversing or undeclared path cannot point outside the workspace;
 //  5. fail on a duplicate key in any lock object (JSON.parse keeps the last one);
 //  6. no manifest adds trustedDependencies (the allowlist is empty);
-//  7. bun pm untrusted must be fully understood and list no script outside the allowlist.
+//  7. bun pm untrusted must be fully understood and list no script outside the allowlist;
+//  8. no package in Bun's default-trusted list may run scripts unless pinned in the allowlist,
+//     because bun pm untrusted never lists those packages;
+//  9. no .npmrc or bunfig.toml outside the allowlist in the root or a workspace, because
+//     either can redirect the registry;
+// 10. a missing node_modules is a warning locally and an error in CI, because the
+//     install-script check cannot run without it.
 // Usage: bun run check:lockfile
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(fileURLToPath(import.meta.url), '../..')
 const ALLOWED_TRUSTED_DEPENDENCIES = /** @type {string[]} */ ([])
-const ALLOWED_INSTALL_SCRIPTS = ['@swc/core']
+// Pinned by name@version: a version bump can change the script, so it needs a new review.
+const ALLOWED_INSTALL_SCRIPTS = /** @type {{ id: string, reason: string }[]} */ ([
+  {
+    id: '@swc/core@1.16.22',
+    reason: 'The only script bun pm untrusted reports; the SWC DI build needs it locally, and CI/release install with --ignore-scripts.',
+  },
+])
+// Bun 1.3.14 runs the lifecycle scripts of these packages on a plain install and omits them
+// from bun pm untrusted, so the lock's versions are allowlisted one by one.
+const ALLOWED_DEFAULT_TRUSTED = /** @type {{ id: string, reason: string }[]} */ ([
+  {
+    id: 'esbuild@0.28.2',
+    reason: 'Bun default-runs its postinstall (node install.js) without listing it as untrusted; Vite/Vitest use it and its binary comes from the optional @esbuild/* packages.',
+  },
+  {
+    id: 'esbuild@0.25.9',
+    reason: 'Nested esbuild under tsx; Bun default-runs the same postinstall, so it needs the same name@version approval.',
+  },
+])
+// Paths are relative to the repository root and use forward slashes. Empty today; add an
+// entry only after reviewing why the file exists.
+const ALLOWED_REGISTRY_FILES = /** @type {{ path: string, reason: string }[]} */ ([])
 
 const NON_REGISTRY_SOURCE = /(?:https?:\/\/|git\+|git@|git:|gitlab:|bitbucket:|ssh:|svn:|github:|file:|link:|tarball)/i
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
@@ -70,6 +97,46 @@ const stripTrailingCommas = (text) => {
 const isSafeRelativeDirectory = (value) => {
   if (!value || value.startsWith('/') || path.win32.isAbsolute(value) || /^[A-Za-z]:/.test(value)) return false
   return value.split('/').every(segment => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+/**
+ * Split a lock entry's "name@ref" at the first "@" after the name, skipping a leading
+ * scope "@", the way Bun writes it. lastIndexOf would read "pkg@npm:real@1.0.0" as ref
+ * "1.0.0" and hide the npm: alias from the ref checks.
+ * @param {string} value
+ * @returns {{ name: string, ref: string } | undefined}
+ */
+const splitNameAndRef = (value) => {
+  const start = value.startsWith('@') ? 1 : 0
+  const at = value.indexOf('@', start)
+  if (at <= start) return undefined
+  return { name: value.slice(0, at), ref: value.slice(at + 1) }
+}
+
+/**
+ * A registry "resolved" URL is the one HTTPS form that is allowed. Everything else that
+ * looks like a non-registry source fails, including values that only appear after JSON
+ * decoding (an escaped "https:" does not match on the raw text).
+ * @param {unknown} value
+ * @param {string} location
+ * @param {string[]} errors
+ * @param {string} [key]
+ */
+const scanDecodedSources = (value, location, errors, key = '') => {
+  if (typeof value === 'string') {
+    const match = value.match(NON_REGISTRY_SOURCE)
+    if (!match) return
+    if (key === 'resolved' && value.startsWith('https://registry.npmjs.org/')) return
+    errors.push(`bun.lock: ${location}: non-registry source "${match[0]}"`)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const [index, child] of value.entries()) scanDecodedSources(child, `${location}[${index}]`, errors, '')
+    return
+  }
+  if (isObject(value)) {
+    for (const [childKey, child] of Object.entries(value)) scanDecodedSources(child, `${location}.${childKey}`, errors, childKey)
+  }
 }
 
 /**
@@ -348,16 +415,18 @@ const checkWorkspaceReference = (name, directory, declared, errors) => {
  * @param {Record<string, any>} lock
  * @param {Set<string>} declaredWorkspaces
  * @param {string[]} errors
- * @returns {{ entries: number, integrity: number, workspace: number }}
+ * @returns {{ entries: number, integrity: number, workspace: number, packages: { name: string, version: string }[] }}
  */
 const checkLockEntries = (lock, declaredWorkspaces, errors) => {
   if (!isObject(lock.packages)) {
     errors.push('bun.lock: "packages" is missing or not an object')
-    return { entries: 0, integrity: 0, workspace: 0 }
+    return { entries: 0, integrity: 0, workspace: 0, packages: [] }
   }
   let entries = 0
   let integrity = 0
   let workspace = 0
+  /** @type {{ name: string, version: string }[]} */
+  const packages = []
   for (const [name, value] of Object.entries(lock.packages)) {
     entries += 1
     if (!Array.isArray(value)) {
@@ -369,41 +438,67 @@ const checkLockEntries = (lock, declaredWorkspaces, errors) => {
       errors.push(`bun.lock: packages.${name}[0] is not a name@ref string`)
       continue
     }
-    const at = first.lastIndexOf('@')
-    if (at <= 0) {
+    const parsed = splitNameAndRef(first)
+    if (parsed === undefined) {
       errors.push(`bun.lock: packages.${name}[0] has no name@ref: ${JSON.stringify(first)}`)
       continue
     }
-    const ref = first.slice(at + 1)
+    const { name: packageName, ref } = parsed
+    const context = `bun.lock: packages.${name}:`
+    if (ref.includes('@')) {
+      errors.push(`${context} ref must not contain "@": ${JSON.stringify(ref)}`)
+      continue
+    }
     if (ref.startsWith('workspace:')) {
       workspace += 1
       checkWorkspaceReference(name, ref.slice('workspace:'.length), declaredWorkspaces, errors)
       continue
     }
+    if (ref.includes(':')) {
+      errors.push(`${context} unsupported ref "${ref}" (only semver or workspace:)`)
+      continue
+    }
     if (!SEMVER.test(ref)) {
-      errors.push(`bun.lock: packages.${name}: unsupported ref "${ref}" (only semver or workspace:)`)
+      errors.push(`${context} unsupported ref "${ref}" (only semver or workspace:)`)
       continue
     }
     if (value[1] !== '') {
-      errors.push(`bun.lock: packages.${name}: registry slot must be empty, got ${JSON.stringify(value[1])}`)
+      errors.push(`${context} registry slot must be empty, got ${JSON.stringify(value[1])}`)
       continue
     }
     const last = value[value.length - 1]
     if (typeof last !== 'string' || !last.startsWith('sha512-')) {
-      errors.push(`bun.lock: packages.${name}: last element is not a sha512- integrity`)
+      errors.push(`${context} last element is not a sha512- integrity`)
       continue
     }
     integrity += 1
+    packages.push({ name: packageName, version: ref })
   }
-  return { entries, integrity, workspace }
+  return { entries, integrity, workspace, packages }
+}
+
+/**
+ * Bun's default-trusted list runs lifecycle scripts on a plain install but bun pm untrusted
+ * never lists them, so every matching lock entry must be pinned by name@version.
+ * @param {{ name: string, version: string }[]} packages
+ * @param {Set<string>} defaultTrusted
+ * @param {string[]} errors
+ */
+const checkDefaultTrustedPackages = (packages, defaultTrusted, errors) => {
+  for (const { name, version } of packages) {
+    if (!defaultTrusted.has(name)) continue
+    const id = `${name}@${version}`
+    if (ALLOWED_DEFAULT_TRUSTED.some(entry => entry.id === id)) continue
+    errors.push(`bun.lock: packages.${name}: default-trusted package is not in the allowlist: ${id}; review it, then add it to ALLOWED_DEFAULT_TRUSTED`)
+  }
 }
 
 /**
  * @param {string} output
- * @returns {{ names: Set<string>, unknown: string[] }}
+ * @returns {{ scripts: Set<string>, unknown: string[] }}
  */
 const parseUntrusted = (output) => {
-  const names = new Set()
+  const scripts = new Set()
   /** @type {string[]} */
   const unknown = []
   for (const raw of output.split(/\r?\n/)) {
@@ -421,24 +516,102 @@ const parseUntrusted = (output) => {
     if (normalized.startsWith('./')) normalized = normalized.slice(2)
     const index = normalized.lastIndexOf('node_modules/')
     const candidate = index >= 0 ? normalized.slice(index + 'node_modules/'.length) : normalized
-    const match = candidate.match(/^(.+?)\s+@\S+$/)
+    const match = candidate.match(/^(.+?)\s+@(\S+)$/)
     if (match) {
-      names.add(match[1].trim())
+      scripts.add(`${match[1].trim()}@${match[2]}`)
       continue
     }
     unknown.push(line)
   }
-  return { names, unknown }
+  return { scripts, unknown }
 }
 
 /**
- * @param {{ root?: string, untrustedOutput?: string, untrustedRunner?: (root: string) => string }} [options]
- * @returns {{ ok: boolean, errors: string[], stats: { entries: number, integrity: number, workspace: number, installScripts: number, installScriptsSkipped: boolean } }}
+ * Parse "bun pm default-trusted". Any line that is not the header or a " - name" entry
+ * fails closed: a changed format must not silently skip the default-trusted gate.
+ * @param {string} output
+ * @returns {{ names: Set<string>, errors: string[] }}
+ */
+const parseDefaultTrusted = (output) => {
+  const names = new Set()
+  /** @type {string[]} */
+  const errors = []
+  /** @type {number | undefined} */
+  let expected
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.replace(/\u001b\[[0-9;]*m/g, '').trim()
+    if (!line) continue
+    if (expected === undefined) {
+      const header = line.match(/^Default trusted dependencies \((\d+)\):$/)
+      if (header === null) {
+        errors.push(`bun pm default-trusted: unrecognized output line: ${line}`)
+        return { names, errors }
+      }
+      expected = Number(header[1])
+      continue
+    }
+    const entry = line.match(/^- (\S.*)$/)
+    if (entry === null) {
+      errors.push(`bun pm default-trusted: unrecognized output line: ${line}`)
+      return { names, errors }
+    }
+    names.add(entry[1].trim())
+  }
+  if (expected === undefined) errors.push('bun pm default-trusted: empty output')
+  else if (names.size !== expected) errors.push(`bun pm default-trusted: header says ${expected} entries, parsed ${names.size}`)
+  return { names, errors }
+}
+
+/**
+ * A .npmrc or bunfig.toml at the root or in a workspace can redirect the registry, so each
+ * file must be allowlisted by path.
+ * @param {string} targetRoot
+ * @param {Set<string>} declaredWorkspaces
+ * @param {{ path: string, reason: string }[]} allowlist
+ * @param {string[]} errors
+ * @returns {number} the number of allowlisted files found
+ */
+const checkRegistryFiles = (targetRoot, declaredWorkspaces, allowlist, errors) => {
+  let allowed = 0
+  for (const directory of [...declaredWorkspaces].sort()) {
+    for (const file of ['.npmrc', 'bunfig.toml']) {
+      const relative = directory === '.' ? file : `${directory}/${file}`
+      const target = path.join(targetRoot, ...relative.split('/'))
+      if (!existsSync(target)) continue
+      if (allowlist.some(entry => entry.path === relative)) {
+        allowed += 1
+        continue
+      }
+      errors.push(`${relative}: registry configuration file is not in ALLOWED_REGISTRY_FILES; review it, then add it with a reason`)
+    }
+  }
+  return allowed
+}
+
+/**
+ * @param {{
+ *   root?: string,
+ *   untrustedOutput?: string,
+ *   untrustedRunner?: (root: string) => string,
+ *   defaultTrustedOutput?: string,
+ *   defaultTrustedRunner?: (root: string) => string,
+ *   registryFileAllowlist?: { path: string, reason: string }[],
+ *   ci?: boolean,
+ * }} [options]
+ * @returns {{
+ *   ok: boolean,
+ *   errors: string[],
+ *   warnings: string[],
+ *   stats: { entries: number, integrity: number, workspace: number, installScripts: number, installScriptsSkipped: boolean, registryFiles: number },
+ * }}
  */
 export function checkLockfile(options = {}) {
   const targetRoot = options.root ?? root
+  const ci = options.ci ?? Boolean(process.env.CI)
   /** @type {string[]} */
   const errors = []
+  /** @type {string[]} */
+  const warnings = []
   const lockPath = path.join(targetRoot, 'bun.lock')
   let lockText
   try {
@@ -466,8 +639,16 @@ export function checkLockfile(options = {}) {
   }
 
   const declaredWorkspaces = checkManifests(targetRoot, errors)
+  const registryFiles = checkRegistryFiles(
+    targetRoot,
+    declaredWorkspaces,
+    options.registryFileAllowlist ?? ALLOWED_REGISTRY_FILES,
+    errors,
+  )
 
   let stats = { entries: 0, integrity: 0, workspace: 0 }
+  /** @type {{ name: string, version: string }[]} */
+  let packageEntries = []
   let lock
   try {
     lock = JSON.parse(stripTrailingCommas(lockText))
@@ -476,8 +657,41 @@ export function checkLockfile(options = {}) {
     errors.push(`bun.lock: cannot parse as JSONC: ${error instanceof Error ? error.message : String(error)}`)
   }
   if (lock !== undefined) {
-    if (!isObject(lock)) errors.push('bun.lock: top level is not an object')
-    else stats = checkLockEntries(lock, declaredWorkspaces, errors)
+    if (!isObject(lock)) {
+      errors.push('bun.lock: top level is not an object')
+    }
+    else {
+      scanDecodedSources(lock, '$', errors)
+      const checked = checkLockEntries(lock, declaredWorkspaces, errors)
+      stats = { entries: checked.entries, integrity: checked.integrity, workspace: checked.workspace }
+      packageEntries = checked.packages
+    }
+  }
+
+  /** @type {Set<string>} */
+  let defaultTrusted = new Set()
+  /** @type {string | undefined} */
+  let defaultTrustedOutput = options.defaultTrustedOutput
+  if (defaultTrustedOutput === undefined && options.defaultTrustedRunner) {
+    defaultTrustedOutput = options.defaultTrustedRunner(targetRoot)
+  }
+  if (defaultTrustedOutput === undefined) {
+    const child = spawnSync('bun', ['pm', 'default-trusted'], {
+      cwd: targetRoot,
+      encoding: 'utf-8',
+    })
+    if (child.status !== 0) {
+      errors.push(`bun pm default-trusted failed (${child.status ?? 'no status'}): ${`${child.stdout ?? ''}${child.stderr ?? ''}`.trim()}`)
+    }
+    else {
+      defaultTrustedOutput = `${child.stdout ?? ''}${child.stderr ?? ''}`
+    }
+  }
+  if (defaultTrustedOutput !== undefined) {
+    const parsed = parseDefaultTrusted(defaultTrustedOutput)
+    for (const error of parsed.errors) errors.push(error)
+    defaultTrusted = parsed.names
+    checkDefaultTrustedPackages(packageEntries, defaultTrusted, errors)
   }
 
   let installScripts = 0
@@ -504,14 +718,17 @@ export function checkLockfile(options = {}) {
     else {
       installScriptsSkipped = true
       untrustedOutput = ''
+      const message = 'node_modules is missing, so the install-script check was skipped; run bun install --ignore-scripts --frozen-lockfile first'
+      if (ci) errors.push(message)
+      else warnings.push(message)
     }
   }
   if (!installScriptsSkipped) {
     const parsed = parseUntrusted(untrustedOutput)
     for (const line of parsed.unknown) errors.push(`bun pm untrusted: unrecognized output line: ${line}`)
-    for (const name of parsed.names) {
-      if (!ALLOWED_INSTALL_SCRIPTS.includes(name)) {
-        errors.push(`install script not in the allowlist: ${name}; review it, then add it to ALLOWED_INSTALL_SCRIPTS`)
+    for (const id of parsed.scripts) {
+      if (!ALLOWED_INSTALL_SCRIPTS.some(entry => entry.id === id)) {
+        errors.push(`install script not in the allowlist: ${id}; review it, then add it to ALLOWED_INSTALL_SCRIPTS by name@version`)
       }
       else {
         installScripts += 1
@@ -522,14 +739,24 @@ export function checkLockfile(options = {}) {
   return {
     ok: errors.length === 0,
     errors,
-    stats: { ...stats, installScripts, installScriptsSkipped },
+    warnings,
+    stats: { ...stats, installScripts, installScriptsSkipped, registryFiles },
   }
 }
 
-const isMain = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isMain = (() => {
+  if (process.argv[1] === undefined) return false
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  }
+  catch {
+    return false
+  }
+})()
 if (isMain) {
   try {
     const result = checkLockfile()
+    for (const warning of result.warnings) console.warn(`check:lockfile: warning: ${warning}`)
     if (!result.ok) {
       for (const error of result.errors) console.error(`check:lockfile: ${error}`)
       console.error(`check:lockfile failed: ${result.errors.length} problem(s)`)
