@@ -24,14 +24,26 @@ const isDeclaration = (file: string) => /\.d\.[cm]?ts$/.test(file);
 /**
  * The option diagnostics of a tsconfig a newer tsc wrote, which the loaded `typescript` does not know: `tsc -b` emitted
  * the tree already, so the manifest can still be written. TS5023 / TS5025 is an unknown option, TS6046 an unknown value
- * for an option the loaded tsc knows (a target, module or lib added later). Every other error diagnostic, TS18003
- * included, fails the build; a non-error diagnostic is a warning.
+ * for an option the loaded tsc knows (a target, module or lib added later), TS5103 an `ignoreDeprecations` value it does
+ * not know. Every other error diagnostic, TS18003 included, fails the build; a non-error diagnostic is a warning.
  */
 const UNKNOWN_CONFIG_OPTION: ReadonlySet<number> = new Set([
   5023, // Unknown compiler option '{0}'.
   5025, // Unknown compiler option '{0}'. Did you mean '{1}'?
+  5103, // Invalid value for '--ignoreDeprecations'.
   6046, // Argument for '--{0}' option must be: {1}.
 ]);
+
+/**
+ * The TS5103 diagnostic of a config whose `ignoreDeprecations` value the loaded `typescript` does not know: unlike the
+ * other version-skew codes, it comes from a program's `getOptionsDiagnostics()`, not from the config parse. A program
+ * with no root file and no lib checks the options only and costs nothing.
+ */
+function ignoreDeprecationsDiagnostics(ts: typeof TS, parsed: TS.ParsedCommandLine): TS.Diagnostic[] {
+  if (parsed.options.ignoreDeprecations === undefined) return [];
+  const options = { ...parsed.options, noLib: true, types: [] };
+  return ts.createProgram({ rootNames: [], options }).getOptionsDiagnostics().filter((diagnostic) => diagnostic.code === 5103);
+}
 
 /** The `include` of the config (its own or the one it extends), for errors: `["app/**\/*"]`. */
 const includeOf = (parsed: TS.ParsedCommandLine) => {
@@ -93,8 +105,9 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
   // TS18003 ("No inputs were found") is an error, not a warning: an empty program would ship an empty manifest.
   const failed = (diagnostic: TS.Diagnostic) =>
     diagnostic.category === ts.DiagnosticCategory.Error && !UNKNOWN_CONFIG_OPTION.has(diagnostic.code);
-  const errors = parsed.errors.filter(failed);
-  const warnings = parsed.errors.filter((diagnostic) => !failed(diagnostic));
+  const diagnostics = [...parsed.errors, ...ignoreDeprecationsDiagnostics(ts, parsed)];
+  const errors = diagnostics.filter(failed);
+  const warnings = diagnostics.filter((diagnostic) => !failed(diagnostic));
   if (warnings.length) Console.warn(`sauf build: ${tsconfig}: ${warnings.map(message).join("; ")}`);
   if (errors.length) {
     throw new Error(`sauf build: ${tsconfig}: ${errors.map(message).join("; ")}`);
@@ -116,7 +129,9 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
   const app = resolve(projectDir, "app");
   const appDir = posix.relative(slash(dist), slash(resolve(parsed.options.outDir!, relative(root, app))));
 
-  const scan = scanManifest(projectDir, { outDir: parsed.options.outDir });
+  // tsc emits next to the sources when outDir is the root it mirrors (`"outDir": "."` with `"rootDir": "."`), not
+  // only when there is no outDir: the scan must skip those `.js` files, not report them as duplicates
+  const scan = scanManifest(projectDir, { emittedNextTo: key(parsed.options.outDir!) === key(root) });
   const omitted: string[] = [];
   const missing: string[] = [];
   const outputs = new Map<string, string>();

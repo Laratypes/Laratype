@@ -152,12 +152,28 @@ describe('scanManifest', () => {
     expect(scan.kinds.modules).toEqual([{ name: 'billing', path: 'app/modules/billing/index.ts' }]);
   });
 
-  it('with outDir, a hand-written .js next to its .ts is a duplicate name again', () => {
+  it('with a separate outDir, a .js next to its .ts is output of an earlier in-place build: skipped, with one warning', () => {
     const dir = join(tmp, 'emitted-next-to-outdir');
     write(dir, 'app/src/models/User.ts');
     write(dir, 'app/src/models/User.js');
-    expect(() => scanManifest(dir, { outDir: 'dist' })).toThrow(
-      'models/User is in both app/src/models/User.js and app/src/models/User.ts: rename or remove one',
+    write(dir, 'app/src/models/Legacy.js');                                  // no source next to it: still a model
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const scan = scanManifest(dir, { emittedNextTo: false });
+      expect(scan.kinds.models).toEqual([
+        { name: 'Legacy', path: 'app/src/models/Legacy.js' },
+        { name: 'User', path: 'app/src/models/User.ts' },
+      ]);
+      expect(warn).toHaveBeenCalledWith('[laratype:manifest] stale tsc output next to its source: app/src/models/User.js (delete it)');
+    } finally {
+      warn.mockRestore();
+    }
+    // Another same-name file that is not tsc's output of the source next to it is still a duplicate name
+    const duplicate = join(tmp, 'emitted-next-to-outdir-duplicate');
+    write(duplicate, 'app/src/models/User.ts');
+    write(duplicate, 'app/src/models/User.mjs');
+    expect(() => scanManifest(duplicate, { emittedNextTo: false })).toThrow(
+      'models/User is in both app/src/models/User.mjs and app/src/models/User.ts: rename or remove one',
     );
   });
 
