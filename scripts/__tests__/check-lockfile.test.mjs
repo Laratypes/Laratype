@@ -288,6 +288,22 @@ describe('check:lockfile', () => {
     expect(result.errors.join('\n')).toContain('unrecognized output line')
   })
 
+  it('fails closed on an unpaired surrogate in bun pm untrusted output', () => {
+    const result = checkLockfile(fixture('clean', {
+      untrustedOutput: 'bun pm untrusted v1.3.14 (0d9b296a)\n\uD800\n',
+    }))
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('unrecognized output line')
+  })
+
+  it('rejects a very long ref without crashing', () => {
+    const { root, defaultTrustedOutput } = fixture('clean')
+    writeLock(root, { evil: [`evil@${'a'.repeat(200000)}`, '', {}, 'sha512-abc'] })
+    const result = checkLockfile({ root, untrustedOutput: '', defaultTrustedOutput })
+    expect(result.ok).toBe(false)
+    expect(result.errors.join('\n')).toContain('unsupported ref')
+  })
+
   it('treats a __proto__ package key as data', () => {
     const { root, defaultTrustedOutput } = fixture('clean')
     writeFileSync(path.join(root, 'bun.lock'), `{
