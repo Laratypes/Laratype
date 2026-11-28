@@ -376,22 +376,25 @@ describe('the code the exception filter sends', () => {
   })
 })
 
-describe('an answer with no body', () => {
+describe('an answer outside 400-599', () => {
+  // H33 #313: a responsible Exception outside 400-599 is refused as the logged generic 500, so the check never sees a
+  // bodyless or success answer. The 500 is the filter's, not the test wrapper's: the check reports no code either way.
   it.each([
-    ['a 204', '/api/users/no-content', 204],
-    ['a 205', '/api/users/reset-content', 205],
-    ['a 304', '/api/users/not-modified', 304],
-  ] as const)('%s responsible Exception carries no code: not checked, in dev and in test', async (_, path, status) => {
+    ['a 204', '/api/users/no-content'],
+    ['a 205', '/api/users/reset-content'],
+    ['a 304', '/api/users/not-modified'],
+  ] as const)('%s responsible Exception is the logged generic 500, in dev and in test', async (_, path) => {
     const app = bootApp()
     const dev = await app.request(path)
-    expect(dev.status).toBe(status)
-    expect(await dev.text()).toBe('')
+    expect(dev.status).toBe(500)
+    expect(await dev.json()).toEqual({ message: 'Server Error' })
+    expect(logged).toHaveBeenCalledTimes(1)
 
     vi.stubEnv('NODE_ENV', 'test')
     const test = await app.request(path)
-    expect(test.status).toBe(status)                                 // not the test wrapper's generic 500
-    expect(await test.text()).toBe('')
-    expect(logged).not.toHaveBeenCalled()
+    expect(test.status).toBe(500)                                    // not the test wrapper's 500
+    expect(await test.json()).toEqual({ message: 'Server Error' })
+    expect(logged).toHaveBeenCalledTimes(2)
   })
 })
 

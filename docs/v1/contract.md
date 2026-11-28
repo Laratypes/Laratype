@@ -14,7 +14,7 @@ Canonical API: the exports of `packages/contract/src/index.ts`. Executable spec:
 
 | Section | Status |
 |---|---|
-| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2 |
+| [Standard Schema types](#standard-schema-types) | merged @ d70daa7; `StandardIssue` merged @ 883a8e2; `isStandardSchema` proposed: PR [#430](https://github.com/Laratypes/Laratype/pull/430) @ df353f31 (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)) |
 | [Path params](#path-params) | merged @ d70daa7 |
 | [Endpoint builder](#endpoint-builder) | merged @ d70daa7; capabilities merged ([#228](https://github.com/Laratypes/Laratype/issues/228)); `.errors()` removed; path and GET-body checks proposed: PR [#285](https://github.com/Laratypes/Laratype/pull/285) @ a712b84; the constructor's one bypass check and the walker's forged-endpoint re-checks proposed: PR [#401](https://github.com/Laratypes/Laratype/pull/401) @ 61e6da36 (C11 [#293](https://github.com/Laratypes/Laratype/issues/293)) |
 | [Error catalog](#error-catalog) | merged @ d70daa7; reshaped, `conflict` removed, merged ([#228](https://github.com/Laratypes/Laratype/issues/228)) |
@@ -41,10 +41,10 @@ Package-level invariants:
 ## Standard Schema types
 
 ### Status
-merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is merged @ 883a8e2.
+merged @ d70daa7. `StandardIssue` (an extracted named type, with no shape change) is merged @ 883a8e2. `isStandardSchema` (K4 [#314](https://github.com/Laratypes/Laratype/issues/314)) is proposed: PR [#430](https://github.com/Laratypes/Laratype/pull/430) @ df353f31.
 
 ### Public API
-[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/standard-schema.ts#L12-L15)
+[`standard-schema.ts` @ d70daa7](https://github.com/Laratypes/Laratype/blob/d70daa77bfceeb99bba44938431535908784a9ce/packages/contract/src/standard-schema.ts#L1-L17) · [`StandardIssue` @ 883a8e2](https://github.com/Laratypes/Laratype/blob/883a8e27c79fb4ffed4463db0387db7281e617f8/packages/contract/src/standard-schema.ts#L12-L15) · [`isStandardSchema` @ df353f31](https://github.com/Laratypes/Laratype/blob/df353f316db74b9065818182dce72ae559ff7296/packages/contract/src/standard-schema.ts#L24-L34)
 
 ```ts
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
@@ -64,10 +64,12 @@ export type StandardResult<O> =
   | { readonly issues: ReadonlyArray<StandardIssue> };    // inline object type on master
 export type InferIn<S>  = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["input"]  : undefined;
 export type InferOut<S> = S extends StandardSchemaV1 ? NonNullable<S["~standard"]["types"]>["output"] : undefined;
+export const isStandardSchema: (value: unknown) => value is StandardSchemaV1;   // K4 #314
 ```
 
 ### Invariants
 - These are types only, a minimal copy of the Standard Schema v1 spec. The package never imports a schema library at runtime.
+- **The one guard (K4):** `isStandardSchema` is the check `defineEnv`, `validateEnv` and `Request.rules()` share, so a schema is accepted the same way everywhere: an object or a function (an arktype schema is callable) whose `~standard.validate` is a function. It reads `~standard` and `validate` once each, so a getter cannot pass with one value and answer another. A getter, or a Proxy's `get` trap, that throws propagates the error: a schema is app data, so the guard does not hide the app's bug.
 - `InferIn<undefined>` and `InferOut<undefined>` are `undefined`, so an empty endpoint slot projects to `undefined`.
 - Inputs (query, body, headers) are typed with the schema **input**; the response is typed with the schema **output** (see [API type projection](#api-type-projection)).
 
@@ -844,7 +846,7 @@ Type-only (`types/capabilities.types.ts`): an unknown guard, `authorize` or `aut
 ## Domain errors
 
 ### Status
-merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)).
+merged ([#228](https://github.com/Laratypes/Laratype/issues/228)): `defineError`, `ContractError` and `throws`. `isContractError` and the mapping of a thrown error to its response: proposed: PR #307 @ 1d24eb0 (H5 [#108](https://github.com/Laratypes/Laratype/issues/108), [http.md › Exceptions](./http.md#exceptions)); the plain-object body check, a null-prototype array rejected with every array, is H33 [#313](https://github.com/Laratypes/Laratype/issues/313) at [9b7c5a4b](https://github.com/Laratypes/Laratype/commit/9b7c5a4bff4aac683c4546c55b602b3696e86cd5) (PR [#429](https://github.com/Laratypes/Laratype/pull/429)).
 
 ### Public API
 [`packages/contract/src/errors.ts` @ 1d24eb0](https://github.com/Laratypes/Laratype/blob/1d24eb00f4c5ebc12f42732afb460a169999dce8/packages/contract/src/errors.ts)
@@ -862,7 +864,7 @@ export interface ErrorDef<St extends number = number, Code extends string = stri
   readonly code: Code;
   is(error: unknown): error is ContractError<St, Code, Body>;   // a ContractError (brand) with this code and status
 }
-export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and an object body without its own code (#108)
+export const isContractError: (value: unknown) => value is ContractError<number, string, object>;   // a ContractError of any def (brand), with a 400-599 status, a string code and a plain-object body without its own code (#108, H33 #313)
 export type AnyErrorDef = ErrorDef<number, string, any, any[]>;
 export type ErrorStatus<E>;                           // per def, distributes over unions
 export type ErrorCode<E>;
@@ -891,7 +893,7 @@ if (EmailTaken.is(e)) e.body.email
 - **`E.is(e)`** requires a `ContractError` (by a `Symbol.for` brand, so a plain object such as a client result is not one; nor is an error that went through `structuredClone`/`postMessage` or was rebuilt from JSON, since the brand doesn't survive: narrow by `code` there) and compares `code` and `status`, not `instanceof`, so it works across bundles and package copies, and a `defineError(410, 'NOT_FOUND')` is not the catalog 404.
 - **Codes** are `UPPER_SNAKE` (`/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/`), like the built-in [catalog](#error-catalog).
 - **Statuses** are error statuses, `400` to `599` (`FailureStatus`), in the types, when the error is defined, in `new ContractError()` and in `throws` (a hand-built or older def with another status is refused), so a declared error is always classified as a failure by the client. The built-in catalog (401, 403, 404, 422, 429) complies.
-- **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (a `null` prototype, or the `Object.prototype` of any realm, such as an iframe's: a prototype whose own prototype is `null` and that has its own `hasOwnProperty`), so a `Map`, `Set`, `Date` or class instance is rejected too. The default `{ message }` body and the catalog bodies already comply.
+- **Bodies are plain objects without a `code` key.** On the wire an error is `{ code, ...body }` ([client.md › Result union](./client.md#result-union)). A body factory whose return type is not an object (a string, number, boolean, `null` or an array), or has a `code` key (even an optional one), is a type error (`CheckErrorBody`). At runtime, creating such an error throws, and the runtime check is stricter than the type: the body must be a plain object (a `null` prototype, or the `Object.prototype` of any realm, such as an iframe's: a prototype whose own prototype is `null` and that has its own `hasOwnProperty`), so a `Map`, `Set`, `Date` or class instance is rejected too. `isContractError` applies the same rule, so a branded error whose body was changed to a `Map` or a `Date` is no contract error and answers the generic 500 instead of an emptied body (H33 [#313](https://github.com/Laratypes/Laratype/issues/313)). The default `{ message }` body and the catalog bodies already comply.
 - **Declaring:** `throws` on an endpoint, a contract or a scope. The levels add up ([inheritance](#capabilities-and-derived-errors)). `throws` also accepts the built-in catalog errors. For example, a search endpoint with no path param whose service throws `notFound` declares `.throws(errors.notFound)`, so the undeclared-error check accepts it.
 - **403 from auth:** an unverified or locked account is a domain error, for example `defineError(403, 'EMAIL_NOT_VERIFIED')`. The guard throws it, and the contract or scope declares it with `throws`. There is no separate capability for it.
 - **Undeclared errors:** in dev and test, throwing an error the running endpoint doesn't declare is reported, and fails the test ([http.md › Undeclared-error check](./http.md#undeclared-error-check)).

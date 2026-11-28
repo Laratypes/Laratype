@@ -166,10 +166,31 @@ describe('isContractError', () => {
     ['a code that is not a string', { code: 404 }],
     ['a null body', { body: null }],
     ['an array body', { body: ['x'] }],
+    // a null-prototype array is still an array: its indices would go on the wire as the body (H33 #313)
+    ['a null-prototype array body', { body: Object.setPrototypeOf(['x'], null) }],
     ['a string body', { body: 'x' }],
+    // H33 #313: a Map, Date or class instance spreads to nothing, so the wire body would lose it: not a contract error
+    ['a Map body', { body: new Map() }],
+    ['a Set body', { body: new Set() }],
+    ['a Date body', { body: new Date(0) }],
+    ['a class-instance body', { body: new (class Body { readonly x = 1 })() }],
+    ['a body with a custom prototype', { body: Object.create({ message: 'x' }) }],
     ['a body with its own code', { body: { code: 'OTHER', message: 'x' } }],
   ])('is false for an error changed after it was created: %s', (_, change) => {
     expect(isContractError(Object.assign(errors.notFound(), change))).toBe(false)
+  })
+
+  it('accepts a null-prototype and another realm\'s plain-object body', () => {
+    expect(isContractError(Object.assign(errors.notFound(), { body: Object.create(null) }))).toBe(true)
+    const foreign = Object.assign(new Error('x'), { status: 409, code: 'EMAIL_TAKEN', body: runInNewContext('({ email: "a@b.c" })') })
+    Object.defineProperty(foreign, Symbol.for('laratype.contract-error'), { value: true })
+    expect(isContractError(foreign)).toBe(true)
+  })
+
+  it('is false for a body whose getPrototypeOf throws, never throwing itself', () => {
+    const hostile = { status: 409, code: 'EMAIL_TAKEN', body: new Proxy({}, { getPrototypeOf() { throw new TypeError('getPrototypeOf') } }) }
+    Object.defineProperty(hostile, Symbol.for('laratype.contract-error'), { value: true })
+    expect(isContractError(hostile)).toBe(false)
   })
 })
 

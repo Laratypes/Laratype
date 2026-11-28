@@ -25,14 +25,32 @@ export const BODY_LIMIT_DEFAULTS = {
 
 type MediaType = keyof typeof BODY_LIMIT_DEFAULTS;
 
-/** The media types Hono's `validator('json')` reads as JSON, with any parameters, the OWS RFC 9110 §8.3.1 allows
- * before the `;` included, and in any case: media types are case-insensitive (RFC 9110 §8.3.1). Hono's regex, which it
- * does not export, with digits and `_` in the vendor subtype too (`application/vnd.github.v3+json`, H26 #287;
- * `application/vnd.my_app+json`, RFC 6838). */
-const JSON_MEDIA_TYPE = /^application\/([a-z0-9._-]+\+)?json\s*(;\s*[a-zA-Z0-9\-]+\=([^;]+))*$/i;
+/**
+ * The media type before its parameters (RFC 9110 §8.3.1): the type and subtype are case-insensitive, the OWS before the
+ * `;` is not part of them, and the parameters (`; charset=utf-8`, a quoted `;` inside a value, an empty one) never
+ * change how the body is read.
+ */
+const leadingMediaType = (contentType: string): string => {
+  const semicolon = contentType.indexOf(";");
+  return (semicolon === -1 ? contentType : contentType.slice(0, semicolon)).trim().toLowerCase();
+};
 
-export const isJsonMediaType = (contentType: string | undefined): boolean =>
-  contentType !== undefined && JSON_MEDIA_TYPE.test(contentType);
+/** The `application` subtype of JSON: `json` itself, or a `+json` structured suffix (RFC 6838) with a non-empty name. */
+const JSON_SUBTYPE = /^[a-z0-9!#$&^_.+-]+\+json$/;
+
+/**
+ * Whether the request's Content-Type is JSON: `application/json` or `application/*+json`, in any case, with any
+ * parameters, and the OWS RFC 9110 §8.3.1 allows before the `;` (H31 #308). Broader than Hono's `validator('json')` on
+ * purpose: the pipeline reads the body itself, so the parameters never decide, and a header Hono's regex rejects
+ * (`application/json;`, a `_` in a parameter name, a quoted `;` in a value) is parsed as JSON instead of dropped to `{}`.
+ */
+export const isJsonMediaType = (contentType: string | undefined): boolean => {
+  if (contentType === undefined) return false;
+  const type = leadingMediaType(contentType);
+  if (!type.startsWith("application/")) return false;
+  const subtype = type.slice("application/".length);
+  return subtype === "json" || JSON_SUBTYPE.test(subtype);
+};
 
 /** The two media types Hono's `parseBody()` reads as form fields. */
 export type FormMediaType = "multipart/form-data" | "application/x-www-form-urlencoded";
@@ -73,8 +91,8 @@ export const formMediaType = (contentType: string | undefined): FormMediaType | 
  * The media type whose cap applies to a request, or `undefined` when no default cap applies (a media type the pipeline
  * does not parse). The form types come from `formMediaType`, the same union of the peer range's classifiers the parse
  * uses. `readBody` has already refused a Content-Type holding more than one media type or a form type name outside the
- * leading media type, so the cap and the parse see the same accepted leading type. JSON uses `isJsonMediaType` (Hono's
- * `validator('json')` shape, see the regex above).
+ * leading media type, so the cap and the parse see the same accepted leading type. JSON uses `isJsonMediaType`: the
+ * leading media type only, its parameters ignored (H31 #308).
  */
 const mediaTypeOf = (contentType: string | undefined): MediaType | undefined => {
   if (isJsonMediaType(contentType)) return "json";
