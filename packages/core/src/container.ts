@@ -36,12 +36,16 @@ export class DiError extends Error {
   override name = 'DiError'
 }
 
-interface Binding {
-  scope: Scope
-  create: (container: Container, requiredBy?: string) => unknown
+/** A singleton's cache slot: the first value, or the request lifetime a request-scoped dependency gave it. */
+interface SingletonSlot {
   resolved?: { value: unknown }
   /** A singleton found to depend on a request-scoped key: cached per request scope from then on. */
   bubbled?: true
+}
+
+interface Binding extends SingletonSlot {
+  scope: Scope
+  create: (container: Container, requiredBy?: string) => unknown
 }
 
 /** A singleton being built, and the first request-scoped key it was found to depend on. */
@@ -264,11 +268,36 @@ const splitParams = (source: string, start: number, end: number): string[] => {
 const stripComments = (param: string): string =>
   param.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
 
-/** Index of the class body's `{`, skipping a heritage expression and its brackets, strings and comments. */
-const classBodyStart = (source: string): number | undefined => {
-  let index = skipTrivia(source, 0)
-  if (!source.startsWith('class', index)) return undefined
+/** Identifier characters beyond ASCII, so `Éclass`, `classÉ` and `a\u200cb` do not hide or grow a keyword. */
+const IDENTIFIER_PART = /[\p{ID_Continue}$\u200c\u200d]/u
+
+const isIdentifierPart = (char: string | undefined): boolean =>
+  char !== undefined && IDENTIFIER_PART.test(char)
+
+/** Whether `word` starts at `index` as a keyword: not a property (`obj.class`), a private name (`#class`) or part of a longer identifier. */
+const startsWord = (source: string, index: number, word: string): boolean => {
+  if (!source.startsWith(word, index)) return false
+  if (isIdentifierPart(source[index - 1]) || isIdentifierPart(source[index + word.length])) return false
+  let back = index - 1
+  while (back >= 0 && isWhitespace(source[back]!)) back--
+  return source[back] !== '.' && source[back] !== '#'
+}
+
+const startsClassWord = (source: string, index: number): boolean => startsWord(source, index, 'class')
+
+interface ClassBodies {
+  /** The class body's `{`. */
+  body: number
+  /** The bodies of an inline `extends class { ... }` heritage, which belongs to the parent class. */
+  heritage?: ClassBodies
+}
+
+/** The class body's `{`, skipping its header, strings and comments, and the bodies of an inline heritage class. */
+const classBodies = (source: string, from = 0): ClassBodies | undefined => {
+  let index = skipTrivia(source, from)
+  if (!startsClassWord(source, index)) return undefined
   index += 'class'.length
+  let heritage: ClassBodies | undefined
   while (index < source.length) {
     const char = source[index]
     if (char === '"' || char === "'" || char === '`') {
@@ -280,7 +309,19 @@ const classBodyStart = (source: string): number | undefined => {
     } else if (char === '[') {
       index = skipBalanced(source, index, '[', ']')
     } else if (char === '{') {
-      return index
+      return { body: index, heritage }
+    } else if (startsWord(source, index, 'extends')) {
+      // Only a class expression as the first token after `extends` is the heritage class; a `class` further in
+      // (a member, private or unicode name) is not one. That class's body belongs to the parent, so skip it whole.
+      const next = skipTrivia(source, index + 'extends'.length)
+      if (startsClassWord(source, next)) {
+        const parent = classBodies(source, next)
+        if (parent === undefined) return undefined
+        heritage = parent
+        index = skipBalanced(source, parent.body, '{', '}')
+      } else {
+        index = next
+      }
     } else {
       index++
     }
@@ -289,19 +330,11 @@ const classBodyStart = (source: string): number | undefined => {
 }
 
 /**
- * Non-rest params of the `constructor(...)` a class source starts with, or `undefined` when the source is not a
- * readable class, has no own constructor, or puts a field before it (a known limit). `0` means no params, or a
- * rest-only constructor, which the DI transform treats as no own constructor.
+ * Non-rest params of a leading `constructor(...)` in the body at `body`, or `undefined` when the constructor is not
+ * the first member (a known limit). `0` means no params, or a rest-only constructor, which the DI transform treats
+ * as no own constructor.
  */
-const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
-  let source: string
-  try {
-    source = Function.prototype.toString.call(cls)
-  } catch {
-    return undefined
-  }
-  const body = classBodyStart(source)
-  if (body === undefined) return undefined
+const leadingConstructorCount = (source: string, body: number): number | undefined => {
   let index = skipTrivia(source, body + 1)
   if (!source.startsWith('constructor', index)) return undefined
   index = skipTrivia(source, index + 'constructor'.length)
@@ -317,6 +350,28 @@ const readLeadingConstructorParamCount = (cls: Function): number | undefined => 
     .map((param) => stripComments(param).trim())
     .filter((param) => param !== '')
   return params.filter((param) => !param.startsWith('...')).length
+}
+
+/**
+ * Non-rest params of the leading constructor a class source runs, or `undefined` when the source is not a readable
+ * class or its constructor is not first (a known limit). A class with no own constructor and an inline heritage
+ * class expression counts that parent's params: the implicit `super(...args)` passes none, so `new cls()` would leave
+ * its required params undefined.
+ */
+const readLeadingConstructorParamCount = (cls: Function): number | undefined => {
+  let source: string
+  try {
+    source = Function.prototype.toString.call(cls)
+  } catch {
+    return undefined
+  }
+  const bodies = classBodies(source)
+  if (bodies === undefined) return undefined
+  for (let current: ClassBodies | undefined = bodies; current !== undefined; current = current.heritage) {
+    const count = leadingConstructorCount(source, current.body)
+    if (count !== undefined) return count
+  }
+  return undefined
 }
 
 /** Per-class cache, `null` for a source that cannot be read: HMR makes a new class object, so it re-reads there. */
@@ -404,10 +459,8 @@ export class Container {
   protected readonly parent: Container | undefined
   protected readonly deps: DepsLookup
   protected readonly tree: TreeState
-  /** Unbound classes autowired as `@Injectable({ scope: 'singleton' })`, cached on the root container. */
-  protected readonly autowired = new Map<unknown, { value: unknown }>()
-  /** Autowired singleton classes found to depend on a request-scoped key, on the root container. */
-  protected readonly bubbled = new Set<unknown>()
+  /** Unbound classes autowired as `@Injectable({ scope: 'singleton' })`, with their cache slot, on the root container. */
+  protected readonly autowired = new Map<unknown, SingletonSlot>()
   /**
    * Set on a request scope only: its request-scoped values, keyed by binding (or by class when autowired),
    * in creation order for `dispose()`.
@@ -567,14 +620,7 @@ export class Container {
       if (binding.scope === 'singleton') {
         // Built by its owner so a child's overrides never leak into a shared instance.
         const build = () => owner.withCycleCheck(key, () => binding.create(owner, requiredBy))
-        if (binding.bubbled) return this.fromRequestScope(key, binding, requiredBy, build)
-        const { value, requestDep } = this.buildSingleton(build)
-        if (requestDep === undefined) {
-          binding.resolved = { value }
-          return value
-        }
-        binding.bubbled = true
-        return this.bubble(key, binding, value, requestDep)
+        return this.resolveSingleton(key, binding, requiredBy, binding, build)
       }
       return this.withCycleCheck(key, () => binding.create(this, requiredBy))
     }
@@ -592,16 +638,8 @@ export class Container {
         let root: Container = this
         while (root.parent) root = root.parent
         const build = () => root.withCycleCheck(key, () => root.build(key as Newable, requiredBy))
-        if (root.bubbled.has(key)) return this.fromRequestScope(key, key, requiredBy, build)
-        const cached = root.autowired.get(key)
-        if (cached) return cached.value
-        const { value, requestDep } = this.buildSingleton(build)
-        if (requestDep === undefined) {
-          root.autowired.set(key, { value })
-          return value
-        }
-        root.bubbled.add(key)
-        return this.bubble(key, key, value, requestDep)
+        const save = (slot: SingletonSlot) => root.autowired.set(key, slot)
+        return this.resolveSingleton(key, key, requiredBy, root.autowired.get(key), build, save)
       }
       return this.withCycleCheck(key, () => this.build(key as Newable, requiredBy))
     }
@@ -678,6 +716,34 @@ export class Container {
     cache.set(cacheKey, { value })
   }
 
+  /**
+   * Resolve a singleton binding or autowired class through one path: `slot` caches the first value and remembers a
+   * request-scoped dependency, and `build` runs under the owning container's cycle check. The current request scope
+   * caches the value under `cacheKey`: the binding, or the class when it was autowired. `save` stores a new autowired
+   * slot; a binding already holds its own.
+   */
+  protected resolveSingleton(
+    key: unknown,
+    cacheKey: unknown,
+    requiredBy: string | undefined,
+    slot: SingletonSlot | undefined,
+    build: () => unknown,
+    save?: (slot: SingletonSlot) => void,
+  ): unknown {
+    if (slot?.bubbled) return this.fromRequestScope(key, cacheKey, requiredBy, build)
+    if (slot?.resolved) return slot.resolved.value
+    const { value, requestDep } = this.buildSingleton(build)
+    const state = slot ?? {}
+    // Store a new autowired slot before bubbling, so a bubble that throws keeps the mark a binding keeps.
+    if (!slot) save?.(state)
+    if (requestDep === undefined) {
+      state.resolved = { value }
+      return value
+    }
+    state.bubbled = true
+    return this.bubble(key, cacheKey, value, requestDep)
+  }
+
   /** Build a singleton, recording the first request-scoped key it depends on, directly or not. */
   protected buildSingleton(build: () => unknown): { value: unknown, requestDep: unknown } {
     const frame: SingletonFrame = {}
@@ -692,8 +758,10 @@ export class Container {
   /** Cache the first value of a bubbled singleton in the current request scope, and warn once in dev. */
   protected bubble(key: unknown, cacheKey: unknown, value: unknown, requestDep: unknown): unknown {
     // Resolve the scope before the warning: a bubble that throws must not suppress the dev warning on the next request
-    const { cache } = this.resolutionScope(key, undefined)
+    const { scope, cache } = this.resolutionScope(key, undefined)
     warnBubbled(key, requestDep)
+    // A console.warn adapter is app code: one that disposes this scope must not have the value cached in the spent scope
+    if (scope.disposed) throw new DiError(errors.requestScopeDisposed)
     this.cacheValue(cache, cacheKey, value)
     return value
   }
@@ -709,7 +777,8 @@ export class Container {
       && this.deps.hasOwn?.(cls) === false
     if (!entry || hiddenParams) {
       // `cls.length` is 0 when every param has a default; the source tells those apart from a no-arg constructor.
-      const params = leadingConstructorParamCount(cls) ?? cls.length
+      // It is also a lower bound: a scan that misreads the list must not report fewer params than the engine counted.
+      const params = Math.max(leadingConstructorParamCount(cls) ?? 0, cls.length)
       if (params > 0) throw new DiError(errors.noMetadata(cls, requiredBy, params))
       if (!entry) return new cls()
     }
