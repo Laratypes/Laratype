@@ -489,6 +489,7 @@ describe('zero-length constructors', () => {
 
   it('does not read a class keyword from a member, private or unicode identifier name', () => {
     const Éclass = new Function('return class Éclass { constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
+    const classÉ = new Function('return class classÉ { constructor(dep = 1) { this.dep = dep } }')() as new () => { dep: unknown }
     const UnicodeHeritage = new Function('Éclass', 'return class UnicodeHeritage extends Éclass { constructor(dep = 1) { super(); this.dep = dep } }')(Éclass)
     const member = { class: Éclass }
     const MemberHeritage = new Function('obj', 'return class MemberHeritage extends obj. class { constructor(dep = 1) { super(); this.dep = dep } }')(member)
@@ -499,7 +500,7 @@ describe('zero-length constructors', () => {
     const PrivateHeritage = new Host().create()
     const BodyField = new Function('obj', 'return class BodyField extends class { value = obj. class; #class = 1 } { constructor(dep = 1) { super(); this.dep = dep } }')(member)
     // Each source hides `class` behind a unicode identifier, a property name, a private name or a parent body field
-    for (const [name, cls] of [['Éclass', Éclass], ['UnicodeHeritage', UnicodeHeritage], ['MemberHeritage', MemberHeritage], ['PrivateHeritage', PrivateHeritage], ['BodyField', BodyField]] as const) {
+    for (const [name, cls] of [['Éclass', Éclass], ['classÉ', classÉ], ['UnicodeHeritage', UnicodeHeritage], ['MemberHeritage', MemberHeritage], ['PrivateHeritage', PrivateHeritage], ['BodyField', BodyField]] as const) {
       expect(messageOf(() => new Container().make(cls))).toContain(`Cannot autowire ${name}: its constructor takes 1 param(s)`)
     }
   })
