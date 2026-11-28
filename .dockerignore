@@ -1,0 +1,19 @@
+# Build context for bench/Dockerfile (`docker build -f bench/Dockerfile .`).
+.git
+node_modules
+**/node_modules
+**/dist
+dist_tmp
+bench/out
+.bench-types
+examples/laratype-test
+.env
+.env.*
+# `.env*` at any depth: the root-only patterns above miss a nested file such as examples/basic/.env, which
+# `COPY . .` would otherwise bake into the image. Docker's `**/` matches zero or more directories, so these also
+# cover the root. No `.env.example` is tracked or read at build time, so no negation is needed.
+**/.env
+**/.env.*
+.npmrc
+.claude/
+*.log
