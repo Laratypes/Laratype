@@ -10,6 +10,8 @@ runs:
         # Pinned: the B13 dist invariants were verified on 1.3.14, and Bun 1.4 changed CJS interop (#241)
         bun-version: 1.3.14
 
+    # B14 #189: no dependency lifecycle script runs in CI or release. `bun run check:lockfile`
+    # then fails a new trustedDependencies entry or an install script outside its allowlist.
     - name: Install dependencies
       shell: bash
-      run: bun install --frozen-lockfile
+      run: bun install --ignore-scripts --frozen-lockfile

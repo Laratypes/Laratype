@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "@fixture/core": ["@fixture/core@workspace:../x"],
+  },
+}

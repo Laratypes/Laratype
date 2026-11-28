@@ -1,0 +1,7 @@
+{
+  "name": "bench-tool",
+  "private": true,
+  "dependencies": {
+    "evil": "git://example.com/evil.git"
+  }
+}

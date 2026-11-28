@@ -1,0 +1,13 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": { "name": "fixture" },
+  },
+  "workspaces": {
+    "": { "name": "fixture" },
+  },
+  "packages": {
+    "left-pad": ["left-pad@1.3.0", "", {}, "sha512-abc123"],
+  },
+}

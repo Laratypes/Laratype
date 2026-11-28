@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "evil": ["evil@gitlab:owner/evil#abc", "", {}, "sha512-abc123"],
+  },
+}

@@ -1,0 +1,7 @@
+{
+  "name": "pkg-fixture",
+  "private": true,
+  "resolutions": {
+    "evil": "ssh://example.com/evil.git"
+  }
+}

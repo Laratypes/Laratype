@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "fixture",
+      "private": true,
+      "dependencies": {
+        "left-pad": "^1.3.0",
+      },
+    },
+  },
+  "packages": {
+    "fixture": ["fixture@workspace:.", { "dependencies": { "left-pad": "^1.3.0" } }],
+    "left-pad": ["left-pad@1.3.0", "", {}, "sha512-abc123"],
+  },
+}

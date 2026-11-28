@@ -109,11 +109,12 @@ After the parent PR merges:
   The paths:
   - `**/AGENTS.md`, `**/AGENTS.override.md`, `**/CLAUDE.md`, `**/CLAUDE.local.md`
   - `**/.claude/**`, `**/.opencode/**`, `**/opencode.json`, `**/.mcp.json`
-  - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.vscode/**`
+  - `.github/**`, `.coderabbit.yaml`, `bunfig.toml`, `.npmrc`, `.vscode/**`
   - `**/package.json`, for the `preinstall`, `install`, `postinstall` and `prepare` scripts and every file those scripts run
 
   Read every lifecycle entry in the reviewed tree (`git show <sha>:<package.json>`), not only the entries the diff changes, then diff every file they call with the same command, with the file in place of `<paths>`: a branch can set `"postinstall": "bun scripts/setup.ts"` and add `scripts/setup.ts`, or change the script behind an entry it leaves untouched, and no path pattern above matches the script.
 
   These files run with secrets or steer what agents do: CodeRabbit's config steers the review that gates merges, and a malicious workflow was pushed to this repo in 2026-10.
+- **CI checks the lockfile.** `bun run check:lockfile` parses `bun.lock` as JSONC and walks every `packages` entry: `name@ref` is split at the first `@` after the name (a leading scope `@` skipped), the ref must be plain semver or `workspace:` and must not contain another `@` or a `:` outside `workspace:`, a `workspace:` ref must name a directory declared by `workspaces.packages`, the registry slot must be empty, and the last element must be a `sha512-` integrity. It also fails a duplicate key in any lock object (`JSON.parse` would keep the last one), and scans the manifests from `workspaces.packages` (`dir` and `dir/*`), `resolutions`, `workspaces.catalog` and `workspaces.catalogs.*`, plus the JSON-decoded lock values; a text scan for non-registry sources is another layer. A new `trustedDependencies` entry, an install script, or a package on Bun's default-trusted list outside its `name@version` allowlist in `scripts/check-lockfile.mjs` fails until it is updated and reviewed. The same file allowlists `.npmrc` and `bunfig.toml` by path, because either can redirect the registry. **Local installs use `bun install --ignore-scripts`:** Bun runs the lifecycle scripts of its default-trusted list (esbuild is one today) even though `bun pm untrusted` does not list them, so a plain `bun install` runs scripts the checker cannot gate. CI installs with `--ignore-scripts`, so dependency lifecycle scripts never run there.
 - **Never commit secrets** (tokens, `.env` values), and never paste them into issues, PRs or logs.
 - Don't add workflows that use secrets, or trigger `workflow_dispatch` runs, without the maintainer's approval.

@@ -38,6 +38,7 @@
     "check:dist": "node scripts/check-dist.mjs",
     "check:pkg": "node scripts/check-packages.mjs",
     "check:lint": "biome ci --diagnostic-level=error",
+    "check:lockfile": "node scripts/check-lockfile.mjs",
     "release:changeset": "node scripts/release/cli.js changeset",
     "release:check": "node scripts/release/cli.js check",
     "release:pre": "node scripts/release/cli.js pre",

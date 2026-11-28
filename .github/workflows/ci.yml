@@ -14,12 +14,19 @@ jobs:
     name: Build & smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Installs bun and runs `bun install`
       - name: Setup bun
         id: setup
         uses: ./.github/setup-bun
+
+      # B14 #189: no git/tarball/other-registry source, no missing integrity,
+      # no trustedDependencies or install script outside the allowlist
+      - name: Check lockfile
+        run: bun run check:lockfile
 
       - name: Build
         run: bun run build && bun run build:type
@@ -42,3 +49,9 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bun run check:lint
+
+      # B14 #189: high/critical advisories in bun.lock fail. Last, like Lint, so a
+      # failure does not hide the build and test results.
+      - name: Audit
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: bun audit --audit-level=high

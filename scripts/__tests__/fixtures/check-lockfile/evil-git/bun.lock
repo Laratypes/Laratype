@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "packages": {
+    "evil": ["evil@git://example.com/evil.git#abc", "", {}, "sha512-abc123"],
+  },
+}

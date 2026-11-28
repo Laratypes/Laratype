@@ -104,6 +104,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          # No dependency cache in the release job: a future packageManager field must not turn one on
+          package-manager-cache: false
 
       # Pinned to an exact release (>= 11.5.1, at least two weeks old when pinned) instead of a range, so a newly
       # published npm can't run in the release job before anyone has seen it
