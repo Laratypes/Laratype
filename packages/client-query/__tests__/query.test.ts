@@ -108,6 +108,20 @@ describe("createQueryApi", () => {
     expect(calls[1]!.signal).toBe(own.signal);
   });
 
+  it("holds the input in the key, so a refetch after the caller mutates it sends the key's input", async () => {
+    const { fetch, calls } = fakeFetch([]);
+    const q = createQueryApi(createClient(appApi, { fetch }));
+    const input = { query: { page: 2 } };
+    const options = q.users.index.queryOptions(input);
+    // A Vue `reactive` filter changes in place after the options were built: the key must not follow it.
+    input.query.page = 3;
+    await options.queryFn(context(options.queryKey));
+    input.query.page = 4;
+    await options.queryFn(context(options.queryKey));
+    expect(calls.map((call) => call.url)).toEqual(["/api/users?page=2", "/api/users?page=2"]);
+    expect(options.queryKey).toEqual(["laratype", "users", "index", { query: { page: 2 } }]);
+  });
+
   it("throws a ClientQueryError carrying a declared failure", async () => {
     const body = { code: "EMAIL_TAKEN", message: "The email is taken.", email: "ada@example.com" };
     const { fetch } = fakeFetch(body, 409);

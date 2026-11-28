@@ -3,6 +3,8 @@
 // adapter's generated key, and the form is one mutation whose typed error narrows like a failed call.
 import { computed, ref } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import { isClientQueryError } from "@laratype/client-query";
+import type { ClientQueryError } from "@laratype/client-query";
 import { api, q } from "./api";
 import type { User } from "./api";
 
@@ -10,6 +12,18 @@ import type { User } from "./api";
 interface ShownError {
   code: string;
   message: string;
+}
+
+/** The store mutation's failure variant, as the client returns it: the declared 422 and the other results. */
+type StoreFailure = Exclude<Awaited<ReturnType<typeof api.users.store>>, { ok: true }>;
+
+/**
+ * The error channel is `ClientQueryError<...> | Error`: a failed call throws the typed error, and a call that rejects
+ * (a programming error) throws a plain `Error`. The brand guard, narrowed to this mutation's failure, restores the
+ * exact `result` variant.
+ */
+function isStoreError(error: Error): error is ClientQueryError<StoreFailure> {
+  return isClientQueryError(error);
 }
 
 const queryClient = useQueryClient();
@@ -36,6 +50,8 @@ function showUnexpected(status: number): ShownError {
 const listError = computed<ShownError | null>(() => {
   const failure = usersQuery.error.value;
   if (failure === null) return null;
+  // A call that rejected (a programming error) reaches the hook as a plain Error, which has no code.
+  if (!isClientQueryError(failure)) return { code: "UNEXPECTED", message: failure.message };
   return { code: failure.code ?? "UNEXPECTED", message: failure.message };
 });
 
@@ -84,11 +100,13 @@ function createUser(): void {
       },
       onError: (err) => {
         // `err.result` is the call's failure variant: the declared 422 narrows by code, as a failed call's does.
-        if (err.result.code === "VALIDATION_ERROR") {
+        if (isStoreError(err) && err.result.code === "VALIDATION_ERROR") {
           error.value = { code: err.result.code, message: formatValidationErrors(err.result.error.errors) };
           return;
         }
-        error.value = showUnexpected(err.status);
+        error.value = isClientQueryError(err)
+          ? showUnexpected(err.status)
+          : { code: "UNEXPECTED", message: err.message };
       },
     },
   );

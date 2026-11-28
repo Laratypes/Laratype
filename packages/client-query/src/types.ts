@@ -28,6 +28,12 @@ type CallData<F extends AnyEndpointCall> = Extract<CallResult<F>, { ok: true }>[
 /** A failed call: its declared errors and the unexpected variant. */
 type CallFailure<F extends AnyEndpointCall> = Exclude<CallResult<F>, { ok: true }>;
 
+/**
+ * The error channel of an endpoint: a failed call is a `ClientQueryError` holding its failure variant, and a call
+ * that rejects (a programming error: a missing param, a body JSON cannot carry, no `fetch`) is a plain `Error`.
+ */
+type CallError<F extends AnyEndpointCall> = ClientQueryError<CallFailure<F>> | Error;
+
 /** The input element of a query key: the call input without `signal`, which a key cannot hold. */
 type KeyInput<Input> = Input extends undefined ? undefined : Omit<Input, "signal">;
 
@@ -45,8 +51,15 @@ export type QueryKeyOf<F extends AnyEndpointCall, Segments extends readonly stri
   ...InputElement<F>,
 ];
 
-/** The variables of a mutation: the call input, or `void` for a call that takes none. */
-type VariablesOf<F extends AnyEndpointCall> = Parameters<F>["length"] extends 0 ? void : Parameters<F>[0];
+/**
+ * The variables of a mutation: the call input, or `void` for a call that takes none. A call whose input is optional
+ * gets `| void` too, since TanStack only lets `mutate()` omit the argument when `undefined` extends the variables.
+ */
+type VariablesOf<F extends AnyEndpointCall> = Parameters<F>["length"] extends 0
+  ? void
+  : undefined extends Parameters<F>[0]
+    ? Parameters<F>[0] | void
+    : Parameters<F>[0];
 
 /** The context TanStack passes to a `queryFn`: the key, an `AbortSignal` and the query's `meta`. */
 export interface ClientQueryContext<Key extends QueryKey = QueryKey> {
@@ -71,7 +84,8 @@ export interface ClientQueryOptions<Data, Error, Key extends QueryKey = QueryKey
 
 /**
  * What `mutationOptions()` returns, for `useMutation` of both frameworks. `Variables` is the endpoint's call input,
- * so `mutate` takes it; it is `undefined` for a call that omits its input, so `mutate()` takes no argument.
+ * so `mutate` takes it; it is `void`, or the optional input type `| void`, for a call that may omit its input, so
+ * `mutate()` takes no argument.
  */
 export interface ClientMutationOptions<Data, Error, Variables> {
   readonly mutationFn: (variables: Variables) => Promise<Data>;
@@ -91,7 +105,7 @@ type QueryOptionsOf<F extends AnyEndpointCall, Segments extends readonly string[
       /** Use `mutationOptions()`, or give the endpoint a response schema. */
       readonly error: "queryOptions: the endpoint has no response schema, so its data is undefined";
     }
-  : (...input: Parameters<F>) => ClientQueryOptions<CallData<F>, ClientQueryError<CallFailure<F>>, QueryKeyOf<F, Segments>>;
+  : (...input: Parameters<F>) => ClientQueryOptions<CallData<F>, CallError<F>, QueryKeyOf<F, Segments>>;
 
 /** One endpoint of the query tree: a key factory, the query options and the mutation options. */
 export interface QueryEndpoint<F extends AnyEndpointCall, Segments extends readonly string[]> {
@@ -100,7 +114,7 @@ export interface QueryEndpoint<F extends AnyEndpointCall, Segments extends reado
   /** `{ queryKey, queryFn }` for `useQuery`: resolves the success data, throws `ClientQueryError` on `ok: false`. */
   readonly queryOptions: QueryOptionsOf<F, Segments>;
   /** `{ mutationFn }` for `useMutation`: resolves the success data, throws `ClientQueryError` on `ok: false`. */
-  readonly mutationOptions: () => ClientMutationOptions<CallData<F>, ClientQueryError<CallFailure<F>>, VariablesOf<F>>;
+  readonly mutationOptions: () => ClientMutationOptions<CallData<F>, CallError<F>, VariablesOf<F>>;
 }
 
 /**

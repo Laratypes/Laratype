@@ -5,7 +5,7 @@ import { useMutation as useReactMutation, useQuery as useReactQuery } from "@tan
 import { useMutation as useVueMutation, useQuery as useVueQuery } from "@tanstack/vue-query";
 import { createClient } from "@laratype/client";
 import type { ClientOf, HeaderValues } from "@laratype/client";
-import { createQueryApi } from "@laratype/client-query";
+import { createQueryApi, isClientQueryError } from "@laratype/client-query";
 import type {
   AnyEndpointCall,
   ClientMutationOptions,
@@ -87,7 +87,7 @@ describe("createQueryApi", () => {
 
   test("query options: the success data and the typed error", () => {
     const options = q.users.show.queryOptions({ params: { user: 1 } });
-    expectTypeOf(options).toEqualTypeOf<ClientQueryOptions<User, ClientQueryError<ShowFailure>, ShowKey>>();
+    expectTypeOf(options).toEqualTypeOf<ClientQueryOptions<User, ClientQueryError<ShowFailure> | Error, ShowKey>>();
     expectTypeOf(options.queryFn).returns.toEqualTypeOf<Promise<User>>();
     expectTypeOf(q.users.index.queryOptions({ query: { page: 2 } }).queryFn).returns.toEqualTypeOf<Promise<User[]>>();
   });
@@ -96,37 +96,59 @@ describe("createQueryApi", () => {
     typeOnly(() => {
       const react = useReactQuery(q.users.show.queryOptions({ params: { user: 1 } }));
       expectTypeOf(react.data).toEqualTypeOf<User | undefined>();
-      expectTypeOf(react.error).toEqualTypeOf<ClientQueryError<ShowFailure> | null>();
+      expectTypeOf(react.error).toEqualTypeOf<ClientQueryError<ShowFailure> | Error | null>();
 
       const vue = useVueQuery(q.users.show.queryOptions({ params: { user: 1 } }));
       expectTypeOf(vue.data.value).toEqualTypeOf<User | undefined>();
-      expectTypeOf(vue.error.value).toEqualTypeOf<ClientQueryError<ShowFailure> | null>();
+      expectTypeOf(vue.error.value).toEqualTypeOf<ClientQueryError<ShowFailure> | Error | null>();
     });
   });
 
   test("mutation options: the call input as variables, and the typed error", () => {
     const store = q.users.store.mutationOptions();
-    expectTypeOf(store).toEqualTypeOf<ClientMutationOptions<User, ClientQueryError<StoreFailure>, StoreInput>>();
+    expectTypeOf(store).toEqualTypeOf<ClientMutationOptions<User, ClientQueryError<StoreFailure> | Error, StoreInput>>();
     expectTypeOf(store.mutationFn).parameter(0).toEqualTypeOf<StoreInput>();
     expectTypeOf(store.mutationFn).returns.toEqualTypeOf<Promise<User>>();
     expectTypeOf(q.users.store.mutationOptions).parameters.toEqualTypeOf<[]>();
-    // an endpoint whose input is all optional takes an optional variable
-    expectTypeOf(q.health.check.mutationOptions().mutationFn).parameter(0).toEqualTypeOf<Parameters<typeof api.health.check>[0]>();
+    // an endpoint whose input is all optional takes `mutate()` with no argument ...
+    expectTypeOf(q.health.check.mutationOptions().mutationFn).parameter(0).toEqualTypeOf<
+      Parameters<typeof api.health.check>[0] | void
+    >();
+    // ... and still accepts it
+    expectTypeOf(q.health.check.mutationOptions().mutationFn).toBeCallableWith({ headers: { "x-test": "1" } });
   });
 
   test("useMutation of both frameworks infers data, variables and error", () => {
     typeOnly(() => {
       const react = useReactMutation(q.users.store.mutationOptions());
       expectTypeOf(react.data).toEqualTypeOf<User | undefined>();
-      expectTypeOf(react.error).toEqualTypeOf<ClientQueryError<StoreFailure> | null>();
+      expectTypeOf(react.error).toEqualTypeOf<ClientQueryError<StoreFailure> | Error | null>();
       react.mutate({ body: { name: "Ada", email: "ada@example.com" } });
       // @ts-expect-error a required body cannot be omitted
       react.mutate({});
 
       const vue = useVueMutation(q.users.store.mutationOptions());
       expectTypeOf(vue.data.value).toEqualTypeOf<User | undefined>();
-      expectTypeOf(vue.error.value).toEqualTypeOf<ClientQueryError<StoreFailure> | null>();
+      expectTypeOf(vue.error.value).toEqualTypeOf<ClientQueryError<StoreFailure> | Error | null>();
       vue.mutate({ body: { name: "Ada", email: "ada@example.com" } });
+
+      // an endpoint whose input is all optional takes `mutate()` with no argument in both frameworks
+      const check = useReactMutation(q.health.check.mutationOptions());
+      check.mutate();
+      const checkVue = useVueMutation(q.health.check.mutationOptions());
+      checkVue.mutate();
+    });
+  });
+
+  test("the error channel is a ClientQueryError or a plain Error, so the result needs a guard", () => {
+    typeOnly(() => {
+      const { error } = useReactQuery(q.users.show.queryOptions({ params: { user: 1 } }));
+      // @ts-expect-error a call that rejects (a programming error) throws a plain Error: narrow before reading result
+      void error?.result;
+      if (isClientQueryError(error)) {
+        expectTypeOf(error.result.status).toEqualTypeOf<number>();
+        void error.result.code;
+      }
     });
   });
 
