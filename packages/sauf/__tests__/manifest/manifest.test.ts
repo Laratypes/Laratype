@@ -152,6 +152,31 @@ describe('scanManifest', () => {
     expect(scan.kinds.modules).toEqual([{ name: 'billing', path: 'app/modules/billing/index.ts' }]);
   });
 
+  it('with a separate outDir, a .js next to its .ts is output of an earlier in-place build: skipped, with one warning', () => {
+    const dir = join(tmp, 'emitted-next-to-outdir');
+    write(dir, 'app/src/models/User.ts');
+    write(dir, 'app/src/models/User.js');
+    write(dir, 'app/src/models/Legacy.js');                                  // no source next to it: still a model
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const scan = scanManifest(dir, { emittedNextTo: false });
+      expect(scan.kinds.models).toEqual([
+        { name: 'Legacy', path: 'app/src/models/Legacy.js' },
+        { name: 'User', path: 'app/src/models/User.ts' },
+      ]);
+      expect(warn).toHaveBeenCalledWith('[laratype:manifest] stale tsc output next to its source: app/src/models/User.js (delete it)');
+    } finally {
+      warn.mockRestore();
+    }
+    // Another same-name file that is not tsc's output of the source next to it is still a duplicate name
+    const duplicate = join(tmp, 'emitted-next-to-outdir-duplicate');
+    write(duplicate, 'app/src/models/User.ts');
+    write(duplicate, 'app/src/models/User.mjs');
+    expect(() => scanManifest(duplicate, { emittedNextTo: false })).toThrow(
+      'models/User is in both app/src/models/User.mjs and app/src/models/User.ts: rename or remove one',
+    );
+  });
+
   it('skips folders that do not exist, and has no providers entry without app/config/providers.*', () => {
     const empty = join(tmp, 'empty');
     mkdirSync(empty, { recursive: true });
@@ -435,6 +460,17 @@ describe('shouldRestart (sauf dev --hmr)', () => {
     expect(shouldRestart('add', '/p/app/models/concerns/HasSlug.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/http/X.ts', undefined, inManifest)).toBe(false);
     expect(shouldRestart('add', '/p/app/src/models/Tag.ts', undefined)).toBe(false);
+  });
+
+  it('does not restart for an emitted .js next to its .ts, but does for a hand-written .js', () => {
+    const dir = join(tmp, 'hmr-emitted');
+    write(dir, 'app/models/User.ts');
+    write(dir, 'app/models/User.js');
+    write(dir, 'app/models/HandWritten.js');                                // no User.ts-shaped source next to it
+    const inManifest = (file: string) => isManifestFile(dir, file);
+    expect(shouldRestart('add', join(dir, 'app/models/User.js'), undefined, inManifest)).toBe(false);
+    expect(shouldRestart('unlink', join(dir, 'app/models/User.js'), undefined, inManifest)).toBe(false);
+    expect(shouldRestart('add', join(dir, 'app/models/HandWritten.js'), undefined, inManifest)).toBe(true);
   });
 });
 

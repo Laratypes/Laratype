@@ -21,6 +21,30 @@ export const loadBuildTypeScript = (load?: () => Promise<unknown>): Promise<type
 const isJs = (file: string) => /\.m?js$/.test(file);
 const isDeclaration = (file: string) => /\.d\.[cm]?ts$/.test(file);
 
+/**
+ * The option diagnostics of a tsconfig a newer tsc wrote, which the loaded `typescript` does not know: `tsc -b` emitted
+ * the tree already, so the manifest can still be written. TS5023 / TS5025 is an unknown option, TS6046 an unknown value
+ * for an option the loaded tsc knows (a target, module or lib added later), TS5103 an `ignoreDeprecations` value it does
+ * not know. Every other error diagnostic, TS18003 included, fails the build; a non-error diagnostic is a warning.
+ */
+const UNKNOWN_CONFIG_OPTION: ReadonlySet<number> = new Set([
+  5023, // Unknown compiler option '{0}'.
+  5025, // Unknown compiler option '{0}'. Did you mean '{1}'?
+  5103, // Invalid value for '--ignoreDeprecations'.
+  6046, // Argument for '--{0}' option must be: {1}.
+]);
+
+/**
+ * The TS5103 diagnostic of a config whose `ignoreDeprecations` value the loaded `typescript` does not know: unlike the
+ * other version-skew codes, it comes from a program's `getOptionsDiagnostics()`, not from the config parse. A program
+ * with no root file and no lib checks the options only and costs nothing.
+ */
+function ignoreDeprecationsDiagnostics(ts: typeof TS, parsed: TS.ParsedCommandLine): TS.Diagnostic[] {
+  if (parsed.options.ignoreDeprecations === undefined) return [];
+  const options = { ...parsed.options, noLib: true, types: [] };
+  return ts.createProgram({ rootNames: [], options }).getOptionsDiagnostics().filter((diagnostic) => diagnostic.code === 5103);
+}
+
 /** The `include` of the config (its own or the one it extends), for errors: `["app/**\/*"]`. */
 const includeOf = (parsed: TS.ParsedCommandLine) => {
   const { include, files } = (parsed.raw ?? {}) as { include?: unknown; files?: unknown };
@@ -33,11 +57,10 @@ const includeOf = (parsed: TS.ParsedCommandLine) => {
  * folder for a composite project or from TypeScript 6 (its default, with TS5011 when the sources are all in a
  * subfolder), else the common folder of the files tsc emits. Those are the files of the program,
  * not of the config: they include what the sources import from outside `include` (`$api` from `.laratype/`), so the
- * program is built (parsed, not type-checked) to list them. `undefined` without `outDir` (outputs next to sources).
+ * program is built (parsed, not type-checked) to list them.
  */
-function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: string, ignoreCase: boolean): string | undefined {
-  const { outDir, rootDir, composite } = parsed.options;
-  if (!outDir) return undefined;
+function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: string, ignoreCase: boolean): string {
+  const { rootDir, composite } = parsed.options;
   if (rootDir !== undefined) return resolve(rootDir);
   if (composite || Number(ts.versionMajorMinor.split(".")[0]) >= 6) return dirname(configFile);
   // Without the default lib and @types: declaration files never count, and parsing them is most of the cost
@@ -60,10 +83,12 @@ function emitRoot(ts: typeof TS, parsed: TS.ParsedCommandLine, configFile: strin
 /**
  * Writes `<distDir>/app.manifest.js`: the app manifest of the sources, each pointing at the file tsc emitted for it, as
  * TypeScript computes it from `tsconfig` (`getOutputFileNames`: outDir and rootDir, whatever the layout) and the root
- * tsc mirrors (`emitRoot`). A config with errors, or without any source (an `include` that matches nothing), is
- * an error: the manifest would be empty. A source that is not in the build program (excluded, such as test-only
- * factories) is left out and returned in `omitted`; one in the program whose output file is missing is an error.
- * `appDir` records where `app/` is emitted, for `getAppPath()`.
+ * tsc mirrors (`emitRoot`). The build needs an `outDir`: the manifest points into the emitted tree and `tsc-alias` runs
+ * after it, so a config without one fails before anything is written. A config error fails, except an option or value
+ * the loaded `typescript` does not know (`UNKNOWN_CONFIG_OPTION`, a warning); a warning diagnostic is a warning too.
+ * An empty program (an `include` that matches nothing) is an error: the manifest would be empty. A source that is not
+ * in the build program (excluded, such as test-only factories) is left out and returned in `omitted`; one in the
+ * program whose output file is missing is an error. `appDir` records where `app/` is emitted, for `getAppPath()`.
  * Replaced by the bundle step of B4 (#128).
  */
 export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = "tsconfig.build.json", distDir = "dist") {
@@ -76,9 +101,20 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
       throw new Error(`sauf build: ${message(diagnostic)}`);
     },
   })!;
-  // "No inputs were found" included: an empty program would ship an empty manifest
-  if (parsed.errors.length) {
-    throw new Error(`sauf build: ${tsconfig}: ${parsed.errors.map(message).join("; ")}`);
+  // A config error fails, except one about an option or value this `typescript` does not know (a newer tsc wrote it).
+  // TS18003 ("No inputs were found") is an error, not a warning: an empty program would ship an empty manifest.
+  const failed = (diagnostic: TS.Diagnostic) =>
+    diagnostic.category === ts.DiagnosticCategory.Error && !UNKNOWN_CONFIG_OPTION.has(diagnostic.code);
+  const diagnostics = [...parsed.errors, ...ignoreDeprecationsDiagnostics(ts, parsed)];
+  const errors = diagnostics.filter(failed);
+  const warnings = diagnostics.filter((diagnostic) => !failed(diagnostic));
+  if (warnings.length) Console.warn(`sauf build: ${tsconfig}: ${warnings.map(message).join("; ")}`);
+  if (errors.length) {
+    throw new Error(`sauf build: ${tsconfig}: ${errors.map(message).join("; ")}`);
+  }
+  // Before the manifest or any entry file is written: tsc-alias runs after them and needs the emitted tree
+  if (!parsed.options.outDir) {
+    throw new Error(`sauf build: ${tsconfig}: outDir is required (the tsc-alias step after the manifest needs the emitted tree)`);
   }
   const sources = parsed.fileNames.filter((file) => !isDeclaration(file));
   if (!sources.length) {
@@ -89,11 +125,13 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
   const program = new Set(parsed.fileNames.map(key));
 
   const root = emitRoot(ts, parsed, configFile, ignoreCase);
-  const emit = root === undefined ? parsed : { ...parsed, options: { ...parsed.options, rootDir: root } };
+  const emit = { ...parsed, options: { ...parsed.options, rootDir: root } };
   const app = resolve(projectDir, "app");
-  const appDir = posix.relative(slash(dist), slash(root === undefined ? app : resolve(parsed.options.outDir!, relative(root, app))));
+  const appDir = posix.relative(slash(dist), slash(resolve(parsed.options.outDir!, relative(root, app))));
 
-  const scan = scanManifest(projectDir);
+  // tsc emits next to the sources when outDir is the root it mirrors (`"outDir": "."` with `"rootDir": "."`), not
+  // only when there is no outDir: the scan must skip those `.js` files, not report them as duplicates
+  const scan = scanManifest(projectDir, { emittedNextTo: key(parsed.options.outDir!) === key(root) });
   const omitted: string[] = [];
   const missing: string[] = [];
   const outputs = new Map<string, string>();
@@ -121,7 +159,7 @@ export function writeDistManifest(ts: typeof TS, projectDir: string, tsconfig = 
     return rel.startsWith("../") ? rel : `./${rel}`;
   }, appDir);
   const file = join(dist, MANIFEST_FILE);
-  // Without outDir, tsc writes nothing to dist/
+  // The manifest always goes to dist/, even when tsc's outDir points elsewhere
   mkdirSync(dist, { recursive: true });
   writeFileSync(file, code);
   return { file, omitted, appDir };

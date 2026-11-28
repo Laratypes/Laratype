@@ -177,16 +177,60 @@ describe('writeDistManifest', () => {
     expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'api' });
   });
 
-  it('without outDir (outputs next to the sources): the .js next to each .ts is not a duplicate, and is what ships', async () => {
+  it('without outDir: outDir is required, and nothing is written', () => {
     const dir = project('no-outdir', { outDir: undefined });
-    expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);
-    expect(existsSync(join(dir, 'dist'))).toBe(false);                      // created for the manifest
+    expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);     // project() emitted next to the sources
+    expect(existsSync(join(dir, 'dist'))).toBe(false);
+    expect(() => writeDistManifest(ts, dir)).toThrow('sauf build: tsconfig.build.json: outDir is required');
+    expect(existsSync(join(dir, 'dist'))).toBe(false);
+  });
+
+  it('an in-place outDir ("." with rootDir "."): tsc emits next to the sources, so the .js is skipped, not a duplicate', async () => {
+    // An explicit exclude keeps tsc from excluding the outDir itself (which, as ".", is the whole project)
+    const dir = project('in-place', { rootDir: '.', outDir: '.' }, { exclude: ['node_modules'] });
+    expect(existsSync(join(dir, 'app/src/models/User.js'))).toBe(true);     // tsc emitted it next to its source
     const { file, appDir } = writeDistManifest(ts, dir);
     expect(appDir).toBe('../app');
-    const code = readFileSync(file, 'utf8');
-    expect(code).toContain("path: 'app/src/models/User.ts', load: () => import('../app/src/models/User.js')");
-    expect(code).not.toContain("path: 'app/src/models/User.js'");
-    expect(new ((await (await load(file)).models[0]!.load()).default)()).toBeInstanceOf(Object);
+    expect(readFileSync(file, 'utf8')).toContain("load: () => import('../app/config/config.js')");
+    expect((await (await load(file)).configs[0]!.load()).default).toEqual({ name: 'demo' });
+  });
+
+  it('with a separate outDir, a .js next to its .ts is stale tsc output: one warning, the build continues', () => {
+    const dir = project('stray-js', {}, {}, tmp, { 'app/src/models/User.js': 'module.exports = {};\n' });
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const { file } = writeDistManifest(ts, dir);
+      expect(warn).toHaveBeenCalledWith('[laratype:manifest] stale tsc output next to its source: app/src/models/User.js (delete it)');
+      expect(readFileSync(file, 'utf8')).toContain("path: 'app/src/models/User.ts'");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('an option the loaded typescript does not know is a warning: the build continues', () => {
+    const dir = project('unknown-option', { futureFlag: true });
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const { file } = writeDistManifest(ts, dir);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("sauf build: tsconfig.build.json: Unknown compiler option 'futureFlag'"));
+      expect(existsSync(file)).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('an ignoreDeprecations value the loaded typescript does not know (TS5103) is a warning: the build continues', () => {
+    // A config a newer tsc wrote: its ignoreDeprecations value is not the one this typescript knows. The diagnostic is a
+    // program option diagnostic, not a config parse error, and the build must still write the manifest.
+    const dir = project('ts5103', { ignoreDeprecations: '6.0', importsNotUsedAsValues: 'remove' });
+    const warn = vi.spyOn(Console, 'warn').mockImplementation(() => {});
+    try {
+      const { file } = writeDistManifest(ts, dir);
+      expect(warn).toHaveBeenCalledWith("sauf build: tsconfig.build.json: Invalid value for '--ignoreDeprecations'.");
+      expect(existsSync(file)).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
@@ -294,6 +338,30 @@ describe('sauf build', () => {
       const command = new LaratypeBuildCommand();
       command.opts = () => ({ platform: 'node' });
       await expect(command.handle()).rejects.toThrow('sauf build: tsc emitted no file for app/src/models/User.ts');
+      expect(existsSync(join(dir, 'dist', MANIFEST_FILE))).toBe(false);
+      expect(existsSync(join(dir, 'dist', 'index.js'))).toBe(false);
+      expect(existsSync(join(dir, 'dist', 'cli.js'))).toBe(false);
+    } finally {
+      process.chdir(cwd);
+      info.mockRestore();
+      start.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('without outDir fails before writing the manifest or any entry file', async () => {
+    const cwd = process.cwd();
+    // Inside the repo: the platform adapter (sauf/resources) resolves from the project
+    const root = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), '.cli-no-outdir-'));
+    const info = vi.spyOn(Console, 'info').mockImplementation(() => {});
+    const start = vi.spyOn(Console, 'start').mockImplementation(() => {});
+    try {
+      const dir = project('app', { outDir: undefined }, {}, root);
+      write(dir, 'package.json', '{ "name": "build-no-outdir-fixture", "version": "0.0.0" }');
+      process.chdir(dir);
+      const command = new LaratypeBuildCommand();
+      command.opts = () => ({ platform: 'node' });
+      await expect(command.handle()).rejects.toThrow('outDir is required');
       expect(existsSync(join(dir, 'dist', MANIFEST_FILE))).toBe(false);
       expect(existsSync(join(dir, 'dist', 'index.js'))).toBe(false);
       expect(existsSync(join(dir, 'dist', 'cli.js'))).toBe(false);
