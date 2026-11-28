@@ -1,9 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 import merge from "deepmerge"
 import { entries } from "./scripts/alias.js";
+import { keepRuntimeModuleUrl } from "./scripts/module-paths.mjs";
 import { DI_RUNTIME_ID, laratypeDiBun } from "./packages/sauf/src/di/index.ts";
+
+// The repository root, and the build-machine path check:dist reports if a build still contains it.
+// The root as given and as resolved: Bun writes the resolved path into a folded literal when the
+// checkout is reached through a junction, symlink, subst drive or 8.3 name (B25 #329).
+const ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)));
+const REAL_ROOT = realpathSync.native(ROOT);
+const ROOTS = REAL_ROOT === ROOT ? [ROOT] : [ROOT, REAL_ROOT];
+const COMPARE_CASE_INSENSITIVE = process.platform === "win32";
 
 // Bun.build metafiles, read by scripts/check-dist.mjs to detect inlined workspace packages.
 const META_DIR = path.resolve("./dist_tmp/bun-meta");
@@ -105,6 +115,20 @@ const metaName = (task) => path.relative(process.cwd(), task.entrypoints[0])
     const start = performance.now();
     console.log(`Building ${task.entrypoints}...`);
     const result = await Bun.build({ ...task, metafile: true })
+    // CJS has no `import.meta`: Bun folds `import.meta.url` into a `file://<source file>` literal there.
+    // Rewrite it to the bundle's own URL, or the dist resolves against the build machine's src (B25 #329).
+    if (task.format === "cjs") {
+      for (const output of result.outputs) {
+        const code = await output.text();
+        const { code: rewritten, rewritten: count } = keepRuntimeModuleUrl(code, ROOTS, {
+          caseInsensitive: COMPARE_CASE_INSENSITIVE,
+        });
+        if (count) {
+          writeFileSync(output.path, rewritten);
+          console.log(`  kept ${count} module path(s) runtime in ${path.relative(ROOT, output.path)}`);
+        }
+      }
+    }
     writeFileSync(path.resolve(META_DIR, metaName(task)), JSON.stringify({
       entrypoint: task.entrypoints[0],
       outdir: task.outdir,

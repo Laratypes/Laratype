@@ -2,17 +2,23 @@
 // Checks the package dists built by `bun run build` (bun.build.js):
 //  1. no build inlines another workspace package, or a third-party package that its package.json
 //     declares only in devDependencies (from the Bun metafiles in dist_tmp/bun-meta),
-//  2. every package dist loads under plain Node via ESM import() and CJS require(),
+//  2. no dist contains the build machine's repository root,
+//  3. every package dist loads under plain Node via ESM import() and CJS require(),
 //     with every export defined, and every ESM chunk loads too,
-//  3. the sauf resources bundles (copied into apps by `sauf build`) pass `node --check`.
+//  4. the sauf resources bundles (copied into apps by `sauf build`) pass `node --check`.
 // Usage: bun run build && bun run check:dist
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { findBuildRootInTree } from './module-paths.mjs'
 
 const root = path.resolve(fileURLToPath(import.meta.url), '../..')
+// The root as given and as resolved: Bun writes the resolved path into a folded literal when the
+// checkout is reached through a junction, symlink, subst drive or 8.3 name (B25 #329).
+const realRoot = realpathSync.native(root)
+const roots = realRoot === root ? [root] : [root, realRoot]
 const META_DIR = path.join(root, 'dist_tmp/bun-meta')
 const SAUF_RESOURCES = path.join(root, 'packages/sauf/resources/app')
 
@@ -136,7 +142,30 @@ else {
   }
 }
 
-// 2. Loading
+// 2. Build-machine paths: output that carries this checkout's root cannot run off the machine that built it.
+// The forms checked (forward slashes, backslashes, escaped backslashes and the file:// URLs, plain and
+// percent-encoded) live in scripts/module-paths.mjs, with the `bun.build.js` rewrite that keeps folded
+// import.meta.url runtime.
+console.log('Build root path in dists and the sauf resources bundles:')
+/**
+ * @param {string} dir
+ * @param {string} label
+ */
+const scanBuildRoot = (dir, label) => {
+  const hits = findBuildRootInTree(dir, roots, { caseInsensitive: process.platform === 'win32' })
+  for (const { file, index, form } of hits) {
+    fail(`${path.relative(root, file)}: contains the build root path at offset ${index} (${form})`)
+  }
+  if (!hits.length) console.log(`  ok   ${label}`)
+}
+for (const { dir, name } of workspace) {
+  const distDir = path.join(root, 'packages', dir, 'dist')
+  if (existsSync(distDir)) scanBuildRoot(distDir, name)
+}
+// The resources bundles ship in sauf's npm tarball and `sauf build` copies them into an app's dist.
+if (existsSync(SAUF_RESOURCES)) scanBuildRoot(SAUF_RESOURCES, path.relative(root, SAUF_RESOURCES))
+
+// 3. Loading
 console.log('Load under Node (import() / require()):')
 for (const { dir, name, pkg } of workspace) {
   const entry = pkg.exports?.['.']
@@ -185,7 +214,7 @@ for (const { dir, name, pkg } of workspace) {
   }
 }
 
-// 3. sauf resources bundles: entry points with side effects (CLI, server), so syntax/link-check only.
+// 4. sauf resources bundles: entry points with side effects (CLI, server), so syntax/link-check only.
 console.log('node --check (sauf resources bundles):')
 /** @type {(dir: string) => string[]} */
 const walk = (dir) => readdirSync(dir).flatMap(entry => {
